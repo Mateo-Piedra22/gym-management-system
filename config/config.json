@@ -1,0 +1,14 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "database": "gimnasio",
+  "user": "postgres",
+  "sslmode": "prefer",
+  "connect_timeout": 10,
+  "application_name": "gym_management_system"
+  ,
+  "public_tunnel": {
+    "subdomain": "gym-ms-zrk",
+    "enabled": true
+  }
+}
