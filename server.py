@@ -183,21 +183,6 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", 
 
 # Middlewares de producción (opcionales via ENV, cambios mínimos)
 try:
-    # Respetar cabeceras de proxy (X-Forwarded-For/Proto/Host) para URL y esquema correcto
-    if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
-        # Importar de forma perezosa para evitar fallos en entornos donde el módulo no existe
-        _proxy_mw = None
-        try:
-            from starlette.middleware.proxy_headers import ProxyHeadersMiddleware as _proxy_mw  # type: ignore
-        except Exception:
-            try:
-                from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware as _proxy_mw  # type: ignore
-            except Exception:
-                _proxy_mw = None
-        if _proxy_mw is not None:
-            app.add_middleware(_proxy_mw)
-        else:
-            logging.warning("ProxyHeadersMiddleware no disponible; iniciando sin soporte de cabeceras de proxy")
     # Restringir hosts confiables si se especifica
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     if th:
@@ -207,6 +192,9 @@ try:
     # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
         app.add_middleware(HTTPSRedirectMiddleware)
+    # Nota: Gestión de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
+    if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
+        logging.info("Cabeceras de proxy gestionadas por Uvicorn (proxy_headers=True)")
 except Exception:
     pass
 
@@ -367,6 +355,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                         loop="asyncio",
                         http="h11",
                         lifespan="off",
+                        proxy_headers=True,
                     )
                     server = uvicorn.Server(config=config)
                     # Desactivar instalación de manejadores de señales (no permitidos fuera del hilo principal)
