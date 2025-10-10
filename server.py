@@ -12,14 +12,6 @@ import logging
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-# Proxy headers middleware: be robust across Starlette/Uvicorn versions
-try:
-    from starlette.middleware.proxy_headers import ProxyHeadersMiddleware  # type: ignore
-except Exception:
-    try:
-        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware  # type: ignore
-    except Exception:
-        ProxyHeadersMiddleware = None  # type: ignore
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.staticfiles import StaticFiles
@@ -193,8 +185,17 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", 
 try:
     # Respetar cabeceras de proxy (X-Forwarded-For/Proto/Host) para URL y esquema correcto
     if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
-        if ProxyHeadersMiddleware is not None:
-            app.add_middleware(ProxyHeadersMiddleware)
+        # Importar de forma perezosa para evitar fallos en entornos donde el módulo no existe
+        _proxy_mw = None
+        try:
+            from starlette.middleware.proxy_headers import ProxyHeadersMiddleware as _proxy_mw  # type: ignore
+        except Exception:
+            try:
+                from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware as _proxy_mw  # type: ignore
+            except Exception:
+                _proxy_mw = None
+        if _proxy_mw is not None:
+            app.add_middleware(_proxy_mw)
         else:
             logging.warning("ProxyHeadersMiddleware no disponible; iniciando sin soporte de cabeceras de proxy")
     # Restringir hosts confiables si se especifica
