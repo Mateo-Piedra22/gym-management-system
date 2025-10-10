@@ -12,9 +12,9 @@ psycopg2-binary
 psutil
 pywa
 xlsxtpl
-fastapi>=0.110.0
-uvicorn[standard]>=0.30.0
-starlette>=0.37.2
+fastapi==0.114.0
+uvicorn[standard]==0.30.0
+starlette==0.37.2
 itsdangerous
 Jinja2
 python-multipart

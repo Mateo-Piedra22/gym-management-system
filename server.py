@@ -355,7 +355,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                         loop="asyncio",
                         http="h11",
                         lifespan="off",
-                        proxy_headers=True,
+                        proxy_headers=(os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")),
                     )
                     server = uvicorn.Server(config=config)
                     # Desactivar instalación de manejadores de señales (no permitidos fuera del hilo principal)

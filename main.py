@@ -54,7 +54,13 @@ if _is_headless_env():
             except Exception:
                 pass
             raise SystemExit(1)
-    uvicorn.run(fastapi_app, host=host, port=port, log_level=os.getenv("LOG_LEVEL", "info"))
+    uvicorn.run(
+        fastapi_app,
+        host=host,
+        port=port,
+        log_level=os.getenv("LOG_LEVEL", "info"),
+        proxy_headers=(os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")),
+    )
     # If the server stops, exit cleanly
     raise SystemExit(0)
 from PyQt6.QtWidgets import (
