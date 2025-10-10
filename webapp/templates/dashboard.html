@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="{{ logo_url }}" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    .layout { display:flex; flex-direction:column; min-height:100vh; }
+    header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); transition: transform 200ms ease; }
+    .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand .info { display:flex; align-items:flex-start; gap:8px; }
+    .header-controls { display:grid; grid-template-columns: minmax(260px,1fr) 1fr; gap:8px; align-items:center; }
+    .header-left, .header-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    /* Fila de filtros + acciones en una sola línea en desktop */
+    .filters { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    @media (min-width: 641px){ .filters { flex-wrap: nowrap; } }
+    .table-scroll { overflow:auto; width:100%; -webkit-overflow-scrolling: touch; }
+    .brand img { width:32px; height:32px; }
+    .filters input[type=date], .filters input[type=month] { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; transition: border-color 120ms ease, box-shadow 120ms ease; }
+    /* Asegurar apariencia nativa del selector de mes en la barra superior */
+    .header-left input[type=month],
+    .filters input[type=month] {
+      appearance: auto;
+      -webkit-appearance: auto;
+    }
+    .header-left input[type=month]::-webkit-calendar-picker-indicator,
+    .filters input[type=month]::-webkit-calendar-picker-indicator { cursor: pointer; }
+    /* Unificar apariencia de los inputs de fecha en el header con el resto de la UI */
+    .header-left input[type=date], .header-left input[type=month] { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; transition: border-color 120ms ease, box-shadow 120ms ease; }
+    .filters input[type=date]:hover, .filters input[type=month]:hover { border-color: var(--accent); }
+    .filters input[type=date]:focus, .filters input[type=month]:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(43,138,62,0.35); outline: none; }
+    .filters label { color: var(--text); }
+    /* Estilo unificado para selects en la barra de filtros (fallback polyfill) */
+    .filters select { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; transition: border-color 120ms ease, box-shadow 120ms ease; appearance: auto; -webkit-appearance: auto; }
+    .filters select:hover { border-color: var(--accent); }
+    .filters select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(43,138,62,0.35); outline: none; }
+    .header-left .btn { margin-left: 8px; }
+    .filters .preset { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; cursor:pointer; }
+    .presets-inline { display:inline-flex; align-items:center; gap:8px; }
+    @media (max-width: 640px) { .presets-inline { white-space: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; } .presets-inline > * { flex: 0 0 auto; } .presets-inline > .muted { margin-left: 0 !important; } }
+    /* Agrupar label + input para que no se separen al envolver (móvil) */
+    .field-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+    @media (max-width: 640px) { .field-group { white-space: nowrap; } }
+    .grid { display:grid; grid-template-columns: repeat(12, 1fr); gap: 16px; padding: 24px; }
+    .tile { grid-column: span 3; }
+    .tile .value { font-size: clamp(1rem, 6vw, 28px); font-weight: 600; }
+    .tile .label { color: var(--muted); }
+    .wide { grid-column: span 6; }
+    .full { grid-column: span 12; }
+    .chart { width:100%; height:320px; }
+    /* KPIs inferiores: horizontal en desktop, vertical en móvil */
+    .kpi-grid { display:grid; grid-template-columns: repeat(6, minmax(140px, 1fr)); gap:12px; align-items:stretch; }
+    .kpi-grid .label { color:var(--muted); }
+    .kpi-grid .value { font-weight:600; }
+    /* Unificar inputs/selects dentro de paneles con la barra superior */
+    .panel-controls input[type="date"],
+    .panel-controls input[type="month"],
+    .panel-controls input[type="text"],
+    .panel-controls select,
+    .panel-controls .control,
+    .panel-controls .input {
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .panel-controls input:hover,
+    .panel-controls select:hover,
+    .panel-controls .control:hover,
+    .panel-controls .input:hover { border-color: var(--accent); }
+    .panel-controls input:focus,
+    .panel-controls select:focus,
+    .panel-controls .control:focus,
+    .panel-controls .input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(43,138,62,0.35); outline: none; }
+    /* Unificar inputs/selects en modales */
+    .modal .box input,
+    .modal .box select,
+    .modal .box textarea {
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+      transition: border-color 120ms ease, box-shadow 120ms ease;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .modal .box input:hover,
+    .modal .box select:hover { border-color: var(--accent); }
+    .modal .box input:focus,
+    .modal .box select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(43,138,62,0.35); outline: none; }
+    @media (max-width: 1024px) { .tile { grid-column: span 6; } .wide { grid-column: span 12; } }
+    @media (max-width: 640px) { 
+      .tile, .wide, .full { grid-column: span 12; }
+      .chart { height: 260px; }
+      .filters { flex-wrap: wrap; }
+      .header-controls { grid-template-columns: 1fr; }
+      .kpi-grid { grid-template-columns: 1fr; }
+    }
+    /* Ocultar header al scrollear (aplica a desktop y móvil) */
+    .header--hidden { transform: translateY(-100%); }
+    /* Apariencia mejorada de tablas y paneles */
+    table.data-table { width:100%; border-collapse:collapse; border:1px solid var(--border); font-size:0.92rem; }
+    table.data-table thead th { position:sticky; top:0; background:#0b1220; border-bottom:1px solid var(--border); padding:8px 10px; text-align:left; z-index:1; }
+    table.data-table tbody td { padding:8px 10px; border-bottom:1px solid var(--border); }
+    table.data-table tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
+    table.data-table tbody tr:hover { background: rgba(74,144,226,0.12); }
+    .panel-controls { display:flex; gap:12px; align-items:center; margin:8px 0 12px 0; flex-wrap: wrap; }
+    .selected-row { outline:2px solid #4a90e2; background: rgba(74,144,226,0.16) !important; }
+    /* Modal usuario detalle */
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+    .modal.show { display: flex; }
+    .modal .box { background: #0b1220; border:1px solid var(--border); border-radius:10px; width: min(900px, 96vw); max-height: 90vh; overflow: auto; padding: 16px; }
+    @media (max-width:640px){ .modal .box { padding:12px; } table.data-table { font-size:0.85rem; } }
+    .modal .box header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .empty { color: var(--muted); padding: 8px; }
+    /* Inputs nativos de fecha: usamos `type=date` y mostramos etiqueta (dd/mm/aaaa) */
+    .filters input[type=date] { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; }
+    /* En desktop, mantener los grupos Desde/Hasta en una sola línea */
+    @media (min-width: 641px){ .header-left { flex-wrap: nowrap; } }
+    /* Acciones de marca siempre horizontales */
+    .brand-actions { display:flex; align-items:center; gap:8px; flex-wrap: nowrap; }
+    /* Quitar margen izquierdo del label Mes en móvil */
+    @media (max-width: 640px){ label[for="filter-month"] { margin-left: 0 !important; } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header id="main-header">
+      <div class="brand">
+        <div class="info">
+          <img src="{{ logo_url }}" alt="Logo" />
+          <div>
+            <strong>{{ gym_name }}</strong>
+            <div class="muted" style="font-size:12px">Panel del dueño</div>
+          </div>
+        </div>
+        <div class="brand-actions">
+          <button class="btn secondary" id="export">Exportar CSV</button>
+          <form method="post" action="/logout">
+            <button class="btn" type="submit">Cerrar sesión</button>
+          </form>
+        </div>
+      </div>
+      <div class="header-controls">
+        <div class="header-left">
+          <div class="field-group">
+            <label class="muted" style="margin:0">Desde</label>
+            <input type="date" id="filter-start" lang="es" title="Seleccionar fecha de inicio (DD/MM/AAAA)" />
+            <span id="filter-start-display" class="muted" style="margin-left:4px"></span>
+          </div>
+          <div class="field-group">
+            <label class="muted" style="margin:0">Hasta</label>
+            <input type="date" id="filter-end" lang="es" title="Seleccionar fecha de fin (DD/MM/AAAA)" />
+            <span id="filter-end-display" class="muted" style="margin-left:4px"></span>
+          </div>
+        </div>
+        <div class="header-right">
+          <div class="filters">
+            <div class="presets-inline">
+              <span class="muted" style="margin-left:8px">Presets:</span>
+              <button class="preset" data-days="7" title="Últimos 7 días: desde hoy hacia atrás">7d</button>
+              <button class="preset" data-days="30" title="Últimos 30 días: desde hoy hacia atrás">30d</button>
+              <button class="preset" data-days="90" title="Últimos 90 días: desde hoy hacia atrás">90d</button>
+              <button class="preset" id="preset-mtd" title="Mes en curso: desde el primer día del mes hasta hoy">MTD</button>
+              <button class="preset" id="preset-qtd" title="Trimestre en curso: desde el inicio del trimestre hasta hoy">QTD</button>
+              <button class="preset" id="preset-ytd" title="YTD: Año en curso (1 de enero a hoy). Útil para comparar rendimiento anual acumulado.">YTD</button>
+            </div>
+            <label for="filter-month" class="muted" style="margin-left:8px; font-weight:600;">Mes:</label>
+            <input type="month" id="filter-month" lang="es" title="Selecciona un mes. Se aplica automáticamente el rango completo de ese mes." aria-label="Seleccionar mes" />
+            <!-- Acciones movidas a la línea de la marca (junto al nombre) -->
+          </div>
+        </div>
+      </div>
+      <!-- Acciones movidas a la misma línea que filtros -->
+    </header>
+    <main class="grid">
+      <!-- KPIs principales -->
+      <section class="card tile">
+        <div class="label">Socios activos</div>
+        <div class="value" id="kpi-activos">—</div>
+      </section>
+      <section class="card tile">
+        <div class="label">Ingresos del mes</div>
+        <div class="value" id="kpi-ingresos">—</div>
+      </section>
+      <section class="card tile">
+        <div class="label">Asistencias hoy</div>
+        <div class="value" id="kpi-asistencias">—</div>
+      </section>
+      <section class="card tile">
+        <div class="label">Nuevos (30 días)</div>
+        <div class="value" id="kpi-nuevos">—</div>
+      </section>
+      <!-- Ingresos 12m y Nuevos 12m -->
+      <section class="card wide">
+        <h3 id="title-ingresos" class="muted" style="margin-top:0" title="Ingresos brutos por mes en los últimos 12 meses (datos reales de pagos)">Ingresos últimos 12 meses</h3>
+        <div class="chart" id="chart-ingresos"></div>
+      </section>
+      <section class="card wide">
+        <h3 id="title-arpu" class="muted" style="margin-top:0" title="ARPU: Ingreso promedio por usuario. Calculado como ingresos totales del mes dividido por el número de usuarios.">ARPU últimos 12 meses</h3>
+        <div class="chart" id="chart-arpu"></div>
+      </section>
+      <section class="card wide">
+        <h3 id="title-nuevos" class="muted" style="margin-top:0" title="Nuevas altas de socios por mes (fecha de registro)">Altas de socios últimos 12 meses</h3>
+        <div class="chart" id="chart-nuevos"></div>
+      </section>
+      <!-- Asistencias 30d y por hora -->
+      <section class="card wide">
+        <h3 id="title-asistencia" class="muted" style="margin-top:0" title="Total de asistencias registradas por día (últimos 30 días)">Asistencias (30 días)</h3>
+        <div class="chart" id="chart-asistencia"></div>
+      </section>
+      <section class="card wide">
+        <h3 id="title-horas" class="muted" style="margin-top:0" title="Distribución de asistencias por hora (últimos 30 días)">Asistencias por hora (30 días)</h3>
+        <div class="chart" id="chart-horas"></div>
+      </section>
+      <!-- Distribuciones -->
+      <section class="card wide">
+        <h3 class="muted" style="margin-top:0" title="Distribución de usuarios activos vs inactivos (estado real de usuarios)">Activos vs Inactivos</h3>
+        <div class="chart" id="chart-estado"></div>
+      </section>
+      <section class="card wide">
+        <h3 class="muted" style="margin-top:0" title="Distribución por tipo de cuota (normalizados para evitar duplicados por variaciones de nombre)">Tipos de cuota</h3>
+        <div class="chart" id="chart-cuota"></div>
+      </section>
+      <!-- Estados de pago avanzados -->
+      <section class="card wide">
+        <h3 class="muted" style="margin-top:0" title="Usuarios por estado de pago: Sin pagos, Al día, Pendiente, Atrasado (calculado desde pagos reales)">Estados de pago</h3>
+        <div class="chart" id="chart-pagos"></div>
+      </section>
+      <!-- Cohortes más completas (heatmap) -->
+      <section class="card full">
+        <h3 class="muted" style="margin-top:0" title="Retención mensual de cada cohorte (mes de registro)">Retención por cohorte (heatmap)</h3>
+        <div class="chart" id="chart-cohort-heatmap"></div>
+      </section>
+      <!-- ARPA por tipo de cuota (mes) -->
+      <section class="card wide">
+        <h3 class="muted" style="margin-top:0" title="Promedio de ingreso por cuenta que pagó este mes, por tipo de cuota">ARPA por tipo de cuota (mes)</h3>
+        <div class="chart" id="chart-arpa-cuota"></div>
+      </section>
+      <!-- Cohortes (retención actual por mes de registro) -->
+      <section class="card wide">
+        <h3 class="muted" style="margin-top:0">Retención por cohorte (últimos 6 meses)</h3>
+        <div class="chart" id="chart-cohortes"></div>
+      </section>
+      <!-- KPIs avanzados -->
+      <section class="card full">
+        <div class="kpi-grid">
+          <div title="Retención: porcentaje de usuarios que se mantienen activos de un período al siguiente"><div class="label">Retención</div><div class="value" id="adv-ret">—</div></div>
+          <div title="Churn: porcentaje de usuarios que se dieron de baja o dejaron de pagar"><div class="label">Churn</div><div class="value" id="adv-churn">—</div></div>
+          <div title="Asistencia promedio diaria/semanal según cálculo del backend"><div class="label">Asistencia promedio</div><div class="value" id="adv-avg">—</div></div>
+          <div title="Hora con mayor cantidad de asistencias registradas"><div class="label">Hora pico</div><div class="value" id="adv-peak">—</div></div>
+          <div title="Variación porcentual de ingresos respecto al período anterior"><div class="label">Crecimiento ingresos</div><div class="value" id="adv-growth">—</div></div>
+          <div title="Usuarios activos semanales (7 días)"><div class="label">Usuarios activos (7d)</div><div class="value" id="adv-wau">—</div></div>
+          <div title="Payment Rate: porcentaje de usuarios que realizaron al menos un pago en el período"><div class="label">Payment Rate</div><div class="value" id="adv-payment-rate">—</div></div>
+          <div title="LTV: valor de vida del cliente en 12 meses, basado en ingresos reales"><div class="label">LTV (12m)</div><div class="value" id="adv-ltv">—</div></div>
+          <div title="ARPA: ingreso promedio por cuenta (empresa/plan). Suma de ingresos del mes dividido por el número de cuentas"><div class="label">ARPA</div><div class="value" id="adv-arpa">—</div></div>
+          <div title="MRR: ingreso recurrente mensual (suscripciones activas del mes)"><div class="label">MRR</div><div class="value" id="adv-mrr">—</div></div>
+        </div>
+      </section>
+      <!-- Subpestañas de datos detallados -->
+      <section class="card full">
+        <h3 class="muted" style="margin-top:0">Datos detallados</h3>
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <button class="btn secondary" id="tab-btn-usuarios" title="Ver tabla completa de usuarios, con datos y actividad">Usuarios</button>
+          <button class="btn secondary" id="tab-btn-profesores" title="Ver tabla de profesores, contactos y horarios">Profesores</button>
+        </div>
+        <div id="tab-usuarios" style="display:block;">
+          <!-- Descripción eliminada -->
+          <div class="panel-controls">
+            <label>Filtro usuarios
+              <input id="filter-usuarios" type="text" class="input" placeholder="Filtrar usuarios por texto (nombre, DNI, teléfono, etc.)" title="Filtra filas por coincidencia parcial en cualquier columna" />
+            </label>
+            <label>Tamaño de página
+              <select id="usuarios-page-size">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+            <div id="usuarios-pagination"></div>
+          </div>
+          <div class="table-scroll">
+            <table id="tbl-usuarios" class="data-table" style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th data-key="id">ID</th>
+                  <th data-key="nombre">Nombre</th>
+                  <th data-key="rol">Rol</th>
+                  <th data-key="dni">DNI</th>
+                  <th data-key="telefono">Teléfono</th>
+                  <th data-key="tipo_cuota">Tipo cuota</th>
+                  <th data-key="activo">Activo</th>
+                  <th data-key="fecha_registro">Registro</th>
+                  <th data-key="pagos_count"># Pagos</th>
+                  <th data-key="last_pago_fecha">Último pago</th>
+                  <th data-key="asistencias_count"># Asistencias</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="card" style="margin-top:12px;">
+            <h4 style="margin:0 0 8px 0;">Asistencias</h4>
+            <div class="panel-controls">
+          <label>Inicio <input type="date" id="as-todos-start" class="control" lang="es" title="Inicio (DD/MM/AAAA)" placeholder="DD/MM/AAAA" /></label>
+          <label>Fin <input type="date" id="as-todos-end" class="control" lang="es" title="Fin (DD/MM/AAAA)" placeholder="DD/MM/AAAA" /></label>
+          <label>Filtro asistencias
+            <input id="as-todos-q" type="text" class="input" placeholder="Buscar por nombre" />
+          </label>
+          <label>Mostrar
+            <select id="as-todos-limit"><option value="100">100</option><option value="250">250</option><option value="500" selected>500</option></select>
+          </label>
+          <button id="as-todos-prev" class="btn secondary">Prev</button>
+          <button id="as-todos-next" class="btn secondary">Next</button>
+          
+        </div>
+            <div class="table-scroll">
+              <table id="tbl-asistencias-todos" class="data-table">
+                <thead>
+                  <tr><th>Fecha</th><th>Hora</th><th>Usuario</th></tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div id="tab-profesores" style="display:none;">
+          <!-- Descripción eliminada -->
+          <div class="panel-controls">
+            <label>Filtro profesores
+              <input id="filter-profesores" type="text" class="input" placeholder="Filtrar profesores por texto (nombre, email, día, etc.)" title="Filtra filas por coincidencia parcial en cualquier columna" />
+            </label>
+            <label>Inicio <input type="date" id="prof-start" class="control" lang="es" title="Inicio (DD/MM/AAAA)" placeholder="DD/MM/AAAA" /></label>
+            <label>Fin <input type="date" id="prof-end" class="control" lang="es" title="Fin (DD/MM/AAAA)" placeholder="DD/MM/AAAA" /></label>
+            <label style="margin-left:auto;">Tamaño de página
+              <select id="prof-page-size">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+            </label>
+            <div id="prof-pagination"></div>
+          </div>
+          <div class="table-scroll">
+            <table id="tbl-profesores" class="data-table" style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th data-key="id">ID</th>
+                  <th data-key="nombre">Nombre</th>
+                  <th data-key="email">Email</th>
+                  <th data-key="telefono">Teléfono</th>
+                  <th data-key="horarios_count"># Horarios</th>
+                  <th data-key="sesiones_mes"># Sesiones mes</th>
+                  <th data-key="horas_mes">Horas mes</th>
+                  <th data-key="horarios">Horarios (resumen)</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <!-- Modal detalle de usuario seleccionado -->
+  <div id="usuario-detail-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <header>
+        <h3 id="usuario-modal-title" style="margin:0">Detalle de usuario</h3>
+      </header>
+      <section class="card" style="margin-bottom:12px;">
+        <h4 style="margin:0 0 8px 0;">Pagos</h4>
+        <div class="panel-controls">
+          <label>Filtro pagos
+            <input id="usuario-pagos-q" type="text" class="input" placeholder="Buscar pagos (tipo, fecha)" />
+          </label>
+          <label>Mostrar
+            <select id="usuario-pagos-limit"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select>
+          </label>
+          <button id="usuario-pagos-prev" class="btn secondary">Prev</button>
+          <button id="usuario-pagos-next" class="btn secondary">Next</button>
+          <button id="usuario-pagos-aplicar" class="btn">Aplicar</button>
+        </div>
+        <div class="table-scroll">
+          <table id="tbl-usuario-pagos" class="data-table">
+            <thead>
+              <tr><th>Fecha</th><th>Monto</th><th>Tipo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card">
+        <h4 style="margin:0 0 8px 0;">Asistencias</h4>
+        <div class="panel-controls">
+          <label>Filtro asistencias
+            <input id="usuario-asistencias-q" type="text" class="input" placeholder="Buscar asistencias (fecha, hora)" />
+          </label>
+          <label>Mostrar
+            <select id="usuario-asistencias-limit"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select>
+          </label>
+          <button id="usuario-asistencias-prev" class="btn secondary">Prev</button>
+          <button id="usuario-asistencias-next" class="btn secondary">Next</button>
+          <button id="usuario-asistencias-aplicar" class="btn">Aplicar</button>
+        </div>
+        <div class="table-scroll">
+          <table id="tbl-usuario-asistencias" class="data-table">
+            <thead>
+              <tr><th>Fecha</th><th>Hora</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+  <!-- Modal detalle de profesor seleccionado -->
+  <div id="profesor-detail-modal" class="modal" aria-hidden="true">
+    <div class="box">
+      <header>
+        <h3 id="profesor-modal-title" style="margin:0">Detalle de profesor</h3>
+      </header>
+      <section class="card" style="margin-bottom:12px;">
+        <h4 style="margin:0 0 8px 0;">Horarios</h4>
+        <div class="table-scroll">
+          <table id="tbl-profesor-horarios" class="data-table">
+            <thead>
+              <tr><th>Día</th><th>Inicio</th><th>Fin</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card" style="margin-bottom:12px;">
+        <h4 style="margin:0 0 8px 0;">Sesiones</h4>
+        <div class="panel-controls">
+          <label>Inicio <input type="date" id="prof-modal-start" class="control" /></label>
+          <label>Fin <input type="date" id="prof-modal-end" class="control" /></label>
+          <label style="margin-left:auto;">Mostrar
+            <select id="prof-ses-page-size">
+              <option value="10">10</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <div id="prof-ses-pagination"></div>
+        </div>
+        <div class="table-scroll">
+          <table id="tbl-profesor-sesiones" class="data-table">
+            <thead>
+              <tr><th>Fecha</th><th>Inicio</th><th>Fin</th><th>Minutos</th><th>Horas</th><th>Tipo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="card">
+        <h4 style="margin:0 0 8px 0;">Resumen</h4>
+        <div id="profesor-resumen" class="muted"></div>
+        <h4 style="margin:12px 0 8px 0;">Datos de contacto</h4>
+        <div id="profesor-contacto"></div>
+      </section>
+    </div>
+  </div>
+  <script>
+    // Toggle de filtros (si se usa botón en móvil)
+    (function(){
+      const toggleBtn = document.getElementById('toggle-filters');
+      const filters = document.querySelector('.filters');
+      toggleBtn && toggleBtn.addEventListener('click', () => {
+        filters && filters.classList.toggle('show');
+      });
+    })();
+    function fmtCurrency(n) { try { return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n||0); } catch(e) { return (n||0).toFixed(2); } }
+    function fmtNumber(n) {
+      const raw = String(n ?? '0');
+      const cleaned = raw.replace(/[^0-9\-]/g, '');
+      const v = Number(cleaned || '0');
+      const s = Math.round(v).toString();
+      return s.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    }
+    function niceStep(maxVal, splits=5){
+      const v = Number(maxVal||0);
+      if (v <= 0) return 1;
+      const rough = v / splits;
+      const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+      const d = rough / pow10;
+      if (d >= 5) return 5*pow10;
+      if (d >= 2) return 2*pow10;
+      return 1*pow10;
+    }
+    function computeMoneyAxis(values){
+      const arr = Array.isArray(values) ? values : [0];
+      // Tomar valores estrictamente numéricos del backend
+      const maxVal = Math.max(...arr.map(n => {
+        const v = Number(n);
+        return isFinite(v) ? v : 0;
+      }));
+      // Paso fijo de 5.000 para ejes monetarios
+      const step = 5000;
+      const maxAxis = Math.max(step, Math.ceil(maxVal / step) * step);
+      return { min: 0, max: maxAxis, step };
+    }
+    function percent(n) { return ((n||0).toFixed(1)) + '%'; }
+    function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+    async function loadKPIs() {
+      const r = await fetch('/api/kpis');
+      const d = await r.json();
+      const k = d.kpis || {};
+      setText('kpi-activos', k.total_activos ?? '—');
+      setText('kpi-ingresos', fmtCurrency(k.ingresos_mes_actual));
+      setText('kpi-asistencias', k.asistencias_hoy ?? '—');
+      setText('kpi-nuevos', k.nuevos_30_dias ?? '—');
+    }
+    function seriesFromRecord(record) {
+      const labels = Object.keys(record||{});
+      // Ordenar si parecen fechas 'YYYY-MM'
+      const isMonth = (s) => /^\d{4}-\d{2}$/.test(s);
+      const sorted = labels.every(isMonth)
+        ? labels.sort((a,b) => a.localeCompare(b))
+        : labels;
+      const values = sorted.map(k => Number(record[k] ?? 0));
+      return { labels: sorted, values };
+    }
+    function themeVars(){
+      const s = getComputedStyle(document.documentElement);
+      return {
+        primary: s.getPropertyValue('--primary') || '#2b8a3e',
+        accent: s.getPropertyValue('--accent') || '#7c3aed',
+        text: s.getPropertyValue('--text') || '#e5e7eb',
+        muted: s.getPropertyValue('--muted') || '#94a3b8',
+        border: s.getPropertyValue('--border') || '#1f2937',
+      };
+    }
+    // Formato español DD/MM/AAAA y helpers de conversión
+    function formatDMY(d){
+      if(!(d instanceof Date) || isNaN(d)) return '';
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth()+1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      return `${dd}/${mm}/${yyyy}`;
+    }
+    function toISOLocal(d){
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+    function parseDMY(str){
+      const m = /^\s*(\d{2})\/(\d{2})\/(\d{4})\s*$/.exec(String(str||''));
+      if(!m) return '';
+      const dd = Number(m[1]);
+      const mm = Number(m[2]);
+      const yyyy = Number(m[3]);
+      const d = new Date(yyyy, mm-1, dd);
+      if(isNaN(d.getTime())) return '';
+      return toISOLocal(d);
+    }
+    const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    function isMonthLabel(s){ return /^\d{4}-\d{2}$/.test(String(s||'')); }
+    function isDayLabel(s){ return /^\d{4}-\d{2}-\d{2}$/.test(String(s||'')); }
+    function axisUnitFromLabels(labels){
+      if ((labels||[]).every(isMonthLabel)) return 'Mes';
+      if ((labels||[]).every(isDayLabel)) return 'Día';
+      return '';
+    }
+    function moneyTooltipFormatter(params){
+      const axisVal = Array.isArray(params) ? params[0].axisValue : params.name;
+      const unit = isMonthLabel(axisVal) ? 'Mes' : (isDayLabel(axisVal) ? 'Día' : '');
+      if (Array.isArray(params)) {
+        const lines = params.map(p => `${p.seriesName}: ${fmtCurrency(p.value)}`);
+        return `${unit ? unit+': ' : ''}${axisVal}<br/>` + lines.join('<br/>');
+      }
+      return `${unit ? unit+': ' : ''}${axisVal}: ${fmtCurrency(params.value)}`;
+    }
+    function defaultTooltipFormatter(params){
+      if (Array.isArray(params)) {
+        const axisVal = params[0].axisValue;
+        const unit = isMonthLabel(axisVal) ? 'Mes' : (isDayLabel(axisVal) ? 'Día' : '');
+        const lines = params.map(p => `${p.seriesName}: ${p.value}`);
+        return `${unit ? unit+': ' : ''}${axisVal}<br/>` + lines.join('<br/>');
+      }
+      const nm = params.name; const unit = isMonthLabel(nm) ? 'Mes' : (isDayLabel(nm) ? 'Día' : '');
+      return `${unit ? unit+': ' : ''}${nm}: ${params.value}`;
+    }
+
+    // ✅ CORREGIDO: chartLine usa computeMoneyAxis
+    function chartLine(id, labels, values, title, color, isMoney=false) {
+      const el = document.getElementById(id); if (!el) return;
+      const chart = echarts.init(el);
+      const t = themeVars();
+      const axisName = axisUnitFromLabels(labels); // ya no se usa, se oculta nombre
+
+      let yAxisConfig = {
+        type: 'value',
+        axisLine: { lineStyle: { color: t.muted } },
+        splitLine: { lineStyle: { color: t.border } },
+        axisLabel: { color: t.muted }
+      };
+
+      if (isMoney) {
+        const axisCfg = computeMoneyAxis(values);
+        yAxisConfig.min = axisCfg.min;
+        yAxisConfig.max = axisCfg.max;
+        yAxisConfig.interval = axisCfg.step;
+        // Mostrar menos etiquetas en Y sin alterar la escala ni los saltos
+        const desiredLabels = (el && el.clientHeight >= 300) ? 5 : 4;
+        const totalTicks = Math.round((axisCfg.max - axisCfg.min) / axisCfg.step) + 1;
+        const displayEvery = Math.max(1, Math.ceil(totalTicks / desiredLabels));
+        yAxisConfig.axisLabel.formatter = (value, index) => {
+          // Asegurar que se vean el mínimo y el máximo y espaciar el resto
+          if (index === 0 || index === totalTicks - 1 || (index % displayEvery === 0)) {
+            return '$ ' + fmtNumber(value);
+          }
+          return '';
+        };
+      }
+
+      const gridLeft = isMoney ? 80 : 40;
+      chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis', formatter: isMoney ? moneyTooltipFormatter : defaultTooltipFormatter },
+        legend: { show: true, textStyle: { color: t.text } },
+        grid: { left: gridLeft, right: 20, top: 30, bottom: 40 },
+        xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: t.muted } }, axisLabel: { color: t.muted } },
+        yAxis: yAxisConfig,
+        series: [{ type: 'line', smooth: true, data: values, name: title, lineStyle: { color }, itemStyle: { color } }]
+      });
+      window.addEventListener('resize', () => chart.resize());
+    }
+
+    // ✅ CORREGIDO: chartBar usa computeMoneyAxis
+    function chartBar(id, labels, values, title, color, isMoney=false) {
+      const el = document.getElementById(id); if (!el) return;
+      const chart = echarts.init(el);
+      const t = themeVars();
+      const axisName = axisUnitFromLabels(labels); // ya no se usa, se oculta nombre
+
+      let yAxisConfig = {
+        type: 'value',
+        axisLine: { lineStyle: { color: t.muted } },
+        splitLine: { lineStyle: { color: t.border } },
+        axisLabel: { color: t.muted }
+      };
+
+      if (isMoney) {
+        const axisCfg = computeMoneyAxis(values);
+        yAxisConfig.min = axisCfg.min;
+        yAxisConfig.max = axisCfg.max;
+        yAxisConfig.interval = axisCfg.step;
+        // Mostrar menos etiquetas en Y sin alterar la escala ni los saltos
+        const desiredLabels = (el && el.clientHeight >= 300) ? 5 : 4;
+        const totalTicks = Math.round((axisCfg.max - axisCfg.min) / axisCfg.step) + 1;
+        const displayEvery = Math.max(1, Math.ceil(totalTicks / desiredLabels));
+        yAxisConfig.axisLabel.formatter = (value, index) => {
+          // Asegurar que se vean el mínimo y el máximo y espaciar el resto
+          if (index === 0 || index === totalTicks - 1 || (index % displayEvery === 0)) {
+            return '$ ' + fmtNumber(value);
+          }
+          return '';
+        };
+      }
+
+      const gridLeft = isMoney ? 80 : 40;
+      chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis', formatter: isMoney ? moneyTooltipFormatter : defaultTooltipFormatter },
+        legend: { show: true, textStyle: { color: t.text } },
+        grid: { left: gridLeft, right: 20, top: 30, bottom: 40 },
+        xAxis: { type: 'category', data: labels, axisLine: { lineStyle: { color: t.muted } }, axisLabel: { color: t.muted } },
+        yAxis: yAxisConfig,
+        series: [{ type: 'bar', data: values, name: title, itemStyle: { color } }]
+      });
+      window.addEventListener('resize', () => chart.resize());
+    }
+
+    function chartPie(id, data, footerText) {
+      const el = document.getElementById(id); if (!el) return;
+      const chart = echarts.init(el);
+      const t = themeVars();
+      chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { 
+          trigger: 'item', 
+          formatter: (p) => {
+            const base = `${p.name}: ${p.value}`;
+            return footerText ? base + '<br/><span style="color:'+t.muted+'">'+footerText+'</span>' : base;
+          }
+        },
+        legend: { show: true, textStyle: { color: t.text } },
+        series: [{ type: 'pie', radius: ['40%', '70%'], data: Object.keys(data||{}).map(k => ({ name: k, value: data[k] })), label: { color: t.text } }]
+      });
+      window.addEventListener('resize', () => chart.resize());
+    }
+    function qs(params){
+      const q = new URLSearchParams(params); const s = q.toString(); return s ? ('?'+s) : '';
+    }
+    function getFilters(){
+      const start = document.getElementById('filter-start').value || '';
+      const end = document.getElementById('filter-end').value || '';
+      return { start, end };
+    }
+    // Asigna una fecha a un input nativo type=date asegurando que se refleje visualmente
+    function setDateInput(id, date){
+      const el = document.getElementById(id);
+      if(!el) return;
+      const d = (date instanceof Date) ? date : new Date(String(date));
+      if(isNaN(d)) return;
+      el.value = toISOLocal(d);
+      try { el.valueAsDate = d; } catch(_) {}
+      updateDateDisplay(id);
+    }
+    function updateDateDisplay(id){
+      const iso = document.getElementById(id)?.value || '';
+      const d = iso ? new Date(iso+'T00:00:00') : null;
+      const out = d && !isNaN(d) ? formatDMY(d) : '';
+      const el = document.getElementById(id+'-display');
+      if (el) el.textContent = out ? `(${out})` : '';
+    }
+    // Extrae HH:MM de strings de hora o timestamp; fallback a primeros 5 caracteres
+    function extractTime(v){
+      if (v === undefined || v === null) return '';
+      const s = String(v);
+      const m = s.match(/(\d{2}):(\d{2})/);
+      return m ? `${m[1]}:${m[2]}` : s.slice(0,5);
+    }
+    function chartHeatmap(id, xCats, yCats, matrix){
+      const el = document.getElementById(id); if (!el) return;
+      const chart = echarts.init(el);
+      const t = themeVars();
+      const data = [];
+      for (let i=0;i<yCats.length;i++){
+        for (let j=0;j<xCats.length;j++){
+          data.push([j, i, Number((matrix[i][j]||0).toFixed(1))]);
+        }
+      }
+      chart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { formatter: p => `${yCats[p.value[1]]} → ${xCats[p.value[0]]}: ${percent(p.value[2])}` },
+        grid: { left: 60, right: 20, top: 30, bottom: 60 },
+        xAxis: { type: 'category', data: xCats, axisLabel: { color: t.muted }, axisLine: { lineStyle: { color: t.muted } } },
+        yAxis: { type: 'category', data: yCats, axisLabel: { color: t.muted }, axisLine: { lineStyle: { color: t.muted } } },
+        visualMap: { min: 0, max: 100, calculable: true, orient: 'horizontal', left: 'center', bottom: 10, textStyle: { color: t.text } },
+        series: [{ type: 'heatmap', data, name: 'Retención', emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.3)' } } }]
+      });
+      window.addEventListener('resize', () => chart.resize());
+    }
+    async function loadCharts() {
+      let { start, end } = getFilters();
+      // Normalizar rango por si 'Desde' > 'Hasta' (p.ej., presets invertidos)
+      if (start && end) {
+        const sd = new Date(start+'T00:00:00');
+        const ed = new Date(end+'T00:00:00');
+        if (sd > ed) { const tmp = start; start = end; end = tmp; }
+      }
+      // Actualizar títulos dinámicamente según rango seleccionado
+      (function updateChartTitles(){
+        function monthsBetween(s, e){
+          if (!s || !e) return 12;
+          const sd = new Date(s+'T00:00:00');
+          const ed = new Date(e+'T00:00:00');
+          const sm = sd.getFullYear()*12 + sd.getMonth();
+          const em = ed.getFullYear()*12 + ed.getMonth();
+          return Math.max(1, (em - sm) + 1);
+        }
+        function daysBetween(s, e){
+          if (!s || !e) return 30;
+          const sd = new Date(s+'T00:00:00');
+          const ed = new Date(e+'T00:00:00');
+          const diff = Math.floor((ed - sd) / (1000*60*60*24)) + 1;
+          return Math.max(1, diff);
+        }
+        const m = monthsBetween(start, end);
+        const ingTitle = document.getElementById('title-ingresos');
+        const arpuTitle = document.getElementById('title-arpu');
+        const neuTitle = document.getElementById('title-nuevos');
+        if (ingTitle) ingTitle.textContent = `Ingresos últimos ${m} meses`;
+        if (arpuTitle) arpuTitle.textContent = `ARPU últimos ${m} meses`;
+        if (neuTitle) neuTitle.textContent = `Altas de socios últimos ${m} meses`;
+        const d = daysBetween(start, end);
+        const asTitle = document.getElementById('title-asistencia');
+        const hrTitle = document.getElementById('title-horas');
+        if (asTitle) asTitle.textContent = `Asistencias (${d} días)`;
+        if (hrTitle) hrTitle.textContent = `Asistencias por hora (${d} días)`;
+      })();
+      const [ing, neu, asist, horas, estado, cuota, pagos, arpu, cohort, heatmap, arpaCuota] = await Promise.all([
+        fetch('/api/ingresos12m'+qs({start, end})).then(r => r.json()),
+        fetch('/api/nuevos12m'+qs({start, end})).then(r => r.json()),
+        fetch('/api/asistencia_30d'+qs({start, end})).then(r => r.json()),
+        fetch('/api/asistencia_por_hora_30d'+qs({start, end})).then(r => r.json()),
+        fetch('/api/activos_inactivos').then(r => r.json()),
+        fetch('/api/tipos_cuota').then(r => r.json()),
+        fetch('/api/payment_status_dist').then(r => r.json()),
+        fetch('/api/arpu12m'+qs({start, end})).then(r => r.json()),
+        fetch('/api/cohort_retencion_6m').then(r => r.json()),
+        fetch('/api/cohort_retencion_heatmap').then(r => r.json()),
+        fetch('/api/arpa_por_tipo_cuota').then(r => r.json()),
+      ]);
+      const s1 = seriesFromRecord(ing.ingresos);
+      chartLine('chart-ingresos', s1.labels, s1.values, 'Ingresos', themeVars().accent, true);
+      const s2 = seriesFromRecord(neu.nuevos);
+      chartBar('chart-nuevos', s2.labels, s2.values, 'Altas', themeVars().primary);
+      const s3 = seriesFromRecord(asist);
+      chartLine('chart-asistencia', s3.labels, s3.values, 'Asistencias', '#10b981');
+      const s4 = seriesFromRecord(horas);
+      chartBar('chart-horas', s4.labels, s4.values, 'Por hora', '#60a5fa');
+      chartPie('chart-estado', estado);
+      // Excluir SOLO "estandar" (sin acento) del gráfico de tipos de cuota y añadir aclaración de activos
+      const cuotaFiltrada = Object.fromEntries(Object.entries(cuota||{}).filter(([k]) => {
+        const s = String(k).trim().toLowerCase();
+        return s !== 'estandar';
+      }));
+      chartPie('chart-cuota', cuotaFiltrada, 'Valores solo de usuarios activos');
+      const pagosES = {
+        'Sin pagos': pagos.no_payments || 0,
+        'Al día': pagos.up_to_date || 0,
+        'Pendiente': pagos.pending || 0,
+        'Atrasado': pagos.overdue || 0,
+      };
+      chartPie('chart-pagos', pagosES, 'Valores solo de usuarios activos');
+      const s5 = seriesFromRecord(arpu.arpu);
+      chartLine('chart-arpu', s5.labels, s5.values, 'ARPU', '#f59e0b', true);
+      const s6 = seriesFromRecord(cohort);
+      chartBar('chart-cohortes', s6.labels, s6.values.map(v => Number((v||0).toFixed(1))), 'Retención', '#34d399');
+      chartHeatmap('chart-cohort-heatmap', heatmap.months||[], heatmap.cohorts||[], heatmap.matrix||[]);
+      const s7 = seriesFromRecord(arpaCuota);
+      chartBar('chart-arpa-cuota', s7.labels, s7.values, 'ARPA por tipo', themeVars().accent, true);
+    }
+async function loadAdvanced() {
+  const r = await fetch('/api/kpis_avanzados'); const d = await r.json();
+  setText('adv-ret', percent(d.retention_rate));
+  setText('adv-churn', percent(d.churn_rate));
+  setText('adv-avg', (d.avg_attendance||0).toFixed(1));
+  setText('adv-peak', d.peak_hour||'—');
+  setText('adv-growth', percent(d.revenue_growth));
+  setText('adv-wau', d.weekly_active_users||0);
+  if (typeof d.payment_rate !== 'undefined') setText('adv-payment-rate', percent(d.payment_rate));
+  if (typeof d.ltv_12m !== 'undefined') setText('adv-ltv', fmtCurrency(d.ltv_12m));
+  if (typeof d.arpa !== 'undefined') setText('adv-arpa', fmtCurrency(d.arpa));
+  if (typeof d.mrr !== 'undefined') setText('adv-mrr', fmtCurrency(d.mrr));
+}
+    document.getElementById('export').addEventListener('click', async () => {
+      try {
+        const s = document.getElementById('filter-start')?.value || '';
+        const e = document.getElementById('filter-end')?.value || '';
+        const ps = document.getElementById('prof-start')?.value || '';
+        const pe = document.getElementById('prof-end')?.value || '';
+        const params = new URLSearchParams();
+        if (s) params.set('start', s);
+        if (e) params.set('end', e);
+        if (ps) params.set('prof_start', ps);
+        if (pe) params.set('prof_end', pe);
+        const r = await fetch('/api/export_csv' + (params.toString() ? ('?' + params.toString()) : ''));
+        if (!r.ok) { throw new Error('Error al exportar: ' + r.status); }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'dashboard_export.zip'; a.click(); URL.revokeObjectURL(url);
+      } catch (err) { console.error(err); alert('No se pudo exportar los datos.'); }
+    });
+    // Aplicación automática al cambiar Desde/Hasta y actualizar vista en español
+    document.getElementById('filter-start').addEventListener('change', async () => { updateDateDisplay('filter-start'); await loadCharts(); });
+    document.getElementById('filter-end').addEventListener('change', async () => { updateDateDisplay('filter-end'); await loadCharts(); });
+    function setDaysPreset(days){
+      const end = new Date(); // Hoy
+      const start = new Date();
+      // Último rango: desde el día inicial hacia atrás, hasta hoy
+      start.setDate(end.getDate() - days);
+      setDateInput('filter-start', start);
+      setDateInput('filter-end', end);
+    }
+    document.querySelectorAll('.preset').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const days = parseInt(btn.dataset.days);
+        if (!isNaN(days)) { setDaysPreset(days); await loadCharts(); }
+      });
+    });
+    function applyPresetMTD(){
+      const end = new Date();
+      const start = new Date(end.getFullYear(), end.getMonth(), 1);
+      setDateInput('filter-start', start);
+      setDateInput('filter-end', end);
+    }
+    function quarterStart(d){ const m = d.getMonth(); const qStartMonth = Math.floor(m/3)*3; return new Date(d.getFullYear(), qStartMonth, 1); }
+    function applyPresetQTD(){
+      const end = new Date();
+      const start = quarterStart(end);
+      setDateInput('filter-start', start);
+      setDateInput('filter-end', end);
+    }
+    document.getElementById('preset-mtd').addEventListener('click', async () => { applyPresetMTD(); await loadCharts(); });
+    document.getElementById('preset-qtd').addEventListener('click', async () => { applyPresetQTD(); await loadCharts(); });
+    document.getElementById('preset-ytd').addEventListener('click', async () => {
+      const end = new Date();
+      const start = new Date(end.getFullYear(), 0, 1);
+      setDateInput('filter-start', start);
+      setDateInput('filter-end', end);
+      await loadCharts();
+    });
+    // Polyfill para navegadores sin soporte de input type="month"
+    (function ensureMonthPicker(){
+      try {
+        const mInput = document.getElementById('filter-month');
+        if (!mInput) return;
+        const test = document.createElement('input');
+        test.setAttribute('type','month');
+        const supported = (test.type === 'month');
+        if (supported) {
+          // Forzar apertura del picker al hacer clic si está disponible
+          mInput.addEventListener('click', () => {
+            if (typeof mInput.showPicker === 'function') {
+              try { mInput.showPicker(); } catch(_) {}
+            }
+          });
+          return;
+        }
+        // Fallback: usar selects de Mes y Año y vincular al input oculto
+        mInput.style.display = 'none';
+        const wrap = document.createElement('div');
+        wrap.className = 'field-group';
+        // Select de mes
+        const monthSel = document.createElement('select');
+        monthSel.setAttribute('aria-label', 'Seleccionar mes');
+        for (let i=0;i<12;i++){
+          const opt = document.createElement('option');
+          const mm = String(i+1).padStart(2,'0');
+          opt.value = mm;
+          opt.textContent = MONTHS_ES[i];
+          monthSel.appendChild(opt);
+        }
+        // Select de año
+        const yearSel = document.createElement('select');
+        yearSel.setAttribute('aria-label', 'Seleccionar año');
+        const currentYear = new Date().getFullYear();
+        for (let y=currentYear-5; y<=currentYear+1; y++){
+          const opt = document.createElement('option');
+          opt.value = String(y);
+          opt.textContent = String(y);
+          yearSel.appendChild(opt);
+        }
+        wrap.appendChild(monthSel);
+        wrap.appendChild(yearSel);
+        mInput.parentNode.insertBefore(wrap, mInput.nextSibling);
+        function update(){
+          const val = `${yearSel.value}-${monthSel.value}`;
+          mInput.value = val;
+          mInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        monthSel.addEventListener('change', update);
+        yearSel.addEventListener('change', update);
+        // Inicializar con el mes actual
+        const now = new Date();
+        yearSel.value = String(now.getFullYear());
+        monthSel.value = String(now.getMonth()+1).padStart(2,'0');
+      } catch(_){ /* noop */ }
+    })();
+    document.getElementById('filter-month').addEventListener('change', async (e) => {
+      const val = e.target.value; // YYYY-MM
+      if (!val) return;
+      const [y, m] = val.split('-').map(Number);
+      const start = new Date(y, m-1, 1);
+      const end = new Date(y, m, 0); // último día del mes
+      setDateInput('filter-start', start);
+      setDateInput('filter-end', end);
+      await loadCharts();
+    });
+    (async function init(){
+      await loadKPIs();
+      // Inicializar visualización en español junto a los inputs de fecha
+      updateDateDisplay('filter-start'); updateDateDisplay('filter-end');
+      await loadCharts();
+      await loadAdvanced();
+      await loadDetalleUsuarios();
+      await loadDetalleProfesores();
+      initTabs();
+      await loadAsistenciasTodos();
+    })();
+    function initTabs(){
+      const btnU = document.getElementById('tab-btn-usuarios');
+      const btnP = document.getElementById('tab-btn-profesores');
+      const tabU = document.getElementById('tab-usuarios');
+      const tabP = document.getElementById('tab-profesores');
+      btnU.addEventListener('click', () => { tabU.style.display='block'; tabP.style.display='none'; loadDetalleUsuarios(); });
+      btnP.addEventListener('click', () => {
+        tabU.style.display='none'; tabP.style.display='block';
+        const s = document.getElementById('prof-start')?.value || null;
+        const e = document.getElementById('prof-end')?.value || null;
+        loadDetalleProfesores(s, e);
+      });
+    }
+    async function loadDetalleUsuarios(){
+      try {
+        const r = await fetch('/api/usuarios_detalle');
+        const data = await r.json();
+        const tbody = document.querySelector('#tbl-usuarios tbody');
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        arr.forEach(u => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${u.id??''}</td>
+            <td>${u.nombre??''}</td>
+            <td>${u.rol??''}</td>
+            <td>${u.dni??''}</td>
+            <td>${u.telefono??''}</td>
+            <td>${u.tipo_cuota??''}</td>
+            <td>${u.activo? 'Sí':'No'}</td>
+            <td>${(u.fecha_registro||'').slice(0,10)}</td>
+            <td>${u.pagos_count??0}</td>
+            <td>${u.last_pago_fecha? String(u.last_pago_fecha).slice(0,10) : ''}</td>
+            <td>${u.asistencias_count??0}</td>`;
+          tr.addEventListener('click', () => {
+            document.querySelectorAll('#tbl-usuarios tbody tr').forEach(r => r.classList.remove('selected-row'));
+            tr.classList.add('selected-row');
+            openUsuarioModal(u);
+          });
+          tbody.appendChild(tr);
+        });
+        setupPagination('tbl-usuarios', 'usuarios-page-size', 'usuarios-pagination');
+      } catch(e) { console.error('Error cargando usuarios detalle', e); }
+    }
+    async function loadDetalleProfesores(start=null, end=null){
+      try {
+        const qsParams = new URLSearchParams();
+        if(start){ qsParams.set('start', start); }
+        if(end){ qsParams.set('end', end); }
+        const r = await fetch('/api/profesores_detalle' + (qsParams.toString() ? ('?' + qsParams.toString()) : ''));
+        const data = await r.json();
+        const tbody = document.querySelector('#tbl-profesores tbody');
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        arr.forEach(p => {
+          const tr = document.createElement('tr');
+          const resumen = (p.horarios||[]).map(h => `${h.dia}: ${String(h.inicio).slice(0,5)}-${String(h.fin).slice(0,5)}`).join('; ');
+          tr.innerHTML = `
+            <td>${p.id??''}</td>
+            <td>${p.nombre??''}</td>
+            <td>${p.email??''}</td>
+            <td>${p.telefono??''}</td>
+            <td>${p.horarios_count??0}</td>
+            <td>${p.sesiones_mes??0}</td>
+            <td>${p.horas_mes??0}</td>
+            <td title="${resumen}">${resumen.slice(0,160)}${resumen.length>160?'…':''}</td>`;
+          tr.addEventListener('click', () => {
+            document.querySelectorAll('#tbl-profesores tbody tr').forEach(r => r.classList.remove('selected-row'));
+            tr.classList.add('selected-row');
+            openProfesorModal(p);
+          });
+          tbody.appendChild(tr);
+        });
+        setupPagination('tbl-profesores', 'prof-page-size', 'prof-pagination');
+      } catch(e) { console.error('Error cargando profesores detalle', e); }
+    }
+    async function loadSesionesProfesor(profesorId){
+      try {
+        const s = document.getElementById('prof-modal-start')?.value || null;
+        const e = document.getElementById('prof-modal-end')?.value || null;
+        const qs = new URLSearchParams();
+        qs.set('profesor_id', profesorId);
+        if(s){ qs.set('start', s); }
+        if(e){ qs.set('end', e); }
+        const tbody = document.querySelector('#tbl-profesor-sesiones tbody');
+        tbody.innerHTML = `<tr><td colspan="6" class="empty">Cargando…</td></tr>`;
+        const r = await fetch('/api/profesor_sesiones?' + qs.toString());
+        // Manejo explícito de errores HTTP (e.g., 401 por sesión expirada)
+        if(!r.ok){
+          let msg = `Error ${r.status}`;
+          try {
+            const err = await r.json();
+            msg = err?.detail || err?.error || msg;
+          } catch(_){ /* sin cuerpo JSON */ }
+          tbody.innerHTML = `<tr><td colspan="6" class="empty">${msg}</td></tr>`;
+          return;
+        }
+        const data = await r.json();
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        console.debug('Sesiones API raw:', data);
+        console.debug('Sesiones array:', arr);
+        // Mostrar solo datos del rango elegido; si no hay datos y hay rango, no hacer fallback
+        if(arr.length === 0){
+          if(s || e){
+            tbody.innerHTML = `<tr><td colspan="6" class="empty">Sin datos en el rango</td></tr>`;
+            return;
+          } else {
+            // Fallback solo cuando no hay rango definido
+            try {
+              const qs2 = new URLSearchParams();
+              qs2.set('profesor_id', profesorId);
+              const r2 = await fetch('/api/profesor_sesiones?' + qs2.toString());
+              if(!r2.ok){
+                tbody.innerHTML = `<tr><td colspan="6" class="empty">Sin datos</td></tr>`;
+                return;
+              }
+              const data2 = await r2.json();
+              const arr2 = Array.isArray(data2) ? data2 : (Array.isArray(data2?.items) ? data2.items : []);
+              console.debug('Sesiones fallback raw:', data2);
+              console.debug('Sesiones fallback array:', arr2);
+              if(arr2.length === 0){
+                tbody.innerHTML = `<tr><td colspan="6" class="empty">Sin datos</td></tr>`;
+                return;
+              }
+              arr.push(...arr2);
+            } catch(_){
+              tbody.innerHTML = `<tr><td colspan="6" class="empty">Sin datos</td></tr>`;
+              return;
+            }
+          }
+        }
+        arr.forEach(ses => {
+          const tr = document.createElement('tr');
+          // Tolerar variantes de claves por si el backend entrega filas crudas
+          const fecha = (
+            ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? ''
+          );
+          const inicioRaw = (
+            ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? ''
+          );
+          const finRaw = (
+            ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? ''
+          );
+          const minutosVal = (
+            ses.minutos ?? ses.minutos_totales ?? ses.Minutos ?? ses.duracion_min ?? ses.duracion ?? ses.mins ?? ses.minutos_trabajados ?? ses.minutes ?? 0
+          );
+          const horasVal = (
+            ses.horas ?? ses.horas_totales ?? ses.Horas ?? ses.horas_trabajadas ?? ses.duracion_horas ?? ses.duration_hours ?? null
+          );
+          const tipoVal = (
+            ses.tipo ?? ses.tipo_actividad ?? ses.Tipo ?? ses.actividad ?? ses.category ?? ''
+          );
+          const fechaText = fecha ? String(fecha).slice(0,10) : '';
+          const inicioText = extractTime(inicioRaw);
+          const finText = extractTime(finRaw);
+          const horasText = (horasVal !== undefined && horasVal !== null) ? String(horasVal) : '—';
+          tr.innerHTML = `
+            <td>${fechaText}</td>
+            <td>${inicioText}</td>
+            <td>${finText}</td>
+            <td>${minutosVal ?? 0}</td>
+            <td>${horasText}</td>
+            <td>${tipoVal || ''}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        // Paginación local para sesiones en el modal
+        setupPagination('tbl-profesor-sesiones', 'prof-ses-page-size', 'prof-ses-pagination');
+      } catch(e) { console.error('Error cargando sesiones de profesor', e); }
+    }
+    async function loadResumenProfesor(profesorId){
+      try {
+        const s = document.getElementById('prof-modal-start')?.value || null;
+        const e = document.getElementById('prof-modal-end')?.value || null;
+        const qs = new URLSearchParams();
+        qs.set('profesor_id', profesorId);
+        if(s){ qs.set('start', s); }
+        if(e){ qs.set('end', e); }
+        const r = await fetch('/api/profesor_resumen?' + qs.toString());
+        if(!r.ok){
+          const el = document.getElementById('profesor-resumen');
+          let msg = `Error ${r.status}`;
+          try { const err = await r.json(); msg = err?.detail || err?.error || msg; } catch(_){ }
+          el.textContent = msg;
+          return;
+        }
+        const res = await r.json();
+        const el = document.getElementById('profesor-resumen');
+        // Mostrar valores tal cual provee el backend (horas ya calculadas en database.py)
+        let sesiones = res.total_sesiones ?? 0;
+        let horasTrab = res.horas_trabajadas ?? 0;
+        let horasProj = res.horas_proyectadas ?? 0;
+        let horasExt = res.horas_extras ?? 0;
+        // Si hay rango definido y todo da cero, no hacer fallback: respetar el rango
+        if ((sesiones === 0) && (horasTrab === 0) && (horasProj === 0) && (horasExt === 0) && !(s || e)){
+          try {
+            const qs2 = new URLSearchParams();
+            qs2.set('profesor_id', profesorId);
+            const r2 = await fetch('/api/profesor_resumen?' + qs2.toString());
+            const res2 = await r2.json();
+            sesiones = res2.total_sesiones ?? sesiones;
+            horasTrab = res2.horas_trabajadas ?? horasTrab;
+            horasProj = res2.horas_proyectadas ?? horasProj;
+            horasExt = res2.horas_extras ?? horasExt;
+          } catch(_){ /* ignorar */ }
+        }
+        el.textContent = `Sesiones: ${sesiones} · Trabajadas: ${horasTrab}h · Proyectadas: ${horasProj}h · Extras: ${horasExt}h`;
+      } catch(e) { console.error('Error cargando resumen de profesor', e); }
+    }
+    function openProfesorModal(prof){
+      const modal = document.getElementById('profesor-detail-modal');
+      modal.classList.add('show');
+      document.getElementById('profesor-modal-title').textContent = `Detalle de ${prof.nombre} (ID ${prof.id})`;
+      // Inicializar rango del modal con el rango de la barra superior si está disponible
+      try {
+        const { start, end } = getFilters();
+        const ms = document.getElementById('prof-modal-start');
+        const me = document.getElementById('prof-modal-end');
+        const hasValues = (ms?.value||'') && (me?.value||'');
+        if (!hasValues) {
+          if (start && end) {
+            setDateInput('prof-modal-start', start);
+            setDateInput('prof-modal-end', end);
+          } else {
+            // Si no hay rango en la barra superior, usar el mes actual por defecto
+            const today = new Date();
+            const startMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            const endMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            setDateInput('prof-modal-start', startMonth);
+            setDateInput('prof-modal-end', endMonth);
+          }
+        }
+      } catch(_) {}
+      // Horarios
+      const tbodyH = document.querySelector('#tbl-profesor-horarios tbody');
+      tbodyH.innerHTML = '';
+      const horarios = Array.isArray(prof.horarios) ? prof.horarios : [];
+      if(horarios.length === 0){ tbodyH.innerHTML = `<tr><td colspan="3" class="empty">Sin horarios</td></tr>`; }
+      else {
+        horarios.forEach(h => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${h.dia||''}</td><td>${extractTime(h.inicio)}</td><td>${extractTime(h.fin)}</td>`;
+          tbodyH.appendChild(tr);
+        });
+      }
+      // Resumen real desde API
+      loadResumenProfesor(prof.id);
+      // Contacto
+      document.getElementById('profesor-contacto').textContent = `Email: ${prof.email||'—'} · Teléfono: ${prof.telefono||'—'}`;
+      // Sesiones
+      window.__profesorSeleccionado = prof.id;
+      loadSesionesProfesor(prof.id);
+    }
+    function closeProfesorModal(){
+      const modal = document.getElementById('profesor-detail-modal');
+      modal.classList.remove('show');
+    }
+    async function loadPagosUsuario(usuarioId){
+      try {
+        const q = document.getElementById('usuario-pagos-q')?.value || '';
+        const lim = document.getElementById('usuario-pagos-limit')?.value || '25';
+        const off = window.__usuarioPagosOffset || 0;
+        const tbody = document.querySelector('#tbl-usuario-pagos tbody');
+        tbody.innerHTML = `<tr><td colspan="3" class="empty">Cargando…</td></tr>`;
+        const r = await fetch(`/api/usuario_pagos?usuario_id=${usuarioId}&q=${encodeURIComponent(q)}&limit=${lim}&offset=${off}`);
+        const data = await r.json();
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        if(arr.length === 0){ tbody.innerHTML = `<tr><td colspan="3" class="empty">Sin datos</td></tr>`; return; }
+        arr.forEach(p => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${p.fecha||''}</td><td>${(p.monto??0).toFixed(2)}</td><td>${p.tipo_cuota||''}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(e) { console.error('Error cargando pagos usuario', e); }
+    }
+    async function loadAsistenciasUsuario(usuarioId){
+      try {
+        const q = document.getElementById('usuario-asistencias-q')?.value || '';
+        const lim = document.getElementById('usuario-asistencias-limit')?.value || '25';
+        const off = window.__usuarioAsOffset || 0;
+        const tbody = document.querySelector('#tbl-usuario-asistencias tbody');
+        tbody.innerHTML = `<tr><td colspan="2" class="empty">Cargando…</td></tr>`;
+        const r = await fetch(`/api/usuario_asistencias?usuario_id=${usuarioId}&q=${encodeURIComponent(q)}&limit=${lim}&offset=${off}`);
+        const data = await r.json();
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        if(arr.length === 0){ tbody.innerHTML = `<tr><td colspan="2" class="empty">Sin datos</td></tr>`; return; }
+        arr.forEach(a => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${a.fecha||''}</td><td>${a.hora||''}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(e) { console.error('Error cargando asistencias usuario', e); }
+    }
+    async function loadAsistenciasTodos(reset=false){
+      try {
+        const s = document.getElementById('as-todos-start')?.value || '';
+        const e = document.getElementById('as-todos-end')?.value || '';
+        const q = document.getElementById('as-todos-q')?.value || '';
+        const lim = document.getElementById('as-todos-limit')?.value || '500';
+        if(reset) window.__asTodosOffset = 0;
+        const off = window.__asTodosOffset || 0;
+        const qs = new URLSearchParams();
+        if(s && e){ qs.set('start', s); qs.set('end', e); }
+        if(q) qs.set('q', q);
+        qs.set('limit', lim);
+        qs.set('offset', off);
+        const tbody = document.querySelector('#tbl-asistencias-todos tbody');
+        tbody.innerHTML = `<tr><td colspan="3" class="empty">Cargando…</td></tr>`;
+        const r = await fetch('/api/asistencias_detalle?' + qs.toString());
+        const data = await r.json();
+        tbody.innerHTML = '';
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        if(arr.length === 0){ tbody.innerHTML = `<tr><td colspan="3" class="empty">Sin datos</td></tr>`; return; }
+        arr.forEach(a => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${a.fecha||''}</td><td>${a.hora||''}</td><td>${a.usuario||''}</td>`;
+          tbody.appendChild(tr);
+        });
+      } catch(e) { console.error('Error cargando asistencias globales', e); }
+    }
+    // Modal de usuario seleccionado
+    function openUsuarioModal(user){
+      const modal = document.getElementById('usuario-detail-modal');
+      modal.classList.add('show');
+      document.getElementById('usuario-modal-title').textContent = `Detalle de ${user.nombre} (ID ${user.id})`;
+      window.__usuarioSeleccionado = user.id;
+      window.__usuarioPagosOffset = 0;
+      window.__usuarioAsOffset = 0;
+      loadPagosUsuario(user.id);
+      loadAsistenciasUsuario(user.id);
+    }
+    function closeUsuarioModal(){
+      const modal = document.getElementById('usuario-detail-modal');
+      modal.classList.remove('show');
+    }
+    function setupPagination(tableId, pageSizeSelectId, paginationContainerId){
+      const table = document.getElementById(tableId);
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      const sizeSel = document.getElementById(pageSizeSelectId);
+      const pageSize = parseInt(sizeSel?.value || '10', 10);
+      let current = 1;
+      const total = Math.max(1, Math.ceil(rows.length / pageSize));
+      function render(){
+        rows.forEach((r, idx) => {
+          const p = Math.floor(idx / pageSize) + 1;
+          r.style.display = (p === current) ? '' : 'none';
+        });
+        const container = document.getElementById(paginationContainerId);
+        container.innerHTML = '';
+        const prev = document.createElement('button'); prev.textContent = 'Prev'; prev.disabled = current===1; prev.onclick = () => { if(current>1){ current--; render(); } };
+        const next = document.createElement('button'); next.textContent = 'Next'; next.disabled = current===total; next.onclick = () => { if(current<total){ current++; render(); } };
+        const info = document.createElement('span'); info.style.margin = '0 8px'; info.textContent = `Página ${current}/${total}`;
+        container.appendChild(prev); container.appendChild(info); container.appendChild(next);
+      }
+      if(sizeSel){ sizeSel.onchange = () => setupPagination(tableId, pageSizeSelectId, paginationContainerId); }
+      render();
+    }
+    // Utilidades de ordenación y filtrado ligero para tablas
+    function initTableEnhancements(tableId, filterInputId){
+      const table = document.getElementById(tableId);
+      const ths = table.querySelectorAll('thead th');
+      ths.forEach((th, idx) => {
+        let asc = true;
+        th.style.cursor = 'pointer';
+        th.title = 'Click para ordenar';
+        th.addEventListener('click', () => {
+          const tbody = table.querySelector('tbody');
+          const rows = Array.from(tbody.querySelectorAll('tr'));
+          rows.sort((a, b) => {
+            const ta = a.children[idx].textContent.trim();
+            const tb = b.children[idx].textContent.trim();
+            const na = parseFloat(ta.replace(',', '.'));
+            const nb = parseFloat(tb.replace(',', '.'));
+            const aNum = !isNaN(na) && ta !== '';
+            const bNum = !isNaN(nb) && tb !== '';
+            let cmp = 0;
+            if(aNum && bNum){ cmp = na - nb; }
+            else { cmp = ta.localeCompare(tb, 'es', {numeric:true, sensitivity:'base'}); }
+            return asc ? cmp : -cmp;
+          });
+          asc = !asc;
+          rows.forEach(r => tbody.appendChild(r));
+        });
+      });
+      if(filterInputId){
+        const input = document.getElementById(filterInputId);
+        input.addEventListener('input', () => {
+          const q = input.value.trim().toLowerCase();
+          const rows = table.querySelectorAll('tbody tr');
+          rows.forEach(r => {
+            const txt = r.textContent.toLowerCase();
+            r.style.display = q === '' || txt.includes(q) ? '' : 'none';
+          });
+        });
+      }
+    }
+    // Inicializar mejoras al cargar datos
+    document.addEventListener('DOMContentLoaded', () => {
+      initTableEnhancements('tbl-usuarios', 'filter-usuarios');
+      initTableEnhancements('tbl-profesores', 'filter-profesores');
+      // Cierre de modales al hacer clic fuera de la caja
+      const usuarioModal = document.getElementById('usuario-detail-modal');
+      usuarioModal?.addEventListener('click', (e) => {
+        if (e.target === usuarioModal) closeUsuarioModal();
+      });
+      document.getElementById('usuario-pagos-aplicar')?.addEventListener('click', () => { window.__usuarioPagosOffset = 0; if(window.__usuarioSeleccionado) loadPagosUsuario(window.__usuarioSeleccionado); });
+      document.getElementById('usuario-pagos-prev')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('usuario-pagos-limit').value||'25', 10); window.__usuarioPagosOffset = Math.max(0,(window.__usuarioPagosOffset||0)-lim); if(window.__usuarioSeleccionado) loadPagosUsuario(window.__usuarioSeleccionado); });
+      document.getElementById('usuario-pagos-next')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('usuario-pagos-limit').value||'25', 10); window.__usuarioPagosOffset = (window.__usuarioPagosOffset||0)+lim; if(window.__usuarioSeleccionado) loadPagosUsuario(window.__usuarioSeleccionado); });
+      document.getElementById('usuario-asistencias-aplicar')?.addEventListener('click', () => { window.__usuarioAsOffset = 0; if(window.__usuarioSeleccionado) loadAsistenciasUsuario(window.__usuarioSeleccionado); });
+      document.getElementById('usuario-asistencias-prev')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('usuario-asistencias-limit').value||'25', 10); window.__usuarioAsOffset = Math.max(0,(window.__usuarioAsOffset||0)-lim); if(window.__usuarioSeleccionado) loadAsistenciasUsuario(window.__usuarioSeleccionado); });
+      document.getElementById('usuario-asistencias-next')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('usuario-asistencias-limit').value||'25', 10); window.__usuarioAsOffset = (window.__usuarioAsOffset||0)+lim; if(window.__usuarioSeleccionado) loadAsistenciasUsuario(window.__usuarioSeleccionado); });
+      // Paginación de asistencias globales
+      document.getElementById('as-todos-prev')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('as-todos-limit').value||'500', 10); window.__asTodosOffset = Math.max(0,(window.__asTodosOffset||0)-lim); loadAsistenciasTodos(); });
+      document.getElementById('as-todos-next')?.addEventListener('click', () => { const lim = parseInt(document.getElementById('as-todos-limit').value||'500', 10); window.__asTodosOffset = (window.__asTodosOffset||0)+lim; loadAsistenciasTodos(); });
+      // Auto-aplicar en cambio de rango (Asistencias globales)
+      document.getElementById('as-todos-start')?.addEventListener('change', () => { window.__asTodosOffset = 0; loadAsistenciasTodos(true); });
+      document.getElementById('as-todos-end')?.addEventListener('change', () => { window.__asTodosOffset = 0; loadAsistenciasTodos(true); });
+      // Cierre por clic fuera del modal de profesor
+      const profesorModal = document.getElementById('profesor-detail-modal');
+      profesorModal?.addEventListener('click', (e) => {
+        if (e.target === profesorModal) closeProfesorModal();
+      });
+      // Auto-aplicar en cambio de rango dentro del modal de profesor
+      const profModalStart = document.getElementById('prof-modal-start');
+      const profModalEnd = document.getElementById('prof-modal-end');
+      [profModalStart, profModalEnd].forEach(el => el?.addEventListener('change', () => {
+        if(window.__profesorSeleccionado){
+          loadSesionesProfesor(window.__profesorSeleccionado);
+          loadResumenProfesor(window.__profesorSeleccionado);
+        }
+      }));
+      
+      // Auto-aplicar en cambio de rango para profesores (tab principal)
+      const profStart = document.getElementById('prof-start');
+      const profEnd = document.getElementById('prof-end');
+      [profStart, profEnd].forEach(el => el?.addEventListener('change', () => {
+        const s = document.getElementById('prof-start')?.value || null;
+        const e = document.getElementById('prof-end')?.value || null;
+        loadDetalleProfesores(s, e);
+      }));
+      // Auto-ocultar header al hacer scroll hacia abajo (desktop y móvil)
+      const headerEl = document.getElementById('main-header');
+      if(headerEl){
+        let lastY = window.scrollY;
+        let hidden = false;
+        function onScroll(){
+          const y = window.scrollY;
+          if(y > lastY + 8 && y > 64){
+            if(!hidden){ headerEl.classList.add('header--hidden'); hidden = true; }
+          } else if(y < lastY - 8 || y <= 64){
+            if(hidden){ headerEl.classList.remove('header--hidden'); hidden = false; }
+          }
+          lastY = y;
+        }
+        window.addEventListener('scroll', onScroll, {passive:true});
+        // Al cambiar tamaño, no forzamos mostrar; mantenemos estado según posición
+      }
+    });
+  </script>
+</body>
+</html>

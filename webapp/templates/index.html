@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acceso • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="{{ logo_url }}" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <style>
+    .screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .selector-wrapper { width: 100%; max-width: 720px; }
+    .card { padding: 20px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom: 16px; }
+    .brand img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 20px; }
+    .brand .muted { margin: 2px 0 0 0; line-height: 1.3; }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(260px, 340px)); gap:12px; }
+    @media (max-width: 720px){ .grid { grid-template-columns: 1fr; } }
+    .option-card { padding: 20px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 6px 16px rgba(0,0,0,.18); transition: transform 120ms ease, box-shadow 120ms ease; }
+    .option-card:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.24); }
+    .option-title { font-weight:600; font-size: 18px; }
+    .option-icon { width: 28px; height: 28px; border-radius: 8px; display:inline-flex; align-items:center; justify-content:center; background: rgba(255,255,255,.06); margin-right:8px; }
+    .desc { color: var(--muted); margin-top: 6px; }
+    .actions { margin-top: 12px; display:flex; gap: 8px; }
+    a.btn { text-decoration: none; display:inline-block; }
+  </style>
+</head>
+<body>
+  <main class="screen">
+    <section class="selector-wrapper">
+      <div class="card" style="margin-bottom:16px;">
+        <div class="brand">
+          <img src="{{ logo_url }}" alt="Logo" />
+          <div>
+            <h1>{{ gym_name }}</h1>
+            <p class="muted">Acceso exclusivo del dueño</p>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="option-card">
+            <div>
+              <span class="option-icon">📊</span>
+              <span class="option-title">Dashboard del dueño</span>
+            </div>
+            <p class="desc">Ingresá al panel con KPIs, reportes y control del sistema.</p>
+            <div class="actions">
+              <a class="btn secondary" href="/login" aria-label="Ir al login del dueño">Ir al login</a>
+            </div>
+          </div>
+          <div class="option-card">
+            <div>
+              <span class="option-icon">✅</span>
+              <span class="option-title">Check-in de socios</span>
+            </div>
+            <p class="desc">Validá tu asistencia escaneando un QR o ingresando el token.</p>
+            <div class="actions">
+              <a class="btn" href="/checkin" aria-label="Ir al check-in">Ir al check-in</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
