@@ -12,7 +12,6 @@ import logging
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.staticfiles import StaticFiles
@@ -184,9 +183,6 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", 
 
 # Middlewares de producción (opcionales via ENV, cambios mínimos)
 try:
-    # Respetar cabeceras de proxy (X-Forwarded-For/Proto/Host) para URL y esquema correcto
-    if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
-        app.add_middleware(ProxyHeadersMiddleware)
     # Restringir hosts confiables si se especifica
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     if th:
@@ -196,6 +192,9 @@ try:
     # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
         app.add_middleware(HTTPSRedirectMiddleware)
+    # Nota: Gestión de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
+    if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
+        logging.info("Cabeceras de proxy gestionadas por Uvicorn (proxy_headers=True)")
 except Exception:
     pass
 
@@ -356,6 +355,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                         loop="asyncio",
                         http="h11",
                         lifespan="off",
+                        proxy_headers=(os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")),
                     )
                     server = uvicorn.Server(config=config)
                     # Desactivar instalación de manejadores de señales (no permitidos fuera del hilo principal)
