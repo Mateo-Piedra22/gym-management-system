@@ -1,0 +1,18 @@
+# Información del Gimnasio
+# Este archivo contiene toda la información básica, de contacto y redes sociales del gimnasio
+# Formato: clave=valor
+
+# Información Básica
+gym_name=Gimnasio Zurka
+gym_slogan=
+gym_address=Saavedra 2343
+
+# Información de Contacto
+gym_phone=+54 3434473599
+gym_email=zurka_gym@gym.com
+gym_website=zurkagym.com
+
+# Redes Sociales
+facebook=@zurka_gym
+instagram=@zurka_gym
+twitter=@zurka_gym

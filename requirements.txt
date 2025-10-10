@@ -1,0 +1,29 @@
+# Dependencias para el Sistema de Gestión de Gimnasio (Versión GUI Estable)
+# Instalar con: pip install -r requirements.txt
+
+PyQt6
+reportlab
+matplotlib
+pandas
+openpyxl==3.1.2
+PyQt-Fluent-Widgets
+pyinstaller
+psycopg2
+psutil
+pywa
+xlsxtpl
+fastapi
+uvicorn[standard]
+itsdangerous
+Jinja2
+python-multipart
+keyring
+
+# Dependencias del sistema (no instalables por pip):
+# - OpenSSH Client (incluye `ssh` y `ssh-keygen`)
+# La app intentará instalarlo automáticamente en Windows.
+# Si falla, instálalo manualmente:
+#   PowerShell (Administrador):
+#     Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+#   o con winget:
+#     winget install --id Microsoft.OpenSSH.Client -e --source winget
