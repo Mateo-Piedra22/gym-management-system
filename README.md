@@ -265,6 +265,26 @@ gym-management-system/
     └── dark_theme.qss               # Tema oscuro
 ```
 
+---
+
+## 🔧 Configuración de Base de Datos (Railway)
+
+- Edita la configuración desde el escritorio con `cdbconfig.py` (menú: Configuración de Base de Datos).
+- Campos configurables: `host`, `port`, `database`, `user`, `password`, `sslmode`, `connect_timeout`, `application_name`.
+- Usa los datos provistos por Railway Postgres:
+  - `host`: host de Railway (ej. `containers-us-west-xxx.railway.app`)
+  - `port`: puerto asignado por Railway
+  - `database`: comúnmente `railway`
+  - `user`: comúnmente `postgres`
+  - `sslmode`: recomienda `require`
+- La configuración se guarda en `config/config.json` y la contraseña en el almacén seguro del sistema (keyring). Opcionalmente, puedes guardar la contraseña en `config.json` como respaldo.
+- Nota: Las variables de entorno `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`, `DB_APPLICATION_NAME` tienen prioridad sobre `config.json`.
+
+### Comando de inicio web sugerido (Railway)
+
+- `python -m uvicorn webapp.server:app --host 0.0.0.0 --port ${PORT}`
+- Asegura que las variables de entorno de Railway Postgres estén disponibles (mapéalas a las variables `DB_*` si cambian de nombre).
+
 ### 🔒 **Seguridad y Confiabilidad**
 - **Encriptación de Datos**: Protección de información sensible
 - **Validación de Entrada**: Prevención de inyección SQL y XSS

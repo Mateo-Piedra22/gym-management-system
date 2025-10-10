@@ -2,6 +2,50 @@ import sys
 import os
 import logging
 import json
+"""
+Headless/Server guard for container environments (e.g., Railway):
+- Detects headless Linux or explicit HEADLESS flag and starts the FastAPI app
+  directly via uvicorn, avoiding any PyQt imports that require libGL.
+- Guarantees that running this file in a container will never crash due to
+  missing GUI libraries; it will serve the web app instead.
+"""
+
+def _is_headless_env() -> bool:
+    try:
+        # Explicit override
+        if os.getenv("HEADLESS") == "1":
+            return True
+        # Common container signals
+        if os.getenv("RAILWAY") or os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("PORT"):
+            # If running on Linux without a display, treat as headless
+            if sys.platform.startswith("linux") and not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+                return True
+        # Generic Linux headless detection
+        if sys.platform.startswith("linux") and not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+            return True
+    except Exception:
+        pass
+    return False
+
+if _is_headless_env():
+    try:
+        import uvicorn
+        host = os.getenv("HOST", os.getenv("WEBAPP_HOST", "0.0.0.0"))
+        # Railway passes PORT; default to 8003 if not present or invalid
+        port_str = os.getenv("PORT", "8003")
+        try:
+            port = int(port_str)
+        except Exception:
+            port = 8003
+        uvicorn.run("webapp.server:app", host=host, port=port, log_level=os.getenv("LOG_LEVEL", "info"))
+    except Exception as _e:
+        try:
+            logging.error(f"Headless startup failed: {_e}")
+        except Exception:
+            pass
+        raise SystemExit(1)
+    # If the server stops, exit cleanly
+    raise SystemExit(0)
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget,
     QHBoxLayout, QLabel, QPushButton, QMessageBox, QFrame, QSplitter,
