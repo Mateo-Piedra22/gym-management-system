@@ -28,22 +28,33 @@ def _is_headless_env() -> bool:
     return False
 
 if _is_headless_env():
+    # Robust headless startup: import app explicitly and fallback if import fails
+    import uvicorn
+    host = os.getenv("HOST", os.getenv("WEBAPP_HOST", "0.0.0.0"))
+    # Railway passes PORT; default to 8003 if not present or invalid
+    port_str = os.getenv("PORT", "8003")
     try:
-        import uvicorn
-        host = os.getenv("HOST", os.getenv("WEBAPP_HOST", "0.0.0.0"))
-        # Railway passes PORT; default to 8003 if not present or invalid
-        port_str = os.getenv("PORT", "8003")
+        port = int(port_str)
+    except Exception:
+        port = 8003
+    try:
+        # Attempt 1: import FastAPI app
+        from webapp.server import app as fastapi_app
+    except Exception as e:
+        # Fallback: disable proxy headers and retry to avoid ImportError
         try:
-            port = int(port_str)
-        except Exception:
-            port = 8003
-        uvicorn.run("webapp.server:app", host=host, port=port, log_level=os.getenv("LOG_LEVEL", "info"))
-    except Exception as _e:
-        try:
-            logging.error(f"Headless startup failed: {_e}")
+            os.environ["PROXY_HEADERS_ENABLED"] = "0"
         except Exception:
             pass
-        raise SystemExit(1)
+        try:
+            from webapp.server import app as fastapi_app
+        except Exception as e2:
+            try:
+                logging.error(f"Headless startup failed: {e2}")
+            except Exception:
+                pass
+            raise SystemExit(1)
+    uvicorn.run(fastapi_app, host=host, port=port, log_level=os.getenv("LOG_LEVEL", "info"))
     # If the server stops, exit cleanly
     raise SystemExit(0)
 from PyQt6.QtWidgets import (
