@@ -254,11 +254,21 @@ class MainWindow(QMainWindow):
             # Inicializar sistema de alertas
             self.setup_alert_system()
             
-            # MEJORA: Actualizar gráficos después de aplicar estilos
-            self._update_charts_branding(self.branding_config)
-            
-            # Inicializar contador de horas mensuales
-            self.update_monthly_hours()
+            # MEJORA: Aplazar tareas pesadas para evitar bloquear la UI
+            try:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda: self._update_charts_branding(self.branding_config))
+                QTimer.singleShot(200, self.update_monthly_hours)
+            except Exception:
+                # Fallback si QTimer falla: ejecutar de forma directa
+                try:
+                    self._update_charts_branding(self.branding_config)
+                except Exception:
+                    pass
+                try:
+                    self.update_monthly_hours()
+                except Exception:
+                    pass
             
             logging.info("Aplicación inicializada correctamente.")
         except Exception as e:
@@ -4262,15 +4272,13 @@ def main():
                     public_url = start_public_tunnel(local_port=port)
                 except Exception:
                     logging.warning("No se pudo resolver la URL pública automáticamente")
-                # Abrir navegador con el subdominio público usando HTTPS y con una pequeña espera
+                # Abrir navegador con la URL pública (no bloquear el hilo principal)
                 try:
                     import webbrowser
-                    import time
-                    time.sleep(5)
+                    from PyQt6.QtCore import QTimer
                     if public_url:
-                        webbrowser.open(public_url)
+                        QTimer.singleShot(0, lambda: webbrowser.open(public_url))
                         logging.info(f"Acceso público: {public_url}")
-                        # Sin contraseña de túnel: Railway no la requiere
                 except Exception:
                     pass
             else:
@@ -4324,16 +4332,37 @@ def main():
                     except Exception:
                         pass
 
-                # Activar monitor solo si la app está en marcha
-                sub = None
-                window.network_monitor = start_network_health_monitor(
-                    host=host,
-                    port=port,
-                    subdomain=sub,
-                    public_url=(public_url if get_public_tunnel_enabled() else None),
-                    restart_server_cb=_restart_server_cb,
-                    restart_tunnel_cb=_restart_tunnel_cb,
-                )
+                # Activar monitor solo si la app está en marcha, aplazado para no bloquear la UI
+                try:
+                    from PyQt6.QtCore import QTimer
+                    def _start_monitor():
+                        try:
+                            sub = None
+                            window.network_monitor = start_network_health_monitor(
+                                host=host,
+                                port=port,
+                                subdomain=sub,
+                                public_url=(public_url if get_public_tunnel_enabled() else None),
+                                restart_server_cb=_restart_server_cb,
+                                restart_tunnel_cb=_restart_tunnel_cb,
+                            )
+                        except Exception:
+                            pass
+                    QTimer.singleShot(0, _start_monitor)
+                except Exception:
+                    # Fallback si QTimer no está disponible
+                    try:
+                        sub = None
+                        window.network_monitor = start_network_health_monitor(
+                            host=host,
+                            port=port,
+                            subdomain=sub,
+                            public_url=(public_url if get_public_tunnel_enabled() else None),
+                            restart_server_cb=_restart_server_cb,
+                            restart_tunnel_cb=_restart_tunnel_cb,
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 logging.warning(f"No se pudo iniciar el monitor de salud de redes: {e}")
             # Registrar callback de reconexión del túnel (anti-spam dentro de server.py)
