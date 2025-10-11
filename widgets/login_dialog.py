@@ -10,7 +10,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QFont, QColor, QAction, QKeySequence, QS
 from typing import List, Optional, Dict
 from models import Usuario
 from database import DatabaseManager
-from utils import resource_path, get_public_tunnel_enabled, build_public_url, get_webapp_base_url
+from utils import resource_path, get_public_tunnel_enabled, get_webapp_base_url
 import uuid
 import socket
 try:

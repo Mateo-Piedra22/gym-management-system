@@ -2,7 +2,7 @@ import threading
 import time
 import logging
 from typing import Optional, Callable, Dict
-from utils import build_public_url, get_tunnel_provider, terminate_tunnel_processes
+from utils import get_tunnel_provider, terminate_tunnel_processes, get_webapp_base_url
 
 # HTTP client (requests) con fallback mínimo
 try:
@@ -130,16 +130,14 @@ class NetworkHealthMonitor:
                 # No romper el bucle de monitor por errores puntuales
                 pass
 
-            # Probar salud pública si hay URL o subdominio
+            # Probar salud pública si hay URL
             try:
-                if (self.public_url or self.subdomain) and (now - last_public_check >= self.check_interval_public):
+                if (self.public_url) and (now - last_public_check >= self.check_interval_public):
                     last_public_check = now
                     url_public = None
                     try:
                         if self.public_url:
                             url_public = (self.public_url.rstrip('/') + '/healthz')
-                        elif self.subdomain:
-                            url_public = build_public_url(self.subdomain, "/healthz")
                     except Exception:
                         url_public = None
                     if not url_public:
@@ -240,13 +238,11 @@ def test_networks_and_restart(
 
     # Salud pública
     try:
-        if public_url or subdomain:
+        if public_url:
             url_public = None
             try:
                 if public_url:
                     url_public = (public_url.rstrip('/') + '/healthz')
-                elif subdomain:
-                    url_public = build_public_url(subdomain, "/healthz")
             except Exception:
                 url_public = None
             if not url_public:
