@@ -2,7 +2,7 @@ import threading
 import time
 import logging
 from typing import Optional, Callable, Dict
-from utils import get_tunnel_provider, terminate_tunnel_processes, get_webapp_base_url
+from utils import terminate_tunnel_processes, get_webapp_base_url
 
 # HTTP client (requests) con fallback mínimo
 try:
