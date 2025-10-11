@@ -471,13 +471,13 @@ Para información sobre licenciamiento empresarial, contactar al equipo comercia
 
 
 python build_installer.py --mode onefile
-### 🌐 **Acceso Web y Túnel Público (LocalTunnel recomendado)**
+### 🌐 **Acceso Web Público (Railway recomendado)**
 - El servidor web se inicia automáticamente en `main.py` y en el lanzador web `GymMSW.py` usando `start_web_server`.
-- El túnel público se arranca automáticamente usando `start_public_tunnel` con el subdominio resuelto por `get_public_subdomain()`.
-- Proveedor único soportado: `localtunnel` (recomendado). Controla el proveedor con `TUNNEL_PROVIDER` y déjalo en `localtunnel`.
+- La URL pública ya no depende de LocalTunnel: se resuelve con `get_webapp_base_url()` (por defecto `https://gym-ms-zrk.up.railway.app`).
+- `start_public_tunnel` actúa como un no-op y retorna la URL pública configurada.
 - La URL pública se abre automáticamente en el navegador en `main.py` y se muestra en la ventana/tray de `GymMSW.py`.
 
-#### 🔧 Configuración del Subdominio
+#### 🔧 Configuración de URL Pública
 - Archivo `config/config.json` (preferido):
 ```
 {
@@ -488,40 +488,29 @@ python build_installer.py --mode onefile
   "sslmode": "prefer",
   "connect_timeout": 10,
   "application_name": "gym_management_system",
+  "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
   "public_tunnel": {
     "subdomain": "gym-ms-zrk",
-    "enabled": true
+    "enabled": false
   }
 }
 ```
-- Variables de entorno preferidas:
-  - `PUBLIC_TUNNEL_SUBDOMAIN="gym-ms-zrk"`
-  - `PUBLIC_TUNNEL_ENABLED=1|0`
-- Aliases legados soportados:
-  - `SERVEO_SUBDOMAIN="gym-ms-zrk"`
-  - `SERVEO_TUNNEL_ENABLED=1|0`
-- Proveedor de túnel: `TUNNEL_PROVIDER=localtunnel`.
+- Variables de entorno:
+  - `WEBAPP_BASE_URL=https://gym-ms-zrk.up.railway.app`
+  - `PUBLIC_TUNNEL_ENABLED=0` (recomendado en Railway)
 
 #### 🚀 Arranque y Uso
 - Desarrollo (aplicación completa): `python main.py`
-  - Inicia servidor web y túnel público automático.
-  - Abre el navegador en la URL pública detectada (p. ej., `https://gym-ms-zrk.loca.lt/`).
-- Si `public_tunnel.enabled` es `false` o `PUBLIC_TUNNEL_ENABLED=0`, no se abre túnel público.
+  - Inicia servidor web y resuelve URL pública con `get_webapp_base_url()`.
+  - Abre el navegador en la URL pública detectada (p. ej., `https://gym-ms-zrk.up.railway.app/`).
+- Si `public_tunnel.enabled` es `false` o `PUBLIC_TUNNEL_ENABLED=0`, se omiten intentos de túnel y se usa la URL de Railway.
 - Desarrollo (solo web launcher): `python GymMSW.py`
   - Inicia servidor web y muestra ventana/tray con enlaces local y público.
-  - Si el túnel público está deshabilitado, el enlace público mostrará "no disponible".
+  - Si el túnel público está deshabilitado, el enlace público se omite.
 
-#### 🔐 Contraseña del Túnel y Bypass del Recordatorio
-- LocalTunnel muestra una página de recordatorio para evitar abusos y pide una "Contraseña del túnel".
-- Esa contraseña es la IP pública del equipo que corre el cliente LocalTunnel. Puedes obtenerla desde el mismo equipo en:
-  - `https://loca.lt/mytunnelpassword`
-- El sistema la obtiene automáticamente y:
-  - La registra en logs al iniciar el túnel.
-  - La muestra en una notificación de bandeja y la copia al portapapeles.
-- También se expone el endpoint local `GET http://127.0.0.1:8000/tunnel/password` que devuelve `{ password, ok }`.
-- Bypass (solo para clientes controlados): si necesitas evitar la página de recordatorio en clientes no humanos, envía cualquiera de:
-  - Un header `bypass-tunnel-reminder: <cualquier valor>`.
-  - Un User-Agent no estándar.
+#### 🔐 Contraseñas y Recordatorios
+- En la configuración Railway no se requiere contraseña de túnel.
+- El endpoint `GET /tunnel/password` queda deshabilitado y retorna `{ password: null, ok: false }`.
   - Nota: navegadores estándar seguirán mostrando la página; comparte la contraseña con tus visitantes.
 
 ### 🛠️ **Construcción de Ejecutables**

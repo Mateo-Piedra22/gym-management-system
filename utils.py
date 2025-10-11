@@ -102,6 +102,43 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 
+# --- Webapp Base URL (Railway) ---
+def get_webapp_base_url(default: str = "https://gym-ms-zrk.up.railway.app") -> str:
+    """
+    Obtiene la URL base pública de la webapp.
+
+    Prioridad:
+    1) ENV `WEBAPP_BASE_URL`
+    2) config/config.json → `webapp_base_url` o `public_tunnel.base_url`
+    3) Default (dominio Railway proporcionado)
+    """
+    try:
+        env_url = os.getenv("WEBAPP_BASE_URL")
+        if env_url and env_url.strip():
+            return env_url.strip()
+        # Buscar en config.json
+        try:
+            cfg_path = resource_path("config/config.json")
+            if os.path.exists(cfg_path):
+                import json
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                # Nuevo campo dedicado
+                c_url = data.get("webapp_base_url")
+                if isinstance(c_url, str) and c_url.strip():
+                    return c_url.strip()
+                # Compatibilidad: permitir en public_tunnel.base_url
+                pt = data.get("public_tunnel")
+                if isinstance(pt, dict):
+                    c2 = pt.get("base_url")
+                    if isinstance(c2, str) and c2.strip():
+                        return c2.strip()
+        except Exception:
+            pass
+        return default
+    except Exception:
+        return default
+
 
 def collect_log_candidates(log_dir: str, retention_days: int):
     """Devuelve lista de candidatos de logs a eliminar como tuplas (path, mtime)."""
@@ -192,129 +229,25 @@ def delete_files(paths: list, progress=None):
     return deleted, errors
 
 
-# --- Gestión de túnel público: cierre de procesos al salir ---
+# --- Gestión de procesos de túnel público (deprecado, sin LocalTunnel) ---
 def terminate_serveo_tunnel_processes():
-    """
-    Alias legado: delega en terminate_tunnel_processes() para cerrar procesos de túnel público.
-    """
+    """Alias legado: redirige a terminate_tunnel_processes()."""
     try:
         return terminate_tunnel_processes()
     except Exception:
         pass
 
-def get_serveo_subdomain(default: str = "gym-ms-zrk") -> str:
-    """
-    Alias legado: retorna el subdominio público usando get_public_subdomain().
-    """
-    try:
-        return get_public_subdomain(default)
-    except Exception:
-        return default
-
-def get_public_subdomain(default: str = "gym-ms-zrk") -> str:
-    """
-    Obtiene el subdominio público utilizado por el túnel (LocalTunnel por defecto).
-    Prioridad: config/config.json (public_tunnel.subdomain) → ENV PUBLIC_TUNNEL_SUBDOMAIN → default.
-    """
-    try:
-        cfg_path = resource_path("config/config.json")
-        if os.path.exists(cfg_path):
-            try:
-                import json
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                pt = data.get("public_tunnel")
-                if isinstance(pt, dict):
-                    sub2 = pt.get("subdomain")
-                    if isinstance(sub2, str) and sub2.strip():
-                        return sub2.strip()
-            except Exception:
-                pass
-        env_sub = os.getenv("PUBLIC_TUNNEL_SUBDOMAIN")
-        if env_sub and env_sub.strip():
-            return env_sub.strip()
-        return default
-    except Exception:
-        return default
-
-# --- Proveedor de túnel y construcción de URL pública ---
-def get_tunnel_provider(default: str = "localtunnel") -> str:
-    """
-    Retorna el proveedor de túnel configurado mediante la variable de entorno `TUNNEL_PROVIDER`.
-    Valores recomendados: "localtunnel".
-    """
-    try:
-        p = os.getenv("TUNNEL_PROVIDER")
-        if isinstance(p, str) and p.strip():
-            return p.strip().lower()
-        return default
-    except Exception:
-        return default
-
-
-def get_localtunnel_password(timeout: float = 4.0) -> Optional[str]:
-    """
-    Obtiene la contraseña del túnel LocalTunnel (recordatorio) consultando
-    https://loca.lt/mytunnelpassword desde este equipo.
-
-    Retorna el texto de la contraseña (IP pública) o None si no se puede obtener.
-    """
-    try:
-        import requests  # type: ignore
-        try:
-            r = requests.get("https://loca.lt/mytunnelpassword", timeout=timeout)
-            if r.status_code == 200:
-                txt = str(r.text).strip()
-                return txt if txt else None
-        except Exception:
-            pass
-    except Exception:
-        # Fallback con urllib
-        try:
-            import urllib.request
-            with urllib.request.urlopen("https://loca.lt/mytunnelpassword", timeout=timeout) as resp:
-                data = resp.read().decode("utf-8").strip()
-                return data if data else None
-        except Exception:
-            pass
-    return None
-
-def build_public_url(subdomain: str, path: str = "/") -> str:
-    """
-    Construye una URL pública basada en el proveedor de túnel actual y el subdominio.
-
-    - localtunnel: https://<sub>.loca.lt/
-    - otros proveedores: devuelve cadena vacía si no soportan subdominio configurable
-    """
-    try:
-        provider = get_tunnel_provider()
-        base = ""
-        if provider == "localtunnel":
-            base = f"https://{subdomain}.loca.lt/"
-        if not base:
-            return ""
-        if path and not path.startswith("/"):
-            path = "/" + path
-        return (base.rstrip("/") + (path or "/"))
-    except Exception:
-        return ""
-
 def terminate_tunnel_processes():
     """
-    Termina procesos relacionados con el túnel público según el proveedor configurado.
-    - serveo: procesos ssh con 'serveo.net' en cmdline.
-    - localhost.run: procesos ssh con 'localhost.run' en cmdline.
-    - localtunnel: procesos 'node' o 'lt' con 'localtunnel' en cmdline.
+    Terminación genérica de procesos residuales de túneles (SSH),
+    manteniendo compatibilidad sin referencias a LocalTunnel.
     """
     try:
         import psutil  # type: ignore
     except Exception:
-        # Fallback: intentar taskkill en Windows
         try:
             if os.name == 'nt':
-                # Intentar terminar clientes comunes
                 os.system('taskkill /F /IM ssh.exe /T')
-                os.system('taskkill /F /IM node.exe /T')
             else:
                 os.system('pkill ssh || true')
         except Exception:
@@ -322,22 +255,14 @@ def terminate_tunnel_processes():
         return
 
     try:
-        provider = get_tunnel_provider()
         current_pid = os.getpid()
         for proc in psutil.process_iter(attrs=['pid', 'name', 'cmdline']):
             try:
-                name = (proc.info.get('name') or '').lower()
-                cmdline = ' '.join(proc.info.get('cmdline') or []).lower()
                 if proc.info.get('pid') == current_pid:
                     continue
-                kill = False
-                if provider == 'serveo':
-                    kill = (('ssh' in name) and ('serveo.net' in cmdline))
-                elif provider == 'localhost.run':
-                    kill = (('ssh' in name) and ('localhost.run' in cmdline))
-                elif provider == 'localtunnel':
-                    kill = (('node' in name or 'lt' in name) and ('localtunnel' in cmdline or 'loca.lt' in cmdline))
-                if kill:
+                name = (proc.info.get('name') or '').lower()
+                cmdline = ' '.join(proc.info.get('cmdline') or []).lower()
+                if ('ssh' in name) or ('ssh' in cmdline):
                     try:
                         proc.terminate()
                         proc.wait(timeout=2)
@@ -349,19 +274,14 @@ def terminate_tunnel_processes():
             except Exception:
                 continue
     except Exception:
-        # Último intento en Windows
         try:
             if os.name == 'nt':
                 os.system('taskkill /F /IM ssh.exe /T')
-                os.system('taskkill /F /IM node.exe /T')
         except Exception:
             pass
 
 def terminate_public_tunnel_processes():
-    """
-    Alias genérico para terminar procesos del túnel público.
-    Redirige a terminate_tunnel_processes(), compatible con LocalTunnel.
-    """
+    """Alias genérico para terminar procesos de túneles (compatibilidad)."""
     try:
         terminate_tunnel_processes()
     except Exception:

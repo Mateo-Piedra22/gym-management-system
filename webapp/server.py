@@ -51,6 +51,14 @@ try:
 except Exception:
     DEV_PASSWORD = None  # type: ignore
 
+# Base URL pública (Railway) sin túneles
+try:
+    from utils import get_webapp_base_url  # type: ignore
+except Exception:
+    def get_webapp_base_url(default: str = "https://gym-ms-zrk.up.railway.app") -> str:  # type: ignore
+        import os as _os
+        return _os.getenv("WEBAPP_BASE_URL", default).strip()
+
 # Utilidad para cerrar túneles públicos de forma segura
 try:
     from utils import terminate_tunnel_processes  # type: ignore
@@ -183,12 +191,12 @@ app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", 
 
 # Middlewares de producción (opcionales via ENV, cambios mínimos)
 try:
-    # Restringir hosts confiables si se especifica
+    # Restringir hosts confiables. Si no hay ENV, añadir dominio Railway por defecto
     th = os.getenv("TRUSTED_HOSTS", "").strip()
-    if th:
-        hosts = [h.strip() for h in th.split(",") if h.strip()]
-        if hosts:
-            app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
+    hosts = [h.strip() for h in th.split(",") if h.strip()] if th else []
+    if not hosts:
+        hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1"]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
         app.add_middleware(HTTPSRedirectMiddleware)
@@ -238,6 +246,15 @@ async def healthz():
     except Exception:
         # Fallback defensivo: responder 200 para evitar cascadas de reinicios
         return JSONResponse({"status": "ok"})
+
+# Endpoint para exponer la URL base pública (Railway)
+@app.get("/webapp/base_url")
+async def webapp_base_url():
+    try:
+        url = get_webapp_base_url()
+        return JSONResponse({"base_url": url})
+    except Exception:
+        return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
 # Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacío
 @app.get("/@vite/client")
@@ -407,11 +424,12 @@ def set_serveo_reconnect_callback(cb: Optional[Callable[[str], None]]):
     set_public_tunnel_reconnect_callback(cb)
 
 def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, on_reconnect: Optional[Callable[[str], None]] = None) -> Optional[str]:
-    """Inicia y supervisa un túnel público (LocalTunnel por defecto) con reconexión automática.
-
-    - Centrado en LocalTunnel (Node: 'lt' o 'npx localtunnel').
-    - Aplica reconexión con backoff y re-notificación controlada.
-    """
+    """No-op de túnel público: devuelve la URL Railway configurada."""
+    try:
+        url = get_webapp_base_url()
+        return url
+    except Exception:
+        pass
     try:
         import shutil, subprocess, os, threading, re, webbrowser, time, socket
 
@@ -742,19 +760,11 @@ async def root_selector(request: Request):
 
 @app.get("/tunnel/password")
 async def tunnel_password():
-    """Devuelve la contraseña (recordatorio) del túnel LocalTunnel.
+    """Endpoint legado deshabilitado.
 
-    Útil para compartir con visitantes que reciben el enlace público.
+    En configuración Railway no hay contraseña de túnel.
     """
-    try:
-        from utils import get_localtunnel_password  # type: ignore
-    except Exception:
-        return JSONResponse({"password": None, "ok": False})
-    try:
-        pw = get_localtunnel_password()
-        return JSONResponse({"password": pw, "ok": pw is not None})
-    except Exception:
-        return JSONResponse({"password": None, "ok": False})
+    return JSONResponse({"password": None, "ok": False})
 
 @app.get("/login")
 async def login_page_get(request: Request):

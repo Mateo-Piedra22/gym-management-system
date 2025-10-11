@@ -74,7 +74,7 @@ from PyQt6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QAction, QCloseEv
 # --- NUEVA IMPORTACIÓN ---
 from widgets.custom_style import CustomProxyStyle
 
-from utils import resource_path, terminate_tunnel_processes, get_public_subdomain, get_public_tunnel_enabled
+from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled
 from logger_config import setup_logging
 setup_logging()
 
@@ -873,7 +873,7 @@ class MainWindow(QMainWindow):
         try:
             host = getattr(self, 'web_host', os.getenv("WEBAPP_HOST", "127.0.0.1"))
             port = int(getattr(self, 'web_port', int(os.getenv("WEBAPP_PORT", "8000"))))
-            sub = getattr(self, 'public_subdomain', None)
+            public_url = getattr(self, 'public_url', None)
             # Preparar callbacks de reinicio seguros
             def _restart_server():
                 try:
@@ -885,14 +885,14 @@ class MainWindow(QMainWindow):
             def _restart_tunnel():
                 try:
                     from webapp.server import start_public_tunnel
-                    start_public_tunnel(subdomain=sub or get_public_subdomain(), local_port=port)
+                    start_public_tunnel(local_port=port)
                 except Exception:
                     pass
 
             res = test_networks_and_restart(
                 host=host,
                 port=port,
-                subdomain=sub or get_public_subdomain(),
+                public_url=public_url,
                 restart_server_cb=_restart_server,
                 restart_tunnel_cb=_restart_tunnel,
             )
@@ -4259,9 +4259,9 @@ def main():
             # Iniciar túnel público si está habilitado
             if get_public_tunnel_enabled():
                 try:
-                    public_url = start_public_tunnel(subdomain=get_public_subdomain(), local_port=port)
+                    public_url = start_public_tunnel(local_port=port)
                 except Exception:
-                    logging.warning("No se pudo iniciar el túnel público automáticamente")
+                    logging.warning("No se pudo resolver la URL pública automáticamente")
                 # Abrir navegador con el subdominio público usando HTTPS y con una pequeña espera
                 try:
                     import webbrowser
@@ -4270,14 +4270,7 @@ def main():
                     if public_url:
                         webbrowser.open(public_url)
                         logging.info(f"Acceso público: {public_url}")
-                        # Loguear contraseña del túnel (recordatorio LocalTunnel) para compartirla
-                        try:
-                            from utils import get_localtunnel_password
-                            pw = get_localtunnel_password()
-                            if pw:
-                                logging.info(f"Contraseña del túnel (LocalTunnel): {pw}")
-                        except Exception:
-                            pass
+                        # Sin contraseña de túnel: Railway no la requiere
                 except Exception:
                     pass
             else:
@@ -4311,7 +4304,10 @@ def main():
                 try:
                     window.web_host = host
                     window.web_port = port
-                    window.public_subdomain = get_public_subdomain()
+                    try:
+                        window.public_subdomain = None
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -4324,17 +4320,12 @@ def main():
 
                 def _restart_tunnel_cb():
                     try:
-                        return start_public_tunnel(subdomain=get_public_subdomain(), local_port=port)
+                        return start_public_tunnel(local_port=port)
                     except Exception:
                         pass
 
                 # Activar monitor solo si la app está en marcha
                 sub = None
-                try:
-                    if get_public_tunnel_enabled():
-                        sub = get_public_subdomain()
-                except Exception:
-                    sub = None
                 window.network_monitor = start_network_health_monitor(
                     host=host,
                     port=port,
@@ -4357,7 +4348,7 @@ def main():
                         def _show():
                             try:
                                 from widgets.server_status_toast import ServerStatusToast
-                                toast = ServerStatusToast(window, local_url=local_url, public_url=url, message="Túnel LocalTunnel reconectado")
+                                toast = ServerStatusToast(window, local_url=local_url, public_url=url, message="Conexión pública reconectada")
                                 toast.show_toast()
                             except Exception:
                                 pass

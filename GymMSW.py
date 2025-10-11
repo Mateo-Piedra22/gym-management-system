@@ -12,7 +12,7 @@ from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtCore import Qt
 
 # Utilidades del proyecto
-from utils import resource_path, terminate_tunnel_processes, get_gym_name, get_public_subdomain, get_public_tunnel_enabled
+from utils import resource_path, terminate_tunnel_processes, get_gym_name, get_public_tunnel_enabled
 
 # Gestor de base de datos para que la web pueda usar la misma instancia si es necesario
 from database import DatabaseManager
@@ -215,16 +215,16 @@ class WebIndicatorWindow(QWidget):
 
     def _test_and_restart_networks(self):
         try:
-            subdomain = None
+            public_url = None
             try:
                 if get_public_tunnel_enabled():
-                    subdomain = get_public_subdomain()
+                    public_url = self.public_url
             except Exception:
-                subdomain = None
+                public_url = None
             res = test_networks_and_restart(
                 host="127.0.0.1",
                 port=self.web_port,
-                subdomain=subdomain,
+                public_url=public_url,
                 restart_server_cb=(self._restart_server_cb or (lambda: None)),
                 restart_tunnel_cb=(self._restart_tunnel_cb or (lambda: None)),
             )
@@ -294,7 +294,7 @@ def main():
     public_url = None
     if get_public_tunnel_enabled():
         try:
-            public_url = start_public_tunnel(subdomain=get_public_subdomain(), local_port=port)
+            public_url = start_public_tunnel(local_port=port)
             if public_url:
                 logging.info(f"Acceso público: {public_url}")
         except Exception:
@@ -307,24 +307,7 @@ def main():
     win = WebIndicatorWindow(local_url=local_url, public_url=public_url, web_port=port)
     win.show()
 
-    # Mostrar contraseña del túnel (recordatorio LocalTunnel) y copiarla al portapapeles
-    try:
-        if public_url and get_public_tunnel_enabled():
-            from utils import get_localtunnel_password
-            pw = get_localtunnel_password()
-            if pw:
-                try:
-                    from PyQt6.QtGui import QGuiApplication
-                    QGuiApplication.clipboard().setText(pw)
-                except Exception:
-                    pass
-                try:
-                    if hasattr(win, 'tray'):
-                        win.tray.showMessage("Contraseña del túnel", f"{pw} (copiada al portapapeles)")
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # Sin contraseña de túnel: Railway no requiere credenciales de acceso públicas
 
     # Mostrar toast de estado del servidor (top-centro)
     try:
@@ -344,22 +327,8 @@ def main():
                 def _show():
                     try:
                         from widgets.server_status_toast import ServerStatusToast
-                        toast = ServerStatusToast(win, local_url=local_url, public_url=url, message="Túnel LocalTunnel reconectado")
+                        toast = ServerStatusToast(win, local_url=local_url, public_url=url, message="Conexión pública reconectada")
                         toast.show_toast()
-                        # También actualizar y mostrar contraseña del túnel
-                        try:
-                            from utils import get_localtunnel_password
-                            pw = get_localtunnel_password()
-                            if pw:
-                                try:
-                                    from PyQt6.QtGui import QGuiApplication
-                                    QGuiApplication.clipboard().setText(pw)
-                                except Exception:
-                                    pass
-                                if hasattr(win, 'tray'):
-                                    win.tray.showMessage("Contraseña del túnel", f"{pw} (copiada al portapapeles)")
-                        except Exception:
-                            pass
                     except Exception:
                         pass
                 QTimer.singleShot(0, _show)
@@ -373,11 +342,11 @@ def main():
     try:
         # Definir callbacks específicos para reinicio
         win._restart_server_cb = lambda: start_web_server(db_manager=db, host=host, port=port)
-        win._restart_tunnel_cb = lambda: start_public_tunnel(subdomain=get_public_subdomain(), local_port=port)
+        win._restart_tunnel_cb = lambda: start_public_tunnel(local_port=port)
         monitor = start_network_health_monitor(
             host="127.0.0.1",
             port=port,
-            subdomain=(get_public_subdomain() if get_public_tunnel_enabled() else None),
+            subdomain=None,
             public_url=(public_url if get_public_tunnel_enabled() else None),
             restart_server_cb=win._restart_server_cb,
             restart_tunnel_cb=win._restart_tunnel_cb,

@@ -10,7 +10,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QFont, QColor, QAction, QKeySequence, QS
 from typing import List, Optional, Dict
 from models import Usuario
 from database import DatabaseManager
-from utils import resource_path, get_public_subdomain, get_public_tunnel_enabled, build_public_url
+from utils import resource_path, get_public_tunnel_enabled, build_public_url, get_webapp_base_url
 import uuid
 import socket
 try:
@@ -220,13 +220,18 @@ class LoginDialog(QDialog):
             web_icon_button.setAutoRaise(True)
             if get_public_tunnel_enabled():
                 web_icon_button.setToolTip("Abrir Dashboard Web (público)")
+                # Abrir directamente la URL pública configurada (Railway)
+                web_icon_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(get_webapp_base_url())))
             else:
                 web_icon_button.setEnabled(False)
                 web_icon_button.setToolTip("Túnel público deshabilitado por configuración")
-            web_icon_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(build_public_url(get_public_subdomain()))))
             owner_layout.addWidget(web_icon_button, 0, Qt.AlignmentFlag.AlignLeft)
         except Exception:
-            pass
+            # Fallback: crear botón deshabilitado si ocurre un error
+            web_icon_button = QToolButton()
+            web_icon_button.setEnabled(False)
+            web_icon_button.setToolTip("Icono web no disponible")
+            owner_layout.addWidget(web_icon_button, 0, Qt.AlignmentFlag.AlignLeft)
 
         # Pestaña de Profesor
         profesor_widget = QWidget()

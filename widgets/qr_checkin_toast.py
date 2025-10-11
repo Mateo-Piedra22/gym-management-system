@@ -207,9 +207,9 @@ class QRCheckinToast(QDialog):
             import os, json
             from pathlib import Path
             try:
-                from utils import build_public_url
+                from utils import get_webapp_base_url
             except Exception:
-                build_public_url = None
+                get_webapp_base_url = None
             env_base = os.getenv("WEBAPP_BASE_URL", "").strip()
             if env_base:
                 self._resolved_base_url = env_base
@@ -219,20 +219,16 @@ class QRCheckinToast(QDialog):
             if cfg_path.exists():
                 with open(cfg_path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f) or {}
-                public = cfg.get('public_tunnel', {}) or {}
-                enabled = bool(public.get('enabled'))
-                sub = str(public.get('subdomain', '')).strip()
-                if enabled and sub:
-                    candidate = None
+                # Preferir configuración explícita de URL base del webapp
+                candidate = str(cfg.get('webapp_base_url', '')).strip()
+                # Si no hay configuración, intentar obtenerla desde utils
+                if not candidate and get_webapp_base_url:
                     try:
-                        if build_public_url:
-                            candidate = build_public_url(sub)
+                        candidate = get_webapp_base_url()
                     except Exception:
                         candidate = None
-                    if not candidate:
-                        # Enfoque 100% LocalTunnel: usar .loca.lt como fallback
-                        candidate = f"https://{sub}.loca.lt"
-                    # Priorizar el túnel público: establecer y devolver inmediatamente
+                if candidate:
+                    # Establecer y devolver inmediatamente
                     self._resolved_base_url = candidate
                     # Validación ligera opcional (no bloqueante del retorno)
                     try:
