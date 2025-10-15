@@ -27,7 +27,11 @@ def _ensure_server_base_url_in_cfg(setup_module, cfg: dict) -> dict:
     cfg_path = base_dir / "config" / "config.json"
     server_env = os.getenv("SERVER_BASE_URL", "").strip()
     server_default = "https://gym-ms-zrk.up.railway.app"
-    server_url = (server_env or cfg.get("server_base_url") or server_default).strip().rstrip('/')
+    server_url = (server_env or cfg.get("server_base_url") or server_default).strip()
+    # Normalizar esquema: anteponer https:// si falta
+    if server_url and not (server_url.startswith("http://") or server_url.startswith("https://")):
+        server_url = "https://" + server_url
+    server_url = server_url.rstrip('/')
     cfg["server_base_url"] = server_url
     try:
         cfg_path.parent.mkdir(parents=True, exist_ok=True)
