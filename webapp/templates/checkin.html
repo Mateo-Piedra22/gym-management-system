@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Check-in | {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    /* Igualar estilos con login.html y CSS global */
+    .screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: 100%; max-width: 420px; padding: 24px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom: 16px; }
+    .brand .brand-actions { margin-left:auto; display:flex; align-items:center; }
+    .brand img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 20px; }
+    .muted { color: var(--muted); }
+    /* Igualar separación título/subtítulo como login.html */
+    .brand .muted { margin: 2px 0 0 0; line-height: 1.3; }
+    label { display:block; margin-bottom: 8px; color: var(--muted); }
+    input { width: 100%; padding: 12px 14px; border-radius: 12px; border:1px solid var(--border); background: #0b1220; color: var(--text); }
+    .row { display:flex; gap:8px; align-items:center; position: relative; }
+    .prefix { padding: 12px 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; color: var(--muted); cursor: pointer; }
+    .country-select { position: absolute; top: 100%; left: 0; margin-top: 6px; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 8px; z-index: 1000; }
+    .actions { margin-top: 16px; display:flex; gap: 8px; }
+    .actions .btn { flex: 1; }
+    .msg { margin-top: 10px; padding: 10px; border-radius: 8px; }
+    .msg.ok { background: #163e24; color: #9be7b2; }
+    .msg.err { background: #3a1212; color: #f4aaaa; }
+    .scanner { margin-top: 16px; }
+  </style>
+</head>
+<body data-autenticado="{{ 'true' if autenticado else 'false' }}">
+  <main class="screen">
+    <section class="login-card">
+      <div class="brand">
+        <img src="{{ logo_url }}" alt="Logo" />
+        <div>
+          <h1>{{ gym_name }}</h1>
+          <p class="muted">Check-in de socios</p>
+        </div>
+        <div class="brand-actions" style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+          {% if not autenticado %}
+          <a href="/" class="back-link icon-only" title="Volver al inicio" aria-label="Volver al inicio">
+            <img src="/assets/salir.png" alt="Salir" />
+          </a>
+          {% endif %}
+          {% if autenticado %}
+          <a href="/checkin/logout" class="btn secondary" title="Cerrar sesión de check-in">Salir</a>
+          {% endif %}
+        </div>
+      </div>
+      {% if not autenticado %}
+      <p>Ingresá tus datos para habilitar el lector de QR.</p>
+      <form id="auth-form">
+        <label for="dni">DNI</label>
+        <input id="dni" name="dni" inputmode="numeric" autocomplete="off" placeholder="Solo números" />
+        <label for="tel">Teléfono</label>
+        <div class="row">
+          <button type="button" id="country-prefix" class="prefix" aria-haspopup="listbox" aria-expanded="false">+54</button>
+          <input id="tel" name="telefono" inputmode="numeric" autocomplete="off" placeholder="Ej: 3434473599" />
+          <select id="country-select" class="country-select" aria-label="Seleccionar país" style="display:none">
+            <option value="+54" selected>Argentina (+54)</option>
+            <option value="+598">Uruguay (+598)</option>
+            <option value="+56">Chile (+56)</option>
+            <option value="+595">Paraguay (+595)</option>
+            <option value="+55">Brasil (+55)</option>
+            <option value="+1">Estados Unidos (+1)</option>
+            <option value="+34">España (+34)</option>
+          </select>
+        </div>
+        <div class="muted" style="font-size:12px;">Elegí el prefijo. Ingresá solo dígitos.</div>
+        <div class="actions">
+          <button class="btn" type="submit">Continuar</button>
+        </div>
+        <div id="auth-msg" class="msg" style="display:none"></div>
+      </form>
+      {% else %}
+      <p>Escaneá el QR en la pantalla.</p>
+      <div id="reader" class="scanner"></div>
+      <div id="scan-msg" class="msg" style="display:none"></div>
+      <div class="actions">
+        <button class="btn secondary" id="restart-btn" type="button" style="display:none">Volver a escanear</button>
+      </div>
+      {% endif %}
+    </div>
+    </section>
+  </main>
+
+  <script>
+    // Cargador resiliente de la librería del lector QR para evitar ORB
+    async function loadHtml5QrCode() {
+      const urls = [
+        '/static/libs/html5-qrcode.min.js',
+        'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/dist/html5-qrcode.min.js',
+        'https://unpkg.com/html5-qrcode@2.3.8/dist/html5-qrcode.min.js'
+      ];
+      for (const u of urls) {
+        try {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = u;
+            s.crossOrigin = '';
+            s.referrerPolicy = 'strict-origin-when-cross-origin';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+          return true;
+        } catch (e) {
+          // Continúa con el siguiente URL
+        }
+      }
+      return false;
+    }
+  </script>
+  <script>
+    // Leer estado desde atributo de datos en <body> para evitar errores del linter
+    const autenticado = (document.body.dataset.autenticado === 'true');
+
+    function onlyDigits(s) { return (s||'').replace(/\D+/g, ''); }
+
+    async function postJSON(url, payload) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      });
+      const data = await res.json().catch(() => ({ success:false, message:'Error inesperado' }));
+      return { ok: res.ok, data };
+    }
+
+    if (!autenticado) {
+      const form = document.getElementById('auth-form');
+      const msg = document.getElementById('auth-msg');
+      // Prefill desde localStorage y ofrecer botón de uso rápido
+      try {
+        const saved = window.localStorage.getItem('checkin_saved_user');
+        if (saved && form) {
+          const u = JSON.parse(saved);
+          const dniInput = document.getElementById('dni');
+          const telInput = document.getElementById('tel');
+          if (dniInput && u.dni) dniInput.value = u.dni;
+          if (telInput && u.telefono) telInput.value = u.telefono;
+          const actions = form.querySelector('.actions');
+          if (actions && u.dni && u.telefono) {
+            const useBtn = document.createElement('button');
+            useBtn.className = 'btn secondary';
+            useBtn.type = 'button';
+            useBtn.textContent = 'Usar guardado';
+            useBtn.style.marginLeft = '8px';
+            useBtn.addEventListener('click', async () => {
+              msg.style.display = 'none';
+              msg.className = 'msg';
+              const { data } = await postJSON('/checkin/auth', { dni: u.dni, telefono: u.telefono });
+              msg.textContent = data.message || (data.success ? 'Autenticado' : 'Credenciales inválidas');
+              msg.className = 'msg ' + (data.success ? 'ok' : 'err');
+              msg.style.display = 'block';
+              if (data.success) {
+                try { window.localStorage.setItem('checkin_saved_user', JSON.stringify({ dni: u.dni, telefono: u.telefono, usuario_id: data.usuario_id || null })); } catch {}
+                setTimeout(() => { window.location.href = '/checkin'; }, 500);
+              }
+            });
+            actions.appendChild(useBtn);
+          }
+        }
+      } catch {}
+      form && form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const dni = onlyDigits(document.getElementById('dni').value);
+        const tel = onlyDigits(document.getElementById('tel').value);
+        msg.style.display = 'none';
+        msg.className = 'msg';
+        if (!dni || !tel) {
+          msg.textContent = 'Ingrese DNI y teléfono válidos';
+          msg.classList.add('err');
+          msg.style.display = 'block';
+          return;
+        }
+        const { data } = await postJSON('/checkin/auth', { dni, telefono: tel });
+        msg.textContent = data.message || (data.success ? 'Autenticado' : 'Credenciales inválidas');
+        msg.className = 'msg ' + (data.success ? 'ok' : 'err');
+        msg.style.display = 'block';
+        if (data.success) {
+          // Persistir sesión mínima para reuso futuro
+          try { window.localStorage.setItem('checkin_saved_user', JSON.stringify({ dni, telefono: tel, usuario_id: data.usuario_id || null })); } catch {}
+          setTimeout(() => { window.location.href = '/checkin'; }, 600);
+        }
+      });
+
+      // Selector de país para el prefijo telefónico (funcional)
+      const countryPrefixBtn = document.getElementById('country-prefix');
+      const countrySelect = document.getElementById('country-select');
+      if (countryPrefixBtn && countrySelect) {
+        countryPrefixBtn.addEventListener('click', () => {
+          const expanded = countryPrefixBtn.getAttribute('aria-expanded') === 'true';
+          countryPrefixBtn.setAttribute('aria-expanded', (!expanded).toString());
+          countrySelect.style.display = expanded ? 'none' : 'block';
+          if (!expanded) countrySelect.focus();
+        });
+        countrySelect.addEventListener('change', (e) => {
+          const code = e.target.value || '+54';
+          countryPrefixBtn.textContent = code;
+          countrySelect.style.display = 'none';
+          countryPrefixBtn.setAttribute('aria-expanded', 'false');
+        });
+        countrySelect.addEventListener('blur', () => {
+          countrySelect.style.display = 'none';
+          countryPrefixBtn.setAttribute('aria-expanded', 'false');
+        });
+      }
+    } else {
+      const readerEl = document.getElementById('reader');
+      const msg = document.getElementById('scan-msg');
+      const restartBtn = document.getElementById('restart-btn');
+
+      let html5QrCode = null;
+      let statusInterval = null;
+      let currentToken = null;
+
+      function stopStatusPolling() {
+        try { if (statusInterval) { clearInterval(statusInterval); statusInterval = null; } } catch {}
+      }
+
+      function startStatusPolling(token) {
+        stopStatusPolling();
+        currentToken = (token || '').trim();
+        if (!currentToken) return;
+        // Polling liviano del estado del token; se detiene INMEDIATAMENTE al ver used=true
+        statusInterval = setInterval(async () => {
+          try {
+            const res = await fetch('/api/checkin/token_status?token=' + encodeURIComponent(currentToken), { credentials: 'same-origin' });
+            const data = await res.json().catch(() => ({}));
+            const used = !!(data && data.used);
+            const expired = !!(data && data.expired);
+            const exists = (data && (data.exists === undefined ? true : !!data.exists));
+            if (used || expired || !exists) {
+              stopStatusPolling();
+              // Feedback rápido en la UI
+              try {
+                msg.textContent = used ? 'Asistencia confirmada' : (expired ? 'Token expirado' : 'Token procesado');
+                msg.className = 'msg ' + (used ? 'ok' : (expired ? 'err' : ''));
+                msg.style.display = 'block';
+              } catch {}
+            }
+          } catch {}
+        }, 2000);
+      }
+
+      window.addEventListener('beforeunload', stopStatusPolling);
+      async function ensureLibLoaded() {
+        if (window.Html5Qrcode) return true;
+        const loaded = await loadHtml5QrCode();
+        if (!loaded) {
+          msg.textContent = 'No se pudo cargar el lector QR. Pegá el token manualmente.';
+          msg.className = 'msg err';
+          msg.style.display = 'block';
+        }
+        return loaded;
+      }
+      async function startScanner() {
+        try {
+          if (!(await ensureLibLoaded())) return;
+          // Preferir cámara trasera
+          const config = { fps: 10, qrbox: 250, aspectRatio: 1.0, rememberLastUsedCamera: true }; 
+          html5QrCode = new Html5Qrcode('reader');
+          await html5QrCode.start({ facingMode: 'environment' }, config, onScanSuccess);
+          msg.style.display = 'none';
+          restartBtn.style.display = 'none';
+        } catch (e) {
+          msg.textContent = 'No se pudo iniciar la cámara: ' + (e && e.message ? e.message : e);
+          msg.className = 'msg err';
+          msg.style.display = 'block';
+        }
+      }
+
+      async function stopScanner() {
+        try {
+          if (html5QrCode) { await html5QrCode.stop(); await html5QrCode.clear(); }
+        } catch {}
+      }
+
+      async function onScanSuccess(decodedText) {
+        // El QR contiene solo el token
+        await stopScanner();
+        msg.textContent = 'Validando token…';
+        msg.className = 'msg';
+        msg.style.display = 'block';
+        const token = (decodedText||'').trim();
+        const { data } = await postJSON('/api/checkin/validate', { token });
+        msg.textContent = data.message || (data.success ? 'Asistencia registrada' : 'Token inválido, expirado o no coincide');
+        msg.className = 'msg ' + (data.success ? 'ok' : 'err');
+        msg.style.display = 'block';
+        restartBtn.style.display = 'block';
+        // Iniciar polling y detenerse apenas se confirme used=true
+        if (data && data.success) startStatusPolling(token); else stopStatusPolling();
+      }
+
+      function onScanFailure(error) {
+        // Ignorar errores de frame
+      }
+
+      restartBtn && restartBtn.addEventListener('click', async () => {
+        msg.style.display = 'none';
+        stopStatusPolling();
+        await startScanner();
+      });
+
+      // Paso opcional: añadir UI de validación manual de token
+      const manualDiv = document.createElement('div');
+      manualDiv.className = 'manual';
+      manualDiv.style.marginTop = '12px';
+      manualDiv.innerHTML = `
+        <label for="manual-token">Ingresar token manualmente (opcional)</label>
+        <input id="manual-token" autocomplete="off" placeholder="Pegar token si no podés escanear" />
+        <div class="actions" style="margin-top:8px; align-items:center;">
+          <button id="manual-validate-btn" class="btn" type="button">Validar token</button>
+          {% if socio and socio.nombre %}
+          <span class="muted" style="font-size:12px;">Autenticado: {{ socio.nombre }}{% if socio.dni %} • DNI {{ socio.dni }}{% endif %}{% if socio.telefono_mask %} • Tel: {{ socio.telefono_mask }}{% endif %}{% if socio.tipo_cuota %} • {{ socio.tipo_cuota }}{% endif %}</span>
+          {% endif %}
+        </div>
+      `;
+      readerEl && readerEl.parentNode && readerEl.parentNode.appendChild(manualDiv);
+
+      const manualInput = document.getElementById('manual-token');
+      const manualBtn = document.getElementById('manual-validate-btn');
+      manualBtn && manualBtn.addEventListener('click', async () => {
+        const token = (manualInput && manualInput.value ? manualInput.value : '').trim();
+        if (!token) {
+          msg.textContent = 'Ingrese un token válido';
+          msg.className = 'msg err';
+          msg.style.display = 'block';
+          return;
+        }
+        const { data } = await postJSON('/api/checkin/validate', { token });
+        msg.textContent = data.message || (data.success ? 'Asistencia registrada' : 'Token inválido, expirado o no coincide');
+        msg.className = 'msg ' + (data.success ? 'ok' : 'err');
+        msg.style.display = 'block';
+        if (data && data.success) startStatusPolling(token); else stopStatusPolling();
+      });
+
+      startScanner();
+    }
+  </script>
+</body>
+</html>

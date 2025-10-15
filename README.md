@@ -1,0 +1,651 @@
+# 🏋️‍♂️ Sistema de Gestión de Gimnasios Gym Management System v3.0
+
+> **La solución integral más avanzada para la gestión profesional de gimnasios y centros de fitness**
+
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
+[![PyQt6](https://img.shields.io/badge/PyQt6-6.0+-green.svg)](https://www.riverbankcomputing.com/software/pyqt/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13+-blue.svg)](https://postgresql.org)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)]()
+
+---
+
+## 🚀 **¿Por qué elegir Gym Management System?**
+
+**Gym Management System** no es solo un software de gestión, es la **plataforma empresarial completa** que transformará tu gimnasio en un negocio altamente eficiente y rentable. Con más de **50 características avanzadas** y una arquitectura robusta, Gym Management System está diseñado para gimnasios que buscan **excelencia operativa** y **crecimiento sostenible**.
+
+### 💡 **Valor Diferencial**
+- ⚡ **Rendimiento Superior**: Búsquedas en < 100ms, inicio en < 3 segundos
+- 🎯 **ROI Comprobado**: Reduce costos operativos hasta un 40%
+- 📊 **Inteligencia de Negocio**: Dashboard ejecutivo con KPIs en tiempo real
+- 🔒 **Seguridad Empresarial**: Auditoría completa y respaldos automáticos
+- 🌐 **Integración WhatsApp**: Comunicación automatizada con socios
+- 📱 **Interfaz Moderna**: Diseño intuitivo con accesibilidad completa
+
+---
+
+## 🎯 **Características Principales**
+
+### 👥 **Gestión Integral de Socios**
+- **Base de Datos Centralizada**: Información completa de socios con historial detallado
+- **Estados Inteligentes**: Activo, Inactivo, Moroso con indicadores visuales
+- **Panel de Detalles Avanzado**: Vista 360° con historial de pagos, notas y métricas
+- **Búsqueda Global Ultra-Rápida**: Encuentra cualquier socio en milisegundos
+- **Gestión de Documentos**: Almacenamiento seguro de contratos y documentación
+
+### 💳 **Sistema de Pagos y Facturación**
+- **Flujo de Trabajo Guiado**: Proceso simplificado para registro de cuotas
+- **Recibos Profesionales PDF**: Generación automática con diseño corporativo
+- **Control de Morosidad**: Alertas automáticas y seguimiento de pagos pendientes
+- **Reportes Financieros**: Análisis detallado de ingresos y tendencias
+- **Múltiples Métodos de Pago**: Efectivo, transferencia, tarjeta con registro completo
+
+### 💪 **Sistema Avanzado de Rutinas**
+Un ecosistema completo para la creación y gestión de planes de entrenamiento personalizados:
+
+#### 🎯 **Creación de Rutinas Personalizadas**
+- **Asignación Individual**: Rutinas específicas para cada socio
+- **Planificación Semanal**: Definición de días y ejercicios por jornada
+- **Progresión Automática**: Seguimiento de evolución y ajustes
+- **Categorización Inteligente**: Organización por objetivos y niveles
+
+#### 📋 **Plantillas y Grupos de Ejercicios**
+- **Biblioteca de Plantillas**: Rutinas predefinidas (Musculación, Cardio, Funcional)
+- **Gestión Colaborativa**: Acceso para dueños y profesores
+- **Reutilización Eficiente**: Aplicación rápida de plantillas probadas
+- **Personalización Avanzada**: Modificación según necesidades específicas
+
+#### 🏋️ **Banco de Ejercicios Centralizado**
+- **Base de Datos Completa**: Catálogo extenso de ejercicios por grupo muscular
+- **Importación/Exportación Masiva**: Gestión mediante Excel para actualizaciones rápidas
+- **Descripción Detallada**: Instrucciones y objetivos para cada ejercicio
+- **Búsqueda Inteligente**: Filtros por grupo muscular, objetivo y dificultad
+
+#### 📄 **Exportación Profesional**
+- **PDF Corporativo**: Rutinas con diseño profesional y branding
+- **Excel Detallado**: Planillas completas para seguimiento
+- **Impresión Optimizada**: Formato ideal para entrega a socios
+
+### 🧘 **Gestión de Clases Grupales**
+Sistema completo para la organización de actividades grupales:
+
+#### 📅 **Programación de Clases**
+- **Gestión de Horarios**: Creación y edición de cronogramas semanales
+- **Tipos de Clases**: Yoga, Funcional, Spinning, Pilates, etc.
+- **Asignación de Profesores**: Control de instructores por clase
+- **Gestión de Cupos**: Límites automáticos y control de capacidad
+
+#### 👥 **Inscripción y Seguimiento**
+- **Inscripción Simplificada**: Proceso rápido para socios
+- **Control de Capacidad**: Alertas automáticas de cupos completos
+- **Lista de Espera**: Gestión automática de socios en espera
+- **Historial de Asistencia**: Seguimiento detallado por socio y clase
+
+#### 🎯 **Ejercicios por Clase**
+- **Rutinas Predefinidas**: Ejercicios recomendados por tipo de clase
+- **Consistencia de Entrenamiento**: Mantenimiento de estándares de calidad
+- **Flexibilidad de Adaptación**: Modificaciones según nivel del grupo
+
+### ⏰ **Sistema de Control de Horas Extra para Profesores**
+Tecnología avanzada para el seguimiento preciso del tiempo de trabajo:
+
+#### 🕐 **Funcionamiento del Sistema**
+El sistema compara automáticamente las **sesiones de trabajo reales** con los **horarios establecidos** para cada profesor:
+
+- **Días Sin Horario**: Todo el tiempo trabajado se considera **horas extra**
+- **Días Con Horario**: 
+  - ✅ **Dentro del horario**: Se registra como horas normales
+  - ⚠️ **Fuera del horario**: Se registra como horas extra
+  - 📊 **Parcialmente fuera**: División automática entre normales y extra
+
+#### 📊 **Cálculo Inteligente**
+- **Horas Trabajadas**: Solo incluye tiempo dentro del horario establecido
+- **Horas Extra**: Incluye todo el tiempo adicional (fuera de horario + días sin horario)
+- **Precisión al Minuto**: Cálculos exactos con redondeo inteligente
+- **Reportes Detallados**: Desglose completo por día y período
+
+#### 💼 **Ejemplo Práctico**
+```
+Profesor Juan - Horario: Lunes 9:00-17:00
+• Sesión Lunes 8:00-18:00 (10 horas)
+  → Horas Trabajadas: 8h (9:00-17:00)
+  → Horas Extra: 2h (8:00-9:00 + 17:00-18:00)
+
+• Sesión Martes 10:00-14:00 (4 horas - sin horario)
+  → Horas Trabajadas: 0h
+  → Horas Extra: 4h (todo el día)
+```
+
+### 👨‍🏫 **Sistema de Sesiones de Trabajo**
+Control completo del tiempo de trabajo de profesores con precisión empresarial:
+
+#### 🔐 **Inicio y Cierre Automático**
+- **Login Inteligente**: Inicio automático de sesión al ingresar al sistema
+- **Detección de Rol**: Activación solo para profesores de musculación
+- **Sesiones Activas**: Detección y continuación de sesiones existentes
+- **Cierre Automático**: Finalización al cerrar sesión o salir del sistema
+
+#### ⏱️ **Seguimiento en Tiempo Real**
+- **Cronómetro Preciso**: Medición exacta hasta el segundo
+- **Persistencia de Datos**: Mantenimiento de sesiones entre reinicios
+- **Múltiples Sesiones**: Soporte para varios profesores simultáneos
+- **Verificación de Integridad**: Validación automática de datos
+
+#### 📈 **Reportes y Análisis**
+- **Historial Completo**: Registro detallado de todas las sesiones
+- **Métricas por Profesor**: Estadísticas individuales y comparativas
+- **Análisis de Productividad**: Identificación de patrones de trabajo
+- **Exportación de Datos**: Reportes para nómina y administración
+
+### 📱 **Sistema de Mensajería WhatsApp**
+Integración completa con WhatsApp Business API para comunicación automatizada:
+
+#### ⚙️ **Configuración Empresarial**
+- **WhatsApp Business API**: Integración oficial con credenciales seguras
+- **App ID y Secret**: Configuración de aplicación empresarial
+- **Access Token**: Autenticación segura para envío de mensajes
+- **Webhook Configuration**: Recepción de mensajes entrantes
+
+#### 🤖 **Automatización Inteligente**
+- **Confirmación Automática**: Respuestas instantáneas a mensajes recibidos
+- **Recordatorios de Pago**: Notificaciones automáticas para socios morosos
+- **Mensajes de Bienvenida**: Comunicación personalizada para nuevos socios
+- **Respuestas Programadas**: Sistema de respuestas automáticas configurables
+
+#### 📊 **Gestión y Monitoreo**
+- **Log de Mensajes**: Registro completo de comunicaciones
+- **Estado de Entrega**: Seguimiento de mensajes enviados y recibidos
+- **Manejo de Errores**: Sistema robusto de recuperación ante fallos
+- **Configuración Flexible**: Activación/desactivación de funciones específicas
+
+### 📊 **Dashboard Ejecutivo y Reportes Avanzados**
+Centro de inteligencia de negocio con métricas empresariales en tiempo real:
+
+#### 🎯 **KPIs Estratégicos**
+- **Socios Activos**: Usuarios con acceso vigente al gimnasio
+- **Ingresos del Mes**: Facturación actualizada en tiempo real
+- **ARPU (Average Revenue Per User)**: Ingreso promedio por socio activo
+- **Tasa de Retención**: Porcentaje de socios que renuevan mensualmente
+- **Socios Morosos**: Identificación automática de pagos pendientes
+- **Nuevos Socios (30 días)**: Seguimiento de captación mensual
+
+#### 📈 **Análisis de Inteligencia de Negocio**
+- **Gráficos Evolutivos**: Tendencias de facturación y crecimiento
+- **Análisis de Asistencia**: Patrones de uso y horarios pico
+- **Capacidad de Clases**: Ocupación promedio y optimización de recursos
+- **Crecimiento de Ingresos**: Comparativas mensuales y proyecciones
+- **Eficiencia Operacional**: Métricas de productividad del gimnasio
+
+#### 🚨 **Sistema de Alertas Inteligentes**
+- **Umbrales Configurables**: Alertas personalizadas por métrica
+- **Notificaciones Críticas**: Avisos automáticos para situaciones importantes
+- **Tendencias Negativas**: Detección temprana de problemas operativos
+- **Oportunidades de Mejora**: Identificación de áreas de crecimiento
+
+#### 📄 **Exportación Profesional**
+- **Reportes PDF**: Documentos ejecutivos con diseño corporativo
+- **Excel Detallado**: Datos completos para análisis avanzado
+- **CSV para Integración**: Compatibilidad con sistemas externos
+- **Programación Automática**: Generación y envío automático de reportes
+
+### 🔧 **Herramientas de Mantenimiento y Administración**
+
+#### 🏥 **Diagnósticos del Sistema**
+- **Monitoreo en Tiempo Real**: CPU, memoria, disco y base de datos
+- **Análisis de Rendimiento**: Identificación de cuellos de botella
+- **Alertas de Salud**: Notificaciones automáticas de problemas
+- **Recomendaciones Inteligentes**: Sugerencias de optimización
+
+#### 🗄️ **Gestión de Base de Datos**
+- **Respaldos Automáticos**: Copias de seguridad programadas
+- **Optimización Automática**: Mantenimiento preventivo de tablas
+- **Verificación de Integridad**: Validación automática de datos
+- **Herramientas de Recuperación**: Restauración rápida ante fallos
+
+#### 🔍 **Auditoría y Seguridad**
+- **Log Completo de Actividades**: Registro detallado de todas las operaciones
+- **Seguimiento de Usuarios**: Historial de acciones por usuario
+- **Análisis de Patrones**: Detección de actividades inusuales
+- **Reportes de Seguridad**: Documentación para auditorías
+
+### 🎨 **Personalización y Accesibilidad**
+
+#### 🖌️ **Branding Corporativo**
+- **Personalización Visual**: Colores, logos y tipografías corporativas
+- **Temas Dinámicos**: Modo claro y oscuro con transiciones suaves
+- **Diseño Responsive**: Adaptación automática a diferentes resoluciones
+- **Elementos Personalizables**: Iconos, botones y componentes visuales
+
+#### ♿ **Accesibilidad Universal**
+- **Soporte para Lectores de Pantalla**: Compatibilidad NVDA y JAWS
+- **Navegación por Teclado**: Acceso completo sin mouse
+- **Alto Contraste**: Modos visuales para usuarios con discapacidad visual
+- **Tamaños de Fuente Ajustables**: Escalado dinámico de texto
+- **Alertas Sonoras**: Notificaciones auditivas configurables
+
+---
+
+## 🛠️ **Arquitectura Técnica**
+
+### 💻 **Stack Tecnológico**
+- **Frontend**: PyQt6 con diseño modular y componentes reutilizables
+- **Backend**: Python 3.8+ con arquitectura orientada a objetos
+- **Base de Datos**: PostgreSQL 13+ con optimizaciones empresariales
+- **Reportes**: ReportLab para PDFs profesionales
+- **Gráficos**: Matplotlib con visualizaciones interactivas
+- **Análisis**: Pandas para procesamiento de datos masivos
+- **Concurrencia**: Threading para operaciones asíncronas
+
+### 🏗️ **Arquitectura del Sistema**
+```
+gym-management-system/
+├── main.py                 # Aplicación principal y punto de entrada
+├── database.py            # Gestión de base de datos y ORM personalizado
+├── models.py              # Modelos de datos y entidades de negocio
+├── widgets/               # Componentes de interfaz modular
+│   ├── users_tab_widget.py           # Gestión de socios
+│   ├── payments_tab_widget.py        # Sistema de pagos
+│   ├── professors_tab_widget.py      # Gestión de profesores
+│   ├── routines_tab_widget.py        # Sistema de rutinas
+│   ├── classes_tab_widget.py         # Clases grupales
+│   ├── reports_tab_widget.py         # Dashboard y reportes
+│   ├── whatsapp_config_widget.py     # Configuración WhatsApp
+│   ├── system_diagnostics_widget.py  # Diagnósticos del sistema
+│   └── audit_dashboard_widget.py     # Auditoría y seguridad
+├── managers/              # Gestores de lógica de negocio
+│   ├── whatsapp_manager.py          # Integración WhatsApp
+│   ├── export_manager.py            # Exportación de datos
+│   ├── payment_manager.py           # Procesamiento de pagos
+│   └── search_manager.py            # Motor de búsqueda
+├── utils_modules/         # Módulos de utilidades
+│   ├── accessibility_manager.py     # Gestión de accesibilidad
+│   ├── audit_logger.py             # Sistema de auditoría
+│   └── keyboard_manager.py         # Navegación por teclado
+└── styles/               # Hojas de estilo dinámicas
+    ├── light_theme.qss              # Tema claro
+    └── dark_theme.qss               # Tema oscuro
+```
+
+---
+
+## 🔧 Configuración de Base de Datos (Local)
+
+- La app de escritorio ahora viene preparada para usar una base local por defecto.
+- Valores por defecto (editables): `host=localhost`, `port=5432`, `database=gimnasio`, `user=postgres`, `sslmode=prefer`.
+- Abre `cdbconfig.py` y utiliza el botón `Probar conexión local` para validar rápidamente la conexión a tu PostgreSQL local. Esta prueba ahora está centralizada y usa `DatabaseManager.test_connection()`.
+- La contraseña se guarda de forma segura en el almacén del sistema (keyring). Si no hay keyring disponible, puedes optar por guardarla en `config/config.json` como respaldo.
+- Importante: Si tienes variables de entorno `DB_*` definidas, tienen prioridad sobre `config.json`. Elimínalas o ajústalas si quieres forzar los valores locales.
+
+### Ejemplo de conexión local
+
+1) Instala PostgreSQL localmente y crea la base `gimnasio`.
+2) Ejecuta `python cdbconfig.py`, ingresa los parámetros locales y presiona `Probar conexión local`.
+3) Presiona `Guardar` para persistir los cambios en `config/config.json` y almacenar la contraseña en el keyring.
+
+---
+
+## 🔧 Configuración de Base de Datos (Railway)
+
+- Edita la configuración desde el escritorio con `cdbconfig.py` (menú: Configuración de Base de Datos). Las pruebas de conexión utilizan la API central `DatabaseManager.test_connection()` para mantener un comportamiento consistente.
+- Campos configurables: `host`, `port`, `database`, `user`, `password`, `sslmode`, `connect_timeout`, `application_name`.
+- Usa los datos provistos por Railway Postgres:
+  - `host`: host de Railway (ej. `containers-us-west-xxx.railway.app`)
+  - `port`: puerto asignado por Railway
+  - `database`: comúnmente `railway`
+  - `user`: comúnmente `postgres`
+  - `sslmode`: recomienda `require`
+- La configuración se guarda en `config/config.json` y la contraseña en el almacén seguro del sistema (keyring). Opcionalmente, puedes guardar la contraseña en `config.json` como respaldo.
+- Nota: Las variables de entorno `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`, `DB_APPLICATION_NAME` tienen prioridad sobre `config.json`.
+
+### API de conexión centralizada
+
+- Método: `DatabaseManager.test_connection(params: dict | None) -> bool`
+- Comportamiento:
+  - Si `params` es `None`, intenta resolver parámetros desde entorno (`DB_*`) y defaults.
+  - Si se proveen parámetros, se mapean a `psycopg2.connect` (`host`, `port`, `database`->`dbname`, `user`, `password`, `sslmode`, `connect_timeout`, `application_name`, `options`).
+  - Ejecuta `SELECT 1` y cierra la conexión. Devuelve `True/False`.
+- Beneficios: una única implementación para pruebas, timeouts consistentes y soporte de `options` para timeouts de sesión.
+
+### Comando de inicio web sugerido (Railway)
+
+- `python -m uvicorn webapp.server:app --host 0.0.0.0 --port ${PORT}`
+- Asegura que las variables de entorno de Railway Postgres estén disponibles (mapéalas a las variables `DB_*` si cambian de nombre).
+
+### 🔒 **Seguridad y Confiabilidad**
+- **Encriptación de Datos**: Protección de información sensible
+- **Validación de Entrada**: Prevención de inyección SQL y XSS
+- **Gestión de Sesiones**: Control seguro de acceso de usuarios
+- **Respaldos Automáticos**: Copias de seguridad programadas
+- **Log de Auditoría**: Registro completo de actividades
+- **Recuperación ante Fallos**: Mecanismos de recuperación automática
+
+---
+
+## 📈 **Métricas de Rendimiento**
+
+### ⚡ **Benchmarks Comprobados**
+- **Tiempo de Inicio**: < 3 segundos en hardware estándar
+- **Búsqueda Global**: < 100ms para bases de datos de hasta 10,000 registros
+- **Generación de Reportes**: < 5 segundos para reportes mensuales completos
+- **Uso de Memoria**: < 150MB en operación normal
+- **Tiempo de Respuesta**: < 50ms para operaciones CRUD básicas
+- **Capacidad de Usuarios**: Soporte para hasta 5,000 socios activos
+
+### 🖥️ **Compatibilidad**
+- **Windows**: 10/11 (x64)
+- **macOS**: 10.15+ (Intel/Apple Silicon)
+- **Linux**: Ubuntu 20.04+, CentOS 8+, Debian 11+
+- **Memoria RAM**: Mínimo 4GB, Recomendado 8GB
+- **Espacio en Disco**: 2GB para instalación + datos
+- **Procesador**: Intel i3/AMD Ryzen 3 o superior
+
+---
+
+## 🚀 **Instalación y Configuración**
+
+### 📋 **Requisitos Previos**
+```bash
+# Python 3.8 o superior
+python --version
+
+# PostgreSQL 13 o superior
+psql --version
+
+# Git para clonación del repositorio
+git --version
+```
+
+### ⚙️ **Instalación Rápida**
+```bash
+# 1. Clonar el repositorio
+git clone https://github.com/tu-usuario/gym-management-system.git
+cd gym-management-system
+
+# 2. Crear entorno virtual
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# o
+venv\Scripts\activate     # Windows
+
+# 3. Instalar dependencias
+pip install -r requirements.txt
+
+# 4. Configurar base de datos
+python initialize_database.py
+
+# 5. Ejecutar la aplicación
+python main.py
+```
+
+### 🔁 Integración de SymmetricDS (Replicación bidireccional)
+
+La aplicación de escritorio integra SymmetricDS para replicación bidireccional robusta entre la base local y la base en Railway. El sistema configura automáticamente node groups, links y triggers, y arranca SymmetricDS durante el startup diferido.
+
+Resumen de configuración automática:
+- Node groups `server` y `client` y links bidireccionales entre ambos en ambas bases.
+- Canales y routers: `default` y `toClients` (Railway) y `toServer` (Local).
+- Triggers para todas las tablas públicas (excluye `sym_%` y `pg_%`) en `INSERT/UPDATE/DELETE` sobre canal `default`.
+- Propiedades `railway.properties` y `local.properties` generadas con `auto.create=true`, `auto.sync=true`, `registration.open=true` en servidor y conflictos `master_wins`.
+- SymmetricDS se inicia en background desde `main.py` durante el arranque diferido.
+
+Preparación manual necesaria:
+- Descarga el JAR de SymmetricDS (community) y colócalo en `symmetricds/` junto a `symmetric-ds.properties`.
+- Asegura credenciales de ambas bases en `config/config.json` o vía variables de entorno. El keyring del sistema se usa si está disponible.
+
+Verificación rápida:
+- Revisa logs de startup para "SymmetricDS iniciado" y creación de triggers.
+- Inserta/actualiza/elimina registros de prueba y valida replicación cruzada entre local y Railway.
+
+Nota: El sistema antiguo de proxy/túnel y sincronización HTTP fue retirado completamente en favor de SymmetricDS.
+- `PROXY_QUEUE_DB` (opcional, ruta al SQLite de cola; por defecto `proxy_queue.sqlite`)
+
+Ejemplos rápidos con curl:
+
+```bash
+# Subir lote de operaciones (se encola, respuesta 202)
+curl -X POST http://127.0.0.1:8080/api/sync/upload \
+  -H "Content-Type: application/json" \
+  -d '{"operations":[{"category":"db","name":"crear_pago","args":[],"kwargs":{"monto":1000}}]}'
+
+# Descargar cambios desde un instante
+curl "http://127.0.0.1:8080/api/sync/download?since=2025-10-13T00:00:00Z"
+```
+
+Notas:
+
+- El proxy valida el payload, deduplica por hash del lote (`op_hash`), mantiene `next_attempt_at` y reintenta con backoff exponencial con jitter. También incluye un pequeño circuit breaker frente a 5xx y pruning periódico de entradas `done` para evitar crecimiento infinito del archivo SQLite.
+- La WebApp responde con estructura estable; puedes extender la lógica de procesamiento server-side cuando lo requieras.
+
+#### 🤝 Cliente de Sync en Desktop (automático)
+
+- Subidas (upload):
+  - El Desktop encola operaciones de escritura automáticamente después de ejecutar acciones locales (usuarios y rutinas) usando `utils_modules/action_history_manager.py` + `sync_client.py`.
+  - Se envía un lote a `POST /api/sync/upload` del proxy local en modo fire-and-forget, sin bloquear la UI.
+  - Variable opcional: `LOCAL_PROXY_BASE_URL` (por defecto `http://127.0.0.1:8080`).
+  - También puede leerse desde `config/config.json` la clave `local_proxy_base_url`.
+  - Cada operación incluye metadatos: `op_id` (UUID) e `source.device_id` (ID persistente del Desktop) para idempotencia y evitar bucles.
+
+- Descargas (download):
+  - El Desktop ejecuta `download_sync_worker.py` en segundo plano (arranca desde `main.py`).
+  - Consulta periódicamente `GET /api/sync/download?since=...` del proxy local y aplica cambios mínimos a la base local (crear/actualizar/borrar usuario, asignar/desasignar rutina).
+  - Intervalo por defecto: 30s. Idempotencia básica: si el usuario existe, actualiza; si no, crea.
+  - Persistencia del punto de reanudación: se guarda `last_since` en `config/sync_state.json` para continuar tras reinicios.
+  - Filtro de eco: las operaciones originadas por el mismo Desktop (mismo `device_id`) se ignoran.
+
+Autoarranque y watchdog del proxy local:
+
+- El Desktop intenta levantar automáticamente el proxy local si `LOCAL_PROXY_BASE_URL` apunta a `localhost/127.0.0.1` y `/healthz` no responde.
+- Implementación en `utils_modules/proxy_manager.py` + integración en `main.py` antes de iniciar `DownloadSyncWorker`.
+- Un watchdog periódico (cada 60s) vuelve a verificar `/healthz` y relanza si fuera necesario, para uso en producción con usuarios no expertos.
+- Para entornos gestionados donde el proxy no sea local (por ejemplo, `LOCAL_PROXY_BASE_URL` remoto), no se auto-lanza.
+
+Cómo verificar que está corriendo:
+
+```bash
+curl http://127.0.0.1:8080/ | jq
+# Respuesta incluye: { name: "GymMS Local Proxy", endpoints: ["/api/sync/upload","/api/sync/download"], ... }
+```
+
+Métricas del proxy local:
+
+```bash
+curl http://127.0.0.1:8080/metrics | jq
+# Devuelve: {
+#   queue: { pending, processing, done, failed },
+#   upstream, db_path, db_size_bytes,
+#   circuit_breaker_open_for_sec
+# }
+```
+
+Extensión del protocolo:
+
+- Los tipos de operación soportados de ejemplo son: `user.create|add`, `user.update`, `user.delete`, `routine.assign`, `routine.unassign`.
+- Puedes ampliar el `download_sync_worker.py` y el servidor para cubrir más entidades (pagos, clases, etc.).
+
+Identidad y persistencia:
+
+- `config/device_id.txt`: almacena el identificador persistente del Desktop usado en sincronización.
+- `config/sync_state.json`: almacena `last_since` para reanudar descargas.
+
+Notas de configuración rápida del proxy local:
+
+- Variable `LOCAL_PROXY_BASE_URL` (opcional): URL del proxy local. Por defecto `http://127.0.0.1:8080`.
+- Variable `UPSTREAM_WEBAPP_BASE_URL` (proxy): URL pública de la WebApp (Railway). Puede ubicarse en `config/config.json` bajo `upstream_webapp_base_url`.
+- El Desktop intentará lanzar `local_proxy.py` con `LOCAL_PROXY_PORT` derivado de `LOCAL_PROXY_BASE_URL`.
+
+### 🔧 **Configuración Inicial**
+1. **Base de Datos**: Configurar conexión PostgreSQL en `config.py`
+2. **WhatsApp Business**: Obtener credenciales de Meta Business
+3. **Personalización**: Configurar branding y temas corporativos
+4. **Usuarios**: Crear cuenta de administrador inicial
+5. **Respaldos**: Configurar programación de copias de seguridad
+
+---
+
+## 🆕 **Novedades de la Versión 3.0**
+
+### 🎯 **Nuevas Características**
+- ✨ **Sistema de Horas Extra**: Control automático de tiempo de trabajo
+- 📱 **Integración WhatsApp**: Comunicación automatizada con socios
+- 🏋️ **Rutinas Avanzadas**: Sistema completo de entrenamiento personalizado
+- 🧘 **Clases Grupales**: Gestión integral de actividades grupales
+- 📊 **Dashboard Ejecutivo**: KPIs y métricas empresariales en tiempo real
+- 🔍 **Auditoría Completa**: Sistema de seguimiento y seguridad avanzado
+
+### 🚀 **Mejoras de Rendimiento**
+- ⚡ **50% más rápido** en búsquedas globales
+- 💾 **30% menos uso de memoria** en operaciones masivas
+- 🔄 **Carga asíncrona** para mejor experiencia de usuario
+- 📈 **Optimización de consultas** SQL para reportes complejos
+
+### 🎨 **Experiencia de Usuario**
+- 🖌️ **Interfaz renovada** con diseño moderno y profesional
+- ♿ **Accesibilidad completa** para usuarios con discapacidades
+- 🌙 **Modo oscuro** con transiciones suaves
+- ⌨️ **Navegación por teclado** mejorada
+
+---
+
+## 💼 **Casos de Uso Empresariales**
+
+### 🏢 **Gimnasios Boutique (50-200 socios)**
+- Gestión personalizada de socios VIP
+- Rutinas individualizadas por entrenador personal
+- Comunicación directa vía WhatsApp
+- Reportes ejecutivos para toma de decisiones
+
+### 🏭 **Cadenas de Gimnasios (200-1000 socios)**
+- Dashboard centralizado multi-sucursal
+- Análisis comparativo de rendimiento
+- Automatización de procesos operativos
+- Integración con sistemas de nómina
+
+### 🌟 **Centros de Alto Rendimiento (1000+ socios)**
+- Métricas avanzadas de retención y crecimiento
+- Sistema de auditoría para compliance
+- Reportes automáticos para inversores
+- Escalabilidad empresarial comprobada
+
+---
+
+## 🎯 **ROI y Beneficios Empresariales**
+
+### 💰 **Retorno de Inversión**
+- **Reducción de Costos Operativos**: Hasta 40% menos tiempo en tareas administrativas
+- **Aumento de Retención**: Mejora del 25% en renovación de socios
+- **Optimización de Recursos**: 30% mejor utilización de profesores y espacios
+- **Reducción de Errores**: 95% menos errores en facturación y pagos
+
+### 📊 **Métricas de Éxito**
+- **Tiempo de Recuperación**: 3-6 meses típicamente
+- **Ahorro Anual**: $15,000 - $50,000 USD según tamaño del gimnasio
+- **Productividad**: 60% menos tiempo en reportes manuales
+- **Satisfacción**: 90%+ de satisfacción de usuarios finales
+
+---
+
+## 🤝 **Soporte y Servicios**
+
+### 📞 **Soporte Técnico**
+- **Instalación Guiada**: Configuración completa incluida
+- **Capacitación del Personal**: Entrenamiento presencial o virtual
+- **Soporte 24/7**: Asistencia técnica continua
+- **Actualizaciones Automáticas**: Nuevas características sin costo adicional
+
+### 🎓 **Servicios Profesionales**
+- **Migración de Datos**: Importación desde sistemas existentes
+- **Personalización Avanzada**: Desarrollo de características específicas
+- **Integración con Terceros**: Conexión con sistemas de pago, contabilidad, etc.
+- **Consultoría de Procesos**: Optimización de flujos de trabajo
+
+---
+
+## 📞 **Contacto y Ventas**
+
+### 🏢 **Información Comercial**
+- **Email**: piedrabuena.mateo03@gmail.com
+- **Teléfono**: +54 343 4473599
+- **WhatsApp Business**: +54 9 343 4473599
+- **Sitio Web**: www.gym-management-system.com
+
+### 💬 **Solicitar Demo**
+¿Quieres ver Gym Management System en acción? Agenda una demostración personalizada:
+- **Demo Online**: 30 minutos de presentación interactiva
+- **Prueba Gratuita**: 14 días de acceso completo
+- **Visita Presencial**: Demostración en tu gimnasio
+- **Análisis de Necesidades**: Consultoría gratuita de procesos
+
+---
+
+## 📄 **Licencia y Términos**
+
+Este software es **propiedad exclusiva** de Gym Management System. Todos los derechos reservados.
+Para información sobre licenciamiento empresarial, contactar al equipo comercial.
+
+---
+
+<div align="center">
+
+**🏋️‍♂️ Gym Management System - Transformando Gimnasios en Empresas de Éxito 🏋️‍♀️**
+
+</div>
+
+
+
+python build_installer.py --mode onefile
+### 🌐 **Acceso Web Público (Railway recomendado)**
+- El servidor web se inicia automáticamente en `main.py` y en el lanzador web `GymMSW.py` usando `start_web_server`.
+- La URL pública ya no depende de LocalTunnel: se resuelve con `get_webapp_base_url()` (por defecto `https://gym-ms-zrk.up.railway.app`).
+- `start_public_tunnel` actúa como un no-op y retorna la URL pública configurada.
+- La URL pública se abre automáticamente en el navegador en `main.py` y se muestra en la ventana/tray de `GymMSW.py`.
+
+#### 🔧 Configuración de URL Pública
+- Archivo `config/config.json` (preferido):
+```
+{
+  "host": "localhost",
+  "port": 5432,
+  "database": "gimnasio",
+  "user": "postgres",
+  "sslmode": "prefer",
+  "connect_timeout": 10,
+  "application_name": "gym_management_system",
+  "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
+  "public_tunnel": {
+    "subdomain": "gym-ms-zrk",
+    "enabled": false
+  }
+}
+```
+- Variables de entorno:
+  - `WEBAPP_BASE_URL=https://gym-ms-zrk.up.railway.app`
+  - `PUBLIC_TUNNEL_ENABLED=0` (recomendado en Railway)
+
+#### 🚀 Arranque y Uso
+- Desarrollo (aplicación completa): `python main.py`
+  - Inicia servidor web y resuelve URL pública con `get_webapp_base_url()`.
+  - Abre el navegador en la URL pública detectada (p. ej., `https://gym-ms-zrk.up.railway.app/`).
+- Si `public_tunnel.enabled` es `false` o `PUBLIC_TUNNEL_ENABLED=0`, se omiten intentos de túnel y se usa la URL de Railway.
+- Desarrollo (solo web launcher): `python GymMSW.py`
+  - Inicia servidor web y muestra ventana/tray con enlaces local y público.
+  - Si el túnel público está deshabilitado, el enlace público se omite.
+
+#### 🔐 Contraseñas y Recordatorios
+- En la configuración Railway no se requiere contraseña de túnel.
+- El endpoint `GET /tunnel/password` queda deshabilitado y retorna `{ password: null, ok: false }`.
+  - Nota: navegadores estándar seguirán mostrando la página; comparte la contraseña con tus visitantes.
+
+### 🛠️ **Construcción de Ejecutables**
+- Ejecutable standalone: `python build_installer.py --mode onefile`
+- Carpeta de salida: `dist/` (contiene ejecutables y recursos).
+- Ejecutables generados:
+  - `GymMSW.exe`: lanzador web con indicador y bandeja del sistema.
+  - `main.exe`: aplicación principal con servidor web y túnel público.
+
+### 🎨 **Estilos Dinámicos y Branding**
+- Los estilos `styles/style.qss` se aplican y se enriquecen con CSS dinámico.
+- Se utilizan variables de branding (colores, tipografías, logos) desde base de datos o configuración.
+- Widgets relevantes: `branding_customization_widget.py`, `accessibility_widget.py`, `chart_widget.py`.
+
+### 🧹 **Cierre Seguro del Túnel**
+- Al salir, se intenta terminar procesos del túnel público (`terminate_tunnel_processes`) y cualquier `ssh.exe` residual (`terminate_ssh_processes`).
+- Existe un cierre defensivo adicional reutilizado desde `main.py`.

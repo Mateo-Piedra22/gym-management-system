@@ -1,0 +1,36 @@
+{
+  "host": "localhost",
+  "port": 5432,
+  "database": "gimnasio",
+  "user": "postgres",
+  "sslmode": "prefer",
+  "connect_timeout": 10,
+  "application_name": "gym_management_system",
+  "db_profile": "local",
+  "db_local": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "gimnasio",
+    "user": "postgres",
+    "sslmode": "prefer",
+    "connect_timeout": 10,
+    "application_name": "gym_management_system"
+  },
+  "db_remote": {
+    "host": "shuttle.proxy.rlwy.net",
+    "port": 45685,
+    "database": "railway",
+    "user": "postgres",
+    "sslmode": "require",
+    "connect_timeout": 10,
+    "application_name": "gym_management_system"
+  },
+  "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
+  "public_tunnel": {
+    "subdomain": "gym-ms-zrk",
+    "enabled": false
+  },
+  "local_proxy_base_url": "http://127.0.0.1:8082",
+  "server_base_url": "https://gym-ms-zrk.up.railway.app",
+  "client_base_url": "http://127.0.0.1:31415"
+}
