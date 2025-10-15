@@ -118,6 +118,15 @@ def main():
     # Generar properties
     paths = setup._write_properties(base_dir, cfg)
     print(f"[Setup] railway.properties -> {paths.get('railway')}")
+    # Mostrar sync.url para verificación rápida en logs
+    try:
+        with open(paths.get('railway'), 'r', encoding='utf-8') as pf:
+            for line in pf:
+                if line.strip().startswith('sync.url='):
+                    print(f"[Setup] sync.url -> {line.strip().split('=',1)[1]}")
+                    break
+    except Exception as e:
+        print(f"[Warn] No se pudo leer sync.url de properties: {e}")
 
     # Resolver SYMMETRICDS_HOME
     env_home = os.getenv('SYMMETRICDS_HOME')
