@@ -6,6 +6,7 @@ import pathlib
 import signal
 import tarfile
 import urllib.request
+import platform
 
 
 def _proj_root() -> pathlib.Path:
@@ -142,7 +143,7 @@ def main():
         print(f"[Error] No se pudo copiar properties al SYMMETRICDS_HOME: {e}")
         sys.exit(1)
 
-    # Localizar Java; si no hay 17+, descargar uno ligero para Linux x64
+    # Localizar Java; si no hay 17+, descargar uno ligero para Linux
     java_bin, java_version, java_major = setup._find_java()
     if not java_bin or java_major < 17:
         if os.getenv("SETUP_SKIP_JRE_DOWNLOAD") == "1":
@@ -151,17 +152,46 @@ def main():
         print("[Info] Java 17+ no disponible. Descargando JRE ligero…")
         cache_dir = base_dir / ".cache" / "jre17"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        # URL configurable; por defecto Temurin 17 para Linux x64
-        default_url = (
-            "https://github.com/adoptium/temurin17-binaries/releases/latest/download/"
-            "OpenJDK17U-jre_x64_linux_hotspot.tar.gz"
-        )
-        jre_url = os.getenv("JAVA_DOWNLOAD_URL", default_url)
+        # Determinar arquitectura
+        machine = platform.machine().lower()
+        arch = "x64" if machine in ("x86_64", "amd64") else ("aarch64" if machine in ("aarch64", "arm64") else "x64")
+        # Candidatos de descarga (API estable de Adoptium, luego GitHub latest)
+        candidates = [
+            f"https://api.adoptium.net/v3/binary/latest/17/ga/linux/{arch}/jre/hotspot/normal/adoptium",
+            f"https://github.com/adoptium/temurin17-binaries/releases/latest/download/OpenJDK17U-jre_{arch}_linux_hotspot.tar.gz",
+            f"https://github.com/adoptium/temurin17-binaries/releases/latest/download/OpenJDK17U-jdk_{arch}_linux_hotspot.tar.gz",
+        ]
+        # Si el usuario define JAVA_DOWNLOAD_URL, probarlo primero
+        override = os.getenv("JAVA_DOWNLOAD_URL")
+        if override:
+            candidates.insert(0, override)
+
         tar_path = cache_dir / "jre17.tar.gz"
-        try:
-            urllib.request.urlretrieve(jre_url, tar_path)
-        except Exception as e:
-            print(f"[Error] Falló la descarga de JRE: {e}")
+
+        # Descargar con fallback y mejor manejo de errores
+        last_err = None
+        for idx, url in enumerate(candidates, start=1):
+            try:
+                print(f"[Info] Intento {idx}: Descargando JRE desde {url}")
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    # Guardar streaming para evitar timeouts largos
+                    with open(tar_path, "wb") as out:
+                        while True:
+                            chunk = resp.read(1024 * 64)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                print("[Info] Descarga completada")
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                print(f"[Warn] No se pudo descargar desde {url}: {e}")
+                # continuar con el siguiente candidato
+
+        if last_err is not None:
+            print(f"[Error] Falló la descarga de JRE tras {len(candidates)} intentos: {last_err}")
             sys.exit(1)
         # Extraer
         try:
