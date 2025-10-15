@@ -4,6 +4,8 @@ import time
 import json
 import pathlib
 import signal
+import tarfile
+import urllib.request
 
 
 def _proj_root() -> pathlib.Path:
@@ -140,11 +142,50 @@ def main():
         print(f"[Error] No se pudo copiar properties al SYMMETRICDS_HOME: {e}")
         sys.exit(1)
 
-    # Localizar Java
+    # Localizar Java; si no hay 17+, descargar uno ligero para Linux x64
     java_bin, java_version, java_major = setup._find_java()
     if not java_bin or java_major < 17:
-        print(f"[Error] Java 17+ no encontrado (detectado: {java_version}).")
-        sys.exit(1)
+        if os.getenv("SETUP_SKIP_JRE_DOWNLOAD") == "1":
+            print(f"[Error] Java 17+ no encontrado (detectado: {java_version}).")
+            sys.exit(1)
+        print("[Info] Java 17+ no disponible. Descargando JRE ligero…")
+        cache_dir = base_dir / ".cache" / "jre17"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        # URL configurable; por defecto Temurin 17 para Linux x64
+        default_url = (
+            "https://github.com/adoptium/temurin17-binaries/releases/latest/download/"
+            "OpenJDK17U-jre_x64_linux_hotspot.tar.gz"
+        )
+        jre_url = os.getenv("JAVA_DOWNLOAD_URL", default_url)
+        tar_path = cache_dir / "jre17.tar.gz"
+        try:
+            urllib.request.urlretrieve(jre_url, tar_path)
+        except Exception as e:
+            print(f"[Error] Falló la descarga de JRE: {e}")
+            sys.exit(1)
+        # Extraer
+        try:
+            with tarfile.open(tar_path, "r:gz") as t:
+                t.extractall(cache_dir)
+        except Exception as e:
+            print(f"[Error] Falló la extracción de JRE: {e}")
+            sys.exit(1)
+        # Detectar carpeta extraída (única subcarpeta)
+        extracted = None
+        for p in cache_dir.iterdir():
+            if p.is_dir() and (p / "bin" / "java").exists():
+                extracted = p
+                break
+        if not extracted:
+            print("[Error] No se encontró bin/java en JRE descargado.")
+            sys.exit(1)
+        os.environ["JAVA_HOME"] = str(extracted)
+        os.environ["PATH"] = str(extracted / "bin") + os.pathsep + os.environ.get("PATH", "")
+        # Reintentar detección
+        java_bin, java_version, java_major = setup._find_java()
+        if not java_bin or java_major < 17:
+            print(f"[Error] Java 17+ aún no disponible (detectado: {java_version}).")
+            sys.exit(1)
     print(f"[Info] Usando Java: {java_bin} ({java_version})")
 
     # Arrancar Symmetric WebServer para el engine 'railway'
