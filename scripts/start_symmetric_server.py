@@ -233,6 +233,19 @@ def main():
         print("[Error] No se pudo iniciar SymmetricDS WebServer.")
         sys.exit(1)
     print(f"[Run] SymmetricDS 'railway' escuchando en puerto {port_val}…")
+    # Imprimir sync.url y server_base_url al final para que aparezca cerca del mensaje de 'Run'
+    try:
+        with open(paths.get('railway'), 'r', encoding='utf-8') as pf:
+            for line in pf:
+                if line.strip().startswith('sync.url='):
+                    print(f"[Run] sync.url -> {line.strip().split('=',1)[1]}")
+                    break
+    except Exception as e:
+        print(f"[Warn] No se pudo leer sync.url al final del arranque: {e}")
+    try:
+        print(f"[Run] server_base_url -> {os.environ.get('SYM_SERVER_BASE_URL','(no definido)')}")
+    except Exception:
+        pass
 
     # Mantener proceso en foreground para plataformas tipo Procfile
     def _handle_sigterm(_sig, _frm):
