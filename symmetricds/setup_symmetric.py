@@ -1442,7 +1442,7 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                 return
 
             # Copiar engines/*.properties generados al engines/ dentro de SYMMETRICDS_HOME
-            # En Railway, solo copiar el engine de servidor para evitar intentos de conexión al Postgres local
+            # En Railway, solo copiar el engine de servidor; en local, solo el engine cliente.
             try:
                 dest_engines = sym_home / 'engines'
                 dest_engines.mkdir(exist_ok=True)
@@ -1450,23 +1450,23 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                 src_local = Path(paths['local'])
                 src_store = Path(paths.get('store001', ''))
                 is_railway = bool(os.getenv('PORT') or os.getenv('RAILWAY_PORT') or os.getenv('RAILWAY_ENVIRONMENT'))
-                (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
-                if not is_railway:
-                    # Preferir el store-001.properties generado dinámicamente; fallback al local
+                if is_railway:
+                    # En entorno Railway cargamos solamente el engine 'railway'
+                    (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
+                    log(f"[SymmetricDS] Engine 'railway' copiado a {dest_engines}; omitido engine cliente en entorno Railway")
+                else:
+                    # En entorno local cargamos solamente el engine cliente
                     try:
                         if src_store and src_store.exists():
                             (dest_engines / 'store-001.properties').write_text(src_store.read_text(encoding='utf-8'), encoding='utf-8')
-                            log(f"[SymmetricDS] Engines copiados (server y store-001) a {dest_engines} para escaneo automático")
+                            log(f"[SymmetricDS] Engine cliente 'store-001' copiado a {dest_engines}; omitido 'railway' en entorno local")
                         else:
                             (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
-                            log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
+                            log(f"[SymmetricDS] Engine cliente 'local' copiado a {dest_engines}; omitido 'railway' en entorno local")
                     except Exception:
                         # Fallback siempre al local si falla el store-001
                         (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
-                        log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
-                else:
-                    # En entorno Railway cargamos solamente el engine 'railway'
-                    log(f"[SymmetricDS] Engine 'railway' copiado a {dest_engines}; omitido 'local' en entorno Railway")
+                        log(f"[SymmetricDS] Engine cliente 'local' copiado a {dest_engines}; omitido 'railway' en entorno local (fallback)")
             except Exception as e:
                 log(f"[SymmetricDS] No se pudieron copiar engines a SYMMETRICDS_HOME: {e}")
 
@@ -1505,9 +1505,16 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
             except Exception as e:
                 log(f"[SymmetricDS] No se pudo ajustar puerto en symmetric-server.properties: {e}")
 
-            # Lanzar UN solo servidor web (SymmetricWebServer) que escanea ambos engines
-            # Evita conflicto del puerto 31415 por procesos duplicados
-            web_proc = _start_engine(java_bin, sym_home, Path(paths['railway']), log)
+            # Lanzar UN solo servidor web (SymmetricWebServer) que escanea engines/ del SYMMETRICDS_HOME
+            # En local, pasamos props del cliente para nombrar logs acorde; en Railway, usamos 'railway'
+            try:
+                client_props_for_logs = None
+                if not is_railway:
+                    client_props_for_logs = (src_store if (src_store and src_store.exists()) else src_local)
+                props_for_logs = Path(paths['railway']) if is_railway else (client_props_for_logs or Path(paths['local']))
+            except Exception:
+                props_for_logs = Path(paths['railway'])
+            web_proc = _start_engine(java_bin, sym_home, props_for_logs, log)
             if not web_proc:
                 log("[SymmetricDS] No se pudo iniciar el servidor SymmetricWebServer.")
                 return
