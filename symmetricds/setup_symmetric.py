@@ -462,16 +462,30 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             print(f"[Boot] Configurando JVM: server.port={web_port} http.port={web_port} address=0.0.0.0")
         except Exception:
             pass
-        # Construir comando Java, forzando server.port y bind address
-        cmd = [
-            java_bin,
-            '-Duser.timezone=America/Argentina/Buenos_Aires',
-            f'-Dserver.port={web_port}',
-            '-Dserver.address=0.0.0.0',
-            f'-Dhttp.port={web_port}',
-            '-cp', cp,
-            'org.jumpmind.symmetric.SymmetricWebServer'
-        ]
+        # Preferir lanzamiento del JAR Spring Boot principal para evitar problemas de classpath
+        jar_path = sym_home / 'web' / 'WEB-INF' / 'lib' / 'symmetric-server-3.16.7.jar'
+        if jar_path.exists():
+            cmd = [
+                java_bin,
+                '-Duser.timezone=America/Argentina/Buenos_Aires',
+                f'-Dserver.port={web_port}',
+                '-Dserver.address=0.0.0.0',
+                f'-Dhttp.port={web_port}',
+                '-jar', str(jar_path)
+            ]
+            logger(f"[SymmetricDS] Lanzando JAR principal: {jar_path}")
+        else:
+            # Fallback al classpath explícito si el JAR no existe
+            cmd = [
+                java_bin,
+                '-Duser.timezone=America/Argentina/Buenos_Aires',
+                f'-Dserver.port={web_port}',
+                '-Dserver.address=0.0.0.0',
+                f'-Dhttp.port={web_port}',
+                '-cp', cp,
+                'org.jumpmind.symmetric.SymmetricWebServer'
+            ]
+            logger("[SymmetricDS] JAR principal no encontrado; uso classpath explícito.")
         logger(f"[SymmetricDS] Lanzando engine vía classpath (escaneo de engines/): {' '.join(cmd)}")
         # Al lanzar directo garantizamos uso del JRE embebido (java_bin)
         # En plataformas tipo Railway, volcamos stdout/err de Java al stdout del contenedor
