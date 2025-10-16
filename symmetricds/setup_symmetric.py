@@ -401,6 +401,82 @@ def _find_sym_script(sym_home: Path) -> Path | None:
     return None
 
 
+def _start_port_forward(listen_port: int, target_port: int, logger) -> None:
+    """Inicia un forwarder TCP simple listen_port → 127.0.0.1:target_port.
+
+    Útil cuando el Jetty ignora el puerto deseado (ej. 31415 fijo) y la
+    plataforma espera que el servicio escuche en otro puerto (ej. 8080).
+    """
+    import socket as _sock
+    import threading as _th
+
+    def _pipe(src: _sock.socket, dst: _sock.socket):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+        except Exception:
+            pass
+        finally:
+            try:
+                dst.shutdown(_sock.SHUT_WR)
+            except Exception:
+                pass
+
+    def _handle_client(client: _sock.socket):
+        try:
+            tgt = _sock.create_connection(('127.0.0.1', int(target_port)), timeout=2.0)
+        except Exception as e:
+            try:
+                logger(f"[PortFwd] No se pudo conectar al destino {target_port}: {e}")
+            except Exception:
+                pass
+            try:
+                client.close()
+            except Exception:
+                pass
+            return
+        t1 = _th.Thread(target=_pipe, args=(client, tgt), daemon=True)
+        t2 = _th.Thread(target=_pipe, args=(tgt, client), daemon=True)
+        t1.start(); t2.start()
+        t1.join(); t2.join()
+        try:
+            client.close()
+        except Exception:
+            pass
+        try:
+            tgt.close()
+        except Exception:
+            pass
+
+    def _server_loop():
+        s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        try:
+            s.setsockopt(_sock.SOL_SOCKET, _sock.SO_REUSEADDR, 1)
+            s.bind(('0.0.0.0', int(listen_port)))
+            s.listen(128)
+            try:
+                logger(f"[PortFwd] Escuchando {listen_port} → 127.0.0.1:{target_port}")
+            except Exception:
+                pass
+            while True:
+                client, _addr = s.accept()
+                _th.Thread(target=_handle_client, args=(client,), daemon=True).start()
+        except Exception as e:
+            try:
+                logger(f"[PortFwd] No se pudo iniciar forwarder en {listen_port}: {e}")
+            except Exception:
+                pass
+
+    # Lanzar como daemon para no bloquear el arranque
+    try:
+        _th.Thread(target=_server_loop, daemon=True).start()
+    except Exception:
+        pass
+
+
 def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> subprocess.Popen | None:
     """Inicia un engine de SymmetricDS siempre vía classpath con SymmetricWebServer y JRE embebido.
 
@@ -458,6 +534,12 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             web_port = None
         if not web_port:
             web_port = '31415'
+        # Iniciar forwarder si el puerto esperado difiere del puerto interno por defecto (31415)
+        try:
+            if str(web_port) != '31415':
+                _start_port_forward(int(web_port), 31415, logger)
+        except Exception:
+            pass
         # Log informativo a stdout para ver en Railway
         try:
             print(f"[Boot] Configurando JVM: server.port={web_port} http.port={web_port} address=0.0.0.0")

@@ -103,7 +103,8 @@ def main():
     name = os.getenv("SYM_DB_NAME") or os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE")
     user = os.getenv("SYM_DB_USER") or os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
     pwd = os.getenv("SYM_DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD")
-    if any([host, port, name, user, pwd]):
+    # Solo usar variables sueltas si NO hay DATABASE_URL definido
+    if (not db_url) and any([host, port, name, user, pwd]):
         cfg.setdefault("db_remote", {})
         cfg["db_remote"]["db_type"] = cfg["db_remote"].get("db_type", "postgresql")
         if host:
@@ -172,7 +173,8 @@ def main():
             dbname = str(remote.get('database', 'railway')).strip()
             user_r = str(remote.get('user', 'postgres')).strip()
             pwd_r = str(remote.get('password', '')).strip()
-            sslmode = str(remote.get('sslmode', 'require')).strip() or 'require'
+            # Permitir override por PGSSLMODE (Railway sugiere 'require')
+            sslmode = str(os.getenv('PGSSLMODE') or remote.get('sslmode', 'require')).strip() or 'require'
             app_name = 'gym_management_system'
             # Construir jdbc url
             if host and rport and dbname:
