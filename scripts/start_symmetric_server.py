@@ -181,7 +181,7 @@ def main():
             if host and rport and dbname:
                 jdbc_url = (
                     f"jdbc:postgresql://{host}:{rport}/{dbname}?sslmode={sslmode}"
-                    f"&ApplicationName={app_name}&connectTimeout=10&options=-c%20TimeZone%3DAmerica/Argentina/Buenos_Aires"
+                    f"&ApplicationName={app_name}&connectTimeout=10"
                 )
                 import re as _re
                 txt = _re.sub(r'^\s*db\.url\s*=.*$', f'db.url={jdbc_url}', txt, flags=_re.MULTILINE)

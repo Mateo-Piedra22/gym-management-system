@@ -26,11 +26,11 @@ BEGIN
                 INSERT INTO sym_table_reload_request (
                     target_node_id, source_node_id, trigger_id, router_id,
                     channel_id, create_table, delete_first, reload_select,
-                    before_custom_sql, load_id
+                    before_custom_sql, create_time, last_update_time
                 ) VALUES (
                     n.node_id, server_id, tr.trigger_id, 'toClients',
                     COALESCE(tr.channel_id, 'default'), 0, 1, NULL,
-                    NULL, nextval('sym_sequence')
+                    NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 );
             END IF;
         END LOOP;

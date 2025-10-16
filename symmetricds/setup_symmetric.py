@@ -78,15 +78,18 @@ def _resolve_password(user: str, host: str, port: int, fallback: str = "") -> st
 
 
 def _jdbc_url(h: str, p: int, d: str, ssl: str, app_name: str, timeout: int) -> str:
-    """Construye URL JDBC de PostgreSQL con parámetros útiles."""
+    """Construye URL JDBC de PostgreSQL con parámetros mínimos y compatibles.
+
+    Nota: Evitamos pasar la opción "TimeZone" vía parámetros JDBC porque algunos
+    entornos (drivers/servidores) la interpretan de forma diferente y puede causar
+    errores como: FATAL: invalid value for parameter "TimeZone". La zona horaria
+    para datos se controla con "data.create_time.timezone" en las properties del engine.
+    """
     # application_name en PG JDBC se mapea como ApplicationName
     params = [
         f"sslmode={ssl}",
         f"ApplicationName={app_name}",
         f"connectTimeout={timeout}",
-        # Forzar timezone válido para PostgreSQL (evita FATAL: invalid value for parameter "TimeZone")
-        # Codificado para URL: "-c TimeZone=America/Argentina/Buenos_Aires"
-        "options=-c%20TimeZone%3DAmerica/Argentina/Buenos_Aires",
     ]
     return f"jdbc:postgresql://{h}:{p}/{d}?" + "&".join(params)
 

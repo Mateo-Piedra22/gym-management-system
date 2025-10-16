@@ -112,6 +112,23 @@ def run_psql_query(psql_bin: str, host: str, port: int, user: str, db: str, pass
     return ok, out
 
 
+def parse_properties(path: Path) -> dict:
+    props: dict = {}
+    try:
+        if path.exists():
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        k, v = line.split("=", 1)
+                        props[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return props
+
+
 def main():
     parser = argparse.ArgumentParser(description="Aplica scripts SQL de SymmetricDS con psql y keyring")
     # Intentar cargar defaults desde config/config.json y entorno
@@ -152,9 +169,18 @@ def main():
 
     psql_bin = require_psql()
 
-    # Passwords desde keyring / entorno
-    rw_pwd = resolve_password(args.railway_user, args.railway_host, args.railway_port, "")
-    lc_pwd = resolve_password(args.local_user, args.local_host, args.local_port, "")
+    # Intentar leer contraseñas desde engines/*.properties como fallback
+    engines_dir = base_dir.parent / "engines"
+    rw_props_path = engines_dir / "railway.properties"
+    lc_props_path = engines_dir / "local.properties"
+    rw_props = parse_properties(rw_props_path)
+    lc_props = parse_properties(lc_props_path)
+    rw_fallback_pwd = rw_props.get("db.password", "")
+    lc_fallback_pwd = lc_props.get("db.password", "")
+
+    # Passwords desde keyring / entorno, con fallback de properties
+    rw_pwd = resolve_password(args.railway_user, args.railway_host, args.railway_port, rw_fallback_pwd)
+    lc_pwd = resolve_password(args.local_user, args.local_host, args.local_port, lc_fallback_pwd)
 
     if not rw_pwd:
         raise RuntimeError("No se pudo resolver la contraseña de Railway desde keyring/entorno.")

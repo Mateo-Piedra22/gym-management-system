@@ -27,6 +27,7 @@ popd
 
 set SYM_OPTIONS=-Dfile.encoding=utf-8 ^
 -Duser.language=en ^
+-Duser.timezone=America/Argentina/Buenos_Aires ^
 -Djava.io.tmpdir="%SYM_HOME%\tmp" ^
 -Dorg.eclipse.jetty.server.Request.maxFormContentSize=800000 ^
 -Dorg.eclipse.jetty.server.Request.maxFormKeys=100000 ^
