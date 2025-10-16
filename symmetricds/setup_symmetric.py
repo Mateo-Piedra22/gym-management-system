@@ -1207,6 +1207,26 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
             except Exception as e:
                 log(f"[SymmetricDS] No se pudieron copiar engines a SYMMETRICDS_HOME: {e}")
 
+            # Ajustar conf/symmetric-server.properties para respetar el puerto de Railway
+            try:
+                conf_path = sym_home / 'conf' / 'symmetric-server.properties'
+                web_port = os.getenv('PORT') or os.getenv('RAILWAY_PORT') or os.getenv('SERVER_PORT') or '31415'
+                txt = conf_path.read_text(encoding='utf-8') if conf_path.exists() else ''
+                import re as _re
+                if 'http.port' in txt:
+                    txt = _re.sub(r'^\s*http\.port\s*=\s*.*$', f'http.port={web_port}', txt, flags=_re.MULTILINE)
+                else:
+                    txt += ('' if txt.endswith('\n') else '\n') + f'http.port={web_port}\n'
+                # Asegurar bind address abierto
+                if 'host.bind.name' in txt:
+                    txt = _re.sub(r'^\s*host\.bind\.name\s*=\s*.*$', 'host.bind.name=0.0.0.0', txt, flags=_re.MULTILINE)
+                else:
+                    txt += f'host.bind.name=0.0.0.0\n'
+                conf_path.write_text(txt, encoding='utf-8')
+                log(f"[SymmetricDS] Puerto HTTP configurado en conf: {web_port}")
+            except Exception as e:
+                log(f"[SymmetricDS] No se pudo ajustar puerto en symmetric-server.properties: {e}")
+
             # Lanzar UN solo servidor web (SymmetricWebServer) que escanea ambos engines
             # Evita conflicto del puerto 31415 por procesos duplicados
             web_proc = _start_engine(java_bin, sym_home, Path(paths['railway']), log)
