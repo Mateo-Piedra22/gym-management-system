@@ -89,9 +89,9 @@ def main():
                 if parsed.port:
                     cfg["db_remote"]["port"] = parsed.port
                 if parsed.path:
-                    cfg["db_remote"]["db_name"] = parsed.path.lstrip("/")
+                    cfg["db_remote"]["database"] = parsed.path.lstrip("/")
                 if parsed.username:
-                    cfg["db_remote"]["username"] = parsed.username
+                    cfg["db_remote"]["user"] = parsed.username
                 if parsed.password:
                     cfg["db_remote"]["password"] = parsed.password
         except Exception:
@@ -113,9 +113,9 @@ def main():
             except Exception:
                 cfg["db_remote"]["port"] = port
         if name:
-            cfg["db_remote"]["db_name"] = name
+            cfg["db_remote"]["database"] = name
         if user:
-            cfg["db_remote"]["username"] = user
+            cfg["db_remote"]["user"] = user
         if pwd:
             cfg["db_remote"]["password"] = pwd
 
@@ -198,6 +198,20 @@ def main():
         print(f"[Setup] Actualizado conf/symmetric-server.properties: http.port/server.port={port_val}")
     except Exception as e:
         print(f"[Warn] No se pudo ajustar puerto en symmetric-server.properties: {e}")
+
+    # Forzar puerto de Spring Boot mediante application.properties y SPRING_CONFIG_LOCATION
+    try:
+        app_props = sym_home / 'conf' / 'application.properties'
+        app_props.parent.mkdir(parents=True, exist_ok=True)
+        app_txt = '\n'.join([
+            f'server.port={port_val}',
+            'server.address=0.0.0.0',
+        ])
+        app_props.write_text(app_txt, encoding='utf-8')
+        os.environ['SPRING_CONFIG_LOCATION'] = str(app_props)
+        print(f"[Setup] application.properties creado y SPRING_CONFIG_LOCATION definido: server.port={port_val}")
+    except Exception as e:
+        print(f"[Warn] No se pudo crear/usar application.properties: {e}")
 
     # Localizar Java; si no hay 17+, descargar uno ligero para Linux
     java_bin, java_version, java_major = setup._find_java()
