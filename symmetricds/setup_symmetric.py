@@ -214,13 +214,13 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "# Seguridad básica",
         "rest.api.user=sym_user",
         "rest.api.password=sym_password",
-        # Asegurar ejecución de trabajos del engine
+        # Ensure engine jobs run (canonical keys with .job suffix)
         "job.enabled=true",
-        "start.route=true",
-        "start.load=true",
-        "start.push=true",
-        "start.pull=true",
-        "start.heartbeat=true",
+        "start.route.job=true",
+        "start.load.job=true",
+        "start.push.job=true",
+        "start.pull.job=true",
+        "start.heartbeat.job=true",
     ])
 
     # local.properties (cliente)
@@ -250,13 +250,13 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "channel.default=true",
         "# Conflictos: master (Railway) gana siempre",
         "conflict.resolve.default=master_wins",
-        # Asegurar ejecución de trabajos del engine
+        # Ensure engine jobs run (canonical keys with .job suffix)
         "job.enabled=true",
-        "start.route=true",
-        "start.load=true",
-        "start.push=true",
-        "start.pull=true",
-        "start.heartbeat=true",
+        "start.route.job=true",
+        "start.load.job=true",
+        "start.push.job=true",
+        "start.pull.job=true",
+        "start.heartbeat.job=true",
     ])
 
     eng_dir = base_dir / 'symmetricds' / 'engines'
@@ -695,14 +695,37 @@ def _ensure_server_channel_router(conn, log):
                 )
             except Exception:
                 pass
-            # Canal por defecto si no existe
+            # Canal por defecto y parámetros clave (max_batch_to_send, enabled, max_batch_size)
             cur.execute(
                 """
                 DO $$
+                DECLARE
+                    has_max_batch_to_send boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='max_batch_to_send'
+                    );
+                    has_enabled boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='enabled'
+                    );
+                    has_max_batch_size boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='max_batch_size'
+                    );
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM sym_channel WHERE channel_id = 'default') THEN
                         INSERT INTO sym_channel (channel_id, processing_order, queue, enabled, max_batch_size)
                         VALUES ('default', 1, 'default', 1, 1000);
+                    END IF;
+                    -- Normalizar parámetros para evitar lotes grandes y asegurar ACKs rápidos
+                    IF has_enabled THEN
+                        UPDATE sym_channel SET enabled = 1 WHERE channel_id = 'default' AND (enabled IS NULL OR enabled <> 1);
+                    END IF;
+                    IF has_max_batch_size THEN
+                        UPDATE sym_channel SET max_batch_size = 1000 WHERE channel_id = 'default' AND (max_batch_size IS NULL OR max_batch_size <> 1000);
+                    END IF;
+                    IF has_max_batch_to_send THEN
+                        UPDATE sym_channel SET max_batch_to_send = 1 WHERE channel_id = 'default' AND (max_batch_to_send IS NULL OR max_batch_to_send <> 1);
                     END IF;
                 END$$;
                 """
@@ -818,14 +841,37 @@ def _ensure_client_channel_router(conn, log):
                 )
             except Exception:
                 pass
-            # Canal por defecto si no existe
+            # Canal por defecto y parámetros clave (max_batch_to_send, enabled, max_batch_size)
             cur.execute(
                 """
                 DO $$
+                DECLARE
+                    has_max_batch_to_send boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='max_batch_to_send'
+                    );
+                    has_enabled boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='enabled'
+                    );
+                    has_max_batch_size boolean := EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sym_channel' AND column_name='max_batch_size'
+                    );
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM sym_channel WHERE channel_id = 'default') THEN
                         INSERT INTO sym_channel (channel_id, processing_order, queue, enabled, max_batch_size)
                         VALUES ('default', 1, 'default', 1, 1000);
+                    END IF;
+                    -- Normalizar parámetros para evitar lotes grandes y asegurar ACKs rápidos
+                    IF has_enabled THEN
+                        UPDATE sym_channel SET enabled = 1 WHERE channel_id = 'default' AND (enabled IS NULL OR enabled <> 1);
+                    END IF;
+                    IF has_max_batch_size THEN
+                        UPDATE sym_channel SET max_batch_size = 1000 WHERE channel_id = 'default' AND (max_batch_size IS NULL OR max_batch_size <> 1000);
+                    END IF;
+                    IF has_max_batch_to_send THEN
+                        UPDATE sym_channel SET max_batch_to_send = 1 WHERE channel_id = 'default' AND (max_batch_to_send IS NULL OR max_batch_to_send <> 1);
                     END IF;
                 END$$;
                 """

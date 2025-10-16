@@ -61,8 +61,17 @@ def main():
         external_id = row[0] if row else 'local'
         cur.close()
 
-        upsert_param(conn, external_id, 'push.ack.required', 'false')
-        print("Set push.ack.required=false for", external_id)
+        # Asegurar que los jobs estén habilitados y que Push/Pull/Route/Load estén activos en el cliente
+        for k, v in [
+            ('job.enabled', 'true'),
+            ('start.push', 'true'),
+            ('start.pull', 'true'),
+            ('start.route', 'true'),
+            ('start.load', 'true'),
+            ('push.ack.required', 'false'),
+        ]:
+            upsert_param(conn, external_id, k, v)
+            print(f"Set {k}={v} for {external_id}")
 
 
 if __name__ == "__main__":

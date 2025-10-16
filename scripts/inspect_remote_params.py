@@ -46,11 +46,17 @@ def main():
             SELECT external_id, node_group_id, param_key, param_value
             FROM public.sym_parameter
             WHERE param_key IN (
+                'job.enabled',
+                'routing.job.enabled',
+                'start.route',
+                'start.load',
+                'start.push',
+                'start.pull',
+                'start.heartbeat',
                 'start.push.pull',
                 'push.thread.count',
                 'pull.thread.count',
-                'routing.job.enabled',
-                'job.enabled'
+                'dataloader.enable'
             )
             ORDER BY external_id, param_key
             """
