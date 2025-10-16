@@ -463,6 +463,7 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             '-Duser.timezone=America/Argentina/Buenos_Aires',
             f'-Dserver.port={web_port}',
             '-Dserver.address=0.0.0.0',
+            f'-Dhttp.port={web_port}',
             '-cp', cp,
             'org.jumpmind.symmetric.SymmetricWebServer'
         ]
