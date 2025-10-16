@@ -161,9 +161,43 @@ def main():
         src_railway = pathlib.Path(paths['railway'])
         (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
         print(f"[Setup] Copiado railway.properties a {dest_engines}")
+        # Limpiar otros engines para evitar que se cargue el cliente local en Railway
+        removed = []
+        for p in dest_engines.glob('*.properties'):
+            try:
+                if p.name != 'railway.properties':
+                    removed.append(p.name)
+                    p.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if removed:
+            print(f"[Setup] Limpiado engines: removidos {', '.join(removed)}")
     except Exception as e:
         print(f"[Error] No se pudo copiar properties al SYMMETRICDS_HOME: {e}")
         sys.exit(1)
+
+    # Ajustar conf/symmetric-server.properties para respetar el puerto de Railway (http.port y server.port)
+    try:
+        conf_path = sym_home / 'conf' / 'symmetric-server.properties'
+        conf_path.parent.mkdir(parents=True, exist_ok=True)
+        txt = conf_path.read_text(encoding='utf-8') if conf_path.exists() else ''
+        import re as _re
+        if 'http.port' in txt:
+            txt = _re.sub(r'^\s*http\.port\s*=\s*.*$', f'http.port={port_val}', txt, flags=_re.MULTILINE)
+        else:
+            txt += ('' if txt.endswith('\n') else '\n') + f'http.port={port_val}\n'
+        if 'server.port' in txt:
+            txt = _re.sub(r'^\s*server\.port\s*=\s*.*$', f'server.port={port_val}', txt, flags=_re.MULTILINE)
+        else:
+            txt += f'server.port={port_val}\n'
+        if 'host.bind.name' in txt:
+            txt = _re.sub(r'^\s*host\.bind\.name\s*=\s*.*$', 'host.bind.name=0.0.0.0', txt, flags=_re.MULTILINE)
+        else:
+            txt += f'host.bind.name=0.0.0.0\n'
+        conf_path.write_text(txt, encoding='utf-8')
+        print(f"[Setup] Actualizado conf/symmetric-server.properties: http.port/server.port={port_val}")
+    except Exception as e:
+        print(f"[Warn] No se pudo ajustar puerto en symmetric-server.properties: {e}")
 
     # Localizar Java; si no hay 17+, descargar uno ligero para Linux
     java_bin, java_version, java_major = setup._find_java()
