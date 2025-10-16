@@ -1,2 +1,50 @@
-.trae/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Entornos virtuales
+venv/
+ENV/
+.env
+.venv/
+env/
+
+# Archivos de logs y carpetas de logs
+logs/
+*.log
+
+# Archivos de trazas o dumps
+*.trae
+
+# Carpetas y archivos de editores/IDEs
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Archivos de configuración local
+*.ini
+*.cfg
+*.toml
+!config.toml  # descomenta si hay algún archivo de config que SÍ quieras trackear
+
+# Archivos temporales
+*.tmp
+*.temp
+
+# Archivos de cobertura de código
+.coverage
+htmlcov/
+
+# Archivos de pruebas
+.pytest_cache/
+.coverage
+
+# Archivos específicos a ignorar
+cache_metrics.json
+status.json
