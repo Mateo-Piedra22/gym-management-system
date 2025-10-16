@@ -26,7 +26,7 @@ def _ensure_server_base_url_in_cfg(setup_module, cfg: dict) -> dict:
     base_dir = _proj_root()
     cfg_path = base_dir / "config" / "config.json"
     server_env = os.getenv("SERVER_BASE_URL", "").strip()
-    server_default = "https://gym-ms-zrk.up.railway.app"
+    server_default = "https://gymms-symmetricds-node-production.up.railway.app"
     server_url = (server_env or cfg.get("server_base_url") or server_default).strip()
     # Normalizar esquema: anteponer https:// si falta
     if server_url and not (server_url.startswith("http://") or server_url.startswith("https://")):
