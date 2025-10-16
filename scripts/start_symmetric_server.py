@@ -62,6 +62,12 @@ def main():
     # Alinear el puerto del SymmetricWebServer (Spring Boot Jetty) con Railway
     # Spring Boot respeta SERVER_PORT env y -Dserver.port
     os.environ["SERVER_PORT"] = port_val
+    # Log explícito para diagnóstico en Railway
+    try:
+        print(f"[Boot] ENV PORT={os.getenv('PORT')} RAILWAY_PORT={os.getenv('RAILWAY_PORT')} SERVER_PORT={os.getenv('SERVER_PORT')}")
+        print(f"[Boot] Puerto web efectivo: {port_val}")
+    except Exception:
+        pass
 
     # Cargar config y asegurar server_base_url
     cfg = setup._load_config(base_dir)

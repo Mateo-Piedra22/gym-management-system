@@ -457,6 +457,11 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             web_port = None
         if not web_port:
             web_port = '31415'
+        # Log informativo a stdout para ver en Railway
+        try:
+            print(f"[Boot] Configurando JVM: server.port={web_port} http.port={web_port} address=0.0.0.0")
+        except Exception:
+            pass
         # Construir comando Java, forzando server.port y bind address
         cmd = [
             java_bin,
