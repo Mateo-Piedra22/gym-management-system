@@ -449,9 +449,20 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         # No pasamos '-p' para evitar diferencias de argumentos entre versiones.
         # Forzar timezone JVM a un identificador válido para PostgreSQL
         # Evita que el driver pgjdbc envíe 'America/Buenos_Aires' (no soportado en PG 17)
+        # Determinar puerto web para Railway/Spring Boot Jetty
+        web_port = None
+        try:
+            web_port = os.getenv('PORT') or os.getenv('RAILWAY_PORT') or os.getenv('SERVER_PORT')
+        except Exception:
+            web_port = None
+        if not web_port:
+            web_port = '31415'
+        # Construir comando Java, forzando server.port y bind address
         cmd = [
             java_bin,
             '-Duser.timezone=America/Argentina/Buenos_Aires',
+            f'-Dserver.port={web_port}',
+            '-Dserver.address=0.0.0.0',
             '-cp', cp,
             'org.jumpmind.symmetric.SymmetricWebServer'
         ]

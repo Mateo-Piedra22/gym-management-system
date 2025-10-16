@@ -59,6 +59,9 @@ def main():
     except Exception:
         port_val = "31417"
     os.environ["SYM_RAILWAY_HTTP_PORT"] = port_val
+    # Alinear el puerto del SymmetricWebServer (Spring Boot Jetty) con Railway
+    # Spring Boot respeta SERVER_PORT env y -Dserver.port
+    os.environ["SERVER_PORT"] = port_val
 
     # Cargar config y asegurar server_base_url
     cfg = setup._load_config(base_dir)
