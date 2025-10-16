@@ -478,6 +478,8 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         # Pasar argumentos de programa para que Spring Boot los tome con máxima precedencia
         # Incluye server.port, server.address y ubicación de configuración si existe
         cmd_args = [
+            # Intentar forzar puerto nativo del SymmetricWebServer si soporta '-p'
+            '-p', str(web_port),
             f'--server.port={web_port}',
             '--server.address=0.0.0.0',
         ]
@@ -940,7 +942,8 @@ def _configure_railway_server(cfg: dict, log) -> None:
         user = str(remote.get('user', 'postgres'))
         sslmode = str(remote.get('sslmode', 'require'))
         # Resolver password desde keyring
-        pwd = _resolve_password(user, host, port, '')
+        # Usar password del cfg si fue provisto (Railway PGPASSWORD), cae a keyring si no
+        pwd = _resolve_password(user, host, port, str(remote.get('password', '')))
         conn = _connect_pg(host, port, db, user, pwd, sslmode=sslmode)
         if conn is None:
             log("[SymmetricDS] psycopg2 no disponible o conexión a Railway fallida; skip configuración de triggers")

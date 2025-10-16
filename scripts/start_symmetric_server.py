@@ -97,11 +97,12 @@ def main():
         except Exception:
             pass
     # Variables especificas si no hay DATABASE_URL
-    host = os.getenv("SYM_DB_HOST") or os.getenv("POSTGRES_HOST")
-    port = os.getenv("SYM_DB_PORT") or os.getenv("POSTGRES_PORT")
-    name = os.getenv("SYM_DB_NAME") or os.getenv("POSTGRES_DB")
-    user = os.getenv("SYM_DB_USER") or os.getenv("POSTGRES_USER")
-    pwd = os.getenv("SYM_DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD")
+    # Aceptar también variables estándar de PostgreSQL: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
+    host = os.getenv("SYM_DB_HOST") or os.getenv("POSTGRES_HOST") or os.getenv("PGHOST")
+    port = os.getenv("SYM_DB_PORT") or os.getenv("POSTGRES_PORT") or os.getenv("PGPORT")
+    name = os.getenv("SYM_DB_NAME") or os.getenv("POSTGRES_DB") or os.getenv("PGDATABASE")
+    user = os.getenv("SYM_DB_USER") or os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
+    pwd = os.getenv("SYM_DB_PASSWORD") or os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD")
     if any([host, port, name, user, pwd]):
         cfg.setdefault("db_remote", {})
         cfg["db_remote"]["db_type"] = cfg["db_remote"].get("db_type", "postgresql")
@@ -194,7 +195,7 @@ def main():
                 txt = _re.sub(r'^\s*http\.port\s*=.*$', f'http.port={port_val}', txt, flags=_re.MULTILINE)
             rp.write_text(txt, encoding='utf-8')
             # Log sin exponer la password
-            safe_url = jdbc_url.replace(pwd_r, '***') if host and rport and dbname else '(sin cambios)'
+            safe_url = jdbc_url.replace(pwd_r, '***') if (host and rport and dbname and pwd_r) else jdbc_url if (host and rport and dbname) else '(sin cambios)'
             print(f"[Setup] railway.properties actualizado: db.user={user_r} db.url={safe_url}")
         except Exception as e:
             print(f"[Warn] No se pudo reescribir DB en railway.properties: {e}")
