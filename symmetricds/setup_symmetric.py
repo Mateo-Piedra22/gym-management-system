@@ -474,7 +474,20 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         ]
         logger(f"[SymmetricDS] Lanzando engine vía classpath (escaneo de engines/): {' '.join(cmd)}")
         # Al lanzar directo garantizamos uso del JRE embebido (java_bin)
-        proc = subprocess.Popen(cmd, stdout=out_f, stderr=err_f, cwd=str(sym_home))
+        # En plataformas tipo Railway, volcamos stdout/err de Java al stdout del contenedor
+        use_stream_stdout = False
+        try:
+            use_stream_stdout = bool(os.getenv('PORT') or os.getenv('RAILWAY_PORT'))
+        except Exception:
+            use_stream_stdout = False
+        if use_stream_stdout:
+            try:
+                logger("[SymmetricDS] Streaming de logs Java a stdout (Railway)")
+            except Exception:
+                pass
+            proc = subprocess.Popen(cmd, stdout=None, stderr=None, cwd=str(sym_home))
+        else:
+            proc = subprocess.Popen(cmd, stdout=out_f, stderr=err_f, cwd=str(sym_home))
         return proc
     except Exception as e:
         logger(f"[SymmetricDS] Error lanzando engine con {props_path}: {e}")
