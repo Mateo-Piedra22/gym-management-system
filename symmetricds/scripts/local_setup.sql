@@ -1,27 +1,27 @@
--- SymmetricDS configuración en cliente (Local)
--- Idempotente: asegura node groups/links, canal 'default', router 'toServer'
+-- SymmetricDS configuración en cliente (Store/local)
+-- Idempotente: asegura node groups/links, canal 'default', router 'store_to_corp'
 -- y crea triggers/trigger_router para todas las tablas públicas.
 
 -- Node groups y links bidireccionales (replicados eventualmente por config de servidor)
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'server') THEN
-        INSERT INTO sym_node_group (node_group_id) VALUES ('server');
+    IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'corp') THEN
+        INSERT INTO sym_node_group (node_group_id) VALUES ('corp');
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'client') THEN
-        INSERT INTO sym_node_group (node_group_id) VALUES ('client');
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'server' AND target_node_group_id = 'client'
-    ) THEN
-        INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id)
-        VALUES ('server', 'client');
+    IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'store') THEN
+        INSERT INTO sym_node_group (node_group_id) VALUES ('store');
     END IF;
     IF NOT EXISTS (
-        SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'client' AND target_node_group_id = 'server'
+        SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'corp' AND target_node_group_id = 'store'
     ) THEN
         INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id)
-        VALUES ('client', 'server');
+        VALUES ('corp', 'store');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'store' AND target_node_group_id = 'corp'
+    ) THEN
+        INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id)
+        VALUES ('store', 'corp');
     END IF;
 END$$;
 
@@ -34,7 +34,7 @@ BEGIN
     END IF;
 END$$;
 
--- Router hacia servidor (grupo 'server')
+-- Router hacia servidor corp (grupo 'corp')
 DO $$
 DECLARE has_sync BOOLEAN;
         has_enabled BOOLEAN;
@@ -54,7 +54,7 @@ BEGIN
         RETURN;
     END IF;
 
-    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'toServer') THEN
+    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'store_to_corp') THEN
         IF has_sync THEN
             INSERT INTO sym_router (
                 router_id, source_node_group_id, target_node_group_id,
@@ -62,7 +62,7 @@ BEGIN
                 create_time, last_update_time
             )
             VALUES (
-                'toServer', 'client', 'server', 'default', NULL, 1,
+                'store_to_corp', 'store', 'corp', 'default', NULL, 1,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
         ELSIF has_enabled THEN
@@ -72,7 +72,7 @@ BEGIN
                 create_time, last_update_time
             )
             VALUES (
-                'toServer', 'client', 'server', 'default', NULL, 1,
+                'store_to_corp', 'store', 'corp', 'default', NULL, 1,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
         ELSE
@@ -82,7 +82,7 @@ BEGIN
                 create_time, last_update_time
             )
             VALUES (
-                'toServer', 'client', 'server', 'default', NULL,
+                'store_to_corp', 'store', 'corp', 'default', NULL,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             );
         END IF;
@@ -176,14 +176,14 @@ BEGIN
         END IF;
 
         IF NOT EXISTS (
-            SELECT 1 FROM sym_trigger_router WHERE trigger_id = trig_id AND router_id = 'toServer'
+            SELECT 1 FROM sym_trigger_router WHERE trigger_id = trig_id AND router_id = 'store_to_corp'
         ) THEN
             IF has_tr_create_time AND has_tr_last_update_time THEN
                 INSERT INTO sym_trigger_router (
                     trigger_id, router_id, initial_load_order,
                     create_time, last_update_time
                 ) VALUES (
-                    trig_id, 'toServer', 1,
+                    trig_id, 'store_to_corp', 1,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 );
             ELSIF has_tr_create_time AND NOT has_tr_last_update_time THEN
@@ -191,7 +191,7 @@ BEGIN
                     trigger_id, router_id, initial_load_order,
                     create_time
                 ) VALUES (
-                    trig_id, 'toServer', 1,
+                    trig_id, 'store_to_corp', 1,
                     CURRENT_TIMESTAMP
                 );
             ELSIF NOT has_tr_create_time AND has_tr_last_update_time THEN
@@ -199,15 +199,15 @@ BEGIN
                     trigger_id, router_id, initial_load_order,
                     last_update_time
                 ) VALUES (
-                    trig_id, 'toServer', 1,
+                    trig_id, 'store_to_corp', 1,
                     CURRENT_TIMESTAMP
                 );
             ELSE
                 INSERT INTO sym_trigger_router (trigger_id, router_id, initial_load_order)
-                VALUES (trig_id, 'toServer', 1);
+                VALUES (trig_id, 'store_to_corp', 1);
             END IF;
         END IF;
     END LOOP;
 END$$;
 
--- Fin de configuración del cliente Local
+-- Fin de configuración del cliente Store/local

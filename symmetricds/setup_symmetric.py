@@ -190,9 +190,9 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
 
     # railway.properties (servidor/master)
     railway_props = "\n".join([
-        "engine.name=railway",
-        "group.id=server",
-        "external.id=railway",
+        "engine.name=corp-000",
+        "group.id=corp",
+        "external.id=000",
         f"db.driver=org.postgresql.Driver",
         f"db.url={remote_jdbc}",
         f"db.user={remote.get('user', 'postgres')}",
@@ -205,7 +205,7 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         # Evita mensajes que pidan registration.url y fuerzas a no auto-registrar
         "auto.registration=false",
         f"http.port={railway_http_port}",
-        f"sync.url={server_base_url.rstrip('/')}/sync/railway",
+        f"sync.url={server_base_url.rstrip('/')}/sync/corp-000",
         # Para nodo raíz, dejar registration.url vacío explícitamente
         "registration.url=",
         "registration.open=true",
@@ -221,16 +221,17 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "job.enabled=true",
         "start.route.job=true",
         "start.load.job=true",
-        "start.push.job=true",
+        "start.push.job=false",
         "start.pull.job=true",
         "start.heartbeat.job=true",
+        "job.push.period.time.ms=-1",
     ])
 
     # local.properties (cliente)
-    # El cliente se registra contra el engine 'railway' en el WebServer (Jetty 31415)
+    # El cliente se registra contra el engine 'corp-000' en el WebServer (Jetty 31415)
     local_props = "\n".join([
         "engine.name=local",
-        "group.id=client",
+        "group.id=store",
         f"external.id=local-{get_device_id()}",
         f"db.driver=org.postgresql.Driver",
         f"db.url={local_jdbc}",
@@ -248,7 +249,51 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         # El cliente publica su propio endpoint; debe terminar con el nombre del engine
         # Usar el puerto HTTP local configurado para que el servidor conozca la URL real del cliente
         f"sync.url=http://127.0.0.1:{local_http_port}/sync/local",
-        f"registration.url={server_base_url.rstrip('/')}/sync/railway",
+        f"registration.url={server_base_url.rstrip('/')}/sync/corp-000",
+        "data.create_time.timezone=America/Argentina/Buenos_Aires",
+        "channel.default=true",
+        "# Conflictos: master (Railway) gana siempre",
+        "conflict.resolve.default=master_wins",
+        # Ensure engine jobs run (canonical keys with .job suffix)
+        "job.enabled=true",
+        "start.route.job=true",
+        "start.load.job=true",
+        "start.push.job=true",
+        "start.pull.job=true",
+        "start.heartbeat.job=true",
+    ])
+
+    # store-001.properties (cliente real)
+    # Se genera dinámicamente desde config.json para usar en el nodo real
+    store_engine_name = str(cfg.get('store_engine_name', 'store-001'))
+    store_external_id = str(cfg.get('store_external_id', '001'))
+    store_pwd = _resolve_password(
+        str(local.get('user', 'postgres')),
+        str(local.get('host', 'localhost')),
+        int(local.get('port', 5432)),
+        # Fallback explícito pedido por el usuario
+        str(local.get('password', 'Matute03')),
+    )
+    store_props = "\n".join([
+        f"engine.name={store_engine_name}",
+        "group.id=store",
+        f"external.id={store_external_id}",
+        f"db.driver=org.postgresql.Driver",
+        f"db.url={local_jdbc}",
+        f"db.user={local.get('user', 'postgres')}",
+        f"db.password={store_pwd}",
+        f"auto.create=true",
+        f"auto.sync=true",
+        # Permite que el cliente también solicite reload inicial si es necesario
+        "auto.reload=true",
+        # Registrar automáticamente el cliente contra el servidor al inicio
+        "auto.registration=true",
+        # Forzar instalación de triggers al iniciar el engine cliente
+        "auto.sync.triggers.at.startup=true",
+        f"http.port={local_http_port}",
+        # El cliente publica su propio endpoint; debe terminar con el nombre del engine
+        f"sync.url={client_base_url.rstrip('/')}/sync/{store_engine_name}",
+        f"registration.url={server_base_url.rstrip('/')}/sync/corp-000",
         "data.create_time.timezone=America/Argentina/Buenos_Aires",
         "channel.default=true",
         "# Conflictos: master (Railway) gana siempre",
@@ -265,14 +310,17 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
     eng_dir = base_dir / 'symmetricds' / 'engines'
     railway_path = eng_dir / 'railway.properties'
     local_path = eng_dir / 'local.properties'
+    store_path = eng_dir / f"{store_engine_name}.properties"
 
     railway_path.write_text(railway_props, encoding='utf-8')
     local_path.write_text(local_props, encoding='utf-8')
+    store_path.write_text(store_props, encoding='utf-8')
 
     return {
         'common': str(common_path),
         'railway': str(railway_path),
         'local': str(local_path),
+        'store001': str(store_path),
         'railway_port': railway_http_port,
         'local_port': local_http_port,
         'server_base_url': server_base_url,
@@ -642,7 +690,7 @@ def _connect_pg(host: str, port: int, db: str, user: str, password: str, sslmode
 
 
 def _ensure_server_channel_router(conn, log):
-    """Asegura canal 'default' y router simple hacia grupo 'client' en Railway."""
+    """Asegura canal 'default' y router simple hacia grupo 'store' en Railway."""
     try:
         with conn.cursor() as cur:
             # Verificar que existan las tablas clave antes de intentar insertar
@@ -657,40 +705,40 @@ def _ensure_server_channel_router(conn, log):
             except Exception:
                 log("[SymmetricDS] Error verificando esquema Railway al asegurar canal/router; omito por ahora.")
                 return
-            # Asegurar node groups (server y client) y links bidireccionales
+            # Asegurar node groups (corp y store) y links bidireccionales
             try:
                 cur.execute(
                     """
                     DO $$
                     BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'server') THEN
-                            INSERT INTO sym_node_group (node_group_id) VALUES ('server');
+                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'corp') THEN
+                            INSERT INTO sym_node_group (node_group_id) VALUES ('corp');
                         END IF;
-                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'client') THEN
-                            INSERT INTO sym_node_group (node_group_id) VALUES ('client');
+                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'store') THEN
+                            INSERT INTO sym_node_group (node_group_id) VALUES ('store');
                         END IF;
-                        -- Enlace server->client: servidor envía cuando el cliente hace pull (W)
+                        -- Enlace corp->store: servidor envía cuando el cliente hace pull (W)
                         IF NOT EXISTS (
-                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'server' AND target_node_group_id = 'client'
+                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'corp' AND target_node_group_id = 'store'
                         ) THEN
                             INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id, data_event_action)
-                            VALUES ('server', 'client', 'W');
+                            VALUES ('corp', 'store', 'W');
                         ELSE
                             UPDATE sym_node_group_link
                                SET data_event_action = 'W'
-                             WHERE source_node_group_id = 'server' AND target_node_group_id = 'client'
+                             WHERE source_node_group_id = 'corp' AND target_node_group_id = 'store'
                                AND (data_event_action IS NULL OR data_event_action NOT IN ('W','P'));
                         END IF;
-                        -- Enlace client->server: cliente empuja (P)
+                        -- Enlace store->corp: cliente empuja (P)
                         IF NOT EXISTS (
-                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'client' AND target_node_group_id = 'server'
+                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'store' AND target_node_group_id = 'corp'
                         ) THEN
                             INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id, data_event_action)
-                            VALUES ('client', 'server', 'P');
+                            VALUES ('store', 'corp', 'P');
                         ELSE
                             UPDATE sym_node_group_link
                                SET data_event_action = 'P'
-                             WHERE source_node_group_id = 'client' AND target_node_group_id = 'server'
+                             WHERE source_node_group_id = 'store' AND target_node_group_id = 'corp'
                                AND (data_event_action IS NULL OR data_event_action NOT IN ('W','P'));
                         END IF;
                     END$$;
@@ -733,7 +781,7 @@ def _ensure_server_channel_router(conn, log):
                 END$$;
                 """
             )
-            # Router hacia clientes (grupo 'client')
+            # Router hacia tiendas (grupo 'store')
             cur.execute(
                 """
                 DO $$
@@ -747,14 +795,14 @@ def _ensure_server_channel_router(conn, log):
                         WHERE table_schema='public' AND table_name='sym_router' AND column_name='enabled'
                     );
                 BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'toClients') THEN
+                    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'corp_to_store') THEN
                         IF has_sync THEN
                             INSERT INTO sym_router (
                                 router_id, source_node_group_id, target_node_group_id,
                                 router_type, router_expression, sync_config,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toClients', 'server', 'client', 'default', NULL, 1,
+                                'corp_to_store', 'corp', 'store', 'default', NULL, 1,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         ELSIF has_enabled THEN
@@ -763,7 +811,7 @@ def _ensure_server_channel_router(conn, log):
                                 router_type, router_expression, enabled,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toClients', 'server', 'client', 'default', NULL, 1,
+                                'corp_to_store', 'corp', 'store', 'default', NULL, 1,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         ELSE
@@ -772,7 +820,7 @@ def _ensure_server_channel_router(conn, log):
                                 router_type, router_expression,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toClients', 'server', 'client', 'default', NULL,
+                                'corp_to_store', 'corp', 'store', 'default', NULL,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         END IF;
@@ -788,7 +836,7 @@ def _ensure_server_channel_router(conn, log):
 
 
 def _ensure_client_channel_router(conn, log):
-    """Asegura canal 'default' y router simple hacia grupo 'server' en Local."""
+    """Asegura canal 'default' y router simple hacia grupo 'corp' en Local."""
     try:
         with conn.cursor() as cur:
             # Verificar tablas clave antes de intentar insertar
@@ -809,34 +857,34 @@ def _ensure_client_channel_router(conn, log):
                     """
                     DO $$
                     BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'server') THEN
-                            INSERT INTO sym_node_group (node_group_id) VALUES ('server');
+                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'corp') THEN
+                            INSERT INTO sym_node_group (node_group_id) VALUES ('corp');
                         END IF;
-                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'client') THEN
-                            INSERT INTO sym_node_group (node_group_id) VALUES ('client');
+                        IF NOT EXISTS (SELECT 1 FROM sym_node_group WHERE node_group_id = 'store') THEN
+                            INSERT INTO sym_node_group (node_group_id) VALUES ('store');
                         END IF;
-                        -- Enlace server->client: servidor envía cuando el cliente hace pull (W)
+                        -- Enlace corp->store: servidor envía cuando el cliente hace pull (W)
                         IF NOT EXISTS (
-                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'server' AND target_node_group_id = 'client'
+                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'corp' AND target_node_group_id = 'store'
                         ) THEN
                             INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id, data_event_action)
-                            VALUES ('server', 'client', 'W');
+                            VALUES ('corp', 'store', 'W');
                         ELSE
                             UPDATE sym_node_group_link
                                SET data_event_action = 'W'
-                             WHERE source_node_group_id = 'server' AND target_node_group_id = 'client'
+                             WHERE source_node_group_id = 'corp' AND target_node_group_id = 'store'
                                AND (data_event_action IS NULL OR data_event_action NOT IN ('W','P'));
                         END IF;
-                        -- Enlace client->server: cliente empuja (P)
+                        -- Enlace store->corp: cliente empuja (P)
                         IF NOT EXISTS (
-                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'client' AND target_node_group_id = 'server'
+                            SELECT 1 FROM sym_node_group_link WHERE source_node_group_id = 'store' AND target_node_group_id = 'corp'
                         ) THEN
                             INSERT INTO sym_node_group_link (source_node_group_id, target_node_group_id, data_event_action)
-                            VALUES ('client', 'server', 'P');
+                            VALUES ('store', 'corp', 'P');
                         ELSE
                             UPDATE sym_node_group_link
                                SET data_event_action = 'P'
-                             WHERE source_node_group_id = 'client' AND target_node_group_id = 'server'
+                             WHERE source_node_group_id = 'store' AND target_node_group_id = 'corp'
                                AND (data_event_action IS NULL OR data_event_action NOT IN ('W','P'));
                         END IF;
                     END$$;
@@ -879,7 +927,7 @@ def _ensure_client_channel_router(conn, log):
                 END$$;
                 """
             )
-            # Router hacia servidor (grupo 'server')
+            # Router hacia corporativo (grupo 'corp')
             cur.execute(
                 """
                 DO $$
@@ -893,14 +941,14 @@ def _ensure_client_channel_router(conn, log):
                         WHERE table_schema='public' AND table_name='sym_router' AND column_name='enabled'
                     );
                 BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'toServer') THEN
+                    IF NOT EXISTS (SELECT 1 FROM sym_router WHERE router_id = 'store_to_corp') THEN
                         IF has_sync THEN
                             INSERT INTO sym_router (
                                 router_id, source_node_group_id, target_node_group_id,
                                 router_type, router_expression, sync_config,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toServer', 'client', 'server', 'default', NULL, 1,
+                                'store_to_corp', 'store', 'corp', 'default', NULL, 1,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         ELSIF has_enabled THEN
@@ -909,7 +957,7 @@ def _ensure_client_channel_router(conn, log):
                                 router_type, router_expression, enabled,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toServer', 'client', 'server', 'default', NULL, 1,
+                                'store_to_corp', 'store', 'corp', 'default', NULL, 1,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         ELSE
@@ -918,7 +966,7 @@ def _ensure_client_channel_router(conn, log):
                                 router_type, router_expression,
                                 create_time, last_update_time
                             ) VALUES (
-                                'toServer', 'client', 'server', 'default', NULL,
+                                'store_to_corp', 'store', 'corp', 'default', NULL,
                                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                             );
                         END IF;
@@ -961,7 +1009,7 @@ def _ensure_triggers_for_all_tables(conn, log, tables: list):
 
     - Canal: 'default'
     - Sincroniza INSERT/UPDATE/DELETE
-    - Router: 'toClients'
+    - Router: 'corp_to_store'
     """
     try:
         with conn.cursor() as cur:
@@ -1046,26 +1094,26 @@ def _ensure_triggers_for_all_tables(conn, log, tables: list):
                             );
                         BEGIN
                             IF NOT EXISTS (
-                                SELECT 1 FROM sym_trigger_router WHERE trigger_id = %s AND router_id = 'toClients'
+                                SELECT 1 FROM sym_trigger_router WHERE trigger_id = %s AND router_id = 'corp_to_store'
                             ) THEN
                                 IF has_tr_create_time AND has_tr_last_update_time THEN
                                     INSERT INTO sym_trigger_router (
                                         trigger_id, router_id, initial_load_order,
                                         create_time, last_update_time
-                                    ) VALUES (%s, 'toClients', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+                                    ) VALUES (%s, 'corp_to_store', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
                                 ELSIF has_tr_create_time AND NOT has_tr_last_update_time THEN
                                     INSERT INTO sym_trigger_router (
                                         trigger_id, router_id, initial_load_order,
                                         create_time
-                                    ) VALUES (%s, 'toClients', 1, CURRENT_TIMESTAMP);
+                                    ) VALUES (%s, 'corp_to_store', 1, CURRENT_TIMESTAMP);
                                 ELSIF NOT has_tr_create_time AND has_tr_last_update_time THEN
                                     INSERT INTO sym_trigger_router (
                                         trigger_id, router_id, initial_load_order,
                                         last_update_time
-                                    ) VALUES (%s, 'toClients', 1, CURRENT_TIMESTAMP);
+                                    ) VALUES (%s, 'corp_to_store', 1, CURRENT_TIMESTAMP);
                                 ELSE
                                     INSERT INTO sym_trigger_router (trigger_id, router_id, initial_load_order)
-                                    VALUES (%s, 'toClients', 1);
+                                    VALUES (%s, 'corp_to_store', 1);
                                 END IF;
                             END IF;
                         END$$;
@@ -1134,7 +1182,7 @@ def _configure_local_client(cfg: dict, log) -> None:
             return
         _ensure_client_channel_router(conn, log)
         tables = _list_public_tables(conn)
-        # Reusar la misma creación de triggers, pero apuntar al router 'toServer'
+        # Reusar la misma creación de triggers, pero apuntar al router 'store_to_corp'
         try:
             with conn.cursor() as cur:
                 for tbl in tables:
@@ -1208,26 +1256,26 @@ def _configure_local_client(cfg: dict, log) -> None:
                                 );
                             BEGIN
                                 IF NOT EXISTS (
-                                    SELECT 1 FROM sym_trigger_router WHERE trigger_id = %s AND router_id = 'toServer'
+                                    SELECT 1 FROM sym_trigger_router WHERE trigger_id = %s AND router_id = 'store_to_corp'
                                 ) THEN
                                     IF has_tr_create_time AND has_tr_last_update_time THEN
                                         INSERT INTO sym_trigger_router (
                                             trigger_id, router_id, initial_load_order,
                                             create_time, last_update_time
-                                        ) VALUES (%s, 'toServer', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+                                        ) VALUES (%s, 'store_to_corp', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
                                     ELSIF has_tr_create_time AND NOT has_tr_last_update_time THEN
                                         INSERT INTO sym_trigger_router (
                                             trigger_id, router_id, initial_load_order,
                                             create_time
-                                        ) VALUES (%s, 'toServer', 1, CURRENT_TIMESTAMP);
+                                        ) VALUES (%s, 'store_to_corp', 1, CURRENT_TIMESTAMP);
                                     ELSIF NOT has_tr_create_time AND has_tr_last_update_time THEN
                                         INSERT INTO sym_trigger_router (
                                             trigger_id, router_id, initial_load_order,
                                             last_update_time
-                                        ) VALUES (%s, 'toServer', 1, CURRENT_TIMESTAMP);
+                                        ) VALUES (%s, 'store_to_corp', 1, CURRENT_TIMESTAMP);
                                     ELSE
                                         INSERT INTO sym_trigger_router (trigger_id, router_id, initial_load_order)
-                                        VALUES (%s, 'toServer', 1);
+                                        VALUES (%s, 'store_to_corp', 1);
                                     END IF;
                                 END IF;
                             END$$;
@@ -1392,11 +1440,22 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                 dest_engines.mkdir(exist_ok=True)
                 src_railway = Path(paths['railway'])
                 src_local = Path(paths['local'])
+                src_store = Path(paths.get('store001', ''))
                 is_railway = bool(os.getenv('PORT') or os.getenv('RAILWAY_PORT') or os.getenv('RAILWAY_ENVIRONMENT'))
                 (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
                 if not is_railway:
-                    (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
-                    log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
+                    # Preferir el store-001.properties generado dinámicamente; fallback al local
+                    try:
+                        if src_store and src_store.exists():
+                            (dest_engines / 'store-001.properties').write_text(src_store.read_text(encoding='utf-8'), encoding='utf-8')
+                            log(f"[SymmetricDS] Engines copiados (server y store-001) a {dest_engines} para escaneo automático")
+                        else:
+                            (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
+                            log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
+                    except Exception:
+                        # Fallback siempre al local si falla el store-001
+                        (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
+                        log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
                 else:
                     # En entorno Railway cargamos solamente el engine 'railway'
                     log(f"[SymmetricDS] Engine 'railway' copiado a {dest_engines}; omitido 'local' en entorno Railway")
@@ -1593,7 +1652,7 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                             if r:
                                 server_id = r[0]
                         except Exception:
-                            server_id = 'railway'
+                            server_id = 'corp-000'
 
                         # Obtener triggers y canales
                         cur.execute("SELECT trigger_id, COALESCE(channel_id, 'default') FROM sym_trigger")
@@ -1624,7 +1683,7 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                                     SELECT 1 FROM sym_table_reload_request
                                      WHERE target_node_id = %s
                                        AND trigger_id = %s
-                                       AND router_id = 'toClients'
+                                       AND router_id = 'corp_to_store'
                                     """,
                                     (node_id, trig_id)
                                 )
@@ -1640,7 +1699,7 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                                         channel_id, create_table, delete_first, reload_select,
                                         before_custom_sql, load_id
                                     ) VALUES (
-                                        %s, %s, %s, 'toClients',
+                                        %s, %s, %s, 'corp_to_store',
                                         %s, 0, 1, NULL,
                                         NULL, %s
                                     )

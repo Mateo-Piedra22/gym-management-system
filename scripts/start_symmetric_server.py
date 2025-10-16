@@ -131,18 +131,19 @@ def main():
     except Exception:
         pass
 
-    # Generar properties
+    # Generar properties comunes (railway/local) pero usaremos corp-000 en Railway
     paths = setup._write_properties(base_dir, cfg)
-    print(f"[Setup] railway.properties -> {paths.get('railway')}")
-    # Mostrar sync.url para verificación rápida en logs
+    corp_src_path = base_dir / 'symmetricds' / 'engines' / 'corp-000.properties'
+    print(f"[Setup] corp-000.properties -> {corp_src_path}")
+    # Mostrar sync.url de corp-000 para verificación rápida en logs
     try:
-        with open(paths.get('railway'), 'r', encoding='utf-8') as pf:
+        with open(corp_src_path, 'r', encoding='utf-8') as pf:
             for line in pf:
                 if line.strip().startswith('sync.url='):
                     print(f"[Setup] sync.url -> {line.strip().split('=',1)[1]}")
                     break
     except Exception as e:
-        print(f"[Warn] No se pudo leer sync.url de properties: {e}")
+        print(f"[Warn] No se pudo leer sync.url de corp-000.properties: {e}")
 
     # Resolver SYMMETRICDS_HOME
     env_home = os.getenv('SYMMETRICDS_HOME')
@@ -157,16 +158,20 @@ def main():
             candidates = []
         sym_home = candidates[-1] if candidates else base_sym
 
-    # Copiar engines al HOME
+    # Copiar corp-000.properties al HOME y reescribir credenciales/URL/puerto
     try:
         dest_engines = sym_home / 'engines'
         dest_engines.mkdir(exist_ok=True)
-        src_railway = pathlib.Path(paths['railway'])
-        (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
-        print(f"[Setup] Copiado railway.properties a {dest_engines}")
-        # Reescribir credenciales y URL de DB en railway.properties desde ENV/CFG actual
+        src_corp = corp_src_path
+        if not src_corp.exists():
+            print(f"[Error] No se encontró {src_corp}")
+            sys.exit(1)
+        corp_path = dest_engines / 'corp-000.properties'
+        corp_path.write_text(src_corp.read_text(encoding='utf-8'), encoding='utf-8')
+        print(f"[Setup] Copiado corp-000.properties a {dest_engines}")
+        # Reescribir credenciales y URL de DB en corp-000.properties desde ENV/CFG actual
         try:
-            rp = dest_engines / 'railway.properties'
+            rp = corp_path
             txt = rp.read_text(encoding='utf-8')
             remote = dict(cfg.get('db_remote') or {})
             host = str(remote.get('host', '')).strip()
@@ -174,10 +179,10 @@ def main():
             dbname = str(remote.get('database', 'railway')).strip()
             user_r = str(remote.get('user', 'postgres')).strip()
             pwd_r = str(remote.get('password', '')).strip()
-            # Permitir override por PGSSLMODE (Railway sugiere 'require')
             sslmode = str(os.getenv('PGSSLMODE') or remote.get('sslmode', 'require')).strip() or 'require'
             app_name = 'gym_management_system'
             # Construir jdbc url
+            jdbc_url = ''
             if host and rport and dbname:
                 jdbc_url = (
                     f"jdbc:postgresql://{host}:{rport}/{dbname}?sslmode={sslmode}"
@@ -192,21 +197,31 @@ def main():
             if pwd_r:
                 import re as _re
                 txt = _re.sub(r'^\s*db\.password\s*=.*$', f'db.password={pwd_r}', txt, flags=_re.MULTILINE)
-            # Alinear también http.port por consistencia
+            # Alinear http.port y sync.url
             import re as _re
             if 'http.port' in txt:
                 txt = _re.sub(r'^\s*http\.port\s*=.*$', f'http.port={port_val}', txt, flags=_re.MULTILINE)
+            server_base = os.environ.get('SYM_SERVER_BASE_URL', '').strip() or str(cfg.get('server_base_url', '')).strip()
+            if server_base:
+                server_base = server_base.rstrip('/')
+                txt = _re.sub(r'^\s*sync\.url\s*=.*$', f'sync.url={server_base}/sync/corp-000', txt, flags=_re.MULTILINE)
+            # Desactivar push en el servidor central
+            txt = _re.sub(r'^\s*start\.push\.job\s*=.*$', 'start.push.job=false', txt, flags=_re.MULTILINE)
+            if 'job.push.period.time.ms' in txt:
+                txt = _re.sub(r'^\s*job\.push\.period\.time\.ms\s*=.*$', 'job.push.period.time.ms=-1', txt, flags=_re.MULTILINE)
+            else:
+                txt += ('' if txt.endswith('\n') else '\n') + 'job.push.period.time.ms=-1\n'
             rp.write_text(txt, encoding='utf-8')
             # Log sin exponer la password
-            safe_url = jdbc_url.replace(pwd_r, '***') if (host and rport and dbname and pwd_r) else jdbc_url if (host and rport and dbname) else '(sin cambios)'
-            print(f"[Setup] railway.properties actualizado: db.user={user_r} db.url={safe_url}")
+            safe_url = jdbc_url.replace(pwd_r, '***') if (jdbc_url and pwd_r) else (jdbc_url or '(sin cambios)')
+            print(f"[Setup] corp-000.properties actualizado: db.user={user_r} db.url={safe_url}")
         except Exception as e:
-            print(f"[Warn] No se pudo reescribir DB en railway.properties: {e}")
+            print(f"[Warn] No se pudo reescribir DB/sync en corp-000.properties: {e}")
         # Limpiar otros engines para evitar que se cargue el cliente local en Railway
         removed = []
         for p in dest_engines.glob('*.properties'):
             try:
-                if p.name != 'railway.properties':
+                if p.name != 'corp-000.properties':
                     removed.append(p.name)
                     p.unlink(missing_ok=True)
             except Exception:
@@ -214,7 +229,7 @@ def main():
         if removed:
             print(f"[Setup] Limpiado engines: removidos {', '.join(removed)}")
     except Exception as e:
-        print(f"[Error] No se pudo copiar properties al SYMMETRICDS_HOME: {e}")
+        print(f"[Error] No se pudo copiar corp-000.properties al SYMMETRICDS_HOME: {e}")
         sys.exit(1)
 
     # Ajustar conf/symmetric-server.properties para respetar el puerto de Railway (http.port y server.port)
@@ -339,15 +354,16 @@ def main():
             sys.exit(1)
     print(f"[Info] Usando Java: {java_bin} ({java_version})")
 
-    # Arrancar Symmetric WebServer para el engine 'railway'
-    proc = setup._start_engine(java_bin, sym_home, pathlib.Path(paths['railway']), print)
+    # Arrancar Symmetric WebServer para el engine 'corp-000'
+    corp_engine_props = sym_home / 'engines' / 'corp-000.properties'
+    proc = setup._start_engine(java_bin, sym_home, corp_engine_props, print)
     if not proc:
         print("[Error] No se pudo iniciar SymmetricDS WebServer.")
         sys.exit(1)
-    print(f"[Run] SymmetricDS 'railway' escuchando en puerto {port_val}…")
+    print(f"[Run] SymmetricDS 'corp-000' escuchando en puerto {port_val}…")
     # Imprimir sync.url y server_base_url al final para que aparezca cerca del mensaje de 'Run'
     try:
-        with open(paths.get('railway'), 'r', encoding='utf-8') as pf:
+        with open(corp_engine_props, 'r', encoding='utf-8') as pf:
             for line in pf:
                 if line.strip().startswith('sync.url='):
                     print(f"[Run] sync.url -> {line.strip().split('=',1)[1]}")

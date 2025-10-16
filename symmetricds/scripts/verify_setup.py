@@ -1,6 +1,6 @@
 """
 Verifica automáticamente el estado básico de configuración SymmetricDS en
-Railway (server) y Local (client): routers, triggers y timestamps.
+Railway (corp) y Local (store): routers, triggers y timestamps.
 
 Usa `psql` (no requiere librerías adicionales). Lee defaults de `config/config.json`
 y contraseñas desde Keyring/env igual que `apply_setup.py`.
@@ -138,43 +138,43 @@ def check_site(name: str, psql: str, host: str, port: int, db: str, user: str, p
         print(f"  Tabla {t}:", "OK" if (ok and out and out.lower() != "null") else "FALTA")
 
     # Routers
-    ok, cnt_clients = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toClients'")
-    ok, cnt_server = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toServer'")
-    print(f"  sym_router toClients: {cnt_clients or '0'} | toServer: {cnt_server or '0'}")
+    ok, cnt_c2s = q("SELECT COUNT(*) FROM sym_router WHERE router_id='corp_to_store'")
+    ok, cnt_s2c = q("SELECT COUNT(*) FROM sym_router WHERE router_id='store_to_corp'")
+    print(f"  sym_router corp_to_store: {cnt_c2s or '0'} | store_to_corp: {cnt_s2c or '0'}")
     # Detalle de source/target si existen
-    ok, stc = q("SELECT source_node_group_id||'->'||target_node_group_id FROM sym_router WHERE router_id='toClients'")
-    ok, sts = q("SELECT source_node_group_id||'->'||target_node_group_id FROM sym_router WHERE router_id='toServer'")
-    if stc:
-        print(f"  toClients source->target: {stc}")
-    if sts:
-        print(f"  toServer source->target: {sts}")
+    ok, st_c2s = q("SELECT source_node_group_id||'->'||target_node_group_id FROM sym_router WHERE router_id='corp_to_store'")
+    ok, st_s2c = q("SELECT source_node_group_id||'->'||target_node_group_id FROM sym_router WHERE router_id='store_to_corp'")
+    if st_c2s:
+        print(f"  corp_to_store source->target: {st_c2s}")
+    if st_s2c:
+        print(f"  store_to_corp source->target: {st_s2c}")
 
     # Timestamps en sym_router
     ok, has_sr_ct = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_router' AND column_name='create_time')")
     ok, has_sr_lu = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_router' AND column_name='last_update_time')")
     if _truthy(has_sr_ct):
-        ok, sr_ct_clients = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toClients' AND create_time IS NOT NULL")
-        ok, sr_ct_server = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toServer' AND create_time IS NOT NULL")
-        print(f"  sym_router create_time: toClients={sr_ct_clients} | toServer={sr_ct_server}")
+        ok, sr_ct_c2s = q("SELECT COUNT(*) FROM sym_router WHERE router_id='corp_to_store' AND create_time IS NOT NULL")
+        ok, sr_ct_s2c = q("SELECT COUNT(*) FROM sym_router WHERE router_id='store_to_corp' AND create_time IS NOT NULL")
+        print(f"  sym_router create_time: corp_to_store={sr_ct_c2s} | store_to_corp={sr_ct_s2c}")
     else:
         print("  sym_router create_time: columna no existe (omitido)")
     if _truthy(has_sr_lu):
-        ok, sr_lu_clients = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toClients' AND last_update_time IS NOT NULL")
-        ok, sr_lu_server = q("SELECT COUNT(*) FROM sym_router WHERE router_id='toServer' AND last_update_time IS NOT NULL")
-        print(f"  sym_router last_update_time: toClients={sr_lu_clients} | toServer={sr_lu_server}")
+        ok, sr_lu_c2s = q("SELECT COUNT(*) FROM sym_router WHERE router_id='corp_to_store' AND last_update_time IS NOT NULL")
+        ok, sr_lu_s2c = q("SELECT COUNT(*) FROM sym_router WHERE router_id='store_to_corp' AND last_update_time IS NOT NULL")
+        print(f"  sym_router last_update_time: corp_to_store={sr_lu_c2s} | store_to_corp={sr_lu_s2c}")
     else:
         print("  sym_router last_update_time: columna no existe (omitido)")
     # enabled/sync_config si existen
     ok, has_sr_enabled = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_router' AND column_name='enabled')")
     ok, has_sr_sync = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_router' AND column_name='sync_config')")
     if _truthy(has_sr_enabled):
-        ok, sr_en_clients = q("SELECT COALESCE((SELECT enabled::text FROM sym_router WHERE router_id='toClients'),'')")
-        ok, sr_en_server = q("SELECT COALESCE((SELECT enabled::text FROM sym_router WHERE router_id='toServer'),'')")
-        print(f"  sym_router enabled: toClients={sr_en_clients or '(nulo)'} | toServer={sr_en_server or '(nulo)'}")
+        ok, sr_en_c2s = q("SELECT COALESCE((SELECT enabled::text FROM sym_router WHERE router_id='corp_to_store'),'')")
+        ok, sr_en_s2c = q("SELECT COALESCE((SELECT enabled::text FROM sym_router WHERE router_id='store_to_corp'),'')")
+        print(f"  sym_router enabled: corp_to_store={sr_en_c2s or '(nulo)'} | store_to_corp={sr_en_s2c or '(nulo)'}")
     if _truthy(has_sr_sync):
-        ok, sr_sc_clients = q("SELECT COALESCE((SELECT sync_config::text FROM sym_router WHERE router_id='toClients'),'')")
-        ok, sr_sc_server = q("SELECT COALESCE((SELECT sync_config::text FROM sym_router WHERE router_id='toServer'),'')")
-        print(f"  sym_router sync_config: toClients={sr_sc_clients or '(nulo)'} | toServer={sr_sc_server or '(nulo)'}")
+        ok, sr_sc_c2s = q("SELECT COALESCE((SELECT sync_config::text FROM sym_router WHERE router_id='corp_to_store'),'')")
+        ok, sr_sc_s2c = q("SELECT COALESCE((SELECT sync_config::text FROM sym_router WHERE router_id='store_to_corp'),'')")
+        print(f"  sym_router sync_config: corp_to_store={sr_sc_c2s or '(nulo)'} | store_to_corp={sr_sc_s2c or '(nulo)'}")
 
     # Triggers
     ok, trg_cnt = q("SELECT COUNT(*) FROM sym_trigger")
@@ -215,38 +215,38 @@ def check_site(name: str, psql: str, host: str, port: int, db: str, user: str, p
     # Trigger routers
     ok, has_trr_ct = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_trigger_router' AND column_name='create_time')")
     ok, has_trr_lu = q("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='sym_trigger_router' AND column_name='last_update_time')")
-    ok, trr_clients_cnt = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toClients'")
-    ok, trr_server_cnt = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toServer'")
-    print(f"  sym_trigger_router toClients: {trr_clients_cnt or '0'} | toServer: {trr_server_cnt or '0'}")
+    ok, trr_c2s_cnt = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='corp_to_store'")
+    ok, trr_s2c_cnt = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='store_to_corp'")
+    print(f"  sym_trigger_router corp_to_store: {trr_c2s_cnt or '0'} | store_to_corp: {trr_s2c_cnt or '0'}")
     if _truthy(has_trr_ct):
-        ok, trr_clients_ts = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toClients' AND create_time IS NOT NULL")
-        ok, trr_server_ts = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toServer' AND create_time IS NOT NULL")
-        print(f"  sym_trigger_router create_time: toClients={trr_clients_ts} | toServer={trr_server_ts}")
+        ok, trr_c2s_ts = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='corp_to_store' AND create_time IS NOT NULL")
+        ok, trr_s2c_ts = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='store_to_corp' AND create_time IS NOT NULL")
+        print(f"  sym_trigger_router create_time: corp_to_store={trr_c2s_ts} | store_to_corp={trr_s2c_ts}")
     else:
         print("  sym_trigger_router create_time: columna no existe (omitido)")
     # initial_load_order no nulo
-    ok, trr_ilo_clients = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toClients' AND initial_load_order IS NOT NULL")
-    ok, trr_ilo_server = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='toServer' AND initial_load_order IS NOT NULL")
-    print(f"  initial_load_order definido: toClients={trr_ilo_clients} | toServer={trr_ilo_server}")
+    ok, trr_ilo_c2s = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='corp_to_store' AND initial_load_order IS NOT NULL")
+    ok, trr_ilo_s2c = q("SELECT COUNT(*) FROM sym_trigger_router WHERE router_id='store_to_corp' AND initial_load_order IS NOT NULL")
+    print(f"  initial_load_order definido: corp_to_store={trr_ilo_c2s} | store_to_corp={trr_ilo_s2c}")
 
     # Muestras
-    if (trr_clients_cnt and trr_clients_cnt != '0'):
+    if (trr_c2s_cnt and trr_c2s_cnt != '0'):
         # No referenciamos columnas opcionales si no existen
-        ok, sample_clients = q("SELECT trigger_id, router_id FROM sym_trigger_router WHERE router_id='toClients' ORDER BY trigger_id LIMIT 5")
-        print("  Muestra toClients:")
-        print("    " + (sample_clients.replace("\n", "\n    ") if sample_clients else "(vacío)"))
-    if (trr_server_cnt and trr_server_cnt != '0'):
-        ok, sample_server = q("SELECT trigger_id, router_id FROM sym_trigger_router WHERE router_id='toServer' ORDER BY trigger_id LIMIT 5")
-        print("  Muestra toServer:")
-        print("    " + (sample_server.replace("\n", "\n    ") if sample_server else "(vacío)"))
+        ok, sample_c2s = q("SELECT trigger_id, router_id FROM sym_trigger_router WHERE router_id='corp_to_store' ORDER BY trigger_id LIMIT 5")
+        print("  Muestra corp_to_store:")
+        print("    " + (sample_c2s.replace("\n", "\n    ") if sample_c2s else "(vacío)"))
+    if (trr_s2c_cnt and trr_s2c_cnt != '0'):
+        ok, sample_s2c = q("SELECT trigger_id, router_id FROM sym_trigger_router WHERE router_id='store_to_corp' ORDER BY trigger_id LIMIT 5")
+        print("  Muestra store_to_corp:")
+        print("    " + (sample_s2c.replace("\n", "\n    ") if sample_s2c else "(vacío)"))
 
     # Node groups y links
-    ok, ng_server = q("SELECT COUNT(*) FROM sym_node_group WHERE node_group_id='server'")
-    ok, ng_client = q("SELECT COUNT(*) FROM sym_node_group WHERE node_group_id='client'")
-    print(f"  node_group server={ng_server} client={ng_client}")
-    ok, l_sc = q("SELECT COUNT(*) FROM sym_node_group_link WHERE source_node_group_id='server' AND target_node_group_id='client'")
-    ok, l_cs = q("SELECT COUNT(*) FROM sym_node_group_link WHERE source_node_group_id='client' AND target_node_group_id='server'")
-    print(f"  links server->client={l_sc} client->server={l_cs}")
+    ok, ng_corp = q("SELECT COUNT(*) FROM sym_node_group WHERE node_group_id='corp'")
+    ok, ng_store = q("SELECT COUNT(*) FROM sym_node_group WHERE node_group_id='store'")
+    print(f"  node_group corp={ng_corp} store={ng_store}")
+    ok, l_c2s = q("SELECT COUNT(*) FROM sym_node_group_link WHERE source_node_group_id='corp' AND target_node_group_id='store'")
+    ok, l_s2c = q("SELECT COUNT(*) FROM sym_node_group_link WHERE source_node_group_id='store' AND target_node_group_id='corp'")
+    print(f"  links corp->store={l_c2s} store->corp={l_s2c}")
 
     # Canal default
     ok, ch_def = q("SELECT COUNT(*) FROM sym_channel WHERE channel_id='default'")

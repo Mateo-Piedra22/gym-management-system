@@ -12,6 +12,7 @@
     "port": 5432,
     "database": "gimnasio",
     "user": "postgres",
+    "password": "Matute03",
     "sslmode": "prefer",
     "connect_timeout": 10,
     "application_name": "gym_management_system"
@@ -33,4 +34,7 @@
   "local_proxy_base_url": "http://127.0.0.1:8082",
   "server_base_url": "https://gymms-symmetricds-node-production.up.railway.app",
   "client_base_url": "http://127.0.0.1:31415"
+  ,
+  "store_engine_name": "store-001",
+  "store_external_id": "001"
 }

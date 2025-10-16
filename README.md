@@ -381,8 +381,8 @@ python main.py
 La aplicación de escritorio integra SymmetricDS para replicación bidireccional robusta entre la base local y la base en Railway. El sistema configura automáticamente node groups, links y triggers, y arranca SymmetricDS durante el startup diferido.
 
 Resumen de configuración automática:
-- Node groups `server` y `client` y links bidireccionales entre ambos en ambas bases.
-- Canales y routers: `default` y `toClients` (Railway) y `toServer` (Local).
+- Node groups `corp` y `store` y links bidireccionales entre ambos en ambas bases.
+- Canales y routers: `default` y `corp_to_store` (Railway) y `store_to_corp` (Local).
 - Triggers para todas las tablas públicas (excluye `sym_%` y `pg_%`) en `INSERT/UPDATE/DELETE` sobre canal `default`.
 - Propiedades `railway.properties` y `local.properties` generadas con `auto.create=true`, `auto.sync=true`, `registration.open=true` en servidor y conflictos `master_wins`.
 - SymmetricDS se inicia en background desde `main.py` durante el arranque diferido.
