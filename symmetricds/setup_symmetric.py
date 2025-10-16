@@ -549,6 +549,8 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         # Lanzar siempre vía classpath explícito con SymmetricWebServer
         # Opcional: ubicar application.properties externo para Spring Boot
         app_props = sym_home / 'conf' / 'application.properties'
+        # Forzar ubicación de engines para evitar problemas de permisos en carpetas por defecto
+        engines_dir = str(props_path.parent)
         cmd = [
             java_bin,
             '-Duser.timezone=America/Argentina/Buenos_Aires',
@@ -558,6 +560,7 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             '-Dhttp.host=0.0.0.0',
             '-Dhost.bind.name=0.0.0.0',
             '-Dbind.address=0.0.0.0',
+            f'-Dengine.config.path={engines_dir}',
             '-cp', cp,
             'org.jumpmind.symmetric.SymmetricWebServer'
         ]
@@ -566,6 +569,7 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         cmd_args = [
             f'--server.port={web_port}',
             '--server.address=0.0.0.0',
+            f'--engine.config.path={engines_dir}',
         ]
         try:
             if app_props.exists():
