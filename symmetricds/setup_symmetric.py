@@ -197,6 +197,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         f"db.url={remote_jdbc}",
         f"db.user={remote.get('user', 'postgres')}",
         f"db.password={remote_pwd}",
+        # Asegurar arranque automático del engine al iniciar el WebServer
+        "auto.start.engine=true",
         f"auto.create=true",
         f"auto.sync=true",
         # Solicitar automáticamente reload inicial cuando corresponde
@@ -215,6 +217,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "# Conflictos: master (Railway) gana siempre",
         "conflict.resolve.default=master_wins",
         "# Seguridad básica",
+        # Habilitar REST API del WebServer para control remoto
+        "rest.api.enabled=true",
         "rest.api.user=sym_user",
         "rest.api.password=sym_password",
         # Ensure engine jobs run (canonical keys with .job suffix)
@@ -237,6 +241,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         f"db.url={local_jdbc}",
         f"db.user={local.get('user', 'postgres')}",
         f"db.password={local_pwd}",
+        # Asegurar arranque automático del engine cliente
+        "auto.start.engine=true",
         f"auto.create=true",
         f"auto.sync=true",
         # Permite que el cliente también solicite reload inicial si es necesario
@@ -282,6 +288,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         f"db.url={local_jdbc}",
         f"db.user={local.get('user', 'postgres')}",
         f"db.password={store_pwd}",
+        # Asegurar arranque automático del engine de tienda real
+        "auto.start.engine=true",
         f"auto.create=true",
         f"auto.sync=true",
         # Permite que el cliente también solicite reload inicial si es necesario
