@@ -20,10 +20,10 @@ COPY . .
 # Railway provee `PORT`; lo propagamos a la lógica de SymmetricDS
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    SYM_RAILWAY_HTTP_PORT=8080
+    SYM_RAILWAY_HTTP_PORT=31415
 
 # Puerto por defecto para desarrollo local; Railway sobrescribe con $PORT
-EXPOSE 8080
+EXPOSE 31415
 
 # Comando de arranque: inicia el servidor SymmetricDS (engine 'railway')
 CMD ["python", "scripts/start_symmetric_server.py"]
