@@ -464,6 +464,8 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         except Exception:
             pass
         # Lanzar siempre vía classpath explícito con SymmetricWebServer
+        # Opcional: ubicar application.properties externo para Spring Boot
+        app_props = sym_home / 'conf' / 'application.properties'
         cmd = [
             java_bin,
             '-Duser.timezone=America/Argentina/Buenos_Aires',
@@ -473,6 +475,18 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             '-cp', cp,
             'org.jumpmind.symmetric.SymmetricWebServer'
         ]
+        # Pasar argumentos de programa para que Spring Boot los tome con máxima precedencia
+        # Incluye server.port, server.address y ubicación de configuración si existe
+        cmd_args = [
+            f'--server.port={web_port}',
+            '--server.address=0.0.0.0',
+        ]
+        try:
+            if app_props.exists():
+                cmd_args.append(f'--spring.config.location=file:{app_props}')
+        except Exception:
+            pass
+        cmd.extend(cmd_args)
         logger(f"[SymmetricDS] Lanzando engine vía classpath (SymmetricWebServer): {' '.join(cmd)}")
         # Al lanzar directo garantizamos uso del JRE embebido (java_bin)
         # En plataformas tipo Railway, volcamos stdout/err de Java al stdout del contenedor

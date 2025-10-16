@@ -161,6 +161,43 @@ def main():
         src_railway = pathlib.Path(paths['railway'])
         (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
         print(f"[Setup] Copiado railway.properties a {dest_engines}")
+        # Reescribir credenciales y URL de DB en railway.properties desde ENV/CFG actual
+        try:
+            rp = dest_engines / 'railway.properties'
+            txt = rp.read_text(encoding='utf-8')
+            remote = dict(cfg.get('db_remote') or {})
+            host = str(remote.get('host', '')).strip()
+            rport = str(remote.get('port', '5432')).strip()
+            dbname = str(remote.get('database', 'railway')).strip()
+            user_r = str(remote.get('user', 'postgres')).strip()
+            pwd_r = str(remote.get('password', '')).strip()
+            sslmode = str(remote.get('sslmode', 'require')).strip() or 'require'
+            app_name = 'gym_management_system'
+            # Construir jdbc url
+            if host and rport and dbname:
+                jdbc_url = (
+                    f"jdbc:postgresql://{host}:{rport}/{dbname}?sslmode={sslmode}"
+                    f"&ApplicationName={app_name}&connectTimeout=10&options=-c%20TimeZone%3DAmerica/Argentina/Buenos_Aires"
+                )
+                import re as _re
+                txt = _re.sub(r'^\s*db\.url\s*=.*$', f'db.url={jdbc_url}', txt, flags=_re.MULTILINE)
+            # Reemplazar usuario y password si presentes
+            if user_r:
+                import re as _re
+                txt = _re.sub(r'^\s*db\.user\s*=.*$', f'db.user={user_r}', txt, flags=_re.MULTILINE)
+            if pwd_r:
+                import re as _re
+                txt = _re.sub(r'^\s*db\.password\s*=.*$', f'db.password={pwd_r}', txt, flags=_re.MULTILINE)
+            # Alinear también http.port por consistencia
+            import re as _re
+            if 'http.port' in txt:
+                txt = _re.sub(r'^\s*http\.port\s*=.*$', f'http.port={port_val}', txt, flags=_re.MULTILINE)
+            rp.write_text(txt, encoding='utf-8')
+            # Log sin exponer la password
+            safe_url = jdbc_url.replace(pwd_r, '***') if host and rport and dbname else '(sin cambios)'
+            print(f"[Setup] railway.properties actualizado: db.user={user_r} db.url={safe_url}")
+        except Exception as e:
+            print(f"[Warn] No se pudo reescribir DB en railway.properties: {e}")
         # Limpiar otros engines para evitar que se cargue el cliente local en Railway
         removed = []
         for p in dest_engines.glob('*.properties'):
