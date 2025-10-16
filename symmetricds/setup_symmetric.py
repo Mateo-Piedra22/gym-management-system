@@ -236,7 +236,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "auto.sync.triggers.at.startup=true",
         f"http.port={local_http_port}",
         # El cliente publica su propio endpoint; debe terminar con el nombre del engine
-        f"sync.url={client_base_url.rstrip('/')}/sync/local",
+        # Usar el puerto HTTP local configurado para que el servidor conozca la URL real del cliente
+        f"sync.url=http://127.0.0.1:{local_http_port}/sync/local",
         f"registration.url={server_base_url.rstrip('/')}/sync/railway",
         "data.create_time.timezone=America/Argentina/Buenos_Aires",
         "channel.default=true",
@@ -1515,23 +1516,67 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                                 return False
                         except Exception:
                             return False
-                        tables = _list_public_tables(conn)
-                        # Solicitar reload para todas las tablas si no existe petición previa
-                        for tbl in tables:
+                        # Resolver el node_id del servidor (source_node_id)
+                        server_id = None
+                        try:
+                            cur.execute("SELECT node_id FROM sym_node_identity")
+                            r = cur.fetchone()
+                            if r:
+                                server_id = r[0]
+                        except Exception:
+                            server_id = 'railway'
+
+                        # Obtener triggers y canales
+                        cur.execute("SELECT trigger_id, COALESCE(channel_id, 'default') FROM sym_trigger")
+                        triggers = cur.fetchall() or []
+
+                        # Determinar load_id seguro (usa secuencia si existe; si no, epoch)
+                        def _next_load_id():
                             try:
+                                cur.execute("SELECT to_regclass('sym_sequence')")
+                                rr = cur.fetchone()
+                                if rr and rr[0]:
+                                    cur.execute("SELECT nextval('sym_sequence')::bigint")
+                                    lr = cur.fetchone()
+                                    if lr:
+                                        return int(lr[0])
+                            except Exception:
+                                pass
+                            cur.execute("SELECT (EXTRACT(EPOCH FROM CURRENT_TIMESTAMP))::bigint")
+                            lr = cur.fetchone()
+                            return int(lr[0]) if lr else int(time.time())
+
+                        # Solicitar reload por cada trigger si no existe petición previa
+                        for trig_id, chan in triggers:
+                            try:
+                                # Evitar duplicados
+                                cur.execute(
+                                    """
+                                    SELECT 1 FROM sym_table_reload_request
+                                     WHERE target_node_id = %s
+                                       AND trigger_id = %s
+                                       AND router_id = 'toClients'
+                                    """,
+                                    (node_id, trig_id)
+                                )
+                                exists = cur.fetchone()
+                                if exists:
+                                    continue
+
+                                load_id = _next_load_id()
                                 cur.execute(
                                     """
                                     INSERT INTO sym_table_reload_request (
-                                        target_node_id, source_node_id, router_id,
-                                        channel_id, table_name, create_table,
-                                        delete_before_reload, reload_select,
-                                        initial_load_id
+                                        target_node_id, source_node_id, trigger_id, router_id,
+                                        channel_id, create_table, delete_first, reload_select,
+                                        before_custom_sql, load_id
+                                    ) VALUES (
+                                        %s, %s, %s, 'toClients',
+                                        %s, 0, 1, NULL,
+                                        NULL, %s
                                     )
-                                    SELECT %s, node_id, 'toClients', 'default', %s, 1, 1, NULL, nextval('sym_sequence')
-                                    FROM sym_node WHERE node_id = 'railway'
-                                    ON CONFLICT DO NOTHING
                                     """,
-                                    (node_id, tbl)
+                                    (node_id, server_id, trig_id, chan, load_id)
                                 )
                             except Exception:
                                 pass
@@ -1539,7 +1584,7 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                         conn.close()
                     except Exception:
                         pass
-                    log(f"[SymmetricDS] Carga inicial solicitada para {len(tables)} tablas al nodo {node_ext_id}")
+                    log(f"[SymmetricDS] Carga inicial solicitada para {len(triggers)} triggers al nodo {node_ext_id}")
                     return True
                 except Exception:
                     return False

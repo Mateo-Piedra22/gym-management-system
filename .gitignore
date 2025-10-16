@@ -36,6 +36,8 @@ Thumbs.db
 # Archivos temporales
 *.tmp
 *.temp
+*.done
+*.xml
 
 # Archivos de cobertura de código
 .coverage
