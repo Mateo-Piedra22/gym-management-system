@@ -380,8 +380,9 @@ def _build_classpath(sym_home: Path) -> str:
             jars.append(str(p))
     except Exception:
         pass
-    # En Windows el separador es ';'
-    return ';'.join(jars)
+    # Usar el separador de classpath del OS (';' en Windows, ':' en Linux/Mac)
+    import os as _os
+    return _os.pathsep.join(jars)
 
 
 def _find_sym_script(sym_home: Path) -> Path | None:
