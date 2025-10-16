@@ -234,6 +234,16 @@ def main():
             txt = _re.sub(r'^\s*host\.bind\.name\s*=\s*.*$', 'host.bind.name=0.0.0.0', txt, flags=_re.MULTILINE)
         else:
             txt += f'host.bind.name=0.0.0.0\n'
+        # Asegurar http.host explícito para conectores Jetty
+        if 'http.host' in txt:
+            txt = _re.sub(r'^\s*http\.host\s*=\s*.*$', 'http.host=0.0.0.0', txt, flags=_re.MULTILINE)
+        else:
+            txt += f'http.host=0.0.0.0\n'
+        # Asegurar bind.address por compatibilidad
+        if 'bind.address' in txt:
+            txt = _re.sub(r'^\s*bind\.address\s*=\s*.*$', 'bind.address=0.0.0.0', txt, flags=_re.MULTILINE)
+        else:
+            txt += f'bind.address=0.0.0.0\n'
         conf_path.write_text(txt, encoding='utf-8')
         print(f"[Setup] Actualizado conf/symmetric-server.properties: http.port/server.port={port_val}")
     except Exception as e:

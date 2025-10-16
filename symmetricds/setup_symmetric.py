@@ -554,14 +554,15 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
             f'-Dserver.port={web_port}',
             '-Dserver.address=0.0.0.0',
             f'-Dhttp.port={web_port}',
+            '-Dhttp.host=0.0.0.0',
+            '-Dhost.bind.name=0.0.0.0',
+            '-Dbind.address=0.0.0.0',
             '-cp', cp,
             'org.jumpmind.symmetric.SymmetricWebServer'
         ]
         # Pasar argumentos de programa para que Spring Boot los tome con máxima precedencia
         # Incluye server.port, server.address y ubicación de configuración si existe
         cmd_args = [
-            # Intentar forzar puerto nativo del SymmetricWebServer si soporta '-p'
-            '-p', str(web_port),
             f'--server.port={web_port}',
             '--server.address=0.0.0.0',
         ]
@@ -1352,6 +1353,16 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                     txt = _re.sub(r'^\s*host\.bind\.name\s*=\s*.*$', 'host.bind.name=0.0.0.0', txt, flags=_re.MULTILINE)
                 else:
                     txt += f'host.bind.name=0.0.0.0\n'
+                # Asegurar http.host explícito para conectores Jetty
+                if 'http.host' in txt:
+                    txt = _re.sub(r'^\s*http\.host\s*=\s*.*$', 'http.host=0.0.0.0', txt, flags=_re.MULTILINE)
+                else:
+                    txt += f'http.host=0.0.0.0\n'
+                # Asegurar bind.address por compatibilidad
+                if 'bind.address' in txt:
+                    txt = _re.sub(r'^\s*bind\.address\s*=\s*.*$', 'bind.address=0.0.0.0', txt, flags=_re.MULTILINE)
+                else:
+                    txt += f'bind.address=0.0.0.0\n'
                 conf_path.write_text(txt, encoding='utf-8')
                 log(f"[SymmetricDS] Puerto HTTP configurado en conf: {web_port}")
             except Exception as e:
