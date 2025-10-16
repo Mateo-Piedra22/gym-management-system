@@ -1216,14 +1216,20 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                 return
 
             # Copiar engines/*.properties generados al engines/ dentro de SYMMETRICDS_HOME
+            # En Railway, solo copiar el engine de servidor para evitar intentos de conexión al Postgres local
             try:
                 dest_engines = sym_home / 'engines'
                 dest_engines.mkdir(exist_ok=True)
                 src_railway = Path(paths['railway'])
                 src_local = Path(paths['local'])
+                is_railway = bool(os.getenv('PORT') or os.getenv('RAILWAY_PORT') or os.getenv('RAILWAY_ENVIRONMENT'))
                 (dest_engines / 'railway.properties').write_text(src_railway.read_text(encoding='utf-8'), encoding='utf-8')
-                (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
-                log(f"[SymmetricDS] Engines copiados a {dest_engines} para escaneo automático")
+                if not is_railway:
+                    (dest_engines / 'local.properties').write_text(src_local.read_text(encoding='utf-8'), encoding='utf-8')
+                    log(f"[SymmetricDS] Engines copiados (server y local) a {dest_engines} para escaneo automático")
+                else:
+                    # En entorno Railway cargamos solamente el engine 'railway'
+                    log(f"[SymmetricDS] Engine 'railway' copiado a {dest_engines}; omitido 'local' en entorno Railway")
             except Exception as e:
                 log(f"[SymmetricDS] No se pudieron copiar engines a SYMMETRICDS_HOME: {e}")
 
@@ -1237,6 +1243,11 @@ def start_symmetricds_background(db_manager, logger=None, check_interval_sec: in
                     txt = _re.sub(r'^\s*http\.port\s*=\s*.*$', f'http.port={web_port}', txt, flags=_re.MULTILINE)
                 else:
                     txt += ('' if txt.endswith('\n') else '\n') + f'http.port={web_port}\n'
+                # Asegurar también server.port para que Jetty/Spring Boot tome el puerto externo
+                if 'server.port' in txt:
+                    txt = _re.sub(r'^\s*server\.port\s*=\s*.*$', f'server.port={web_port}', txt, flags=_re.MULTILINE)
+                else:
+                    txt += f'server.port={web_port}\n'
                 # Asegurar bind address abierto
                 if 'host.bind.name' in txt:
                     txt = _re.sub(r'^\s*host\.bind\.name\s*=\s*.*$', 'host.bind.name=0.0.0.0', txt, flags=_re.MULTILINE)
