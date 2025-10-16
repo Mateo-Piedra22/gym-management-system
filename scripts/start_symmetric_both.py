@@ -31,7 +31,14 @@ def main():
         class DM:
             pass
         dm = DM()
+        # Inicia el runner en hilo daemon; mantener vivo este proceso para que no termine
         setup.start_symmetricds_background(dm, logger=print, check_interval_sec=30)
+        print("[Run] Runner lanzado; manteniendo proceso vivo para health-check…")
+        while True:
+            try:
+                time.sleep(60)
+            except KeyboardInterrupt:
+                break
     except KeyboardInterrupt:
         print("[Stop] Interrumpido por usuario")
     except Exception as e:

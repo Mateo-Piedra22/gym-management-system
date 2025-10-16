@@ -93,8 +93,17 @@ def main():
         remote_cnt = count_usuarios(rc)
         print(f"Usuarios: local={local_cnt}, railway={remote_cnt}")
 
-        # Inserta en remoto y valida réplica en local
-        rid = next_usuario_id(rc)
+        # Calcular IDs únicos considerando ambos nodos para evitar colisiones
+        def next_unique_id(conn_a, conn_b):
+            with conn_a.cursor() as ca, conn_b.cursor() as cb:
+                ca.execute("SELECT COALESCE(MAX(id), 0) FROM usuarios")
+                a_max = ca.fetchone()[0] or 0
+                cb.execute("SELECT COALESCE(MAX(id), 0) FROM usuarios")
+                b_max = cb.fetchone()[0] or 0
+                return max(a_max, b_max) + 1
+
+        # Inserta en remoto y valida réplica en local usando ID único
+        rid = next_unique_id(rc, lc)
         ensure_usuario(rc, rid, f"sync_remote_{int(time.time())}")
         print(f"Insertado en Railway usuario id={rid}")
 
@@ -107,8 +116,8 @@ def main():
             time.sleep(1.5)
         print("Ré plica Railway->Local OK" if ok_remote_to_local else "No se observó réplica Railway->Local")
 
-        # Inserta en local y valida réplica en remoto
-        lid = next_usuario_id(lc)
+        # Inserta en local y valida réplica en remoto usando ID único
+        lid = next_unique_id(lc, rc)
         ensure_usuario(lc, lid, f"sync_local_{int(time.time())}")
         print(f"Insertado en Local usuario id={lid}")
 

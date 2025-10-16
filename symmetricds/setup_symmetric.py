@@ -214,6 +214,13 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "# Seguridad básica",
         "rest.api.user=sym_user",
         "rest.api.password=sym_password",
+        # Asegurar ejecución de trabajos del engine
+        "job.enabled=true",
+        "start.route=true",
+        "start.load=true",
+        "start.push=true",
+        "start.pull=true",
+        "start.heartbeat=true",
     ])
 
     # local.properties (cliente)
@@ -243,6 +250,13 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         "channel.default=true",
         "# Conflictos: master (Railway) gana siempre",
         "conflict.resolve.default=master_wins",
+        # Asegurar ejecución de trabajos del engine
+        "job.enabled=true",
+        "start.route=true",
+        "start.load=true",
+        "start.push=true",
+        "start.pull=true",
+        "start.heartbeat=true",
     ])
 
     eng_dir = base_dir / 'symmetricds' / 'engines'
