@@ -53,11 +53,12 @@ def main():
     from symmetricds import setup_symmetric as setup  # type: ignore
 
     # Sincronizar el puerto HTTP del engine con `PORT` (Railway)
-    port_env = os.getenv("PORT") or os.getenv("RAILWAY_PORT") or "31417"
+    # Default oficial: 31415
+    port_env = os.getenv("PORT") or os.getenv("RAILWAY_PORT") or "31415"
     try:
         port_val = str(int(port_env))
     except Exception:
-        port_val = "31417"
+        port_val = "31415"
     os.environ["SYM_RAILWAY_HTTP_PORT"] = port_val
     # Alinear el puerto del SymmetricWebServer (Spring Boot Jetty) con Railway
     # Spring Boot respeta SERVER_PORT env y -Dserver.port

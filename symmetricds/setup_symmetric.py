@@ -153,9 +153,10 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
         int(remote.get('connect_timeout', 10)),
     )
 
-    # Puertos HTTP locales para engines
-    local_http_port = int(os.getenv('SYM_LOCAL_HTTP_PORT', 31416))
-    railway_http_port = int(os.getenv('SYM_RAILWAY_HTTP_PORT', 31417))
+    # Puertos HTTP para ambos engines: estandarizar en 31415
+    # Permite override por ENV, pero el default oficial es 31415
+    local_http_port = int(os.getenv('SYM_LOCAL_HTTP_PORT', 31415))
+    railway_http_port = int(os.getenv('SYM_RAILWAY_HTTP_PORT', 31415))
 
     # Base URLs para sincronización y registro
     # Permite desplegar el servidor en cloud sin interferir con el cliente local
@@ -163,9 +164,8 @@ def _write_properties(base_dir: Path, cfg: dict) -> dict:
     client_base_url = str(cfg.get('client_base_url', os.getenv('SYM_CLIENT_BASE_URL', 'http://127.0.0.1:31415')))
 
     # Fijar puertos estables: usa env o defaults (sin elegir aleatorios)
-    # Evita alertas de puertos cambiantes en el IDE y mantiene consistencia.
-    # Si están ocupados, el servidor web central (31415) es el que realmente importa.
-    # Los http.port de cada engine se quedan en 31416/31417 (o lo que se haya definido en env).
+    # Estándar oficial: 31415 para WebServer y engines.
+    # Si un entorno requiere otro puerto, se puede ajustar vía ENV.
 
     # Archivo común symmetric-ds.properties (se asegura en disco si no existe)
     common_path = base_dir / 'symmetricds' / 'symmetric-ds.properties'
@@ -549,8 +549,10 @@ def _start_engine(java_bin: str, sym_home: Path, props_path: Path, logger) -> su
         # Lanzar siempre vía classpath explícito con SymmetricWebServer
         # Opcional: ubicar application.properties externo para Spring Boot
         app_props = sym_home / 'conf' / 'application.properties'
-        # Forzar ubicación de engines para evitar problemas de permisos en carpetas por defecto
-        engines_dir = str(props_path.parent)
+        # Forzar ubicación de engines al directorio de instalación (SYMMETRICDS_HOME)
+        # Esto asegura que en Railway solo se cargue el engine 'railway' (cliente omitido)
+        # y en local se escaneen ambos según lo copiado a sym_home/engines.
+        engines_dir = str(sym_home / 'engines')
         cmd = [
             java_bin,
             '-Duser.timezone=America/Argentina/Buenos_Aires',
