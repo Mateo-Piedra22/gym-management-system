@@ -462,7 +462,7 @@ class ReportsTabWidget(QWidget):
         # Control de carga pesada: permitir lazy-loading de gráficos
         from PyQt6.QtWidgets import QCheckBox
         self.auto_load_charts_checkbox = QCheckBox("Auto cargar gráficos")
-        self.auto_load_charts_checkbox.setChecked(False)
+        self.auto_load_charts_checkbox.setChecked(True)
         self.refresh_button = QPushButton("🔄 Actualizar Todo")
         self.refresh_button.setObjectName("refresh_button")
         self.refresh_button.clicked.connect(self.actualizar_reportes)
