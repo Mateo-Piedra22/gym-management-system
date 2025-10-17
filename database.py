@@ -4211,6 +4211,18 @@ class DatabaseManager:
                         ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
                     """, (clave, valor))
                     conn.commit()
+                    # Invalidar caches relevantes para reflejar cambios inmediatamente
+                    try:
+                        self.cache.invalidate('config', clave)
+                    except Exception:
+                        pass
+                    try:
+                        if str(clave) == 'owner_password':
+                            self._owner_cache['password'] = str(valor)
+                            import time as _time
+                            self._owner_cache['password_expiry'] = _time.time() + 600
+                    except Exception:
+                        pass
                     return True
         except Exception as e:
             logging.error(f"Error al actualizar configuración {clave}: {e}")
@@ -4347,22 +4359,26 @@ class DatabaseManager:
             return []
     
     def incrementar_cuotas_vencidas(self, usuario_id: int) -> bool:
-        """Incrementa el contador de cuotas vencidas de un usuario"""
+        """Incrementa el contador de cuotas vencidas de un usuario (excepto dueños y profesores)"""
         try:
             with self.atomic_transaction(isolation_level="REPEATABLE READ") as conn:
                 with conn.cursor() as cursor:
+                    # Evitar incremento para roles exentos
+                    cursor.execute("SELECT rol FROM usuarios WHERE id = %s", (usuario_id,))
+                    row = cursor.fetchone()
+                    rol_lower = str(row[0] if row and len(row) > 0 and row[0] is not None else "").lower()
+                    if rol_lower in ("profesor", "dueño", "owner"):
+                        logging.info(f"Evitar incremento de cuotas vencidas para usuario {usuario_id} con rol '{rol_lower}'")
+                        return True
                     cursor.execute("""
                         UPDATE usuarios 
                         SET cuotas_vencidas = COALESCE(cuotas_vencidas, 0) + 1
                         WHERE id = %s
                     """, (usuario_id,))
-            
             # Limpiar cache tras commit
             self.cache.invalidate('usuarios', usuario_id)
-            
             logging.info(f"Contador de cuotas vencidas incrementado para usuario {usuario_id}")
             return True
-                    
         except Exception as e:
             logging.error(f"Error al incrementar cuotas vencidas: {e}")
             return False

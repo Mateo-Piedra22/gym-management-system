@@ -2632,6 +2632,7 @@ class MainWindow(QMainWindow):
             background_color = self.branding_config.get('background_color', '#ffffff')
             alt_background_color = self.branding_config.get('alt_background_color', '#f8f9fa')
             text_color = self.branding_config.get('text_color', '#2c3e50')
+            ui_text_color = self.branding_config.get('ui_text_color')
             main_font = self.branding_config.get('main_font', 'Arial')
             
             # Detección automática de tema claro/oscuro y ajuste de contraste
@@ -2640,7 +2641,7 @@ class MainWindow(QMainWindow):
             auto_alt_text_color = self._get_contrasting_text_color(alt_background_color)
             
             # MEJORA: Usar siempre color de texto automático para máximo contraste
-            final_text_color = auto_text_color
+            final_text_color = ui_text_color or auto_text_color
             final_alt_text_color = auto_alt_text_color
             
             # MEJORA: Usar colores hover personalizados del branding si están disponibles
@@ -2700,7 +2701,7 @@ class MainWindow(QMainWindow):
             scroll_background = self._adjust_color_brightness(alt_background_color, 0.95 if is_dark_theme else 1.05)
             scroll_handle = self._adjust_color_brightness(primary_color, 0.8)
             scroll_handle_hover = self._adjust_color_brightness(primary_color, 1.1)
-            secondary_text_color = self._adjust_color_brightness(text_color, 0.7)
+            secondary_text_color = self._adjust_color_brightness(ui_text_color or text_color, 0.7)
             primary_hover_color = hover_color
             
             # Variables para elementos de advertencia y estado
@@ -4301,7 +4302,7 @@ class MainWindow(QMainWindow):
                 '#EBCB8B': warning_color,  # --accent-warning (por compatibilidad en estilos antiguos)
                 
                 # Colores de texto con contraste automático WCAG 2.1
-                '#ECEFF4': auto_bg_text,  # --text-primary (contraste automático con fondo principal)
+                '#ECEFF4': self.branding_config.get('ui_text_color', auto_bg_text),  # --text-primary (contraste automático o configurable)
                 '#D8DEE9': auto_alt_bg_text,  # --text-secondary (contraste automático con fondo alternativo)
                 '#B8C5D1': auto_tertiary_bg_text,  # --text-tertiary (contraste automático con fondo terciario)
                 
@@ -4320,7 +4321,7 @@ class MainWindow(QMainWindow):
                 'VAR_BG_PRIMARY': background_color,  # Color de fondo primario
                 'VAR_BG_SECONDARY': alt_background_color,  # Color de fondo secundario
                 'VAR_BG_TERTIARY': tertiary_bg,  # Color de fondo terciario
-                'VAR_TEXT_PRIMARY': auto_bg_text,  # Color de texto primario
+                'VAR_TEXT_PRIMARY': self.branding_config.get('ui_text_color', auto_bg_text),  # Color de texto primario (configurable)
                 'VAR_TEXT_SECONDARY': auto_alt_bg_text,  # Color de texto secundario
                 'VAR_TEXT_TERTIARY': auto_tertiary_bg_text,  # Color de texto terciario
                 'VAR_TEXT_MUTED': self.branding_config.get('muted_color', auto_alt_bg_text),  # Color de texto muted

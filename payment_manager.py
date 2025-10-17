@@ -317,13 +317,15 @@ class PaymentManager:
 
             # Obtener fecha de registro (fallback), tipo de cuota y cuotas_vencidas previas
             cursor.execute(
-                "SELECT fecha_registro, tipo_cuota, COALESCE(cuotas_vencidas, 0) FROM usuarios WHERE id = %s",
+                "SELECT fecha_registro, tipo_cuota, COALESCE(cuotas_vencidas, 0), rol FROM usuarios WHERE id = %s",
                 (usuario_id,)
             )
             row_usr = cursor.fetchone()
             fecha_registro_dt = row_usr[0] if row_usr else None
             tipo_raw = row_usr[1] if row_usr else None
             cuotas_previas = int(row_usr[2]) if row_usr and row_usr[2] is not None else 0
+            rol_lower = str(row_usr[3] if row_usr and len(row_usr) > 3 and row_usr[3] is not None else "").lower()
+            exento = rol_lower in ("profesor", "dueño", "owner")
 
             # Obtener duracion_dias desde tipos_cuota (acepta nombre o id)
             cursor.execute(
@@ -365,24 +367,42 @@ class PaymentManager:
                 ciclos_vencidos = (dias_atraso // max(duracion_dias, 1))
                 nuevas_cuotas_vencidas = max(1 + ciclos_vencidos, 1)
 
-            # No forzar activación; solo desactivar si cruza umbral
-            cursor.execute(
-                """
-                UPDATE usuarios
-                SET fecha_proximo_vencimiento = %s,
-                    ultimo_pago = %s,
-                    cuotas_vencidas = %s,
-                    activo = CASE WHEN %s >= 3 THEN FALSE ELSE activo END
-                WHERE id = %s
-                """,
-                (
-                    proximo_vencimiento,
-                    ultimo_pago_dt.date() if (ultimo_pago_dt is not None and hasattr(ultimo_pago_dt, 'date')) else None,
-                    nuevas_cuotas_vencidas,
-                    nuevas_cuotas_vencidas,
-                    usuario_id,
+            # Exención: dueños y profesores no acumulan cuotas vencidas ni se desactivan por morosidad
+            if exento:
+                nuevas_cuotas_vencidas = 0
+                cursor.execute(
+                    """
+                    UPDATE usuarios
+                    SET fecha_proximo_vencimiento = %s,
+                        ultimo_pago = %s,
+                        cuotas_vencidas = 0
+                    WHERE id = %s
+                    """,
+                    (
+                        proximo_vencimiento,
+                        ultimo_pago_dt.date() if (ultimo_pago_dt is not None and hasattr(ultimo_pago_dt, 'date')) else None,
+                        usuario_id,
+                    )
                 )
-            )
+            else:
+                # No forzar activación; solo desactivar si cruza umbral
+                cursor.execute(
+                    """
+                    UPDATE usuarios
+                    SET fecha_proximo_vencimiento = %s,
+                        ultimo_pago = %s,
+                        cuotas_vencidas = %s,
+                        activo = CASE WHEN %s >= 3 THEN FALSE ELSE activo END
+                    WHERE id = %s
+                    """,
+                    (
+                        proximo_vencimiento,
+                        ultimo_pago_dt.date() if (ultimo_pago_dt is not None and hasattr(ultimo_pago_dt, 'date')) else None,
+                        nuevas_cuotas_vencidas,
+                        nuevas_cuotas_vencidas,
+                        usuario_id,
+                    )
+                )
             conn.commit()
 
             # Verificación post-operación: si cruza umbral de morosidad, disparar revisión

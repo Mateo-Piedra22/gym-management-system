@@ -186,6 +186,47 @@ def _resolve_existing_dir(*parts: str) -> Path:
     # Fallback: primera opciÃ³n aunque no exista
     return candidates[0] if candidates else Path(*parts)
 
+# Helper para secreto de sesion estable
+
+def _get_session_secret() -> str:
+    try:
+        env = os.getenv("WEBAPP_SECRET_KEY", "").strip()
+        if env:
+            return env
+    except Exception:
+        pass
+    # Intentar leer/persistir en config/config.json
+    try:
+        from utils import resource_path  # type: ignore
+        cfg_path = resource_path("config/config.json")
+        cfg = {}
+        if os.path.exists(cfg_path):
+            import json as _json
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = _json.load(f) or {}
+                if not isinstance(cfg, dict):
+                    cfg = {}
+            except Exception:
+                cfg = {}
+        secret = str(cfg.get("webapp_session_secret") or cfg.get("session_secret") or "").strip()
+        if not secret:
+            import secrets as _secrets
+            secret = _secrets.token_urlsafe(32)
+            cfg["webapp_session_secret"] = secret
+            try:
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    _json.dump(cfg, f, ensure_ascii=False, indent=2)
+            except Exception:
+                # Si no podemos persistir, devolver el generado
+                pass
+        return secret
+    except Exception:
+        pass
+    # Fallback: secreto efimero
+    import secrets as _secrets
+    return _secrets.token_urlsafe(32)
+
 # InicializaciÃ³n de la app web
 app = FastAPI(
     title="GymMS WebApp",
@@ -193,7 +234,7 @@ app = FastAPI(
     # Permite servir detrÃ¡s de reverse proxy con subpath
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", secrets.token_urlsafe(32)))
+app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
 
 # Middleware de Request ID para trazabilidad en logs
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -249,7 +290,7 @@ try:
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     hosts = [h.strip() for h in th.split(",") if h.strip()] if th else []
     if not hosts:
-        hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1"]
+        hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1", "*.loca.lt"]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     # Forzar HTTPS en producciÃ³n si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
@@ -329,23 +370,8 @@ async def api_sync_upload(request: Request):
     ops = data.get("ops")
     if not isinstance(ops, list):
         return JSONResponse({"error": "Formato inválido: 'ops' debe ser lista"}, status_code=400)
-    # Autenticación opcional por token (Bearer o X-Upload-Token), con fallback a config
-    try:
-        expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
-        if not expected:
-            try:
-                from utils import resource_path  # type: ignore
-                cfg_path = resource_path("config/config.json")
-                if os.path.exists(cfg_path):
-                    with open(cfg_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    c = data.get("sync_upload_token")
-                    if isinstance(c, str) and c.strip():
-                        expected = c.strip()
-            except Exception:
-                pass
-    except Exception:
-        expected = ""
+    # Autenticación por token (solo desde ENV)
+    expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
     if expected:
         auth = str(request.headers.get("Authorization", "")).strip()
         x_token = str(request.headers.get("X-Upload-Token", "")).strip()
@@ -411,23 +437,8 @@ async def api_sync_upload_outbox(request: Request):
     changes = payload.get("changes")
     if not isinstance(changes, list):
         return JSONResponse({"error": "Formato inválido: 'changes' debe ser lista"}, status_code=400)
-    # Autenticación por token (Bearer o X-Upload-Token), con fallback a config
-    try:
-        expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
-        if not expected:
-            try:
-                from utils import resource_path  # type: ignore
-                cfg_path = resource_path("config/config.json")
-                if os.path.exists(cfg_path):
-                    with open(cfg_path, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    c = data.get("sync_upload_token")
-                    if isinstance(c, str) and c.strip():
-                        expected = c.strip()
-            except Exception:
-                pass
-    except Exception:
-        expected = ""
+    # Autenticación por token (solo desde ENV)
+    expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
     if expected:
         auth = str(request.headers.get("Authorization", "")).strip()
         x_token = str(request.headers.get("X-Upload-Token", "")).strip()
@@ -614,26 +625,22 @@ except Exception:
 
 
 def _get_password() -> str:
-    # Preferir la contraseÃ±a del dueÃ±o desde cachÃ© TTL del DatabaseManager
+    # Leer directamente desde la base de datos para sincronización inmediata
     try:
         db = _get_db()
-        if db and hasattr(db, 'get_owner_password_cached'):
-            pwd = db.get_owner_password_cached(ttl_seconds=600)  # type: ignore
-            if pwd:
-                return str(pwd).strip()
+        if db and hasattr(db, 'obtener_configuracion'):
+            pwd = db.obtener_configuracion('owner_password', timeout_ms=700)  # type: ignore
+            if isinstance(pwd, str) and pwd.strip():
+                return pwd.strip()
     except Exception:
         pass
-    # Fallback: variable de entorno
-    pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip()
-    if pwd:
-        return pwd
-    # Fallback adicional: contraseÃ±a de desarrollador si existe
+    # Fallback: contraseña de desarrollador si existe (solo si DB no devuelve valor)
     try:
         if DEV_PASSWORD:
             return str(DEV_PASSWORD).strip()
     except Exception:
         pass
-    # Ãšltimo recurso
+    # Último recurso
     return "admin"
 
 
@@ -2096,7 +2103,7 @@ async def api_tipos_cuota(_=Depends(require_owner)):
             def normalize_label(label: str) -> str:
                 s = (label or 'Sin tipo').strip().lower()
                 replacements = {
-                    'estandar': 'EstÃ¡ndar', 'estÃ¡ndar': 'EstÃ¡ndar', 'standard': 'EstÃ¡ndar',
+                    'estandar': 'Estándar', 'estándar': 'Estándar', 'standard': 'Estándar',
                     'sin tipo': 'Sin tipo',
                     'mensualidad': 'Mensual', 'mensual': 'Mensual',
                 }
@@ -2104,10 +2111,8 @@ async def api_tipos_cuota(_=Depends(require_owner)):
             for r in cur.fetchall() or []:
                 raw = (r.get('tipo') or 'Sin tipo')
                 nombre = normalize_label(str(raw))
-                # Excluir SOLO "estandar" (sin acento)
-                if nombre.strip().lower() == 'estandar':
-                    continue
-                dist[nombre] = int(r.get('cantidad') or 0)
+                # Sumar en la etiqueta normalizada para unificar sin duplicados
+                dist[nombre] = dist.get(nombre, 0) + int(r.get('cantidad') or 0)
         return dist
     except Exception as e:
         import traceback

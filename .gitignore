@@ -52,3 +52,10 @@ htmlcov/
 cache_metrics.json
 status.json
 sync_state.json
+config/sync_state.json
+
+# Carpetas específicas a ignorar
+.rutinas_exportadas/
+.recibos/
+
+config/sync_state.json

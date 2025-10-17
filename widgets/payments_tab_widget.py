@@ -1553,6 +1553,11 @@ class PaymentsTabWidget(QWidget):
                     self.payment_status_label.setProperty("paymentStatus", "no_payments")
                     self.payment_status_label.style().unpolish(self.payment_status_label)
                     self.payment_status_label.style().polish(self.payment_status_label)
+                # Fuerza actualización del estado cuando se usa caché
+                try:
+                    self.update_payment_status()
+                except Exception:
+                    pass
                 return
 
             def _load():
@@ -1582,6 +1587,11 @@ class PaymentsTabWidget(QWidget):
                         self.payment_status_label.setProperty("paymentStatus", "no_payments")
                         self.payment_status_label.style().unpolish(self.payment_status_label)
                         self.payment_status_label.style().polish(self.payment_status_label)
+                    # Refrescar estado tras finalizar la carga asíncrona del historial
+                    try:
+                        self.update_payment_status()
+                    except Exception:
+                        pass
                 except Exception as e:
                     logging.exception(f"Error al aplicar historial de pagos: {e}")
                     self.history_model.update_data([])
@@ -1600,6 +1610,11 @@ class PaymentsTabWidget(QWidget):
                     self.history_progress.setVisible(False)
                 if hasattr(self, 'history_table'):
                     self.history_table.setEnabled(True)
+                # Asegurar coherencia del estado si hubo error
+                try:
+                    self.update_payment_status()
+                except Exception:
+                    pass
 
             run_in_background(
                 _load,

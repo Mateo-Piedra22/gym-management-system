@@ -797,6 +797,7 @@ class LoginDialog(QDialog):
         auto_text_on_bg = get_contrasting_text_color(background_color)
         auto_text_on_alt = get_contrasting_text_color(alt_background_color)
         auto_text_on_primary = get_contrasting_text_color(primary_color)
+        ui_text_color = self.branding_config.get('ui_text_color') or auto_text_on_bg
         is_dark_theme = (auto_text_on_bg == "#FFFFFF")
 
         # Usar colores de hover del branding si existen; si no, oscurecer ligeramente
@@ -840,7 +841,7 @@ class LoginDialog(QDialog):
             background: qlineargradient(x1:0, y1:0, x2:1, y2:1, 
                        stop:0 {background_color}, stop:1 {alt_background_color});
             font-family: '{main_font}', Arial, sans-serif;
-            color: {auto_text_on_bg};
+            color: {ui_text_color};
         }}
         
         /* Panel izquierdo - Login */
@@ -880,7 +881,7 @@ class LoginDialog(QDialog):
         
         QLabel#welcome_subtitle {{
             font-size: 14px;
-            color: {auto_text_on_bg};
+            color: {ui_text_color};
             margin-bottom: 8px;
             opacity: 0.8;
         }}
@@ -1116,7 +1117,7 @@ class LoginDialog(QDialog):
         
         QLabel#contact_info, QLabel#social_info {{
             font-size: 13px;
-            color: {auto_text_on_bg};
+            color: {ui_text_color};
             margin: 6px 0;
             padding: 10px 14px;
             background: {background_color};
@@ -1134,7 +1135,7 @@ class LoginDialog(QDialog):
         
         /* Labels generales */
         QLabel {{
-            color: {auto_text_on_bg};
+            color: {ui_text_color};
             font-family: '{main_font}', Arial, sans-serif;
         }}
         
@@ -1157,7 +1158,7 @@ class LoginDialog(QDialog):
         /* Botones tipo herramienta (QToolButton) */
         QToolButton {{
             background-color: transparent;
-            color: {auto_text_on_bg};
+            color: {ui_text_color};
             border: 1px solid transparent;
             border-radius: 6px;
             padding: 4px;
@@ -1256,7 +1257,7 @@ class LoginDialog(QDialog):
                 'VAR_ACCENT_HOVER_COLOR': accent_hover,
                 'VAR_PRIMARY_COLOR_PRESSED': primary_pressed,
                 'VAR_BORDER_PRIMARY': border_color,
-                'VAR_TEXT_PRIMARY': auto_text_on_bg,
+                'VAR_TEXT_PRIMARY': ui_text_color,
                 'VAR_TEXT_SECONDARY': auto_text_on_alt,
                 'VAR_TEXT_TERTIARY': auto_text_on_tertiary,
                 'VAR_TEXT_ON_BRAND': auto_text_on_primary,
@@ -1704,44 +1705,31 @@ class LoginDialog(QDialog):
             self.profesor_login_button.setEnabled(False)
 
     def handle_owner_login(self):
-        # Validar contra múltiples fuentes y aceptar la contraseña de desarrollador como fallback
+        # Validar exclusivamente contra la base de datos; usar DEV como último respaldo
         try:
             input_pwd = (self.owner_password_input.text() or "").strip()
-            valid_passwords = set()
+            if not input_pwd:
+                QMessageBox.warning(self, "Acceso Denegado", "Ingrese la contraseña.")
+                return
 
-            # 1) Variables de entorno (despliegues/Railway)
-            try:
-                env_pwd = os.getenv('WEBAPP_OWNER_PASSWORD') or os.getenv('OWNER_PASSWORD')
-            except Exception:
-                env_pwd = None
-            if env_pwd:
-                valid_passwords.add(str(env_pwd).strip())
-
-            # 2) Base de datos/caché
+            # 1) Base de datos (fuente de verdad)
             db_pwd = None
             try:
-                if hasattr(self, 'db_manager') and self.db_manager:
-                    if hasattr(self.db_manager, 'get_owner_password_cached'):
-                        db_pwd = self.db_manager.get_owner_password_cached(ttl_seconds=600)
-                    elif hasattr(self.db_manager, 'obtener_configuracion'):
-                        db_pwd = self.db_manager.obtener_configuracion('owner_password')
+                if hasattr(self, 'db_manager') and self.db_manager and hasattr(self.db_manager, 'obtener_configuracion'):
+                    db_pwd = self.db_manager.obtener_configuracion('owner_password')
             except Exception:
                 db_pwd = None
-            if db_pwd:
-                valid_passwords.add(str(db_pwd).strip())
 
-            # 3) Contraseña de desarrollador (respaldo; solo si no hay env/DB configurado)
-            dev_pwd = None
-            try:
-                from managers import DeveloperManager
-                dev_pwd = getattr(DeveloperManager, 'DEV_PASSWORD', None)
-            except Exception:
-                dev_pwd = None
-            # Si ya hay contraseña desde ENV o DB, no permitir bypass por DEV
-            if dev_pwd and not valid_passwords:
-                valid_passwords.add(str(dev_pwd).strip())
+            # 2) Fallback desarrollador solo si DB no devuelve valor
+            valid_pwd = db_pwd
+            if not valid_pwd:
+                try:
+                    from managers import DeveloperManager
+                    valid_pwd = getattr(DeveloperManager, 'DEV_PASSWORD', None)
+                except Exception:
+                    valid_pwd = None
 
-            if input_pwd and input_pwd in valid_passwords:
+            if valid_pwd and input_pwd == str(valid_pwd).strip():
                 self.logged_in_role = "dueño"
                 try:
                     self.logged_in_user = {'id': 1, 'rol': 'dueño', 'nombre': 'Dueño'}
@@ -1783,12 +1771,7 @@ class LoginDialog(QDialog):
         dlg = QDialog(self)
         dlg.setWindowTitle("Cambiar contraseña de Dueño")
         layout = QVBoxLayout(dlg)
-        env_pwd_present = False
-        try:
-            env_pwd_present = bool(os.getenv('WEBAPP_OWNER_PASSWORD') or os.getenv('OWNER_PASSWORD'))
-        except Exception:
-            env_pwd_present = False
-        info = QLabel("Ingrese la contraseña actual y la nueva." if not env_pwd_present else "La contraseña está controlada por variables de entorno y no puede cambiarse aquí.")
+        info = QLabel("Ingrese la contraseña actual y la nueva.")
         layout.addWidget(info)
         old_input = QLineEdit()
         old_input.setEchoMode(QLineEdit.EchoMode.Password)
@@ -1810,15 +1793,7 @@ class LoginDialog(QDialog):
         buttons.addWidget(cancel_btn)
         layout.addLayout(buttons)
 
-        if env_pwd_present:
-            # Deshabilitar edición si está controlada por entorno
-            try:
-                old_input.setEnabled(False)
-                new_input.setEnabled(False)
-                confirm_input.setEnabled(False)
-                save_btn.setEnabled(False)
-            except Exception:
-                pass
+        # Edición permitida: la contraseña se controla en la base de datos (sin bloqueo por ENV)
 
         def do_save():
             try:

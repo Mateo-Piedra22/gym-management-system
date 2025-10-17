@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QWidget, QTableView, QAbstractItemView, QMessageBox, QMenu,
     QHeaderView, QVBoxLayout, QHBoxLayout, QSplitter,
     QLineEdit, QGroupBox, QLabel, QPushButton, QCheckBox,
-    QInputDialog, QFileDialog, QFormLayout, QTextEdit, QTabWidget, QDialog, QRadioButton, QComboBox, QDialogButtonBox, QFrame, QSpinBox,
-    QProgressBar
+    QInputDialog, QFileDialog, QFormLayout, QTextEdit, QTextBrowser, QTabWidget, QDialog, QRadioButton, QComboBox, QDialogButtonBox, QFrame, QSpinBox,
+    QProgressBar, QSizePolicy
 )
 from PyQt6.QtCore import QAbstractTableModel, Qt, QSortFilterProxyModel, pyqtSignal, QItemSelectionModel, QModelIndex, QEvent, QObject
 from PyQt6.QtGui import QAction, QIcon, QPixmap, QColor
@@ -237,16 +237,12 @@ class UserTabWidget(QWidget):
         toolbar.addWidget(self.show_inactive_checkbox)
         toolbar.addStretch()
         
-        # Botón para acciones masivas
-        self.bulk_actions_button = QPushButton("Acciones Masivas")
-        self.bulk_actions_button.setEnabled(False)
-        self.bulk_actions_button.setToolTip("Realizar acciones sobre múltiples usuarios seleccionados - DESACTIVADO")
+        # Acciones masivas removidas del toolbar
         
         # Botón para reportes automáticos
         self.reports_button = QPushButton("Reportes")
         self.reports_button.setToolTip("Generar reportes automáticos de usuarios")
         
-        toolbar.addWidget(self.bulk_actions_button)
         toolbar.addWidget(self.reports_button)
         toolbar.addWidget(self.pdf_export_button)
         toolbar.addWidget(self.excel_export_button)
@@ -271,21 +267,8 @@ class UserTabWidget(QWidget):
         self.users_empty_label.setVisible(False)
         left_panel_layout.addWidget(self.users_empty_label)
         
-        # Configurar filtros unificados con botón
-        filter_fields = [
-            FilterField("nombre", "Nombre", "text"),
-            FilterField("dni", "DNI", "text"),
-            FilterField("telefono", "Teléfono", "text"),
-            FilterField("rol", "Rol", "combo", options=["socio", "profesor", "dueño"]),
-            FilterField("activo", "Estado", "combo", options=["Activo", "Inactivo"]),
-            FilterField("fecha_registro", "Fecha Registro", "date"),
-            FilterField("etiquetas", "Etiquetas", "text"),
-            FilterField("estados", "Estados", "text")
-        ]
-        self.unified_filter_button = UnifiedFilterButton(filter_fields, "Usuarios")
+        # Filtros unificados removidos del toolbar
         
-        # Agregar botón de filtros al toolbar
-        toolbar.addWidget(self.unified_filter_button)
         self.user_model = UserModel(self.db_manager, self.payment_manager, set())
         self.proxy_model = CustomProxyModel(); self.proxy_model.setSourceModel(self.user_model)
         self.proxy_model.setFilterKeyColumn(-1); self.proxy_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
@@ -329,6 +312,7 @@ class UserTabWidget(QWidget):
         info_layout = QVBoxLayout(info_group)
         info_layout.setContentsMargins(16, 16, 16, 16)
         info_layout.setSpacing(12)
+        info_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         
         self.user_name_label = QLabel("Seleccione un usuario de la lista")
         self.user_name_label.setObjectName("user_name_label")
@@ -338,6 +322,16 @@ class UserTabWidget(QWidget):
         # Crear widget de pestañas para mostrar información actual (solo lectura)
         self.tabs_widget = QTabWidget()
         self.tabs_widget.setObjectName("phase2_tabs")
+        self.tabs_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        
+        # Widget de información (solo lectura)
+        self.info_display = QTextBrowser()
+        self.info_display.setOpenExternalLinks(False)
+        self.info_display.setMaximumHeight(80)
+        self.info_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.info_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.info_display.setPlaceholderText("Seleccione un usuario de la lista")
+        self.tabs_widget.addTab(self.info_display, "Información")
         
         # Widget de notas (solo lectura)
         self.notas_display = QTextEdit()
@@ -367,6 +361,7 @@ class UserTabWidget(QWidget):
         payment_layout = QVBoxLayout(payment_group)
         payment_layout.setContentsMargins(12, 12, 12, 12)
         payment_layout.setSpacing(8)
+        payment_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         
         # --- NUEVA ETIQUETA DE ESTADO DE PAGO ---
         self.payment_status_detail_label = QLabel("ESTADO: N/A")
@@ -416,7 +411,7 @@ class UserTabWidget(QWidget):
         
         # Asignar componentes reales a las referencias
         self.toolbar = toolbar
-        self.filter_combo = self.unified_filter_button
+        self.filter_combo = None
         self.add_button = self.add_user_button
         self.edit_button = None  # No hay botón de editar específico
         self.delete_button = None  # No hay botón de eliminar específico
@@ -564,22 +559,44 @@ class UserTabWidget(QWidget):
 
             cuotas_vencidas_display = str(getattr(user, 'cuotas_vencidas', 0) or 0)
 
-            self.user_name_label.setText(
-                (
-                    f"<b>Nombre:</b> {user.nombre}<br>"
-                    f"<b>Rol:</b> {rol_text}<br>"
-                    f"<b>DNI:</b> {getattr(user, 'dni', '')}<br>"
-                    f"<b>Teléfono:</b> {telefono}<br>"
-                    f"<b>Tipo de Cuota:</b> {tipo_display}<br>"
-                    f"<b>Próximo Vencimiento:</b> {proximo_vencimiento_display}<br>"
-                    f"<b>Cuotas Vencidas:</b> {cuotas_vencidas_display}<br>"
-                    f"<b>Estado:</b> {estado}<br>"
-                    f"<b>Fecha Registro:</b> {fecha_display}"
-                )
+            info_html = (
+                f"<b>Nombre:</b> {user.nombre}<br>"
+                f"<b>Rol:</b> {rol_text}<br>"
+                f"<b>DNI:</b> {getattr(user, 'dni', '')}<br>"
+                f"<b>Teléfono:</b> {telefono}<br>"
+                f"<b>Tipo de Cuota:</b> {tipo_display}<br>"
+                f"<b>Próximo Vencimiento:</b> {proximo_vencimiento_display}<br>"
+                f"<b>Cuotas Vencidas:</b> {cuotas_vencidas_display}<br>"
+                f"<b>Estado:</b> {estado}<br>"
+                f"<b>Fecha Registro:</b> {fecha_display}"
             )
+            self.user_name_label.setText(info_html)
+            if hasattr(self, 'info_display') and self.info_display is not None:
+                self.info_display.setHtml(info_html)
+                doc = self.info_display.document()
+                doc.adjustSize()
+                height = int(doc.size().height()) + 16
+                self.info_display.setFixedHeight(max(60, height))
+                self.info_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.info_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            # Ocultar etiqueta superior cuando hay usuario seleccionado
+            if hasattr(self, 'user_name_label'):
+                self.user_name_label.setVisible(False)
         except Exception:
             # Fallback mínimo para evitar romper la UI
-            self.user_name_label.setText(f"{rol_text} {self.selected_user.nombre}")
+            fallback_text = f"{rol_text} {self.selected_user.nombre}"
+            self.user_name_label.setText(fallback_text)
+            if hasattr(self, 'info_display') and self.info_display is not None:
+                self.info_display.setText(fallback_text)
+                doc = self.info_display.document()
+                doc.adjustSize()
+                height = int(doc.size().height()) + 16
+                self.info_display.setFixedHeight(max(60, height))
+                self.info_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                self.info_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            # Ocultar etiqueta superior incluso en fallback si hay selección
+            if hasattr(self, 'user_name_label'):
+                self.user_name_label.setVisible(False)
         
         # Cargar información actual en widgets de solo lectura
         self.load_current_user_info()
@@ -672,6 +689,16 @@ class UserTabWidget(QWidget):
 
     def clear_details_panel(self):
         self.user_name_label.setText("Seleccione un usuario de la lista")
+        if hasattr(self, 'user_name_label'):
+            self.user_name_label.setVisible(True)
+        if hasattr(self, 'info_display') and self.info_display is not None:
+            self.info_display.setText("Seleccione un usuario de la lista")
+            doc = self.info_display.document()
+            doc.adjustSize()
+            height = int(doc.size().height()) + 16
+            self.info_display.setFixedHeight(max(60, height))
+            self.info_display.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.info_display.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         
         # Limpiar widgets de solo lectura
         self.notas_display.clear()
@@ -692,12 +719,10 @@ class UserTabWidget(QWidget):
         self.payments_table.customContextMenuRequested.connect(self.show_payments_context_menu)
         self.search_input.textChanged.connect(self.proxy_model.setFilterRegularExpression)
         self.show_inactive_checkbox.toggled.connect(self.proxy_model.setShowInactive)
-        self.unified_filter_button.filters_changed.connect(self.apply_unified_filters)
         self.add_user_button.clicked.connect(self.add_user)
         self.register_attendance_button.clicked.connect(self.register_attendance)
         self.excel_export_button.clicked.connect(lambda: self.exportar_tabla('excel'))
         self.pdf_export_button.clicked.connect(lambda: self.exportar_tabla('pdf'))
-        self.bulk_actions_button.clicked.connect(self.show_bulk_actions_menu)
         self.reports_button.clicked.connect(self.show_reports_menu)
         
         # Las señales de cambio ahora se manejan desde el diálogo de gestión
@@ -1580,8 +1605,9 @@ class UserTabWidget(QWidget):
             self.clear_details_panel()
             self.selected_user = None
             
-        # Mantener deshabilitado el botón de Acciones Masivas
-        self.bulk_actions_button.setEnabled(False)
+        # Mantener deshabilitado el botón de Acciones Masivas (si existe)
+        if hasattr(self, 'bulk_actions_button'):
+            self.bulk_actions_button.setEnabled(False)
     def add_user(self):
         """Agrega un nuevo usuario con validaciones robustas"""
         try:
@@ -2102,7 +2128,8 @@ class UserTabWidget(QWidget):
         menu.addAction(QAction(f"💾 Backup Selectivo ({len(self.selected_users)} usuarios)", self, triggered=self.backup_selected_users))
         
         # Mostrar el menú en la posición del botón
-        button_pos = self.bulk_actions_button.mapToGlobal(self.bulk_actions_button.rect().bottomLeft())
+        button_pos = (self.bulk_actions_button.mapToGlobal(self.bulk_actions_button.rect().bottomLeft())
+                       if hasattr(self, 'bulk_actions_button') else self.mapToGlobal(self.rect().bottomLeft()))
         menu.exec(button_pos)
         
     def show_reports_menu(self):
@@ -3116,7 +3143,8 @@ class UserTabWidget(QWidget):
                 
                 # Limpiar selección y recargar datos
                 self.selected_users.clear()
-                self.bulk_actions_button.setEnabled(False)
+                if hasattr(self, 'bulk_actions_button'):
+                    self.bulk_actions_button.setEnabled(False)
                 self.load_users()
                 self.usuarios_modificados.emit()
                 

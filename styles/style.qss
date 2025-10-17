@@ -81,8 +81,8 @@ QWidget {
     font-weight: 400; /* var(--font-weight-normal) */
     /* line-height no es soportado por QSS; eliminado */
     border: none;
-    margin: 4px; /* Margen fijo */
-    padding: 6px; /* Padding fijo */
+    margin: 0px; /* Menos separación global */
+    padding: 0px; /* Casi edge-to-edge */
 }
 
 QMainWindow {
@@ -90,7 +90,7 @@ QMainWindow {
     border: none;
     font-size: 12px; /* Consistente con QWidget */
     margin: 0px; /* Sin margen para ventana principal */
-    padding: 10px; /* Padding fijo para contenido */
+    padding: 4px; /* Menos padding, apariencia edge-to-edge */
 }
 
 /* Diálogos modernos coherentes con el tema */
@@ -119,8 +119,8 @@ QTabWidget::pane {
     background-color: VAR_BG_SECONDARY; /* dinámico */
     border: 2px solid VAR_BORDER_PRIMARY; /* dinámico */
     border-radius: 8px; /* Radio fijo */
-    margin: 6px 4px 4px 4px; /* Margen fijo */
-    padding: 1px; /* Padding global reducido para contenido de pestañas */
+    margin: 2px; /* Mucho menos margen alrededor del bloque principal */
+    padding: 0px; /* Edge-to-edge dentro del pane */
 }
 
 QTabBar::tab {
@@ -162,17 +162,17 @@ QGroupBox {
     background-color: #2E3440; /* var(--bg-secondary) */
     border: 2px solid #4C566A; /* var(--border-primary) */
     border-radius: 6px; /* Radio fijo */
-    margin: 6px 4px; /* Margen fijo */
+    margin: 2px; /* Menos margen exterior */
     font-weight: 600; /* var(--font-weight-semibold) */
     font-size: 12px; /* Tamaño fijo */
-    padding: 10px 8px 8px 8px; /* Padding fijo */
+    padding: 6px; /* Menos padding interior */
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 6px 10px; /* Padding fijo */
-    margin: 2px 4px; /* Margen fijo */
+    padding: 4px 6px; /* Menos padding */
+    margin: 1px 2px; /* Menos margen */
     background-color: #2E3440; /* var(--bg-secondary) */
     color: #ECEFF4; /* var(--text-primary) */
     font-weight: 600; /* var(--font-weight-semibold) */

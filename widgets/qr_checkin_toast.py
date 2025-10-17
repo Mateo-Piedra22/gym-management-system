@@ -38,6 +38,8 @@ class QRCheckinToast(QDialog):
         self._polling_inflight = False
         # Flag de finalización para cortar cualquier polling residual inmediatamente
         self._token_finalized = False
+        # Control de cierre: no permitir cerrar hasta éxito o timeout
+        self._allow_close = False
         self.seconds_left = expires_minutes * 60
         # Cache de URL base resuelta para evitar inconsistencias entre túnel público y servidor local
         self._resolved_base_url: Optional[str] = None
@@ -124,9 +126,13 @@ class QRCheckinToast(QDialog):
         card_layout.addWidget(self.status_label)
 
         btns = QHBoxLayout()
-        close_btn = QPushButton("Cerrar")
-        close_btn.setObjectName("closeBtn")
-        close_btn.clicked.connect(self.close)
+        self.close_btn = QPushButton("Cerrar")
+        self.close_btn.setObjectName("closeBtn")
+        # No permitir cierre manual antes de éxito o timeout
+        try:
+            self.close_btn.setEnabled(False)
+        except Exception:
+            pass
         # Botón para copiar el token al portapapeles
         copy_btn = QPushButton("Copiar token")
         copy_btn.setObjectName("copyBtn")
@@ -136,7 +142,7 @@ class QRCheckinToast(QDialog):
             pass
         btns.addStretch(1)
         btns.addWidget(copy_btn)
-        btns.addWidget(close_btn)
+        btns.addWidget(self.close_btn)
         card_layout.addLayout(btns)
 
         layout.addWidget(card)
@@ -187,7 +193,15 @@ class QRCheckinToast(QDialog):
     def _tick(self):
         self.seconds_left -= 1
         if self.seconds_left <= 0:
-            self.countdown_label.setText("Expirado")
+            try:
+                self.countdown_label.setText("Expirado")
+                self.status_label.setText("⏰ Tiempo agotado")
+                self.status_label.setVisible(True)
+                self._allow_close = True
+                self._token_finalized = True
+                self._stop_polling_timers()
+            except Exception:
+                pass
             self.close()
         else:
             self.countdown_label.setText(self._format_seconds(self.seconds_left))
@@ -259,7 +273,7 @@ class QRCheckinToast(QDialog):
 
     def _poll_token_status(self):
         # Evitar solapamiento de consultas en curso
-        # Si el token ya fue finalizado (usado/expirado/no-existe), no seguir pollando
+        # Si el token ya fue finalizado (usado confirmado), no seguir pollando
         if getattr(self, "_token_finalized", False):
             return
         if self._polling_inflight:
@@ -326,13 +340,13 @@ class QRCheckinToast(QDialog):
                     except Exception:
                         data = None
 
-                # Seleccionar el primer resultado que indique cierre (used/expired/no-exists)
+                # Seleccionar el primer resultado que indique cierre (solo usado)
                 try:
                     if isinstance(data, dict):
                         used = bool(data.get("used"))
                         expired = bool(data.get("expired"))
                         exists = True if data.get("exists") is None else bool(data.get("exists"))
-                        if used or expired or (exists is False):
+                        if used:
                             # Marcar finalización inmediatamente para cortar polls futuros
                             try:
                                 self._token_finalized = True
@@ -378,51 +392,72 @@ class QRCheckinToast(QDialog):
                 )
             except Exception:
                 pass
-            # Cerrar también si el token deja de existir (limpieza/consumido)
-            if used or expired or (exists is False):
-                # Asegurar estado finalizado para evitar reentradas
-                self._token_finalized = True
-                payload = {"token": self.token, "used": used, "expired": expired}
-                try:
+            # Emitir señal si el token deja de existir o expira, para que el main pueda reaccionar
+            payload = {"token": self.token, "used": used, "expired": expired}
+            try:
+                if used or expired or (exists is False):
                     self.tokenProcessed.emit(payload)
                     handler = getattr(self.main_window, 'on_checkin_token_processed', None)
                     if callable(handler):
                         handler(payload)
-                except Exception:
-                    pass
-                # Mostrar un pequeño indicador de éxito antes de cerrar
+            except Exception:
+                pass
+
+            # Cerrar sólo en caso de confirmación correcta (used)
+            if used:
                 try:
                     # Detener timers inmediatamente para evitar más peticiones/contador
                     self._stop_polling_timers()
-
-                    if used:
-                        # Mostrar confirmación visible y cerrar luego de una breve pausa
-                        self.status_label.setText("✅ Asistencia registrada")
-                        self.status_label.setVisible(True)
-                        try:
-                            logging.info("QRCheckinToast.handle: programando cierre en 1200ms tras éxito")
-                        except Exception:
-                            pass
-                        QTimer.singleShot(1200, self.close)
-                        # Watchdog adicional: por si el singleShot no dispara, forzar cierre
-                        try:
-                            if not hasattr(self, '_close_watchdog') or self._close_watchdog is None:
-                                self._close_watchdog = QTimer(self)
-                                self._close_watchdog.setSingleShot(True)
-                                self._close_watchdog.timeout.connect(self.close)
-                            self._close_watchdog.start(1600)
-                        except Exception:
-                            pass
-                    else:
-                        # En expiración o inexistencia, cerrar inmediatamente
-                        self.close()
+                    # Mostrar confirmación visible y cerrar luego de una breve pausa
+                    self.status_label.setText("✅ Asistencia registrada")
+                    self.status_label.setVisible(True)
+                    self._allow_close = True
+                    try:
+                        logging.info("QRCheckinToast.handle: programando cierre en 1200ms tras éxito")
+                    except Exception:
+                        pass
+                    QTimer.singleShot(1200, self.close)
+                    # Watchdog adicional: por si el singleShot no dispara, forzar cierre
+                    try:
+                        if not hasattr(self, '_close_watchdog') or self._close_watchdog is None:
+                            self._close_watchdog = QTimer(self)
+                            self._close_watchdog.setSingleShot(True)
+                            self._close_watchdog.timeout.connect(self.close)
+                        self._close_watchdog.start(1600)
+                    except Exception:
+                        pass
+                    # Habilitar botón cerrar tras confirmación
+                    try:
+                        self.close_btn.setEnabled(True)
+                    except Exception:
+                        pass
                 except Exception:
+                    self._allow_close = True
                     self.close()
+            else:
+                # En expiración o inexistencia, mantener el toast hasta timeout
+                try:
+                    if expired:
+                        self.status_label.setText("⚠️ Token expirado")
+                        self.status_label.setVisible(True)
+                    elif exists is False:
+                        self.status_label.setText("⏳ Esperando confirmación")
+                        self.status_label.setVisible(True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
     def closeEvent(self, event):
         try:
+            # Bloquear cierre si aún no hay éxito o timeout
+            if not getattr(self, '_allow_close', False) and self.seconds_left > 0:
+                try:
+                    logging.info("QRCheckinToast.closeEvent: intento de cierre bloqueado")
+                except Exception:
+                    pass
+                event.ignore()
+                return
             # Detener timers para evitar polling residual
             # Marcar finalizado y detener timers de forma centralizada
             self._token_finalized = True

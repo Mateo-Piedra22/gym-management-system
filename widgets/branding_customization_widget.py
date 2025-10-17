@@ -770,6 +770,19 @@ class BrandingCustomizationWidget(QWidget):
         
         layout.addWidget(icons_group)
         
+        # Grupo de color de textos de UI
+        ui_text_group = QGroupBox("Colores de Texto UI")
+        ui_text_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        ui_text_layout = QHBoxLayout(ui_text_group)
+        self.ui_text_color_preview = ColorPreviewWidget(QColor(self.current_branding.get('ui_text_color', '#34495e')))
+        self.select_ui_text_color_button = QPushButton("Seleccionar Color")
+        self.select_ui_text_color_button.clicked.connect(lambda: self.select_color('ui_text'))
+        ui_text_layout.addWidget(QLabel("Color de texto UI:"))
+        ui_text_layout.addWidget(self.ui_text_color_preview)
+        ui_text_layout.addWidget(self.select_ui_text_color_button)
+        ui_text_layout.addStretch()
+        layout.addWidget(ui_text_group)
+        
         # Grupo de animaciones y transiciones
         animations_group = QGroupBox("Animaciones y Transiciones")
         animations_group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1210,6 +1223,9 @@ class BrandingCustomizationWidget(QWidget):
         self.current_branding['accent_color'] = self.accent_color_preview.color.name()
         self.current_branding['background_color'] = self.background_color_preview.color.name()
         self.current_branding['alt_background_color'] = self.alt_background_color_preview.color.name()
+        # Color de texto UI (si existe preview)
+        if hasattr(self, 'ui_text_color_preview'):
+            self.current_branding['ui_text_color'] = self.ui_text_color_preview.color.name()
         # Colores de estado
         if hasattr(self, 'warning_color_preview'):
             self.current_branding['warning_color'] = self.warning_color_preview.color.name()
@@ -1393,6 +1409,17 @@ class BrandingCustomizationWidget(QWidget):
             self.background_color_preview.set_color(QColor(self.current_branding.get('background_color', '#ffffff')))
             self.alt_background_color_preview.set_color(QColor(self.current_branding.get('alt_background_color', '#f8f9fa')))
             
+            # Color de texto UI
+            if hasattr(self, 'ui_text_color_preview'):
+                if 'ui_text_color' in self.current_branding:
+                    self.ui_text_color_preview.set_color(QColor(self.current_branding['ui_text_color']))
+                else:
+                    bg = QColor(self.current_branding.get('background_color', '#ffffff'))
+                    r, g, b, _ = bg.getRgb()
+                    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    auto = QColor('#000000') if lum > 180 else QColor('#ECEFF4')
+                    self.ui_text_color_preview.set_color(auto)
+            
             # Colores hover (si están definidos, sino usar automáticos)
             if hasattr(self, 'primary_hover_color_preview'):
                 if 'primary_hover_color' in self.current_branding:
@@ -1492,6 +1519,7 @@ class BrandingCustomizationWidget(QWidget):
             'accent_color': self.accent_color_preview.color.name(),
             'background_color': self.background_color_preview.color.name(),
             'alt_background_color': self.alt_background_color_preview.color.name(),
+            'ui_text_color': self.ui_text_color_preview.color.name() if hasattr(self, 'ui_text_color_preview') else self.current_branding.get('ui_text_color', ''),
             'gym_name': self.gym_name_edit.text(),
             'gym_slogan': self.gym_slogan_edit.text(),
             'gym_address': self.gym_address_edit.toPlainText(),
