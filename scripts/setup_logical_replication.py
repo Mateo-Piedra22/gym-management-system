@@ -1,6 +1,7 @@
 import os
 import json
 from pathlib import Path
+from typing import Dict, Any
 
 import psycopg2
 from psycopg2 import sql
@@ -151,14 +152,66 @@ def _ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub')
         conn = _connect(remote_params)
         conn.autocommit = True
         with conn.cursor() as cur:
+            # Cargar lista de tablas transaccionales (Local→Railway) para excluirlas de la publicación remota
+            base_dir = Path(__file__).resolve().parent.parent
+            cfg_path = base_dir / 'config' / 'sync_tables.json'
+            uploads_local_to_remote: list = []
+            try:
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg_tables = json.load(f) or {}
+                    uploads_local_to_remote = list(cfg_tables.get('uploads_local_to_remote') or [])
+            except Exception:
+                uploads_local_to_remote = []
+
+            # Enumerar tablas reales en remoto (schema public)
+            cur.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema='public' AND table_type='BASE TABLE'
+                ORDER BY 1
+                """
+            )
+            remote_tables = [r[0] for r in cur.fetchall()]
+            # Calcular lista de tablas a publicar: todo menos las transaccionales de local
+            pub_tables = [t for t in remote_tables if t not in uploads_local_to_remote]
+
             cur.execute("SELECT 1 FROM pg_publication WHERE pubname = %s", (pubname,))
             exists = bool(cur.fetchone())
             if not exists:
-                # Publicación mínima: todas las tablas
-                cur.execute(sql.SQL("CREATE PUBLICATION {} FOR ALL TABLES").format(sql.Identifier(pubname)))
-                print(f"Publicación creada en remoto: {pubname}")
+                if pub_tables:
+                    # Publicación explícita: sólo tablas maestras
+                    parts = []
+                    for t in pub_tables:
+                        parts.append(sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t)))
+                    create_stmt = sql.SQL("CREATE PUBLICATION {} FOR TABLE ")\
+                        .format(sql.Identifier(pubname)) + sql.SQL(", ").join(parts)
+                    cur.execute(create_stmt)
+                    print(f"Publicación creada en remoto: {pubname} (tablas: {len(pub_tables)})")
+                else:
+                    # Fallback: todas las tablas
+                    cur.execute(sql.SQL("CREATE PUBLICATION {} FOR ALL TABLES").format(sql.Identifier(pubname)))
+                    print(f"Publicación creada en remoto: {pubname} (ALL TABLES)")
             else:
-                print(f"Publicación ya existe en remoto: {pubname}")
+                # Sincronizar conjunto de tablas de la publicación
+                cur.execute("SELECT tablename FROM pg_publication_tables WHERE pubname = %s", (pubname,))
+                current = {r[0] for r in cur.fetchall()}
+                desired = set(pub_tables) if pub_tables else set(remote_tables)
+                to_add = sorted(list(desired - current))
+                to_drop = sorted(list(current - desired))
+                for t in to_add:
+                    try:
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} ADD TABLE {}.{}")
+                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                    except Exception:
+                        pass
+                for t in to_drop:
+                    try:
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} DROP TABLE {}.{}")
+                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                    except Exception:
+                        pass
+                print(f"Publicación ya existe en remoto: {pubname}. Ajustes ADD={len(to_add)} DROP={len(to_drop)}")
     finally:
         try:
             if conn:

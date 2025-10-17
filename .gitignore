@@ -38,6 +38,7 @@ Thumbs.db
 *.temp
 *.done
 *.xml
+first_run_prereqs/
 
 # Archivos de cobertura de código
 .coverage

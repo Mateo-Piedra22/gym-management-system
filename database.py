@@ -19,32 +19,78 @@ import json
 import functools
 import random
 import calendar
-# Deshabilitar por completo el sistema de sincronización manual legado.
-# Se definen stubs no-op para mantener compatibilidad sin importar módulos antiguos.
-def enqueue_operations(*args, **kwargs):
-    return False
+# Habilitar cliente de sincronización local para observabilidad (no cambia flujo de datos)
+try:
+    from sync_client import (
+        enqueue_operations as _enqueue_ops_impl,
+        op_user_add as _op_user_add_impl,
+        op_user_update as _op_user_update_impl,
+        op_user_delete as _op_user_delete_impl,
+        op_payment_update as _op_payment_update_impl,
+        op_payment_delete as _op_payment_delete_impl,
+        op_tag_add as _op_tag_add_impl,
+        op_tag_update as _op_tag_update_impl,
+        op_tag_delete as _op_tag_delete_impl,
+        op_user_tag_add as _op_user_tag_add_impl,
+        op_user_tag_update as _op_user_tag_update_impl,
+        op_user_tag_delete as _op_user_tag_delete_impl,
+        op_note_add as _op_note_add_impl,
+        op_note_update as _op_note_update_impl,
+        op_note_delete as _op_note_delete_impl,
+        op_attendance_update as _op_attendance_update_impl,
+        op_attendance_delete as _op_attendance_delete_impl,
+    )
+    def enqueue_operations(*args, **kwargs):
+        try:
+            return _enqueue_ops_impl(*args, **kwargs)
+        except Exception:
+            return False
+    op_user_add = _op_user_add_impl
+    op_user_update = _op_user_update_impl
+    op_user_delete = _op_user_delete_impl
+    op_payment_update = _op_payment_update_impl
+    op_payment_delete = _op_payment_delete_impl
+    op_tag_add = _op_tag_add_impl
+    op_tag_update = _op_tag_update_impl
+    op_tag_delete = _op_tag_delete_impl
+    op_user_tag_add = _op_user_tag_add_impl
+    op_user_tag_update = _op_user_tag_update_impl
+    op_user_tag_delete = _op_user_tag_delete_impl
+    op_note_add = _op_note_add_impl
+    op_note_update = _op_note_update_impl
+    op_note_delete = _op_note_delete_impl
+    op_attendance_update = _op_attendance_update_impl
+    op_attendance_delete = _op_attendance_delete_impl
+except Exception:
+    # Fallback: mantener stubs no-op si sync_client no está disponible
+    def enqueue_operations(*args, **kwargs):
+        return False
+    def _noop(*args, **kwargs):
+        return {}
 
-def _noop(*args, **kwargs):
+    op_user_add = _noop
+    op_user_update = _noop
+    op_user_delete = _noop
+    op_payment_update = _noop
+    op_payment_delete = _noop
+    op_tag_add = _noop
+    op_tag_update = _noop
+    op_tag_delete = _noop
+    op_user_tag_add = _noop
+    op_user_tag_update = _noop
+    op_user_tag_delete = _noop
+    op_note_add = _noop
+    op_note_update = _noop
+    op_note_delete = _noop
+    op_attendance_update = _noop
+    op_attendance_delete = _noop
+
+# Mantener stubs para asistencia de clases (no hay helper en sync_client)
+def op_class_attendance_update(*args, **kwargs):
     return {}
 
-op_user_add = _noop
-op_user_update = _noop
-op_user_delete = _noop
-op_payment_update = _noop
-op_payment_delete = _noop
-op_tag_add = _noop
-op_tag_update = _noop
-op_tag_delete = _noop
-op_user_tag_add = _noop
-op_user_tag_update = _noop
-op_user_tag_delete = _noop
-op_note_add = _noop
-op_note_update = _noop
-op_note_delete = _noop
-op_attendance_update = _noop
-op_attendance_delete = _noop
-op_class_attendance_update = _noop
-op_class_attendance_delete = _noop
+def op_class_attendance_delete(*args, **kwargs):
+    return {}
 
 # Importación del sistema de auditoría
 try:
@@ -1295,7 +1341,7 @@ class DatabaseManager:
     
     def _get_default_connection_params(self) -> dict:
         """Obtiene parámetros de conexión por defecto.
-        Prioriza config/config.json para valores no sensibles y almacén seguro para la contraseña.
+        Respeta `db_profile` (local/remoto) en config/config.json y permite override por variables de entorno.
         """
         # Detectar directorio base (exe o script)
         try:
@@ -1313,45 +1359,52 @@ class DatabaseManager:
         except Exception:
             cfg = {}
 
-        # PRIORIDAD: variables de entorno DB_* sobre config.json
-        host = str(os.getenv('DB_HOST', cfg.get('host', 'localhost')))
+        # Determinar perfil seleccionado: ENV > config.json > 'local'
         try:
-            port = int(os.getenv('DB_PORT', cfg.get('port', 5432)))
+            profile = str(os.getenv('DB_PROFILE', cfg.get('db_profile', 'local'))).lower()
         except Exception:
-            port = int(cfg.get('port', 5432))
-        database = str(os.getenv('DB_NAME', cfg.get('database', 'gimnasio')))
-        user = str(os.getenv('DB_USER', cfg.get('user', 'postgres')))
-        sslmode = str(os.getenv('DB_SSLMODE', cfg.get('sslmode', 'prefer')))
+            profile = 'local'
+        node = cfg.get('db_remote') if profile == 'remote' else (cfg.get('db_local') or {})
+
+        # PRIORIDAD: variables de entorno DB_* sobre perfil de config.json y luego top-level
+        host = str(os.getenv('DB_HOST', (node.get('host') or cfg.get('host') or 'localhost')))
         try:
-            # Reducir timeout de conexión por defecto para evitar bloqueos prolongados en redes con alta latencia
-            connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', cfg.get('connect_timeout', 5)))
+            port = int(os.getenv('DB_PORT', (node.get('port') or cfg.get('port') or 5432)))
         except Exception:
-            connect_timeout = int(cfg.get('connect_timeout', 5))
-        application_name = str(os.getenv('DB_APPLICATION_NAME', cfg.get('application_name', 'gym_management_system')))
+            port = int(node.get('port') or cfg.get('port') or 5432)
+        database = str(os.getenv('DB_NAME', (node.get('database') or cfg.get('database') or 'gimnasio')))
+        user = str(os.getenv('DB_USER', (node.get('user') or cfg.get('user') or 'postgres')))
+        sslmode = str(os.getenv('DB_SSLMODE', (node.get('sslmode') or cfg.get('sslmode') or 'prefer')))
+        try:
+            # Reducir timeout por defecto para evitar bloqueos prolongados en redes con alta latencia
+            connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', (node.get('connect_timeout') or cfg.get('connect_timeout') or 5)))
+        except Exception:
+            connect_timeout = int(node.get('connect_timeout') or cfg.get('connect_timeout') or 5)
+        application_name = str(os.getenv('DB_APPLICATION_NAME', (node.get('application_name') or cfg.get('application_name') or 'gym_management_system')))
 
         # Opciones de sesión por conexión para evitar SET dentro de transacciones
         # Permite: statement_timeout, lock_timeout, idle_in_transaction_session_timeout y zona horaria
         options_parts = []
         try:
-            st_timeout = str(os.getenv('DB_STATEMENT_TIMEOUT', cfg.get('statement_timeout', '4s')))
+            st_timeout = str(os.getenv('DB_STATEMENT_TIMEOUT', (cfg.get('statement_timeout') or node.get('statement_timeout') or '4s')))
             if st_timeout:
                 options_parts.append(f"-c statement_timeout={st_timeout}")
         except Exception:
             options_parts.append("-c statement_timeout=4s")
         try:
-            lk_timeout = str(os.getenv('DB_LOCK_TIMEOUT', cfg.get('lock_timeout', '2s')))
+            lk_timeout = str(os.getenv('DB_LOCK_TIMEOUT', (cfg.get('lock_timeout') or node.get('lock_timeout') or '2s')))
             if lk_timeout:
                 options_parts.append(f"-c lock_timeout={lk_timeout}")
         except Exception:
             options_parts.append("-c lock_timeout=2s")
         try:
-            idle_trx_timeout = str(os.getenv('DB_IDLE_IN_TRX_TIMEOUT', cfg.get('idle_in_transaction_session_timeout', '30s')))
+            idle_trx_timeout = str(os.getenv('DB_IDLE_IN_TRX_TIMEOUT', (cfg.get('idle_in_transaction_session_timeout') or node.get('idle_in_transaction_session_timeout') or '30s')))
             if idle_trx_timeout:
                 options_parts.append(f"-c idle_in_transaction_session_timeout={idle_trx_timeout}")
         except Exception:
             options_parts.append("-c idle_in_transaction_session_timeout=30s")
         try:
-            tz = str(os.getenv('DB_TIME_ZONE', cfg.get('time_zone', 'America/Argentina/Buenos_Aires')))
+            tz = str(os.getenv('DB_TIME_ZONE', (cfg.get('time_zone') or node.get('time_zone') or 'America/Argentina/Buenos_Aires')))
             if tz:
                 options_parts.append(f"-c TimeZone={tz}")
         except Exception:
@@ -1359,8 +1412,8 @@ class DatabaseManager:
         # Construir cadena options final
         options = " ".join(options_parts).strip()
 
-        # Contraseña: primero variable de entorno, luego config.json y por último almacén seguro
-        password = str(os.getenv('DB_PASSWORD', cfg.get('password', '')))
+        # Contraseña: ENV > perfil config.json > top-level > almacén seguro
+        password = str(os.getenv('DB_PASSWORD', (node.get('password') or cfg.get('password') or '')))
         if not password:
             try:
                 import keyring
@@ -1423,9 +1476,9 @@ class DatabaseManager:
             'options': options,
             # Mantener viva la conexión TCP en redes inestables
             'keepalives': 1,
-            'keepalives_idle': int(os.getenv('DB_KEEPALIVES_IDLE', cfg.get('keepalives_idle', 30))),
-            'keepalives_interval': int(os.getenv('DB_KEEPALIVES_INTERVAL', cfg.get('keepalives_interval', 10))),
-            'keepalives_count': int(os.getenv('DB_KEEPALIVES_COUNT', cfg.get('keepalives_count', 3))),
+            'keepalives_idle': int(os.getenv('DB_KEEPALIVES_IDLE', (node.get('keepalives_idle') or cfg.get('keepalives_idle') or 30))),
+            'keepalives_interval': int(os.getenv('DB_KEEPALIVES_INTERVAL', (node.get('keepalives_interval') or cfg.get('keepalives_interval') or 10))),
+            'keepalives_count': int(os.getenv('DB_KEEPALIVES_COUNT', (node.get('keepalives_count') or cfg.get('keepalives_count') or 3))),
         }
     
     def obtener_conexion(self):

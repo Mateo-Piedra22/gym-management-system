@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover - entorno alternativo/packaging
 class SyncService(QObject):
     """Servicio que observa la cola del `sync_client` y notifica cambios."""
 
-    def __init__(self, poll_interval_ms: int = 3000):
+    def __init__(self, poll_interval_ms: int = 3000, db_manager: Optional[object] = None):
         super().__init__()
         self.poll_interval_ms = int(poll_interval_ms)
         self._timer: Optional[QTimer] = None
@@ -43,6 +43,21 @@ class SyncService(QObject):
         # Callbacks configurables desde la UI (MainWindow)
         self.on_pending_change: Optional[Callable[[int], None]] = None
         self.on_queue_empty: Optional[Callable[[], None]] = None
+        # Integración mínima: OutboxPoller para envíos Local→Railway
+        self._outbox_poller = None
+        try:
+            from utils_modules.outbox_poller import OutboxPoller  # type: ignore
+            dbm = db_manager
+            if dbm is None:
+                try:
+                    from database import DatabaseManager  # type: ignore
+                    dbm = DatabaseManager()
+                except Exception:
+                    dbm = None
+            if dbm is not None:
+                self._outbox_poller = OutboxPoller(dbm)
+        except Exception:
+            self._outbox_poller = None
 
     def start(self):
         """Inicia el polling de la cola de operaciones."""
@@ -53,6 +68,12 @@ class SyncService(QObject):
             self._timer.start(self.poll_interval_ms)
             # Primer tick inmediato para reflejar estado actual
             self._tick()
+            # Iniciar outbox poller si está disponible
+            try:
+                if self._outbox_poller:
+                    self._outbox_poller.start()  # type: ignore
+            except Exception:
+                pass
         except Exception:
             # No bloquear si Qt no está disponible o falla el timer
             pass
@@ -66,8 +87,22 @@ class SyncService(QObject):
                 except Exception:
                     pass
                 self._timer = None
+            # Detener outbox poller si estaba corriendo
+            try:
+                if self._outbox_poller:
+                    self._outbox_poller.stop()  # type: ignore
+            except Exception:
+                pass
         finally:
             self._last_pending = None
+
+    def attach_outbox_status_callback(self, cb: Callable[[dict], None]) -> None:
+        """Adjunta callback para estado del OutboxPoller (opcional)."""
+        try:
+            if self._outbox_poller:
+                self._outbox_poller.on_status = cb  # type: ignore
+        except Exception:
+            pass
 
     def _tick(self):
         """Consulta la cola y dispara callbacks si hay cambios."""

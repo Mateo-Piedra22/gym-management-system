@@ -161,6 +161,49 @@ def get_pending_count() -> int:
         return 0
 
 
+# ===== Helpers de lectura/borrado de cola =====
+
+def read_queue(max_items: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Lee una copia de la cola actual. Opcionalmente limita el número.
+    """
+    with _LOCK:
+        state = _ensure_state()
+        q: List[Dict[str, Any]] = list(state.get('queue') or [])
+        if max_items is not None and isinstance(max_items, int) and max_items >= 0:
+            return q[:max_items]
+        return q
+
+
+def drop_by_dedup_keys(keys: List[str]) -> int:
+    """Elimina operaciones cuyo 'dedup_key' esté en la lista.
+    Devuelve cuántas se eliminaron.
+    """
+    if not keys:
+        return 0
+    with _LOCK:
+        state = _ensure_state()
+        q: List[Dict[str, Any]] = state.get('queue') or []
+        keys_set = set(str(k) for k in keys)
+        new_q = [op for op in q if str(op.get('dedup_key') or '') not in keys_set]
+        removed = len(q) - len(new_q)
+        if removed:
+            state['queue'] = new_q
+            state['last_flush_ts'] = time.time()
+            _save_state(state)
+        return removed
+
+
+def clear_queue() -> int:
+    """Vacía por completo la cola y devuelve cuántas entradas se borraron."""
+    with _LOCK:
+        state = _ensure_state()
+        removed = len(state.get('queue') or [])
+        state['queue'] = []
+        state['last_flush_ts'] = time.time()
+        _save_state(state)
+        return removed
+
+
 # ===== Helpers de construcción de operaciones =====
 
 def _op(t: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,6 +247,7 @@ def op_routine_unassign(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Espacio reservado para futuras operaciones de etiquetas/notas si hiciera falta
+
 def op_tag_add(payload: Dict[str, Any]) -> Dict[str, Any]:
     return _op('tag.add', payload)
 

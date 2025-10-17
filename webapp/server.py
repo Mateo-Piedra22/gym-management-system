@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import csv
 import json
@@ -314,8 +314,242 @@ async def webapp_base_url():
         return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
 # Endpoints de sincronizaciÃ³n para integraciÃ³n con proxy local
+@app.post("/api/sync/upload")
 async def api_sync_upload(request: Request):
-    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
+    rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
+    db = _get_db()
+    guard = _circuit_guard_json(db, "/api/sync/upload") if db else None
+    if guard:
+        return guard
+    # Validar JSON
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    ops = data.get("ops")
+    if not isinstance(ops, list):
+        return JSONResponse({"error": "Formato inválido: 'ops' debe ser lista"}, status_code=400)
+    # Autenticación opcional por token Bearer (si SYNC_UPLOAD_TOKEN está definido)
+    try:
+        expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
+    except Exception:
+        expected = ""
+    if expected:
+        auth = str(request.headers.get("Authorization", "")).strip()
+        if not auth.startswith("Bearer "):
+            return JSONResponse({"error": "Falta token"}, status_code=401)
+        token = auth.split(" ", 1)[1].strip()
+        if token != expected:
+            return JSONResponse({"error": "Token inválido"}, status_code=401)
+    # Registrar en inbox para observabilidad
+    try:
+        base_dir = _compute_base_dir()
+        inbox_dir = base_dir / "config"
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        inbox_path = inbox_dir / "sync_inbox.jsonl"
+        with open(inbox_path, "a", encoding="utf-8") as f:
+            for op in ops:
+                try:
+                    f.write(json.dumps(op, ensure_ascii=False) + "\n")
+                except Exception:
+                    # No bloquear el lote por un op malformado
+                    pass
+    except Exception as e:
+        try:
+            logging.debug(f"/api/sync/upload: fallo escribiendo inbox rid={rid} err={e}")
+        except Exception:
+            pass
+    # Construir ack por dedup_key
+    dedup_keys = []
+    try:
+        for op in ops:
+            k = None
+            try:
+                k = op.get("dedup_key")
+            except Exception:
+                k = None
+            if k:
+                dedup_keys.append(str(k))
+    except Exception:
+        dedup_keys = []
+    try:
+        logging.info(f"/api/sync/upload: recibido ops={len(ops)} acked={len(dedup_keys)} rid={rid}")
+    except Exception:
+        pass
+    return JSONResponse({"acked": dedup_keys})
+
+# Endpoint para aplicar cambios del outbox local de forma idempotente
+@app.post("/api/sync/upload_outbox")
+async def api_sync_upload_outbox(request: Request):
+    rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
+    db = _get_db()
+    guard = _circuit_guard_json(db, "/api/sync/upload_outbox") if db else None
+    if guard:
+        return guard
+    # Validar JSON
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    changes = payload.get("changes")
+    if not isinstance(changes, list):
+        return JSONResponse({"error": "Formato inválido: 'changes' debe ser lista"}, status_code=400)
+    # Autenticación por token Bearer (como /api/sync/upload)
+    try:
+        expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
+    except Exception:
+        expected = ""
+    if expected:
+        auth = str(request.headers.get("Authorization", "")).strip()
+        if not auth.startswith("Bearer "):
+            return JSONResponse({"error": "Falta token"}, status_code=401)
+        token = auth.split(" ", 1)[1].strip()
+        if token != expected:
+            return JSONResponse({"error": "Token inválido"}, status_code=401)
+
+    acked: list = []
+    errors: list = []
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            conn.autocommit = False
+            for ch in changes:
+                try:
+                    schema = str(ch.get("schema") or "public")
+                    table = str(ch.get("table") or "")
+                    op = str(ch.get("op") or "").upper()
+                    pk = ch.get("pk") or {}
+                    data = ch.get("data")
+                    dedup_key = str(ch.get("dedup_key") or "")
+                    if not table or op not in ("INSERT", "UPDATE", "DELETE") or not isinstance(pk, dict):
+                        errors.append({"dedup_key": dedup_key, "error": "change inválido"})
+                        continue
+                    applied = _apply_change_idempotent(conn, schema, table, op, pk, data)
+                    if applied and dedup_key:
+                        acked.append(dedup_key)
+                except Exception as e:
+                    try:
+                        errors.append({"dedup_key": str(ch.get("dedup_key") or ""), "error": str(e)})
+                    except Exception:
+                        pass
+            conn.commit()
+    except Exception as e:
+        try:
+            logging.exception(f"/api/sync/upload_outbox: fallo aplicando cambios rid={rid} err={e}")
+        except Exception:
+            pass
+        return JSONResponse({"error": "Fallo aplicando cambios"}, status_code=500)
+    try:
+        logging.info(f"/api/sync/upload_outbox: changes={len(changes)} acked={len(acked)} errors={len(errors)} rid={rid}")
+    except Exception:
+        pass
+    return JSONResponse({"acked": acked, "errors": errors})
+
+# Helpers para aplicar cambios de forma segura e idempotente
+
+def _get_pk_columns_conn(conn, schema: str, table: str):
+    cols = []
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT a.attname
+            FROM pg_index i
+            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+            WHERE i.indrelid = %s::regclass AND i.indisprimary
+            """,
+            (f"{schema}.{table}",)
+        )
+        rows = cur.fetchall() or []
+        cols = [r[0] for r in rows]
+    except Exception:
+        cols = []
+    return cols
+
+
+def _filter_existing_columns(conn, schema: str, table: str, data: dict) -> dict:
+    if not isinstance(data, dict):
+        return {}
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            """,
+            (schema, table)
+        )
+        allowed = {r[0] for r in (cur.fetchall() or [])}
+        return {k: v for k, v in data.items() if k in allowed}
+    except Exception:
+        return {}
+
+
+def _apply_change_idempotent(conn, schema: str, table: str, op: str, pk: dict, data: dict) -> bool:
+    from psycopg2 import sql as _sql
+    try:
+        pk_cols = _get_pk_columns_conn(conn, schema, table)
+        if op == 'DELETE':
+            # Borrar aunque no exista: idempotente
+            where_parts = []
+            params = []
+            for c in pk_cols:
+                where_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(c)))
+                params.append(pk.get(c))
+            stmt = _sql.SQL("DELETE FROM {}.{} WHERE ")\
+                .format(_sql.Identifier(schema), _sql.Identifier(table)) + _sql.SQL(" AND ").join(where_parts)
+            cur = conn.cursor()
+            cur.execute(stmt, params)
+            return True
+        elif op == 'UPDATE':
+            updates = _filter_existing_columns(conn, schema, table, data or {})
+            if not updates:
+                return True
+            set_parts = []
+            params = []
+            for k, v in updates.items():
+                set_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(str(k))))
+                params.append(v)
+            where_parts = []
+            for c in pk_cols:
+                where_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(c)))
+                params.append(pk.get(c))
+            stmt = _sql.SQL("UPDATE {}.{} SET ")\
+                .format(_sql.Identifier(schema), _sql.Identifier(table)) + _sql.SQL(", ").join(set_parts) + _sql.SQL(" WHERE ") + _sql.SQL(" AND ").join(where_parts)
+            cur = conn.cursor()
+            cur.execute(stmt, params)
+            return True
+        elif op == 'INSERT':
+            values = _filter_existing_columns(conn, schema, table, data or {})
+            if not values:
+                return False
+            cols = list(values.keys())
+            params = [values[c] for c in cols]
+            placeholders = [_sql.Placeholder() for _ in cols]
+            # ON CONFLICT por PK si existe
+            cur = conn.cursor()
+            if pk_cols:
+                set_cols = [c for c in cols if c not in pk_cols]
+                on_conf = _sql.SQL(', ').join([_sql.Composed([_sql.Identifier(c), _sql.SQL(' = EXCLUDED.'), _sql.Identifier(c)]) for c in set_cols])
+                stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET ")\
+                    .format(
+                        _sql.Identifier(schema), _sql.Identifier(table),
+                        _sql.SQL(', ').join(map(_sql.Identifier, cols)),
+                        _sql.SQL(', ').join(placeholders),
+                        _sql.SQL(', ').join(map(_sql.Identifier, pk_cols))
+                    ) + on_conf
+            else:
+                stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})")\
+                    .format(
+                        _sql.Identifier(schema), _sql.Identifier(table),
+                        _sql.SQL(', ').join(map(_sql.Identifier, cols)),
+                        _sql.SQL(', ').join(placeholders)
+                    )
+            cur.execute(stmt, params)
+            return True
+    except Exception:
+        return False
+
 
 
 

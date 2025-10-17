@@ -588,3 +588,40 @@ python build_installer.py --mode onefile
 ### 🧹 **Cierre Seguro del Túnel**
 - Al salir, se intenta terminar procesos del túnel público (`terminate_tunnel_processes`) y cualquier `ssh.exe` residual (`terminate_ssh_processes`).
 - Existe un cierre defensivo adicional reutilizado desde `main.py`.
+
+## 🔄 Sincronización bidireccional (Outbox + Replicación)
+- Replicación lógica Postgres (remoto → local) ya automatizada por el sistema.
+- Outbox con triggers (local → remoto) capturando cambios en todas las tablas listadas en `config/sync_tables.json`.
+
+### Token de seguridad: `SYNC_UPLOAD_TOKEN`
+Para autorizar la subida de cambios locales al servidor, cliente y servidor deben compartir el mismo token.
+
+#### Generar y configurar en Windows (PowerShell)
+
+```powershell
+# Generar un token aleatorio robusto
+$token = "gymms_sync_" + ([Guid]::NewGuid().ToString("N")) + ([Guid]::NewGuid().ToString("N"))
+
+# Usar el token en esta sesión y persistirlo para futuras sesiones
+$env:SYNC_UPLOAD_TOKEN = $token
+setx SYNC_UPLOAD_TOKEN $token
+
+# (Opcional) Verificar
+[Environment]::GetEnvironmentVariable("SYNC_UPLOAD_TOKEN", "User")
+```
+
+#### Configurar en el servidor (Railway u otro)
+- En el panel del servicio web, añade una variable de entorno `SYNC_UPLOAD_TOKEN` con el mismo valor.
+- Reinicia el servicio para que tome el nuevo valor.
+
+#### Validación rápida
+- Ejecuta `python scripts/install_outbox_triggers.py` para asegurar la tabla `public.sync_outbox`, la función `public.sync_outbox_capture()` y los triggers.
+- Inserta/actualiza datos en alguna tabla incluida y verifica que aparezcan registros en `public.sync_outbox`.
+- Si la app está en ejecución, el `OutboxPoller` sube los cambios automáticamente. Manual: `python scripts/run_sync_uploader.py`.
+
+#### Nota sobre URL del servidor
+Si el cliente no detecta automáticamente la URL del webapp, define `WEBAPP_BASE_URL`:
+
+```powershell
+setx WEBAPP_BASE_URL "https://tu-servidor.ejemplo"
+```

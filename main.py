@@ -164,6 +164,9 @@ class MainWindow(QMainWindow):
         self._hours_worker_running = False
         # Bandera para evitar ejecuciones simultáneas de automatización pesada
         self._wa_auto_running = False
+        # Debounce para refrescos por replicación
+        self._inbound_debounce_ms = 2000
+        self._last_inbound_refresh_ts = 0
         # Overlay de arranque
         self._startup_overlay: StartupProgressDialog | None = None
         try:
@@ -1418,14 +1421,25 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # Instalar triggers de outbox en background (idempotente)
+        try:
+            QTimer.singleShot(2500, self._start_outbox_trigger_install_thread)
+        except Exception:
+            pass
+
         # Servicio de sincronización: observar cola local y refrescar UI al cambiar
         try:
             from utils_modules.sync_service import SyncService
-            self.sync_service = SyncService(poll_interval_ms=3000)
+            self.sync_service = SyncService(poll_interval_ms=3000, db_manager=self.db_manager)
             # Cuando cambian los pendientes, refrescar el indicador de conectividad
             self.sync_service.on_pending_change = lambda count: self.update_connectivity_indicator()
             # Cuando la cola queda vacía, actualizar indicadores de pestañas
             self.sync_service.on_queue_empty = lambda: self.update_tab_notifications()
+            # Adjuntar estado del OutboxPoller para refrescar conectividad
+            try:
+                self.sync_service.attach_outbox_status_callback(lambda status: self.update_connectivity_indicator())
+            except Exception:
+                pass
             self.sync_service.start()
             try:
                 # Parada limpia cuando se destruya la ventana
@@ -1714,6 +1728,43 @@ class MainWindow(QMainWindow):
         except Exception as e:
             try:
                 logging.warning(f"Auto-setup de replicación falló: {e}")
+            except Exception:
+                pass
+
+    def _start_outbox_trigger_install_thread(self):
+        try:
+            import threading
+            t = threading.Thread(target=self._auto_install_outbox_triggers, daemon=True)
+            t.start()
+            try:
+                self._outbox_install_thread = t
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _auto_install_outbox_triggers(self):
+        """Instala tabla/función/índices del outbox y triggers idempotentes."""
+        try:
+            from scripts.install_outbox_triggers import run as install_outbox
+            res = install_outbox()
+            try:
+                self._outbox_install_result = res
+            except Exception:
+                pass
+            # Notificar sin bloquear
+            try:
+                def _update_msg():
+                    # run() imprime; no devuelve dict, asumimos OK si no hubo excepción
+                    msg = "Outbox instalado"
+                    self.status_bar.showMessage(msg, 5000)
+                    self.update_connectivity_indicator()
+                QTimer.singleShot(0, _update_msg)
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                logging.warning(f"Auto-instalar outbox falló: {e}")
             except Exception:
                 pass
     
@@ -2078,6 +2129,17 @@ class MainWindow(QMainWindow):
 
     def _on_replication_inbound_change(self):
         """Callback de observador de replicación: refresca UI ante cambios entrantes."""
+        # Debounce para evitar ráfagas de refresco si hay avances rápidos
+        try:
+            import time
+            now = time.time()
+            last = getattr(self, '_last_inbound_refresh_ts', 0)
+            debounce_ms = int(getattr(self, '_inbound_debounce_ms', 0))
+            if debounce_ms > 0 and (now - float(last)) * 1000 < debounce_ms:
+                return
+            self._last_inbound_refresh_ts = now
+        except Exception:
+            pass
         try:
             self.update_tab_notifications()
         except Exception:
@@ -2093,7 +2155,68 @@ class MainWindow(QMainWindow):
             self.update_monthly_hours()
         except Exception:
             pass
+        # Intentar vaciar outbox local tras cambios entrantes (no bloquea UI)
+        try:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(500, self._flush_sync_outbox_once_bg)
+        except Exception:
+            try:
+                self._flush_sync_outbox_once_bg()
+            except Exception:
+                pass
     
+    def _flush_sync_outbox_once_bg(self):
+        """Vacía la outbox de sincronización en background sin bloquear la UI."""
+        try:
+            if getattr(self, '_sync_uploader_running', False):
+                return
+            self._sync_uploader_running = True
+            def _worker():
+                try:
+                    from sync_uploader import SyncUploader
+                    uploader = SyncUploader()
+                    sent, deleted = uploader.flush_once()
+                    try:
+                        logging.info(f"SyncUploader flush: enviadas={sent} borradas={deleted}")
+                    except Exception:
+                        pass
+                    try:
+                        from PyQt5.QtCore import QTimer
+                        # Refrescar indicador de conectividad en el hilo principal de Qt
+                        QTimer.singleShot(0, self.update_connectivity_indicator)
+                    except Exception:
+                        try:
+                            # Fallback si Qt no está disponible
+                            self.update_connectivity_indicator()
+                        except Exception:
+                            pass
+                    try:
+                        # Feedback opcional en barra de estado desde el hilo principal
+                        if hasattr(self, 'status_bar'):
+                            from PyQt5.QtCore import QTimer
+                            QTimer.singleShot(0, lambda: self.status_bar.showMessage(
+                                f"Outbox sincronizada: {sent} env., {deleted} elim.", 4000
+                            ))
+                    except Exception:
+                        pass
+                except Exception as e:
+                    try:
+                        logging.warning(f"Falló flush SyncUploader: {e}")
+                    except Exception:
+                        pass
+                finally:
+                    try:
+                        self._sync_uploader_running = False
+                    except Exception:
+                        pass
+            try:
+                import threading
+                threading.Thread(target=_worker, name="SyncUploaderFlush", daemon=True).start()
+            except Exception:
+                _worker()
+        except Exception:
+            pass
+
     def count_overdue_payments(self) -> int:
         """Cuenta los pagos vencidos"""
         try:
