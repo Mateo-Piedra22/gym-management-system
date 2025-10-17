@@ -31,7 +31,6 @@
     "subdomain": "gym-ms-zrk",
     "enabled": false
   },
-  "local_proxy_base_url": "http://127.0.0.1:8082",
-  "server_base_url": "https://gym-ms-zrk.up.railway.app",
+  
   "client_base_url": ""
 }

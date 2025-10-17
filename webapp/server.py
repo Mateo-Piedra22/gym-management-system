@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import csv
 import json
@@ -22,7 +22,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 import time
-# HTTP client para probes (con fallback si no está disponible)
+# HTTP client para probes (con fallback si no estÃ¡ disponible)
 try:
     import requests  # type: ignore
 except Exception:
@@ -34,7 +34,7 @@ try:
 except Exception:
     DatabaseManager = None  # type: ignore
 
-# Importar utilidades del proyecto principal para branding y contraseña de desarrollador
+# Importar utilidades del proyecto principal para branding y contraseÃ±a de desarrollador
 try:
     from utils import get_gym_name  # type: ignore
 except Exception:
@@ -54,7 +54,7 @@ try:
 except Exception:
     DEV_PASSWORD = None  # type: ignore
 
-# Base URL pública (Railway) sin túneles
+# Base URL pÃºblica (Railway) sin tÃºneles
 try:
     from utils import get_webapp_base_url  # type: ignore
 except Exception:
@@ -62,7 +62,7 @@ except Exception:
         import os as _os
         return _os.getenv("WEBAPP_BASE_URL", default).strip()
 
-# Utilidad para cerrar túneles públicos de forma segura
+# Utilidad para cerrar tÃºneles pÃºblicos de forma segura
 try:
     from utils import terminate_tunnel_processes  # type: ignore
 except Exception:
@@ -81,17 +81,17 @@ except Exception:
 from .qss_to_css import generate_css_from_qss, read_theme_vars
 
 _db: Optional[DatabaseManager] = None
-# Bloqueo para inicialización segura de la instancia global de DB y evitar condiciones de carrera
+# Bloqueo para inicializaciÃ³n segura de la instancia global de DB y evitar condiciones de carrera
 _db_lock = threading.RLock()
 _db_initializing = False
 
 # Ajuste de stdout/stderr para ejecutables sin consola en Windows (runw.exe)
-# Evita fallos de configuración de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
+# Evita fallos de configuraciÃ³n de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
 try:
     if os.name == "nt":
         import os as _os
         import io as _io
-        # Asegurar stdout/stderr válidos aunque estén cerrados en ejecutables sin consola
+        # Asegurar stdout/stderr vÃ¡lidos aunque estÃ©n cerrados en ejecutables sin consola
         _sout = getattr(sys, "stdout", None)
         try:
             if _sout is None or getattr(_sout, "closed", False):
@@ -108,7 +108,7 @@ try:
                 sys.stderr = _io.TextIOWrapper(_serr.buffer, encoding="utf-8", errors="replace")
         except Exception:
             pass
-        # Forzar política de event loop compatible en Windows a nivel global
+        # Forzar polÃ­tica de event loop compatible en Windows a nivel global
         try:
             import asyncio as _asyncio
             _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
@@ -117,8 +117,8 @@ try:
 except Exception:
     pass
 
-# Fallback defensivo: rebind local de print a versión segura que no falle
-# si stdout/stderr está cerrado en ejecutables sin consola.
+# Fallback defensivo: rebind local de print a versiÃ³n segura que no falle
+# si stdout/stderr estÃ¡ cerrado en ejecutables sin consola.
 try:
     import builtins as _builtins
     def _safe_print(*args, **kwargs):
@@ -127,10 +127,10 @@ try:
         except Exception:
             try:
                 import logging as _logging
-                # Registrar el mensaje concatenado para no perder diagnóstico
+                # Registrar el mensaje concatenado para no perder diagnÃ³stico
                 _logging.info(" ".join(str(a) for a in args))
             except Exception:
-                # No romper si logging aún no está configurado
+                # No romper si logging aÃºn no estÃ¡ configurado
                 pass
     print = _safe_print  # type: ignore
 except Exception:
@@ -140,7 +140,7 @@ def _compute_base_dir() -> Path:
     """Determina la carpeta base desde la cual resolver recursos.
     - En ejecutable PyInstaller (onedir): junto al exe.
     - En modo onefile: carpeta temporal _MEIPASS.
-    - En desarrollo: raíz del proyecto.
+    - En desarrollo: raÃ­z del proyecto.
     """
     try:
         if getattr(sys, "frozen", False):
@@ -153,14 +153,14 @@ def _compute_base_dir() -> Path:
         pass
     # Desarrollo: carpeta del proyecto
     try:
-        # server.py está en webapp/, subimos un nivel
+        # server.py estÃ¡ en webapp/, subimos un nivel
         return Path(__file__).resolve().parent.parent
     except Exception:
         return Path('.')
 
 def _resolve_existing_dir(*parts: str) -> Path:
     """Devuelve el primer directorio existente entre varias ubicaciones candidatas.
-    Prioriza BASE_DIR, luego el directorio del ejecutable (onedir) y por último el proyecto.
+    Prioriza BASE_DIR, luego el directorio del ejecutable (onedir) y por Ãºltimo el proyecto.
     """
     candidates = []
     try:
@@ -183,14 +183,14 @@ def _resolve_existing_dir(*parts: str) -> Path:
                 return c
         except Exception:
             continue
-    # Fallback: primera opción aunque no exista
+    # Fallback: primera opciÃ³n aunque no exista
     return candidates[0] if candidates else Path(*parts)
 
-# Inicialización de la app web
+# InicializaciÃ³n de la app web
 app = FastAPI(
     title="GymMS WebApp",
     version="2.0",
-    # Permite servir detrás de reverse proxy con subpath
+    # Permite servir detrÃ¡s de reverse proxy con subpath
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("WEBAPP_SECRET_KEY", secrets.token_urlsafe(32)))
@@ -243,18 +243,18 @@ try:
 except Exception:
     pass
 
-# Middlewares de producción (opcionales via ENV, cambios mínimos)
+# Middlewares de producciÃ³n (opcionales via ENV, cambios mÃ­nimos)
 try:
-    # Restringir hosts confiables. Si no hay ENV, añadir dominio Railway por defecto
+    # Restringir hosts confiables. Si no hay ENV, aÃ±adir dominio Railway por defecto
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     hosts = [h.strip() for h in th.split(",") if h.strip()] if th else []
     if not hosts:
         hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1"]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
-    # Forzar HTTPS en producción si se indica
+    # Forzar HTTPS en producciÃ³n si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
         app.add_middleware(HTTPSRedirectMiddleware)
-    # Nota: Gestión de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
+    # Nota: GestiÃ³n de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
     if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
         logging.info("Cabeceras de proxy gestionadas por Uvicorn (proxy_headers=True)")
 except Exception:
@@ -271,7 +271,7 @@ try:
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 except Exception:
     pass
-# Preferir assets del proyecto raíz; fallback a assets dentro de webapp
+# Preferir assets del proyecto raÃ­z; fallback a assets dentro de webapp
 try:
     app.mount("/assets", StaticFiles(directory=str(_resolve_existing_dir("assets"))), name="assets")
 except Exception:
@@ -280,108 +280,19 @@ except Exception:
     except Exception:
         pass
 
-# --- Utilidad: asegurar esquema mínimo para sincronización ---
-def _ensure_sync_schema() -> Dict[str, Any]:
-    """Crea columnas y tablas necesarias para el sistema de sincronización si faltan.
-
-    Idempotente y segura para ejecutarse múltiples veces.
-    """
-    db = _get_db()
-    if db is None:
-        return {"success": False, "message": "DB no disponible"}
-    created: Dict[str, Any] = {"tables": [], "columns": []}
-    try:
-        with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor()
-            # Tablas auxiliares de sync
-            try:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS sync_applied_ops (
-                        op_id TEXT,
-                        device_id TEXT,
-                        applied_at TIMESTAMPTZ DEFAULT NOW(),
-                        PRIMARY KEY (op_id, device_id)
-                    )
-                    """
-                )
-                created["tables"].append("sync_applied_ops")
-            except Exception:
-                pass
-            try:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS sync_deletes (
-                        entity TEXT,
-                        key JSONB,
-                        updated_at TIMESTAMPTZ DEFAULT NOW(),
-                        device_id TEXT
-                    )
-                    """
-                )
-                created["tables"].append("sync_deletes")
-            except Exception:
-                pass
-
-            # Columnas requeridas en entidades principales
-            tables = [
-                "usuarios",
-                "pagos",
-                "asistencias",
-                "usuario_notas",
-                "rutinas",
-                "ejercicios",
-                "etiquetas",
-                "usuario_etiquetas",
-            ]
-            for t in tables:
-                try:
-                    cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                    created["columns"].append(f"{t}.updated_at")
-                except Exception:
-                    pass
-                try:
-                    cur.execute(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                    created["columns"].append(f"{t}.updated_by_device")
-                except Exception:
-                    pass
-            # Defaults seguros adicionales para WhatsApp en esquema base
-            try:
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN status SET DEFAULT 'sent'")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN message_content SET DEFAULT ''")
-                cur.execute("UPDATE whatsapp_messages SET status = 'sent' WHERE status IS NULL")
-                cur.execute("UPDATE whatsapp_messages SET message_content = '' WHERE message_content IS NULL")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN header_text SET DEFAULT ''")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN variables SET DEFAULT '{}'::jsonb")
-                cur.execute("UPDATE whatsapp_templates SET header_text = '' WHERE header_text IS NULL")
-                cur.execute("UPDATE whatsapp_templates SET variables = '{}'::jsonb WHERE variables IS NULL")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN access_token SET DEFAULT ''")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN phone_id SET DEFAULT ''")
-                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN waba_id SET DEFAULT ''")
-                cur.execute("UPDATE whatsapp_config SET access_token = '' WHERE access_token IS NULL")
-                cur.execute("UPDATE whatsapp_config SET phone_id = '' WHERE phone_id IS NULL")
-                cur.execute("UPDATE whatsapp_config SET waba_id = '' WHERE waba_id IS NULL")
-            except Exception:
-                pass
-            conn.commit()
-        return {"success": True, "created": created}
-    except Exception as e:
-        try:
-            logging.exception("Error asegurando esquema de sync")
-        except Exception:
-            pass
-        return {"success": False, "message": str(e), "created": created}
+# --- Utilidad legacy de sincronizaciÃ³n eliminada ---
+# Nota: La replicaciÃ³n lÃ³gica de PostgreSQL reemplaza el sistema de sync vÃ­a HTTP.
 
 # Endpoint de salud ligero para probes y monitores
 @app.get("/healthz")
 async def healthz():
-    """Devuelve estado 200 si la app responde. Incluye mínimos detalles."""
+    """Devuelve estado 200 si la app responde. Incluye mÃ­nimos detalles."""
     try:
         details: Dict[str, Any] = {
             "status": "ok",
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
-        # Comprobación opcional de DB (no bloqueante)
+        # ComprobaciÃ³n opcional de DB (no bloqueante)
         try:
             db = _get_db()
             if db is not None:
@@ -393,7 +304,7 @@ async def healthz():
         # Fallback defensivo: responder 200 para evitar cascadas de reinicios
         return JSONResponse({"status": "ok"})
 
-# Endpoint para exponer la URL base pública (Railway)
+# Endpoint para exponer la URL base pÃºblica (Railway)
 @app.get("/webapp/base_url")
 async def webapp_base_url():
     try:
@@ -402,2875 +313,40 @@ async def webapp_base_url():
     except Exception:
         return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
-# Endpoints de sincronización para integración con proxy local
-""" Legacy sync removed: api_sync_upload disabled. Use PostgreSQL logical replication. """
-# @app.post("/api/sync/upload")  # disabled: legacy sync removed
+# Endpoints de sincronizaciÃ³n para integraciÃ³n con proxy local
 async def api_sync_upload(request: Request):
-    """Recibe operaciones de sincronización en lote desde clientes y las aplica.
-
-    Formato esperado:
-      { "operations": [ { "type": "user.add|user.update|user.delete", "payload": { ... }, "op_id": "uuid", "source": {"device_id": "..."} }, ... ] }
-
-    Responde 202 si el payload es válido y 200 si además informa conteos de aplicadas/omitidas.
-    """
-    return JSONResponse(
-        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
-        status_code=410,
-    )
-    ''' Legacy sync body disabled; see PostgreSQL logical replication setup.
-    try:
-        # Autenticación opcional por token
-        try:
-            expected = os.getenv("SYNC_API_TOKEN", "").strip()
-            if expected:
-                auth = request.headers.get("Authorization") or ""
-                if not isinstance(auth, str) or not auth.strip().startswith("Bearer ") or auth.strip()[7:] != expected:
-                    return JSONResponse({"success": False, "message": "No autorizado"}, status_code=401)
-        except Exception:
-            pass
-        try:
-            payload = await request.json()
-        except Exception:
-            payload = {}
-        if not isinstance(payload, dict):
-            return JSONResponse({"success": False, "message": "JSON inválido"}, status_code=400)
-        ops = payload.get("operations")
-        if not isinstance(ops, list) or not ops:
-            return JSONResponse({"success": False, "message": "operations vacío"}, status_code=400)
-
-        # Trazabilidad mínima en logs con tamaño acotado
-        try:
-            rid = getattr(getattr(request, 'state', object()), 'request_id', str(uuid.uuid4()))
-            logging.info(f"sync upload rid={rid} count={len(ops)} from={request.client.host if request.client else '-'}")
-        except Exception:
-            pass
-
-        db = _get_db()
-        if db is None:
-            return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
-
-        # Circuit breaker: si está abierto, responder 503 temprano
-        try:
-            guard = _circuit_guard_json(db, endpoint="/api/sync/upload")  # type: ignore
-            if guard is not None:
-                return guard
-        except Exception:
-            pass
-
-        # Asegurar esquema de sincronización de forma defensiva (idempotente)
-        try:
-            _ensure_sync_schema()
-        except Exception:
-            pass
-
-        applied = 0
-        skipped = 0
-        failed = 0
-        errors: Dict[str, str] = {}
-
-        try:
-            _conn_attempts = 0
-            while True:
-                try:
-                    # Ejecutar migraciones en una sesión dedicada en autocommit
-                    with db.autocommit_session() as conn:  # type: ignore
-                        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:  # type: ignore
-                            # Tablas auxiliares para idempotencia y propagación de deletes
-                            try:
-                                cur.execute(
-                                    """
-                                    CREATE TABLE IF NOT EXISTS sync_applied_ops (
-                                        op_id TEXT,
-                                        device_id TEXT,
-                                        applied_at TIMESTAMPTZ DEFAULT NOW(),
-                                        PRIMARY KEY (op_id, device_id)
-                                    )
-                                    """
-                                )
-                                cur.execute(
-                                    """
-                                    CREATE TABLE IF NOT EXISTS sync_deletes (
-                                        id BIGSERIAL PRIMARY KEY,
-                                        entity TEXT NOT NULL,
-                                        key JSONB NOT NULL,
-                                        updated_at TIMESTAMPTZ DEFAULT NOW()
-                                    )
-                                    """
-                                )
-                                # Permitir registrar device_id en deletes para evitar eco
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS sync_deletes ADD COLUMN IF NOT EXISTS device_id TEXT")
-                                except Exception:
-                                    pass
-                                # Asegurar columnas de tracking para sync en tablas clave
-                                cur.execute("ALTER TABLE IF EXISTS pagos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS pagos ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS asistencias ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS asistencias ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clase_asistencia_historial ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clase_asistencia_historial ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Extensiones de sincronización nuevas
-                                cur.execute("ALTER TABLE IF EXISTS horarios_profesores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS horarios_profesores ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_suplencias ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_suplencias ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Clases y derivados
-                                cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Clases y derivados
-                                cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Rutinas y ejercicios
-                                cur.execute("ALTER TABLE IF EXISTS rutinas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS rutinas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS rutinas_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS rutinas_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Tablas adicionales operativas no cubiertas
-                                cur.execute("ALTER TABLE IF EXISTS rutina_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS rutina_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS clase_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS clase_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicio_grupos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicio_grupos ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicio_grupo_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS ejercicio_grupo_items ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesores ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesores_horarios_disponibilidad ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesores_horarios_disponibilidad ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_evaluaciones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_evaluaciones ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_disponibilidad ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_disponibilidad ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_suplencias_generales ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_suplencias_generales ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS tipos_cuota ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS tipos_cuota ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS numeracion_comprobantes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS numeracion_comprobantes ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS comprobantes_pago ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS comprobantes_pago ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS pago_detalles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS pago_detalles ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS historial_estados ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS historial_estados ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Configuración de comprobantes
-                                cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # WhatsApp: tracking y defaults/sanitización
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Defaults seguros para WhatsApp
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN status SET DEFAULT 'sent'")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN message_content SET DEFAULT ''")
-                                cur.execute("UPDATE whatsapp_messages SET status = 'sent' WHERE status IS NULL")
-                                cur.execute("UPDATE whatsapp_messages SET message_content = '' WHERE message_content IS NULL")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN header_text SET DEFAULT ''")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN variables SET DEFAULT '{}'::jsonb")
-                                cur.execute("UPDATE whatsapp_templates SET header_text = '' WHERE header_text IS NULL")
-                                cur.execute("UPDATE whatsapp_templates SET variables = '{}'::jsonb WHERE variables IS NULL")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN access_token SET DEFAULT ''")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN phone_id SET DEFAULT ''")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN waba_id SET DEFAULT ''")
-                                cur.execute("UPDATE whatsapp_config SET access_token = '' WHERE access_token IS NULL")
-                                cur.execute("UPDATE whatsapp_config SET phone_id = '' WHERE phone_id IS NULL")
-                                cur.execute("UPDATE whatsapp_config SET waba_id = '' WHERE waba_id IS NULL")
-                                cur.execute("ALTER TABLE IF EXISTS especialidades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS especialidades ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_especialidades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_especialidades ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_certificaciones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_certificaciones ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_horas_trabajadas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS profesor_horas_trabajadas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS schedule_conflicts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS schedule_conflicts ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-
-                                # WhatsApp operational tables tracking
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Disponibilidad de profesores del widget
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS professor_availability ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                    cur.execute("ALTER TABLE IF EXISTS professor_availability ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                    cur.execute("ALTER TABLE IF EXISTS professor_availability ALTER COLUMN status SET DEFAULT 'disponible'")
-                                    cur.execute("ALTER TABLE IF EXISTS professor_availability ALTER COLUMN notes SET DEFAULT ''")
-                                    cur.execute("UPDATE professor_availability SET status = 'disponible' WHERE status IS NULL")
-                                    cur.execute("UPDATE professor_availability SET notes = '' WHERE notes IS NULL")
-                                except Exception:
-                                    pass
-                                # Etiquetas, usuario_etiquetas y usuario_notas
-                                cur.execute("ALTER TABLE IF EXISTS etiquetas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS etiquetas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS usuario_etiquetas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS usuario_etiquetas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                cur.execute("ALTER TABLE IF EXISTS usuario_notas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                                cur.execute("ALTER TABLE IF EXISTS usuario_notas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                                # Defaults y saneamiento de datos existentes para usuario_notas
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN categoria SET DEFAULT 'general'")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN importancia SET DEFAULT 'normal'")
-                                except Exception:
-                                    pass
-                                # Asegurar defaults también para cadenas requeridas
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN titulo SET DEFAULT ''")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN contenido SET DEFAULT ''")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("UPDATE usuario_notas SET categoria = 'general' WHERE categoria IS NULL")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("UPDATE usuario_notas SET importancia = 'normal' WHERE importancia IS NULL")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("UPDATE usuario_notas SET titulo = '' WHERE titulo IS NULL")
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute("UPDATE usuario_notas SET contenido = '' WHERE contenido IS NULL")
-                                except Exception:
-                                    pass
-                                cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN categoria SET DEFAULT 'general'")
-                                cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN importancia SET DEFAULT 'normal'")
-                            except Exception:
-                                # No bloquear si fallan migraciones ligeras
-                                pass
+    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
 
 
-                    # Migraciones ligeras adicionales: saneo de booleanos y defaults transversales
-                    try:
-                        stmts = [
-                            # Usuarios: defaults seguros
-                            "ALTER TABLE IF EXISTS usuarios ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE usuarios SET activo = TRUE WHERE activo IS NULL AND rol IS DISTINCT FROM 'dueño'",
-                            "ALTER TABLE IF EXISTS usuarios ALTER COLUMN telefono SET DEFAULT ''",
-                            "UPDATE usuarios SET telefono = '' WHERE telefono IS NULL AND rol IS DISTINCT FROM 'dueño'",
-                            "ALTER TABLE IF EXISTS usuarios ALTER COLUMN rol SET DEFAULT 'socio'",
-                            "UPDATE usuarios SET rol = 'socio' WHERE rol IS NULL",
-                            # Clases y horarios
-                            "ALTER TABLE IF EXISTS clases ALTER COLUMN activa SET DEFAULT TRUE",
-                            "UPDATE clases SET activa = TRUE WHERE activa IS NULL",
-                            "ALTER TABLE IF EXISTS clases_horarios ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE clases_horarios SET activo = TRUE WHERE activo IS NULL",
-                            # Rutinas
-                            "ALTER TABLE IF EXISTS rutinas ALTER COLUMN activa SET DEFAULT TRUE",
-                            "UPDATE rutinas SET activa = TRUE WHERE activa IS NULL",
-                            # Etiquetas
-                            "ALTER TABLE IF EXISTS etiquetas ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE etiquetas SET activo = TRUE WHERE activo IS NULL",
-                            # Métodos y conceptos de pago
-                            "ALTER TABLE IF EXISTS metodos_pago ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE metodos_pago SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS conceptos_pago ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE conceptos_pago SET activo = TRUE WHERE activo IS NULL",
-                            # Estados de usuario y relaciones
-                            "ALTER TABLE IF EXISTS usuario_estados ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE usuario_estados SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS clase_lista_espera ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE clase_lista_espera SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS profesor_clase_asignaciones ALTER COLUMN activa SET DEFAULT TRUE",
-                            "UPDATE profesor_clase_asignaciones SET activa = TRUE WHERE activa IS NULL",
-                            # Temas y programación
-                            "ALTER TABLE IF EXISTS custom_themes ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE custom_themes SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS theme_schedules ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE theme_schedules SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS theme_schedules ALTER COLUMN is_active SET DEFAULT TRUE",
-                            "UPDATE theme_schedules SET is_active = TRUE WHERE is_active IS NULL",
-                            # Notificaciones de cupos
-                            "ALTER TABLE IF EXISTS notificaciones_cupos ALTER COLUMN activo SET DEFAULT TRUE",
-                            "UPDATE notificaciones_cupos SET activo = TRUE WHERE activo IS NULL",
-                            "ALTER TABLE IF EXISTS notificaciones_cupos ALTER COLUMN leida SET DEFAULT FALSE",
-                            "UPDATE notificaciones_cupos SET leida = FALSE WHERE leida IS NULL",
-                            # Asistencias: defaults seguros de fecha/hora
-                            "ALTER TABLE IF EXISTS asistencias ALTER COLUMN fecha SET DEFAULT NOW()",
-                            "UPDATE asistencias SET fecha = NOW() WHERE fecha IS NULL",
-                            # hora_registro puede ser TIME; usar TRY/CATCH externo por si el tipo difiere
-                            "ALTER TABLE IF EXISTS asistencias ALTER COLUMN hora_registro SET DEFAULT CAST(NOW() AS time)",
-                            "UPDATE asistencias SET hora_registro = CAST(NOW() AS time) WHERE hora_registro IS NULL",
-                        ]
-                        for _stmt in stmts:
-                            try:
-                                cur.execute(_stmt)
-                            except Exception:
-                                pass
-                        # Verificación ligera: log de NULLs restantes en columnas saneadas
-                        try:
-                            checks = [
-                                ("usuarios", "telefono"),
-                                ("usuarios", "rol"),
-                                ("usuarios", "activo"),
-                                ("etiquetas", "activo"),
-                                ("clases", "activa"),
-                                ("clases_horarios", "activo"),
-                                ("rutinas", "activa"),
-                                ("asistencias", "fecha"),
-                                ("asistencias", "hora_registro"),
-                                ("usuario_notas", "titulo"),
-                                ("usuario_notas", "contenido"),
-                            ]
-                            null_report = []
-                            for tbl, col in checks:
-                                try:
-                                    cur.execute(f"SELECT COUNT(*) AS c FROM {tbl} WHERE {col} IS NULL")
-                                    r = cur.fetchone() or {}
-                                    c = r.get("c") if isinstance(r, dict) else (r[0] if r else 0)
-                                    if c:
-                                        null_report.append(f"{tbl}.{col}={c}")
-                                except Exception:
-                                    pass
-                            if null_report:
-                                print("[migraciones-lite] Columnas aún con NULL:", ", ".join(null_report))
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
 
-                    # Abrir una conexión normal para procesar operaciones
-                    with db.get_connection_context() as conn:  # type: ignore
-                        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:  # type: ignore
-                            sp_idx = 0
-                            for raw in ops:
-                                try:
-                                    op = raw or {}
-                                    name = op.get("type") or op.get("name") or ""
-                                    payload = op.get("payload") or op.get("data") or {}
-                                    op_id = op.get("op_id") or op.get("id")
-                                    source = op.get("source") or {}
-                                    device_id = None
-                                    try:
-                                        if isinstance(source, dict):
-                                            device_id = source.get("device_id")
-                                    except Exception:
-                                        device_id = None
-
-                                    # Idempotencia: si hay op_id, registrar y evitar duplicados
-                                    already_applied = False
-                                    if op_id:
-                                        try:
-                                            cur.execute(
-                                                "INSERT INTO sync_applied_ops(op_id, device_id) VALUES (%s, %s) ON CONFLICT DO NOTHING RETURNING op_id",
-                                                (str(op_id), str(device_id) if device_id is not None else None),
-                                            )
-                                            inserted = cur.fetchone()
-                                            if inserted is None:
-                                                skipped += 1
-                                                already_applied = True
-                                        except Exception:
-                                            # Si falla la tabla, seguimos sin idempotencia persistente
-                                            pass
-                                    if already_applied:
-                                        continue
-
-                                except Exception:
-                                    # Error al preparar la operación; continuar con siguiente sin abortar el lote
-                                    pass
-
-                            # Aislar cada operación para evitar que un error invalide las siguientes
-                            sp_idx += 1
-                            sp_name = None
-                            try:
-                                sp_name = f"sp_{sp_idx}"
-                                cur.execute(f"SAVEPOINT {sp_name}")
-                            except Exception:
-                                sp_name = None
-
-                                if name in ("user.create", "user.add"):
-                                    nombre = payload.get("name") or payload.get("nombre")
-                                    telefono = (payload.get("phone") or payload.get("telefono") or "")
-                                    tipo = (payload.get("membership_type") or payload.get("tipo_cuota") or "estandar")
-                                    dni = payload.get("dni")
-                                    activo = payload.get("active")
-                                    rol = payload.get("role") or payload.get("rol") or 'socio'
-                                # Valores por defecto sensatos
-                                if not nombre:
-                                    raise ValueError("user.add requiere 'name'")
-                                if dni:
-                                    # UPSERT por DNI para evitar duplicados y reconciliar IDs
-                                    cur.execute(
-                                        """
-                                        INSERT INTO usuarios (dni, nombre, telefono, tipo_cuota, activo, rol, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, COALESCE(%s, TRUE), %s, NOW(), %s)
-                                        ON CONFLICT (dni) DO UPDATE SET
-                                            nombre = COALESCE(EXCLUDED.nombre, usuarios.nombre),
-                                            telefono = COALESCE(EXCLUDED.telefono, usuarios.telefono),
-                                            tipo_cuota = COALESCE(EXCLUDED.tipo_cuota, usuarios.tipo_cuota),
-                                            activo = COALESCE(EXCLUDED.activo, usuarios.activo),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        RETURNING id
-                                        """,
-                                        (dni, nombre, telefono, tipo, True if activo is None else bool(activo), rol, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                else:
-                                    # Fallback sin DNI: inserción simple por id autoincremental
-                                    cur.execute(
-                                        """
-                                        INSERT INTO usuarios (nombre, telefono, tipo_cuota, activo, rol, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, TRUE, %s, NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (nombre, telefono, tipo, rol, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                                # Liberar savepoint tras éxito de la operación
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            elif name == "user.update":
-                                uid = payload.get("user_id") or payload.get("id")
-                                dni = payload.get("dni")
-                                nombre = payload.get("name") or payload.get("nombre")
-                                telefono = payload.get("phone") or payload.get("telefono")
-                                tipo = payload.get("membership_type") or payload.get("tipo_cuota")
-                                active = payload.get("active")
-                                if dni:
-                                    cur.execute(
-                                        """
-                                        UPDATE usuarios
-                                        SET nombre = COALESCE(%s, nombre),
-                                            telefono = COALESCE(%s, telefono),
-                                            tipo_cuota = COALESCE(%s, tipo_cuota),
-                                            activo = COALESCE(%s, activo),
-                                            updated_at = NOW(),
-                                            updated_by_device = %s
-                                        WHERE dni = %s
-                                        """,
-                                        (nombre, telefono, tipo, None if active is None else bool(active), device_id, dni),
-                                    )
-                                elif uid:
-                                    cur.execute(
-                                        """
-                                        UPDATE usuarios
-                                        SET nombre = COALESCE(%s, nombre),
-                                            telefono = COALESCE(%s, telefono),
-                                            tipo_cuota = COALESCE(%s, tipo_cuota),
-                                            updated_at = NOW(),
-                                            updated_by_device = %s
-                                        WHERE id = %s
-                                        """,
-                                        (nombre, telefono, tipo, device_id, uid),
-                                    )
-                                else:
-                                    raise ValueError("user.update requiere 'dni' o 'id'")
-                                applied += 1
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            elif name == "user.delete":
-                                uid = payload.get("user_id") or payload.get("id")
-                                dni = payload.get("dni")
-                                if dni:
-                                    cur.execute(
-                                        "UPDATE usuarios SET activo = FALSE, updated_at = NOW(), updated_by_device = %s WHERE dni = %s",
-                                        (device_id, dni),
-                                    )
-                                elif uid:
-                                    cur.execute(
-                                        "UPDATE usuarios SET activo = FALSE, updated_at = NOW(), updated_by_device = %s WHERE id = %s",
-                                        (device_id, uid),
-                                    )
-                                else:
-                                    raise ValueError("user.delete requiere 'dni' o 'id'")
-                                applied += 1
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            # Rutinas
-                            elif name in ("routine.add", "routine.create"):
-                                row_id = payload.get("id")
-                                usuario_id = payload.get("usuario_id")
-                                nombre_rutina = payload.get("nombre_rutina") or payload.get("nombre")
-                                descripcion = payload.get("descripcion")
-                                dias_semana = payload.get("dias_semana")
-                                categoria = payload.get("categoria")
-                                activa = payload.get("activa")
-                                if not nombre_rutina:
-                                    raise ValueError("routine.add requiere 'nombre_rutina'")
-                                if row_id:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO rutinas (id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, TRUE), NOW(), %s)
-                                        ON CONFLICT (id) DO UPDATE SET
-                                            usuario_id = COALESCE(EXCLUDED.usuario_id, rutinas.usuario_id),
-                                            nombre_rutina = COALESCE(EXCLUDED.nombre_rutina, rutinas.nombre_rutina),
-                                            descripcion = COALESCE(EXCLUDED.descripcion, rutinas.descripcion),
-                                            dias_semana = COALESCE(EXCLUDED.dias_semana, rutinas.dias_semana),
-                                            categoria = COALESCE(EXCLUDED.categoria, rutinas.categoria),
-                                            activa = COALESCE(EXCLUDED.activa, rutinas.activa),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (row_id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa, device_id),
-                                    )
-                                else:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO rutinas (usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, COALESCE(%s, TRUE), NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            elif name == "routine.update":
-                                row_id = payload.get("id") or payload.get("rutina_id")
-                                if not row_id:
-                                    raise ValueError("routine.update requiere 'id'")
-                                usuario_id = payload.get("usuario_id")
-                                nombre_rutina = payload.get("nombre_rutina") or payload.get("nombre")
-                                descripcion = payload.get("descripcion")
-                                dias_semana = payload.get("dias_semana")
-                                categoria = payload.get("categoria")
-                                activa = payload.get("activa")
-                                cur.execute(
-                                    """
-                                    UPDATE rutinas
-                                    SET usuario_id = COALESCE(%s, usuario_id),
-                                        nombre_rutina = COALESCE(%s, nombre_rutina),
-                                        descripcion = COALESCE(%s, descripcion),
-                                        dias_semana = COALESCE(%s, dias_semana),
-                                        categoria = COALESCE(%s, categoria),
-                                        activa = COALESCE(%s, activa),
-                                        updated_at = NOW(),
-                                        updated_by_device = %s
-                                    WHERE id = %s
-                                    """,
-                                    (usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa, device_id, row_id),
-                                )
-                                applied += 1
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            elif name == "routine.delete":
-                                row_id = payload.get("id") or payload.get("rutina_id")
-                                if not row_id:
-                                    raise ValueError("routine.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM rutinas WHERE id = %s", (row_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("routine", json.dumps({"id": row_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                            # Rutinas - ejercicios
-                            elif name in ("routine_exercise.add", "routine_exercise.create"):
-                                row_id = payload.get("id")
-                                rutina_id = payload.get("rutina_id")
-                                ejercicio_id = payload.get("ejercicio_id")
-                                dia_semana = payload.get("dia_semana")
-                                series = payload.get("series")
-                                repeticiones = payload.get("repeticiones")
-                                orden = payload.get("orden")
-                                if row_id:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO rutinas_ejercicios (id, rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
-                                        ON CONFLICT (id) DO UPDATE SET
-                                            rutina_id = COALESCE(EXCLUDED.rutina_id, rutinas_ejercicios.rutina_id),
-                                            ejercicio_id = COALESCE(EXCLUDED.ejercicio_id, rutinas_ejercicios.ejercicio_id),
-                                            dia_semana = COALESCE(EXCLUDED.dia_semana, rutinas_ejercicios.dia_semana),
-                                            series = COALESCE(EXCLUDED.series, rutinas_ejercicios.series),
-                                            repeticiones = COALESCE(EXCLUDED.repeticiones, rutinas_ejercicios.repeticiones),
-                                            orden = COALESCE(EXCLUDED.orden, rutinas_ejercicios.orden),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (row_id, rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden, device_id),
-                                    )
-                                else:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO rutinas_ejercicios (rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                            elif name == "routine_exercise.update":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("routine_exercise.update requiere 'id'")
-                                rutina_id = payload.get("rutina_id")
-                                ejercicio_id = payload.get("ejercicio_id")
-                                dia_semana = payload.get("dia_semana")
-                                series = payload.get("series")
-                                repeticiones = payload.get("repeticiones")
-                                orden = payload.get("orden")
-                                cur.execute(
-                                    """
-                                    UPDATE rutinas_ejercicios
-                                    SET rutina_id = COALESCE(%s, rutina_id),
-                                        ejercicio_id = COALESCE(%s, ejercicio_id),
-                                        dia_semana = COALESCE(%s, dia_semana),
-                                        series = COALESCE(%s, series),
-                                        repeticiones = COALESCE(%s, repeticiones),
-                                        orden = COALESCE(%s, orden),
-                                        updated_at = NOW(),
-                                        updated_by_device = %s
-                                    WHERE id = %s
-                                    """,
-                                    (rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden, device_id, row_id),
-                                )
-                                applied += 1
-                            elif name == "routine_exercise.delete":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("routine_exercise.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM rutinas_ejercicios WHERE id = %s", (row_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("routine_exercise", json.dumps({"id": row_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            # Catálogo de ejercicios (opcional)
-                            elif name in ("exercise.add", "exercise.create"):
-                                row_id = payload.get("id")
-                                nombre = payload.get("nombre") or payload.get("name")
-                                grupo = payload.get("grupo_muscular") or payload.get("grupo")
-                                descripcion = payload.get("descripcion")
-                                if not nombre:
-                                    raise ValueError("exercise.add requiere 'nombre'")
-                                if row_id:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO ejercicios (id, nombre, grupo_muscular, descripcion, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, NOW(), %s)
-                                        ON CONFLICT (id) DO UPDATE SET
-                                            nombre = COALESCE(EXCLUDED.nombre, ejercicios.nombre),
-                                            grupo_muscular = COALESCE(EXCLUDED.grupo_muscular, ejercicios.grupo_muscular),
-                                            descripcion = COALESCE(EXCLUDED.descripcion, ejercicios.descripcion),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (row_id, nombre, grupo, descripcion, device_id),
-                                    )
-                                else:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO ejercicios (nombre, grupo_muscular, descripcion, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (nombre, grupo, descripcion, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                            elif name == "exercise.update":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("exercise.update requiere 'id'")
-                                nombre = payload.get("nombre") or payload.get("name")
-                                grupo = payload.get("grupo_muscular") or payload.get("grupo")
-                                descripcion = payload.get("descripcion")
-                                cur.execute(
-                                    """
-                                    UPDATE ejercicios
-                                    SET nombre = COALESCE(%s, nombre),
-                                        grupo_muscular = COALESCE(%s, grupo_muscular),
-                                        descripcion = COALESCE(%s, descripcion),
-                                        updated_at = NOW(),
-                                        updated_by_device = %s
-                                    WHERE id = %s
-                                    """,
-                                    (nombre, grupo, descripcion, device_id, row_id),
-                                )
-                                applied += 1
-                            elif name == "exercise.delete":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("exercise.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM ejercicios WHERE id = %s", (row_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("exercise", json.dumps({"id": row_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            # Etiquetas (tags)
-                            elif name in ("tag.add", "tag.create"):
-                                tag_id = payload.get("id")
-                                nombre = payload.get("nombre") or payload.get("name")
-                                color = payload.get("color") or payload.get("color_hex")
-                                descripcion = payload.get("descripcion") or payload.get("description")
-                                activo = payload.get("activo")
-                                if not nombre and not tag_id:
-                                    raise ValueError("tag.add requiere 'nombre' o 'id'")
-                                if tag_id:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO etiquetas (id, nombre, color, descripcion, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, NOW(), %s)
-                                        ON CONFLICT (id) DO UPDATE SET
-                                            nombre = COALESCE(EXCLUDED.nombre, etiquetas.nombre),
-                                            color = COALESCE(EXCLUDED.color, etiquetas.color),
-                                            descripcion = COALESCE(EXCLUDED.descripcion, etiquetas.descripcion),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (tag_id, nombre, color, descripcion, device_id),
-                                    )
-                                    if activo is not None:
-                                        cur.execute("UPDATE etiquetas SET activo = %s, updated_at = NOW(), updated_by_device = %s WHERE id = %s", (bool(activo), device_id, tag_id))
-                                else:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO etiquetas (nombre, color, descripcion, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (nombre, color, descripcion, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                            elif name == "tag.update":
-                                tag_id = payload.get("id")
-                                nombre = payload.get("nombre") or payload.get("name")
-                                color = payload.get("color") or payload.get("color_hex")
-                                descripcion = payload.get("descripcion") or payload.get("description")
-                                activo = payload.get("activo")
-                                if not tag_id:
-                                    raise ValueError("tag.update requiere 'id'")
-                                cur.execute(
-                                    """
-                                    UPDATE etiquetas
-                                    SET nombre = COALESCE(%s, nombre),
-                                        color = COALESCE(%s, color),
-                                        descripcion = COALESCE(%s, descripcion),
-                                        activo = COALESCE(%s, activo),
-                                        updated_at = NOW(),
-                                        updated_by_device = %s
-                                    WHERE id = %s
-                                    """,
-                                    (nombre, color, descripcion, None if activo is None else bool(activo), device_id, tag_id),
-                                )
-                                applied += 1
-                            elif name == "tag.delete":
-                                tag_id = payload.get("id")
-                                nombre = payload.get("nombre") or payload.get("name")
-                                if not tag_id and not nombre:
-                                    raise ValueError("tag.delete requiere 'id' o 'nombre'")
-                                try:
-                                    if tag_id:
-                                        cur.execute("DELETE FROM etiquetas WHERE id = %s", (tag_id,))
-                                    else:
-                                        cur.execute("DELETE FROM etiquetas WHERE nombre = %s", (nombre,))
-                                except Exception:
-                                    pass
-                                try:
-                                    key = {"id": tag_id} if tag_id else {"nombre": nombre}
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("tag", json.dumps(key), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            # Relación usuario-etiqueta
-                            elif name in ("user_tag.add", "user_tag.create"):
-                                usuario_id = payload.get("usuario_id") or payload.get("user_id")
-                                dni = payload.get("dni")
-                                etiqueta_id = payload.get("etiqueta_id") or payload.get("tag_id")
-                                if not usuario_id and dni:
-                                    try:
-                                        cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                        r = cur.fetchone()
-                                        if r:
-                                            usuario_id = r.get("id") if isinstance(r, dict) else r[0]
-                                    except Exception:
-                                        pass
-                                if not usuario_id or not etiqueta_id:
-                                    raise ValueError("user_tag.add requiere 'usuario_id' o 'dni' y 'etiqueta_id'")
-                                try:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO usuario_etiquetas (usuario_id, etiqueta_id, updated_at, updated_by_device)
-                                        VALUES (%s, %s, NOW(), %s)
-                                        ON CONFLICT (usuario_id, etiqueta_id) DO UPDATE SET
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (usuario_id, etiqueta_id, device_id),
-                                    )
-                                except Exception:
-                                    # Fallback si no hay restricción única
-                                    cur.execute(
-                                        "UPDATE usuario_etiquetas SET updated_at = NOW(), updated_by_device = %s WHERE usuario_id = %s AND etiqueta_id = %s",
-                                        (device_id, usuario_id, etiqueta_id),
-                                    )
-                                applied += 1
-                            elif name == "user_tag.delete":
-                                usuario_id = payload.get("usuario_id") or payload.get("user_id")
-                                dni = payload.get("dni")
-                                etiqueta_id = payload.get("etiqueta_id") or payload.get("tag_id")
-                                if not usuario_id and dni:
-                                    try:
-                                        cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                        r = cur.fetchone()
-                                        if r:
-                                            usuario_id = r.get("id") if isinstance(r, dict) else r[0]
-                                    except Exception:
-                                        pass
-                                if not usuario_id or not etiqueta_id:
-                                    raise ValueError("user_tag.delete requiere 'usuario_id' o 'dni' y 'etiqueta_id'")
-                                try:
-                                    cur.execute("DELETE FROM usuario_etiquetas WHERE usuario_id = %s AND etiqueta_id = %s", (usuario_id, etiqueta_id))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("user_tag", json.dumps({"usuario_id": usuario_id, "etiqueta_id": etiqueta_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            # Notas de usuario
-                            elif name in ("note.add", "note.create"):
-                                note_id = payload.get("id")
-                                usuario_id = payload.get("usuario_id") or payload.get("user_id")
-                                dni = payload.get("dni")
-                                categoria = (payload.get("categoria") or payload.get("category") or "general")
-                                titulo = (payload.get("titulo") or payload.get("title") or "")
-                                contenido = (payload.get("contenido") or payload.get("content") or "")
-                                importancia = (payload.get("importancia") or payload.get("priority") or "normal")
-                                activa = payload.get("activa")
-                                if not usuario_id and dni:
-                                    try:
-                                        cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                        r = cur.fetchone()
-                                        if r:
-                                            usuario_id = r.get("id") if isinstance(r, dict) else r[0]
-                                    except Exception:
-                                        pass
-                                if not usuario_id:
-                                    raise ValueError("note.add requiere 'usuario_id' o 'dni'")
-                                if note_id:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO usuario_notas (id, usuario_id, categoria, titulo, contenido, importancia, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
-                                        ON CONFLICT (id) DO UPDATE SET
-                                            usuario_id = COALESCE(EXCLUDED.usuario_id, usuario_notas.usuario_id),
-                                            categoria = COALESCE(EXCLUDED.categoria, usuario_notas.categoria),
-                                            titulo = COALESCE(EXCLUDED.titulo, usuario_notas.titulo),
-                                            contenido = COALESCE(EXCLUDED.contenido, usuario_notas.contenido),
-                                            importancia = COALESCE(EXCLUDED.importancia, usuario_notas.importancia),
-                                            updated_at = NOW(),
-                                            updated_by_device = EXCLUDED.updated_by_device
-                                        """,
-                                        (note_id, usuario_id, categoria, titulo, contenido, importancia, device_id),
-                                    )
-                                    if activa is not None:
-                                        cur.execute("UPDATE usuario_notas SET activa = %s, updated_at = NOW(), updated_by_device = %s WHERE id = %s", (bool(activa), device_id, note_id))
-                                else:
-                                    cur.execute(
-                                        """
-                                        INSERT INTO usuario_notas (usuario_id, categoria, titulo, contenido, importancia, updated_at, updated_by_device)
-                                        VALUES (%s, %s, %s, %s, %s, NOW(), %s)
-                                        RETURNING id
-                                        """,
-                                        (usuario_id, categoria, titulo, contenido, importancia, device_id),
-                                    )
-                                    _ = cur.fetchone()
-                                applied += 1
-                            elif name == "note.update":
-                                note_id = payload.get("id")
-                                if not note_id:
-                                    raise ValueError("note.update requiere 'id'")
-                                usuario_id = payload.get("usuario_id") or payload.get("user_id")
-                                categoria = payload.get("categoria") or payload.get("category")
-                                titulo = payload.get("titulo") or payload.get("title")
-                                contenido = payload.get("contenido") or payload.get("content")
-                                importancia = payload.get("importancia")
-                                activa = payload.get("activa")
-                                cur.execute(
-                                    """
-                                    UPDATE usuario_notas
-                                    SET usuario_id = COALESCE(%s, usuario_id),
-                                        categoria = COALESCE(%s, categoria),
-                                        titulo = COALESCE(%s, titulo),
-                                        contenido = COALESCE(%s, contenido),
-                                        importancia = COALESCE(%s, importancia),
-                                        activa = COALESCE(%s, activa),
-                                        updated_at = NOW(),
-                                        updated_by_device = %s
-                                    WHERE id = %s
-                                    """,
-                                    (usuario_id, categoria, titulo, contenido, importancia, None if activa is None else bool(activa), device_id, note_id),
-                                )
-                                applied += 1
-                            elif name == "note.delete":
-                                note_id = payload.get("id")
-                                if not note_id:
-                                    raise ValueError("note.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM usuario_notas WHERE id = %s", (note_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("note", json.dumps({"id": note_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            elif name in ("professor_schedule.add", "professor_schedule.update"):
-                                # Campos: id(opcional para add), profesor_id, dia_semana, hora_inicio, hora_fin, disponible
-                                row_id = payload.get("id")
-                                profesor_id = payload.get("profesor_id")
-                                dia_semana = payload.get("dia_semana")
-                                hora_inicio = payload.get("hora_inicio")
-                                hora_fin = payload.get("hora_fin")
-                                disponible = payload.get("disponible")
-                                if name == "professor_schedule.add":
-                                    if row_id:
-                                        # UPSERT por id explícito si llega
-                                        cur.execute(
-                                            """
-                                            INSERT INTO horarios_profesores (id, profesor_id, dia_semana, hora_inicio, hora_fin, disponible, updated_at, updated_by_device)
-                                            VALUES (%s, %s, %s, %s, %s, COALESCE(%s, TRUE), NOW(), %s)
-                                            ON CONFLICT (id) DO UPDATE SET
-                                                profesor_id = COALESCE(EXCLUDED.profesor_id, horarios_profesores.profesor_id),
-                                                dia_semana = COALESCE(EXCLUDED.dia_semana, horarios_profesores.dia_semana),
-                                                hora_inicio = COALESCE(EXCLUDED.hora_inicio, horarios_profesores.hora_inicio),
-                                                hora_fin = COALESCE(EXCLUDED.hora_fin, horarios_profesores.hora_fin),
-                                                disponible = COALESCE(EXCLUDED.disponible, horarios_profesores.disponible),
-                                                updated_at = NOW(),
-                                                updated_by_device = EXCLUDED.updated_by_device
-                                            """,
-                                            (row_id, profesor_id, dia_semana, hora_inicio, hora_fin, disponible, device_id),
-                                    )
-                                    
-                                    else:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO horarios_profesores (profesor_id, dia_semana, hora_inicio, hora_fin, disponible, updated_at, updated_by_device)
-                                            VALUES (%s, %s, %s, %s, COALESCE(%s, TRUE), NOW(), %s)
-                                            RETURNING id
-                                            """,
-                                            (profesor_id, dia_semana, hora_inicio, hora_fin, disponible, device_id),
-                                        )
-                                        _ = cur.fetchone()
-                                else:  # update
-                                    if not row_id:
-                                        raise ValueError("professor_schedule.update requiere 'id'")
-                                    cur.execute(
-                                        """
-                                        UPDATE horarios_profesores
-                                        SET profesor_id = COALESCE(%s, profesor_id),
-                                            dia_semana = COALESCE(%s, dia_semana),
-                                            hora_inicio = COALESCE(%s, hora_inicio),
-                                            hora_fin = COALESCE(%s, hora_fin),
-                                            disponible = COALESCE(%s, disponible),
-                                            updated_at = NOW(),
-                                            updated_by_device = %s
-                                        WHERE id = %s
-                                        """,
-                                        (profesor_id, dia_semana, hora_inicio, hora_fin, disponible, device_id, row_id),
-                                    )
-                                applied += 1
-                            elif name == "professor_schedule.delete":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("professor_schedule.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM horarios_profesores WHERE id = %s", (row_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("professor_schedule", json.dumps({"id": row_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            elif name in ("professor_substitution.add", "professor_substitution.update"):
-                                # Campos: id(opcional add), asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas
-                                row_id = payload.get("id")
-                                asignacion_id = payload.get("asignacion_id")
-                                profesor_suplente_id = payload.get("profesor_suplente_id")
-                                fecha_clase = payload.get("fecha_clase")
-                                motivo = payload.get("motivo")
-                                estado = payload.get("estado")
-                                notas = payload.get("notas")
-                                if name == "professor_substitution.add":
-                                    if row_id:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO profesor_suplencias (id, asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas, updated_at, updated_by_device)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s)
-                                            ON CONFLICT (id) DO UPDATE SET
-                                                asignacion_id = COALESCE(EXCLUDED.asignacion_id, profesor_suplencias.asignacion_id),
-                                                profesor_suplente_id = COALESCE(EXCLUDED.profesor_suplente_id, profesor_suplencias.profesor_suplente_id),
-                                                fecha_clase = COALESCE(EXCLUDED.fecha_clase, profesor_suplencias.fecha_clase),
-                                                motivo = COALESCE(EXCLUDED.motivo, profesor_suplencias.motivo),
-                                                estado = COALESCE(EXCLUDED.estado, profesor_suplencias.estado),
-                                                notas = COALESCE(EXCLUDED.notas, profesor_suplencias.notas),
-                                                updated_at = NOW(),
-                                                updated_by_device = EXCLUDED.updated_by_device
-                                            """,
-                                            (row_id, asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas, device_id),
-                                        )
-                                    else:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO profesor_suplencias (asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas, updated_at, updated_by_device)
-                                            VALUES (%s, %s, %s, %s, %s, %s, NOW(), %s)
-                                            RETURNING id
-                                            """,
-                                            (asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas, device_id),
-                                        )
-                                        _ = cur.fetchone()
-                                else:  # update
-                                    if not row_id:
-                                        raise ValueError("professor_substitution.update requiere 'id'")
-                                    cur.execute(
-                                        """
-                                        UPDATE profesor_suplencias
-                                        SET asignacion_id = COALESCE(%s, asignacion_id),
-                                            profesor_suplente_id = COALESCE(%s, profesor_suplente_id),
-                                            fecha_clase = COALESCE(%s, fecha_clase),
-                                            motivo = COALESCE(%s, motivo),
-                                            estado = COALESCE(%s, estado),
-                                            notas = COALESCE(%s, notas),
-                                            updated_at = NOW(),
-                                            updated_by_device = %s
-                                        WHERE id = %s
-                                        """,
-                                        (asignacion_id, profesor_suplente_id, fecha_clase, motivo, estado, notas, device_id, row_id),
-                                    )
-                                applied += 1
-                            elif name == "professor_substitution.delete":
-                                row_id = payload.get("id")
-                                if not row_id:
-                                    raise ValueError("professor_substitution.delete requiere 'id'")
-                                try:
-                                    cur.execute("DELETE FROM profesor_suplencias WHERE id = %s", (row_id,))
-                                except Exception:
-                                    pass
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("professor_substitution", json.dumps({"id": row_id}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            elif name in ("payment.add", "payment.update"):
-                                # Campos esperados: dni (o user_id), mes, año, monto, fecha_pago, metodo_pago_id
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        mes = payload.get("mes")
-                                        anio = payload.get("año") or payload.get("anio") or payload.get("year")
-                                        monto = payload.get("monto")
-                                        fecha_pago = payload.get("fecha_pago")
-                                        metodo_pago_id = payload.get("metodo_pago_id")
-                                        # Resolver usuario_id por DNI si no viene id
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid:
-                                            raise ValueError("payment.add/update requiere 'dni' o 'user_id'")
-                                        # Derivar mes/año desde fecha_pago si no llegan explícitos
-                                        if (mes is None or anio is None) and fecha_pago:
-                                            try:
-                                                cur.execute("SELECT EXTRACT(MONTH FROM CAST(%s AS timestamp))::int AS m, EXTRACT(YEAR FROM CAST(%s AS timestamp))::int AS y", (fecha_pago, fecha_pago))
-                                                rmy = cur.fetchone() or {}
-                                                mes = mes if mes is not None else rmy.get("m")
-                                                anio = anio if anio is not None else rmy.get("y")
-                                            except Exception:
-                                                pass
-                                        if mes is None or anio is None:
-                                            raise ValueError("payment.add/update requiere 'mes' y 'año' (o 'fecha_pago')")
-                                        # Upsert manual por (usuario_id, mes, año)
-                                        cur.execute(
-                                            "SELECT id FROM pagos WHERE usuario_id = %s AND mes = %s AND año = %s",
-                                            (uid, int(mes), int(anio)),
-                                        )
-                                        row = cur.fetchone()
-                                        if row:
-                                            pid = row.get("id")
-                                            cur.execute(
-                                                """
-                                                UPDATE pagos
-                                                SET monto = COALESCE(%s, monto),
-                                                    fecha_pago = COALESCE(%s, fecha_pago),
-                                                    metodo_pago_id = COALESCE(%s, metodo_pago_id),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (monto, fecha_pago, metodo_pago_id, device_id, pid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO pagos (usuario_id, monto, fecha_pago, mes, año, metodo_pago_id, updated_at, updated_by_device)
-                                                VALUES (%s, %s, COALESCE(CAST(%s AS timestamp), NOW()), %s, %s, %s, NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (uid, monto, fecha_pago, int(mes), int(anio), metodo_pago_id, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name == "payment.delete":
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        mes = payload.get("mes")
-                                        anio = payload.get("año") or payload.get("anio") or payload.get("year")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or mes is None or anio is None:
-                                            raise ValueError("payment.delete requiere 'dni' o 'user_id' y 'mes' y 'año'")
-                                        cur.execute("DELETE FROM pagos WHERE usuario_id = %s AND mes = %s AND año = %s", (uid, int(mes), int(anio)))
-                                        # Registrar delete para downstream
-                                        try:
-                                            cur.execute(
-                                                "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                                ("payment", json.dumps({"dni": dni, "user_id": uid, "mes": int(mes), "año": int(anio)}), device_id),
-                                            )
-                                        except Exception:
-                                            pass
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name in ("attendance.add", "attendance.update"):
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        fecha = payload.get("fecha")  # ISO date
-                                        hora = payload.get("hora") or payload.get("hora_registro")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not fecha:
-                                            raise ValueError("attendance.add/update requiere 'dni' o 'user_id' y 'fecha'")
-                                        # Upsert manual por (usuario_id, fecha)
-                                        cur.execute("SELECT id FROM asistencias WHERE usuario_id = %s AND fecha::date = CAST(%s AS date)", (uid, fecha))
-                                        row = cur.fetchone()
-                                        if row:
-                                            aid = row.get("id")
-                                            cur.execute(
-                                                "UPDATE asistencias SET hora_registro = COALESCE(%s, hora_registro), updated_at = NOW(), updated_by_device = %s WHERE id = %s",
-                                                (hora, device_id, aid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                "INSERT INTO asistencias (usuario_id, fecha, hora_registro, updated_at, updated_by_device) VALUES (%s, CAST(%s AS timestamp), COALESCE(%s, CAST(NOW() AS time)), NOW(), %s) RETURNING id",
-                                                (uid, fecha, hora, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name == "attendance.delete":
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        fecha = payload.get("fecha")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not fecha:
-                                            raise ValueError("attendance.delete requiere 'dni' o 'user_id' y 'fecha'")
-                                        cur.execute("DELETE FROM asistencias WHERE usuario_id = %s AND fecha::date = CAST(%s AS date)", (uid, fecha))
-                                        try:
-                                            cur.execute(
-                                                "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                                ("attendance", json.dumps({"dni": dni, "user_id": uid, "fecha": fecha}), device_id),
-                                            )
-                                        except Exception:
-                                            pass
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name in ("class.add", "class.update"):
-                                # Campos: id(opcional), nombre, descripcion, activa, tipo_clase_id
-                                row_id = payload.get("id")
-                                nombre = payload.get("nombre")
-                                descripcion = payload.get("descripcion")
-                                activa = payload.get("activa")
-                                tipo_clase_id = payload.get("tipo_clase_id")
-                                if name == "class.add":
-                                    if row_id:
-                                        cur.execute("SELECT id FROM clases WHERE id = %s", (row_id,))
-                                        r = cur.fetchone()
-                                        if r:
-                                            cur.execute(
-                                                """
-                                                UPDATE clases
-                                                SET nombre = COALESCE(%s, nombre),
-                                                    descripcion = COALESCE(%s, descripcion),
-                                                    activa = COALESCE(%s, activa),
-                                                    tipo_clase_id = COALESCE(%s, tipo_clase_id),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (nombre, descripcion, activa, tipo_clase_id, device_id, row_id),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO clases (id, nombre, descripcion, activa, tipo_clase_id, updated_at, updated_by_device)
-                                                VALUES (%s, COALESCE(%s, 'Clase'), %s, COALESCE(%s, TRUE), %s, NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (row_id, nombre, descripcion, activa, tipo_clase_id, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                    else:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO clases (nombre, descripcion, activa, tipo_clase_id, updated_at, updated_by_device)
-                                            VALUES (COALESCE(%s, 'Clase'), %s, COALESCE(%s, TRUE), %s, NOW(), %s)
-                                            RETURNING id
-                                            """,
-                                            (nombre, descripcion, activa, tipo_clase_id, device_id),
-                                        )
-                                        _ = cur.fetchone()
-                                else:
-                                    updated = 0
-                                    if row_id:
-                                        cur.execute(
-                                            """
-                                            UPDATE clases
-                                            SET nombre = COALESCE(%s, nombre),
-                                                descripcion = COALESCE(%s, descripcion),
-                                                activa = COALESCE(%s, activa),
-                                                tipo_clase_id = COALESCE(%s, tipo_clase_id),
-                                                updated_at = NOW(),
-                                                updated_by_device = %s
-                                            WHERE id = %s
-                                            """,
-                                            (nombre, descripcion, activa, tipo_clase_id, device_id, row_id),
-                                        )
-                                        updated = getattr(cur, 'rowcount', 0) or 0
-                                    if updated == 0 and nombre:
-                                        cur.execute(
-                                            """
-                                            UPDATE clases
-                                            SET descripcion = COALESCE(%s, descripcion),
-                                                activa = COALESCE(%s, activa),
-                                                tipo_clase_id = COALESCE(%s, tipo_clase_id),
-                                                updated_at = NOW(),
-                                                updated_by_device = %s
-                                            WHERE nombre = %s
-                                            """,
-                                            (descripcion, activa, tipo_clase_id, device_id, nombre),
-                                        )
-                                        updated = getattr(cur, 'rowcount', 0) or 0
-                                    if updated == 0:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO clases (nombre, descripcion, activa, tipo_clase_id, updated_at, updated_by_device)
-                                            VALUES (COALESCE(%s, 'Clase'), %s, COALESCE(%s, TRUE), %s, NOW(), %s)
-                                            ON CONFLICT (nombre) DO UPDATE SET
-                                                descripcion = COALESCE(EXCLUDED.descripcion, clases.descripcion),
-                                                activa = COALESCE(EXCLUDED.activa, clases.activa),
-                                                tipo_clase_id = COALESCE(EXCLUDED.tipo_clase_id, clases.tipo_clase_id),
-                                                updated_at = NOW(),
-                                                updated_by_device = EXCLUDED.updated_by_device
-                                            """,
-                                            (nombre, descripcion, activa, tipo_clase_id, device_id),
-                                        )
-                                applied += 1
-                            elif name == "class.delete":
-                                row_id = payload.get("id")
-                                nombre = payload.get("nombre")
-                                deleted = 0
-                                if row_id:
-                                    cur.execute("DELETE FROM clases WHERE id = %s", (row_id,))
-                                    deleted = getattr(cur, 'rowcount', 0) or 0
-                                if deleted == 0 and nombre:
-                                    cur.execute("DELETE FROM clases WHERE nombre = %s", (nombre,))
-                                    deleted = getattr(cur, 'rowcount', 0) or 0
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("class", json.dumps({"id": row_id, "nombre": nombre}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            elif name in ("class_schedule.add", "class_schedule.update"):
-                                # Campos: id(opc.), clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo
-                                sid = payload.get("id")
-                                clase_id = payload.get("clase_id")
-                                dia_semana = payload.get("dia_semana")
-                                hora_inicio = payload.get("hora_inicio")
-                                hora_fin = payload.get("hora_fin")
-                                cupo_maximo = payload.get("cupo_maximo")
-                                activo = payload.get("activo")
-                                if name == "class_schedule.add":
-                                    if sid:
-                                        cur.execute("SELECT id FROM clases_horarios WHERE id = %s", (sid,))
-                                        r = cur.fetchone()
-                                        if r:
-                                            cur.execute(
-                                                """
-                                                UPDATE clases_horarios
-                                                SET clase_id = COALESCE(%s, clase_id),
-                                                    dia_semana = COALESCE(%s, dia_semana),
-                                                    hora_inicio = COALESCE(CAST(%s AS time), hora_inicio),
-                                                    hora_fin = COALESCE(CAST(%s AS time), hora_fin),
-                                                    cupo_maximo = COALESCE(%s, cupo_maximo),
-                                                    activo = COALESCE(%s, activo),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, device_id, sid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO clases_horarios (id, clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, updated_at, updated_by_device)
-                                                VALUES (%s, %s, %s, CAST(%s AS time), CAST(%s AS time), COALESCE(%s, 20), COALESCE(%s, TRUE), NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (sid, clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                    else:
-                                        # Intentar localizar por clave natural
-                                        nid = None
-                                        if clase_id and dia_semana is not None and hora_inicio and hora_fin:
-                                            cur.execute(
-                                                """
-                                                SELECT id FROM clases_horarios
-                                                WHERE clase_id = %s AND dia_semana = %s AND hora_inicio = CAST(%s AS time) AND hora_fin = CAST(%s AS time)
-                                                """,
-                                                (int(clase_id), dia_semana, hora_inicio, hora_fin),
-                                            )
-                                            r = cur.fetchone()
-                                            nid = r.get("id") if r else None
-                                        if nid:
-                                            cur.execute(
-                                                """
-                                                UPDATE clases_horarios
-                                                SET cupo_maximo = COALESCE(%s, cupo_maximo),
-                                                    activo = COALESCE(%s, activo),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (cupo_maximo, activo, device_id, nid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO clases_horarios (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, updated_at, updated_by_device)
-                                                VALUES (%s, %s, %s, CAST(%s AS time), CAST(%s AS time), COALESCE(%s, 20), COALESCE(%s, TRUE), NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                else:
-                                    updated = 0
-                                    if sid:
-                                        cur.execute(
-                                            """
-                                            UPDATE clases_horarios
-                                            SET clase_id = COALESCE(%s, clase_id),
-                                                dia_semana = COALESCE(%s, dia_semana),
-                                                hora_inicio = COALESCE(CAST(%s AS time), hora_inicio),
-                                                hora_fin = COALESCE(CAST(%s AS time), hora_fin),
-                                                cupo_maximo = COALESCE(%s, cupo_maximo),
-                                                activo = COALESCE(%s, activo),
-                                                updated_at = NOW(),
-                                                updated_by_device = %s
-                                            WHERE id = %s
-                                            """,
-                                            (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, device_id, sid),
-                                        )
-                                        updated = getattr(cur, 'rowcount', 0) or 0
-                                    if updated == 0 and clase_id and dia_semana is not None and hora_inicio and hora_fin:
-                                        cur.execute(
-                                            """
-                                            UPDATE clases_horarios
-                                            SET cupo_maximo = COALESCE(%s, cupo_maximo),
-                                                activo = COALESCE(%s, activo),
-                                                updated_at = NOW(),
-                                                updated_by_device = %s
-                                            WHERE clase_id = %s AND dia_semana = %s AND hora_inicio = CAST(%s AS time) AND hora_fin = CAST(%s AS time)
-                                            """,
-                                            (cupo_maximo, activo, device_id, int(clase_id), dia_semana, hora_inicio, hora_fin),
-                                        )
-                                        updated = getattr(cur, 'rowcount', 0) or 0
-                                    if updated == 0:
-                                        cur.execute(
-                                            """
-                                            INSERT INTO clases_horarios (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, updated_at, updated_by_device)
-                                            VALUES (%s, %s, %s, CAST(%s AS time), CAST(%s AS time), COALESCE(%s, 20), COALESCE(%s, TRUE), NOW(), %s)
-                                            RETURNING id
-                                            """,
-                                            (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo, device_id),
-                                        )
-                                        _ = cur.fetchone()
-                                applied += 1
-                            elif name == "class_schedule.delete":
-                                sid = payload.get("id")
-                                clase_id = payload.get("clase_id")
-                                dia_semana = payload.get("dia_semana")
-                                hora_inicio = payload.get("hora_inicio")
-                                hora_fin = payload.get("hora_fin")
-                                deleted = 0
-                                if sid:
-                                    cur.execute("DELETE FROM clases_horarios WHERE id = %s", (sid,))
-                                    deleted = getattr(cur, 'rowcount', 0) or 0
-                                if deleted == 0 and clase_id and dia_semana is not None and hora_inicio and hora_fin:
-                                    cur.execute(
-                                        """
-                                        DELETE FROM clases_horarios
-                                        WHERE clase_id = %s AND dia_semana = %s AND hora_inicio = CAST(%s AS time) AND hora_fin = CAST(%s AS time)
-                                        """,
-                                        (int(clase_id), dia_semana, hora_inicio, hora_fin),
-                                    )
-                                    deleted = getattr(cur, 'rowcount', 0) or 0
-                                try:
-                                    cur.execute(
-                                        "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                        ("class_schedule", json.dumps({"id": sid, "clase_id": clase_id, "dia_semana": dia_semana, "hora_inicio": hora_inicio, "hora_fin": hora_fin}), device_id),
-                                    )
-                                except Exception:
-                                    pass
-                                applied += 1
-                            elif name in ("class_membership.add", "class_membership.update"):
-                                # Campos: dni|user_id, clase_horario_id, fecha_inscripcion(opc)
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        clase_horario_id = payload.get("clase_horario_id") or payload.get("horario_id")
-                                        fecha_inscripcion = payload.get("fecha_inscripcion")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not clase_horario_id:
-                                            raise ValueError("class_membership.add/update requiere 'dni' o 'user_id' y 'clase_horario_id'")
-                                        # Upsert por (clase_horario_id, usuario_id)
-                                        cur.execute(
-                                            "SELECT id FROM clase_usuarios WHERE clase_horario_id = %s AND usuario_id = %s",
-                                            (int(clase_horario_id), int(uid)),
-                                        )
-                                        r = cur.fetchone()
-                                        if r:
-                                            cid = r.get("id")
-                                            cur.execute(
-                                                """
-                                                UPDATE clase_usuarios
-                                                SET fecha_inscripcion = COALESCE(CAST(%s AS timestamp), fecha_inscripcion),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (fecha_inscripcion, device_id, cid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO clase_usuarios (clase_horario_id, usuario_id, fecha_inscripcion, updated_at, updated_by_device)
-                                                VALUES (%s, %s, CAST(%s AS timestamp), NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (int(clase_horario_id), int(uid), fecha_inscripcion, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name == "class_membership.delete":
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        clase_horario_id = payload.get("clase_horario_id") or payload.get("horario_id")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not clase_horario_id:
-                                            raise ValueError("class_membership.delete requiere 'dni' o 'user_id' y 'clase_horario_id'")
-                                        cur.execute(
-                                            "DELETE FROM clase_usuarios WHERE clase_horario_id = %s AND usuario_id = %s",
-                                            (int(clase_horario_id), int(uid)),
-                                        )
-                                        try:
-                                            cur.execute(
-                                                "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                                ("class_membership", json.dumps({"dni": dni, "user_id": int(uid) if uid else None, "clase_horario_id": int(clase_horario_id) if clase_horario_id else None}), device_id),
-                                            )
-                                        except Exception:
-                                            pass
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name in ("class_attendance.add", "class_attendance.update"):
-                                # Campos: dni|user_id, clase_horario_id, fecha_clase, estado_asistencia, hora_llegada, observaciones
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        clase_horario_id = payload.get("clase_horario_id") or payload.get("horario_id")
-                                        fecha_clase = payload.get("fecha_clase") or payload.get("fecha")
-                                        estado = payload.get("estado_asistencia")
-                                        hora_llegada = payload.get("hora_llegada")
-                                        observaciones = payload.get("observaciones")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not clase_horario_id or not fecha_clase:
-                                            raise ValueError("class_attendance.add/update requiere 'dni' o 'user_id', 'clase_horario_id' y 'fecha_clase'")
-                                        # Upsert manual por (clase_horario_id, usuario_id, fecha_clase)
-                                        cur.execute(
-                                            "SELECT id FROM clase_asistencia_historial WHERE clase_horario_id = %s AND usuario_id = %s AND fecha_clase = CAST(%s AS date)",
-                                            (int(clase_horario_id), int(uid), fecha_clase),
-                                        )
-                                        row = cur.fetchone()
-                                        if row:
-                                            aid = row.get("id")
-                                            cur.execute(
-                                                """
-                                                UPDATE clase_asistencia_historial
-                                                SET estado_asistencia = COALESCE(%s, estado_asistencia),
-                                                    hora_llegada = COALESCE(CAST(%s AS time), hora_llegada),
-                                                    observaciones = COALESCE(%s, observaciones),
-                                                    updated_at = NOW(),
-                                                    updated_by_device = %s
-                                                WHERE id = %s
-                                                """,
-                                                (estado, hora_llegada, observaciones, device_id, aid),
-                                            )
-                                        else:
-                                            cur.execute(
-                                                """
-                                                INSERT INTO clase_asistencia_historial
-                                                (clase_horario_id, usuario_id, fecha_clase, estado_asistencia, hora_llegada, observaciones, updated_at, updated_by_device)
-                                                VALUES (%s, %s, CAST(%s AS date), %s, CAST(%s AS time), %s, NOW(), %s)
-                                                RETURNING id
-                                                """,
-                                                (int(clase_horario_id), int(uid), fecha_clase, estado, hora_llegada, observaciones, device_id),
-                                            )
-                                            _ = cur.fetchone()
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                logging.warning(f"sync upload retry rid={rid} op={name} attempt={attempt} code={code}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                            elif name == "class_attendance.delete":
-                                max_attempts = 3
-                                for attempt in range(1, max_attempts + 1):
-                                    try:
-                                        dni = payload.get("dni")
-                                        uid = payload.get("user_id") or payload.get("usuario_id")
-                                        clase_horario_id = payload.get("clase_horario_id") or payload.get("horario_id")
-                                        fecha_clase = payload.get("fecha_clase") or payload.get("fecha")
-                                        if not uid and dni:
-                                            cur.execute("SELECT id FROM usuarios WHERE dni = %s", (dni,))
-                                            row_u = cur.fetchone()
-                                            uid = row_u.get("id") if row_u else None
-                                        if not uid or not clase_horario_id or not fecha_clase:
-                                            raise ValueError("class_attendance.delete requiere 'dni' o 'user_id', 'clase_horario_id' y 'fecha_clase'")
-                                        cur.execute(
-                                            "DELETE FROM clase_asistencia_historial WHERE clase_horario_id = %s AND usuario_id = %s AND fecha_clase = CAST(%s AS date)",
-                                            (int(clase_horario_id), int(uid), fecha_clase),
-                                        )
-                                        try:
-                                            cur.execute(
-                                                "INSERT INTO sync_deletes(entity, key, updated_at, device_id) VALUES (%s, %s::jsonb, NOW(), %s)",
-                                                ("class_attendance", json.dumps({
-                                                    "dni": dni, "user_id": int(uid) if uid else None,
-                                                    "clase_horario_id": int(clase_horario_id) if clase_horario_id else None,
-                                                    "fecha_clase": fecha_clase
-                                                }), device_id),
-                                            )
-                                        except Exception:
-                                            pass
-                                        applied += 1
-                                        break
-                                    except Exception as _e:
-                                        code = getattr(_e, "pgcode", "") or ""
-                                        if sp_name and code in ("40001", "40P01", "55P03") and attempt < max_attempts:
-                                            try:
-                                                cur.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-                                            except Exception:
-                                                pass
-                                            try:
-                                                import time as _time
-                                                _time.sleep(min(0.15 * (2 ** (attempt - 1)), 0.8))
-                                            except Exception:
-                                                pass
-                                            continue
-                                        raise
-                                else:
-                                    # Por ahora, ignorar otros tipos no soportados
-                                    skipped += 1
-                                # Epílogo común: liberar savepoint si existe
-                                try:
-                                    if sp_name:
-                                        cur.execute(f"RELEASE SAVEPOINT {sp_name}")
-                                except Exception:
-                                    pass
-                    # fin for raw in ops
-                    break  # conexión y procesamiento exitosos
-                except (psycopg2.OperationalError, psycopg2.InterfaceError) as ce:
-                    _conn_attempts += 1
-                    try:
-                        logging.warning(f"sync upload: error de conexión intento={_conn_attempts}: {ce}")
-                    except Exception:
-                        pass
-                    if _conn_attempts >= 2:
-                        raise
-                    try:
-                        time.sleep(0.6)
-                        _force_db_init()
-                    except Exception:
-                        pass
-                    continue
-        except (psycopg2.OperationalError, psycopg2.InterfaceError) as e:
-            logging.exception("sync upload: error de conexión persistente")
-            return JSONResponse({"success": False, "message": "DB no disponible (conexión)"}, status_code=503)
-        except Exception as e:
-            logging.exception("sync upload: error procesando lote")
-            return JSONResponse({"success": False, "message": str(e)}, status_code=500)
-
-        return JSONResponse({
-            "success": True,
-            "received": len(ops),
-            "applied": applied,
-            "skipped": skipped,
-            "failed": failed,
-            "errors": errors if errors else None,
-        }, status_code=202)
-    except Exception as e:
-        try:
-            logging.exception("Error en /api/sync/upload")
-        except Exception:
-            pass
-        return JSONResponse({"success": False, "message": str(e)}, status_code=500)
-
-'''  # end legacy sync block
-
-
-# @app.post("/api/admin/sync-migrate")  # disabled: legacy sync removed
 async def admin_sync_migrate(request: Request):
-    """
-    Ejecuta una migración idempotente para habilitar el sistema de sincronización
-    (tablas y columnas necesarias). Protegido por dev_password u owner_password.
-    """
-    return JSONResponse(
-        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
-        status_code=410,
-    )
-    ''' Legacy admin_sync_migrate body disabled; use PostgreSQL logical replication.
-    try:
-        content_type = request.headers.get("content-type", "")
-        if content_type.startswith("application/json"):
-            data = await request.json()
-        else:
-            data = await request.form()
-    except Exception:
-        data = {}
+    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
 
-    dev_pwd = str(data.get("dev_password", "") or "").strip()
-    owner_pwd = str(data.get("owner_password", "") or "").strip()
-
-    # Resolver credenciales válidas
-    real_dev = None
-    try:
-        if DEV_PASSWORD:
-            real_dev = str(DEV_PASSWORD).strip()
-    except Exception:
-        real_dev = None
-    if not real_dev:
-        try:
-            from managers import DeveloperManager  # type: ignore
-            real_dev = str(getattr(DeveloperManager, "DEV_PASSWORD", "") or "").strip()
-        except Exception:
-            real_dev = None
-    if not real_dev:
-        real_dev = os.getenv("DEV_PASSWORD", "").strip()
-
-    owner_ok = False
-    try:
-        if owner_pwd and owner_pwd == _get_password():
-            owner_ok = True
-    except Exception:
-        owner_ok = False
-
-    if not ((dev_pwd and real_dev and dev_pwd == real_dev) or owner_ok):
-        return JSONResponse({"ok": False, "message": "No autorizado"}, status_code=401)
-
-    db = _get_db()
-    if not db:
-        return JSONResponse({"ok": False, "message": "DatabaseManager no disponible"}, status_code=500)
-
-    try:
-        changes = _ensure_sync_schema()
-        return JSONResponse({"ok": True, "applied": changes})
-    except Exception as e:
-        try:
-            logging.exception("Error en /api/admin/sync-migrate")
-        except Exception:
-            pass
-        return JSONResponse({"ok": False, "message": str(e)}, status_code=500)
-
-'''  # end legacy admin_sync_migrate block
-
-# @app.get("/api/sync/download")  # disabled: legacy sync removed
 async def api_sync_download(request: Request):
-    """Devuelve cambios de usuarios desde un instante dado.
+    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
 
-    Parámetros:
-      - since: ISO8601 opcional. Si no se provee, devuelve vacío.
 
-    Respuesta:
-      { "success": true, "operations": [ {"type": "user.update", "payload": {...}, "ts": "..." } ], "latest": "..." }
-    """
-    return JSONResponse(
-        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
-        status_code=410,
-    )
-    ''' Legacy download body disabled; see PostgreSQL logical replication setup.
-    try:
-        # Autenticación opcional por token
-        try:
-            expected = os.getenv("SYNC_API_TOKEN", "").strip()
-            if expected:
-                auth = request.headers.get("Authorization") or ""
-                if not isinstance(auth, str) or not auth.strip().startswith("Bearer ") or auth.strip()[7:] != expected:
-                    return JSONResponse({"success": False, "message": "No autorizado"}, status_code=401)
-        except Exception:
-            pass
-        since = request.query_params.get("since")
-        device_id = request.query_params.get("device_id")
-        db = _get_db()
-        if db is None:
-            return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
-
-        operations = []
-        latest_ts: Optional[str] = None
-
-        # Si no se provee since, devolver vacío pero con tiempo del servidor
-        if not since:
-            return JSONResponse({
-                "success": True,
-                "operations": [],
-                "latest": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            })
-
-        # Normalizar since (aceptar ...Z convirtiéndolo a +00:00)
-        try:
-            since_param = since.strip()
-            if since_param.endswith("Z"):
-                since_param = since_param[:-1] + "+00:00"
-        except Exception:
-            since_param = since
-
-        # Consultar filas cambiadas desde 'since' para usuarios, pagos, asistencias y borrados
-        try:
-            # Ejecutar migraciones ligeras en una sesión dedicada en autocommit
-            with db.autocommit_session() as conn:  # type: ignore
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:  # type: ignore
-                    # Migraciones ligeras para asegurar columnas y tablas necesarias
-                    try:
-                        cur.execute("ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS usuarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS pagos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS pagos ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS asistencias ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS asistencias ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS clase_asistencia_historial ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS clase_asistencia_historial ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        # Extensiones de sincronización nuevas
-                        cur.execute("ALTER TABLE IF EXISTS horarios_profesores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS horarios_profesores ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS profesor_suplencias ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS profesor_suplencias ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute(
-                            """
-                            CREATE TABLE IF NOT EXISTS sync_deletes (
-                                id BIGSERIAL PRIMARY KEY,
-                                entity TEXT NOT NULL,
-                                key JSONB NOT NULL,
-                                updated_at TIMESTAMPTZ DEFAULT NOW()
-                            )
-                            """
-                        )
-                        cur.execute("ALTER TABLE IF EXISTS sync_deletes ADD COLUMN IF NOT EXISTS device_id TEXT")
-                        # Clases y derivados
-                        cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS clases ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS clases_horarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS clase_usuarios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        # Rutinas y ejercicios
-                        cur.execute("ALTER TABLE IF EXISTS rutinas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS rutinas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS rutinas_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS rutinas_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                    except Exception:
-                        pass
-
-                    # Extensiones de sincronización para etiquetas y notas
-                    try:
-                        cur.execute("ALTER TABLE IF EXISTS etiquetas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS etiquetas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS usuario_etiquetas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS usuario_etiquetas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        cur.execute("ALTER TABLE IF EXISTS usuario_notas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("ALTER TABLE IF EXISTS usuario_notas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                        try:
-                            cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN categoria SET DEFAULT 'general'")
-                            cur.execute("ALTER TABLE IF EXISTS usuario_notas ALTER COLUMN importancia SET DEFAULT 'normal'")
-                        except Exception:
-                            pass
-                        # Saneamiento de registros existentes
-                        try:
-                            cur.execute("UPDATE usuario_notas SET categoria = 'general' WHERE categoria IS NULL")
-                        except Exception:
-                            pass
-                        try:
-                            cur.execute("UPDATE usuario_notas SET importancia = 'normal' WHERE importancia IS NULL")
-                        except Exception:
-                            pass
-                        # Tablas adicionales operativas no cubiertas (segundo bloque)
-                        try:
-                            cur.execute("ALTER TABLE IF EXISTS rutina_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS rutina_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS clase_ejercicios ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS clase_ejercicios ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS ejercicio_grupos ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS ejercicio_grupos ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS ejercicio_grupo_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS ejercicio_grupo_items ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesores ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesores ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesores_horarios_disponibilidad ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesores_horarios_disponibilidad ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_evaluaciones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_evaluaciones ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_disponibilidad ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_disponibilidad ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_suplencias_generales ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_suplencias_generales ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS tipos_cuota ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS tipos_cuota ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS numeracion_comprobantes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS numeracion_comprobantes ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS comprobantes_pago ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS comprobantes_pago ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS pago_detalles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS pago_detalles ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS historial_estados ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS historial_estados ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS especialidades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS especialidades ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_especialidades ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_especialidades ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_certificaciones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_certificaciones ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_horas_trabajadas ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS profesor_horas_trabajadas ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS schedule_conflicts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS schedule_conflicts ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS configuracion_comprobantes ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            # WhatsApp operational tables tracking (segundo bloque)
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_config ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            # Defaults y sanitización para WhatsApp (bloque 2)
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN status SET DEFAULT 'sent'")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_messages ALTER COLUMN message_content SET DEFAULT ''")
-                            cur.execute("UPDATE whatsapp_messages SET status = 'sent' WHERE status IS NULL")
-                            cur.execute("UPDATE whatsapp_messages SET message_content = '' WHERE message_content IS NULL")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN header_text SET DEFAULT ''")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_templates ALTER COLUMN variables SET DEFAULT '{}'::jsonb")
-                            cur.execute("UPDATE whatsapp_templates SET header_text = '' WHERE header_text IS NULL")
-                            cur.execute("UPDATE whatsapp_templates SET variables = '{}'::jsonb WHERE variables IS NULL")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN access_token SET DEFAULT ''")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN phone_id SET DEFAULT ''")
-                            cur.execute("ALTER TABLE IF EXISTS whatsapp_config ALTER COLUMN waba_id SET DEFAULT ''")
-                            cur.execute("UPDATE whatsapp_config SET access_token = '' WHERE access_token IS NULL")
-                            cur.execute("UPDATE whatsapp_config SET phone_id = '' WHERE phone_id IS NULL")
-                            cur.execute("UPDATE whatsapp_config SET waba_id = '' WHERE waba_id IS NULL")
-                            cur.execute("ALTER TABLE IF EXISTS professor_availability ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()")
-                            cur.execute("ALTER TABLE IF EXISTS professor_availability ADD COLUMN IF NOT EXISTS updated_by_device TEXT")
-                            cur.execute("ALTER TABLE IF EXISTS professor_availability ALTER COLUMN status SET DEFAULT 'disponible'")
-                            cur.execute("ALTER TABLE IF EXISTS professor_availability ALTER COLUMN notes SET DEFAULT ''")
-                            cur.execute("UPDATE professor_availability SET status = 'disponible' WHERE status IS NULL")
-                            cur.execute("UPDATE professor_availability SET notes = '' WHERE notes IS NULL")
-                        except Exception:
-                            pass
-                        try:
-                            cur.execute("UPDATE usuario_notas SET titulo = '' WHERE titulo IS NULL")
-                        except Exception:
-                            pass
-                        try:
-                            cur.execute("UPDATE usuario_notas SET contenido = '' WHERE contenido IS NULL")
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-
-            # Abrir conexión normal para consultas de descarga
-            with db.get_connection_context() as conn:  # type: ignore
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:  # type: ignore
-                    # Rutinas - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, activa,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM rutinas
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_rut = cur.fetchall() or []
-                        for r in rows_rut:
-                            op = {
-                                "type": "routine.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "usuario_id": r.get("usuario_id"),
-                                    "nombre_rutina": r.get("nombre_rutina"),
-                                    "descripcion": r.get("descripcion"),
-                                    "dias_semana": r.get("dias_semana"),
-                                    "categoria": r.get("categoria"),
-                                    "activa": r.get("activa"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Rutinas - Ejercicios - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, rutina_id, ejercicio_id, dia_semana, series, repeticiones, orden,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM rutinas_ejercicios
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_rut_ej = cur.fetchall() or []
-                        for r in rows_rut_ej:
-                            op = {
-                                "type": "routine_exercise.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "rutina_id": r.get("rutina_id"),
-                                    "ejercicio_id": r.get("ejercicio_id"),
-                                    "dia_semana": r.get("dia_semana"),
-                                    "series": r.get("series"),
-                                    "repeticiones": r.get("repeticiones"),
-                                    "orden": r.get("orden"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Catálogo de ejercicios - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, nombre, grupo_muscular, descripcion,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM ejercicios
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_ej = cur.fetchall() or []
-                        for r in rows_ej:
-                            op = {
-                                "type": "exercise.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "nombre": r.get("nombre"),
-                                    "grupo_muscular": r.get("grupo_muscular"),
-                                    "descripcion": r.get("descripcion"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Etiquetas (tags) - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, nombre, color, descripcion, 
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM etiquetas
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_tags = cur.fetchall() or []
-                        for r in rows_tags:
-                            op = {
-                                "type": "tag.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "nombre": r.get("nombre"),
-                                    "color": r.get("color"),
-                                    "descripcion": r.get("descripcion"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Usuarios
-                    cur.execute(
-                        """
-                        SELECT id, dni, nombre, telefono, tipo_cuota, activo,
-                               COALESCE(updated_at, NOW()) AS updated_at
-                        FROM usuarios
-                        WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                          AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                        ORDER BY updated_at ASC
-                        LIMIT 500
-                        """,
-                        (since_param, device_id, device_id),
-                    )
-                    rows_users = cur.fetchall() or []
-                    for r in rows_users:
-                        is_active = bool(r.get("activo"))
-                        op_type = "user.update" if is_active else "user.delete"
-                        op = {
-                            "type": op_type,
-                            "payload": {
-                                "id": r.get("id"),
-                                "dni": r.get("dni"),
-                                "name": r.get("nombre"),
-                                "phone": r.get("telefono"),
-                                "membership_type": r.get("tipo_cuota"),
-                                "active": is_active,
-                            },
-                            "ts": None,
-                        }
-                        try:
-                            ts = r.get("updated_at")
-                            ts_str = None
-                            if ts is not None:
-                                if hasattr(ts, 'isoformat'):
-                                    ts_str = ts.isoformat()
-                                else:
-                                    ts_str = str(ts)
-                                try:
-                                    if ts_str.endswith("Z"):
-                                        pass
-                                    elif "+00:00" in ts_str:
-                                        ts_str = ts_str.replace("+00:00", "Z")
-                                    elif "+" not in ts_str and "-" not in ts_str[10:]:
-                                        ts_str = ts_str + "Z"
-                                except Exception:
-                                    pass
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                        except Exception:
-                            pass
-                        operations.append(op)
-
-                    # Pagos
-                    try:
-                        cur.execute(
-                            """
-                            SELECT p.id, p.usuario_id, u.dni, p.mes, p.año, p.monto, p.fecha_pago,
-                                   COALESCE(p.updated_at, NOW()) AS updated_at
-                            FROM pagos p
-                            JOIN usuarios u ON u.id = p.usuario_id
-                            WHERE COALESCE(p.updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR p.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY p.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_pay = cur.fetchall() or []
-                        for r in rows_pay:
-                            op = {
-                                "type": "payment.update",
-                                "payload": {
-                                    "user_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "mes": r.get("mes"),
-                                    "año": r.get("año"),
-                                    "monto": float(r.get("monto")) if r.get("monto") is not None else None,
-                                    "fecha_pago": str(r.get("fecha_pago")) if r.get("fecha_pago") is not None else None,
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                                operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Usuario-Etiquetas (asignaciones) - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT ue.usuario_id, u.dni, ue.etiqueta_id,
-                                   COALESCE(ue.updated_at, NOW()) AS updated_at
-                            FROM usuario_etiquetas ue
-                            LEFT JOIN usuarios u ON u.id = ue.usuario_id
-                            WHERE COALESCE(ue.updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR ue.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY ue.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_ut = cur.fetchall() or []
-                        for r in rows_ut:
-                            op = {
-                                "type": "user_tag.update",
-                                "payload": {
-                                    "usuario_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "etiqueta_id": r.get("etiqueta_id"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Notas de usuario - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT n.id, n.usuario_id, u.dni, n.categoria, n.titulo, n.contenido, n.importancia, n.activa,
-                                   COALESCE(n.updated_at, NOW()) AS updated_at
-                            FROM usuario_notas n
-                            LEFT JOIN usuarios u ON u.id = n.usuario_id
-                            WHERE COALESCE(n.updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR n.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY n.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_notes = cur.fetchall() or []
-                        for r in rows_notes:
-                            op = {
-                                "type": "note.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "usuario_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "categoria": r.get("categoria"),
-                                    "titulo": r.get("titulo"),
-                                    "contenido": r.get("contenido"),
-                                    "importancia": r.get("importancia"),
-                                    "activa": r.get("activa"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Horarios de profesores (disponibilidad) - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, profesor_id, dia_semana, hora_inicio, hora_fin, disponible,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM horarios_profesores
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_hp = cur.fetchall() or []
-                        for r in rows_hp:
-                            op = {
-                                "type": "professor_schedule.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "profesor_id": r.get("profesor_id"),
-                                    "dia_semana": r.get("dia_semana"),
-                                    "hora_inicio": str(r.get("hora_inicio")) if r.get("hora_inicio") is not None else None,
-                                    "hora_fin": str(r.get("hora_fin")) if r.get("hora_fin") is not None else None,
-                                    "disponible": r.get("disponible"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Suplencias de profesor (por clase) - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, asignacion_id, profesor_suplente_id,
-                                   fecha_clase::date AS fecha_clase, motivo, estado, notas,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM profesor_suplencias
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_ps = cur.fetchall() or []
-                        for r in rows_ps:
-                            op = {
-                                "type": "professor_substitution.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "asignacion_id": r.get("asignacion_id"),
-                                    "profesor_suplente_id": r.get("profesor_suplente_id"),
-                                    "fecha_clase": str(r.get("fecha_clase")) if r.get("fecha_clase") is not None else None,
-                                    "motivo": r.get("motivo"),
-                                    "estado": r.get("estado"),
-                                    "notas": r.get("notas"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Asistencias
-                    try:
-                        cur.execute(
-                            """
-                            SELECT a.id, a.usuario_id, u.dni, a.fecha::date AS fecha, a.hora_registro,
-                                   COALESCE(a.updated_at, NOW()) AS updated_at
-                            FROM asistencias a
-                            JOIN usuarios u ON u.id = a.usuario_id
-                            WHERE COALESCE(a.updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR a.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY a.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_att = cur.fetchall() or []
-                        for r in rows_att:
-                            op = {
-                                "type": "attendance.update",
-                                "payload": {
-                                    "user_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "fecha": str(r.get("fecha")) if r.get("fecha") is not None else None,
-                                    "hora": str(r.get("hora_registro")) if r.get("hora_registro") is not None else None,
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Asistencias de clase
-                    try:
-                        cur.execute(
-                            """
-                            SELECT ah.id, ah.clase_horario_id, ah.usuario_id, u.dni,
-                                   ah.fecha_clase::date AS fecha_clase, ah.estado_asistencia,
-                                   ah.hora_llegada, ah.observaciones,
-                                   COALESCE(ah.updated_at, NOW()) AS updated_at
-                            FROM clase_asistencia_historial ah
-                            JOIN usuarios u ON u.id = ah.usuario_id
-                            WHERE COALESCE(ah.updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR ah.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY ah.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_catt = cur.fetchall() or []
-                        for r in rows_catt:
-                            op = {
-                                "type": "class_attendance.update",
-                                "payload": {
-                                    "user_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "clase_horario_id": r.get("clase_horario_id"),
-                                    "fecha_clase": str(r.get("fecha_clase")) if r.get("fecha_clase") is not None else None,
-                                    "estado_asistencia": r.get("estado_asistencia"),
-                                    "hora_llegada": str(r.get("hora_llegada")) if r.get("hora_llegada") is not None else None,
-                                    "observaciones": r.get("observaciones"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Clases - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, nombre, descripcion, activa, tipo_clase_id,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM clases
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_cls = cur.fetchall() or []
-                        for r in rows_cls:
-                            op = {
-                                "type": "class.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "nombre": r.get("nombre"),
-                                    "descripcion": r.get("descripcion"),
-                                    "activa": r.get("activa"),
-                                    "tipo_clase_id": r.get("tipo_clase_id"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Horarios de clases - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT id, clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo, activo,
-                                   COALESCE(updated_at, NOW()) AS updated_at
-                            FROM clases_horarios
-                            WHERE COALESCE(updated_at, NOW()) >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_ch = cur.fetchall() or []
-                        for r in rows_ch:
-                            op = {
-                                "type": "class_schedule.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "clase_id": r.get("clase_id"),
-                                    "dia_semana": r.get("dia_semana"),
-                                    "hora_inicio": str(r.get("hora_inicio")) if r.get("hora_inicio") is not None else None,
-                                    "hora_fin": str(r.get("hora_fin")) if r.get("hora_fin") is not None else None,
-                                    "cupo_maximo": r.get("cupo_maximo"),
-                                    "activo": r.get("activo"),
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Membresías de clase (inscripciones) - DOWNLOAD
-                    try:
-                        cur.execute(
-                            """
-                            SELECT cu.id, cu.clase_horario_id, cu.usuario_id, u.dni,
-                                   cu.fecha_inscripcion,
-                                   COALESCE(cu.updated_at, NOW()) AS updated_at
-                            FROM clase_usuarios cu
-                            JOIN usuarios u ON u.id = cu.usuario_id
-                            WHERE cu.updated_at IS NOT NULL AND cu.updated_at >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR cu.updated_by_device IS DISTINCT FROM %s)
-                            ORDER BY cu.updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_cm = cur.fetchall() or []
-                        for r in rows_cm:
-                            op = {
-                                "type": "class_membership.update",
-                                "payload": {
-                                    "id": r.get("id"),
-                                    "clase_horario_id": r.get("clase_horario_id"),
-                                    "usuario_id": r.get("usuario_id"),
-                                    "dni": r.get("dni"),
-                                    "fecha_inscripcion": str(r.get("fecha_inscripcion")) if r.get("fecha_inscripcion") is not None else None,
-                                },
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-
-                    # Borrados (pagos, asistencias, clases, horarios, membresías, etc.) registrados en sync_deletes
-                    try:
-                        cur.execute(
-                            """
-                            SELECT entity, key, COALESCE(updated_at, NOW()) AS updated_at
-                            FROM sync_deletes
-                            WHERE updated_at IS NOT NULL AND updated_at >= CAST(%s AS timestamptz)
-                              AND (%s IS NULL OR device_id IS DISTINCT FROM %s)
-                            ORDER BY updated_at ASC
-                            LIMIT 500
-                            """,
-                            (since_param, device_id, device_id),
-                        )
-                        rows_del = cur.fetchall() or []
-                        for r in rows_del:
-                            entity = str(r.get("entity") or "").strip()
-                            if not entity:
-                                continue
-                            key = r.get("key") or {}
-                            op = {
-                                "type": f"{entity}.delete",
-                                "payload": key,
-                                "ts": None,
-                            }
-                            try:
-                                ts = r.get("updated_at")
-                                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
-                                if ts_str and not ts_str.endswith("Z"):
-                                    ts_str = ts_str.replace("+00:00", "Z") if "+00:00" in ts_str else ts_str + "Z"
-                                op["ts"] = ts_str
-                                latest_ts = max(latest_ts or ts_str, ts_str)
-                            except Exception:
-                                pass
-                            operations.append(op)
-                    except Exception:
-                        pass
-        except Exception as e:
-            # No romper el sync si hay error: devolver vacío y latest=since (no adelantar watermark)
-            try:
-                logging.exception("sync download: error consultando cambios")
-            except Exception:
-                pass
-            return JSONResponse({
-                "success": True,
-                "operations": operations,
-                "latest": (since_param or since or ""),
-                "message": str(e),
-            }, status_code=200)
-
-        # Ordenar por timestamp por si llegaron mezcladas (usuarios/pagos/asistencias)
-        try:
-            operations.sort(key=lambda x: (x.get("ts") or ""))
-        except Exception:
-            pass
-        return JSONResponse({
-            "success": True,
-            "operations": operations,
-            "latest": (latest_ts or since_param or since or "").replace("+00:00", "Z"),
-        })
-    except Exception as e:
-        # Endurecer el endpoint: no propagar 5xx al cliente de sync.
-        # En caso de error inesperado, responder 200 con operaciones vacías
-        # y latest=since para no adelantar el marcador del cliente.
-        try:
-            logging.exception("Error en /api/sync/download")
-        except Exception:
-            pass
-        try:
-            nowz = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        except Exception:
-            nowz = ""
-        return JSONResponse({
-            "success": True,
-            "operations": [],
-            "latest": (since or ""),
-            "message": str(e),
-        }, status_code=200)
-
-'''  # end legacy download block
-
-# Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacío
+# Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacÃ­o
 @app.get("/@vite/client")
 async def vite_client_stub():
     return Response("// Vite client stub (deshabilitado en esta app)", media_type="application/javascript")
 
-# Endpoint de estado de replicación externa retirado; usamos replicación lógica nativa de PostgreSQL.
+# Endpoint de estado de replicaciÃ³n externa retirado; usamos replicaciÃ³n lÃ³gica nativa de PostgreSQL.
 
-# Generar CSS desde QSS de forma automática evitando sobrescritura
+# Generar CSS desde QSS de forma automÃ¡tica evitando sobrescritura
 try:
     css_path = static_dir / "style.css"
-    # Solo regenerar si no existe o si se fuerza explícitamente por ENV
+    # Solo regenerar si no existe o si se fuerza explÃ­citamente por ENV
     if (not css_path.exists()) or (os.getenv("REGENERATE_STYLE_CSS", "0").strip() == "1"):
         qss_path = _resolve_existing_dir("styles", "style.qss")
         generate_css_from_qss(qss_path, css_path)
 except Exception:
-    # Fallback silencioso; la UI seguirá mostrando colores por defecto
+    # Fallback silencioso; la UI seguirÃ¡ mostrando colores por defecto
     pass
 
 
 def _get_password() -> str:
-    # Preferir la contraseña del dueño desde caché TTL del DatabaseManager
+    # Preferir la contraseÃ±a del dueÃ±o desde cachÃ© TTL del DatabaseManager
     try:
         db = _get_db()
         if db and hasattr(db, 'get_owner_password_cached'):
@@ -3283,13 +359,13 @@ def _get_password() -> str:
     pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip()
     if pwd:
         return pwd
-    # Fallback adicional: contraseña de desarrollador si existe
+    # Fallback adicional: contraseÃ±a de desarrollador si existe
     try:
         if DEV_PASSWORD:
             return str(DEV_PASSWORD).strip()
     except Exception:
         pass
-    # Último recurso
+    # Ãšltimo recurso
     return "admin"
 
 
@@ -3316,11 +392,11 @@ def _get_db() -> Optional[DatabaseManager]:
         return _db
     if DatabaseManager is None:
         try:
-            logging.error("_get_db: DatabaseManager no disponible (import falló)")
+            logging.error("_get_db: DatabaseManager no disponible (import fallÃ³)")
         except Exception:
             pass
         return None
-    # Inicialización con bloqueo para evitar carreras entre hilos
+    # InicializaciÃ³n con bloqueo para evitar carreras entre hilos
     with _db_lock:
         if _db is not None:
             return _db
@@ -3328,7 +404,7 @@ def _get_db() -> Optional[DatabaseManager]:
         try:
             logging.debug("_get_db: inicializando DatabaseManager (lazy, locked)")
             _db = DatabaseManager()
-            # Opcional: crear índices de rendimiento de forma diferida y no bloqueante
+            # Opcional: crear Ã­ndices de rendimiento de forma diferida y no bloqueante
             try:
                 if hasattr(_db, 'ensure_indexes'):
                     import threading
@@ -3341,18 +417,18 @@ def _get_db() -> Optional[DatabaseManager]:
                                 _db.ensure_indexes()  # type: ignore
                             except Exception as ie:
                                 try:
-                                    _logging.exception(f"ensure_indexes diferido falló: {ie}")
+                                    _logging.exception(f"ensure_indexes diferido fallÃ³: {ie}")
                                 except Exception:
                                     pass
                         except Exception:
-                            # No bloquear la inicialización por errores aquí
+                            # No bloquear la inicializaciÃ³n por errores aquÃ­
                             pass
                     threading.Thread(target=_defer_ensure_indexes, daemon=True).start()
             except Exception:
-                # No bloquear la inicialización por errores al programar el hilo
+                # No bloquear la inicializaciÃ³n por errores al programar el hilo
                 pass
             try:
-                # Verificación ligera para asegurar que la conexión está saludable (con timeouts de lectura)
+                # VerificaciÃ³n ligera para asegurar que la conexiÃ³n estÃ¡ saludable (con timeouts de lectura)
                 with _db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor()
                     try:
@@ -3368,12 +444,12 @@ def _get_db() -> Optional[DatabaseManager]:
                             conn.rollback()
                         except Exception:
                             pass
-                logging.debug("_get_db: verificación SELECT 1 OK")
+                logging.debug("_get_db: verificaciÃ³n SELECT 1 OK")
             except Exception as e:
-                logging.exception(f"_get_db: verificación de conexión falló tras init: {e}")
-                # Invalidar si la verificación falla para permitir reintentos controlados
+                logging.exception(f"_get_db: verificaciÃ³n de conexiÃ³n fallÃ³ tras init: {e}")
+                # Invalidar si la verificaciÃ³n falla para permitir reintentos controlados
                 _db = None
-            # Prefetch asíncrono de credenciales del dueño para respuesta más rápida
+            # Prefetch asÃ­ncrono de credenciales del dueÃ±o para respuesta mÃ¡s rÃ¡pida
             try:
                 if _db is not None and hasattr(_db, 'prefetch_owner_credentials_async'):
                     _db.prefetch_owner_credentials_async(ttl_seconds=600)  # type: ignore
@@ -3384,7 +460,7 @@ def _get_db() -> Optional[DatabaseManager]:
                     logging.info("_get_db: DatabaseManager inicializado")
                 except Exception:
                     pass
-                # Seed inicial: si hay WEBAPP_OWNER_PASSWORD y la DB no tiene valor, guardarlo en configuración
+                # Seed inicial: si hay WEBAPP_OWNER_PASSWORD y la DB no tiene valor, guardarlo en configuraciÃ³n
                 try:
                     env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
                     if env_pwd and hasattr(_db, 'obtener_configuracion') and hasattr(_db, 'actualizar_configuracion'):
@@ -3416,7 +492,7 @@ def _get_db() -> Optional[DatabaseManager]:
     return _db
 
 
-# Guard sencillo para responder 503 cuando el Circuit Breaker esté abierto
+# Guard sencillo para responder 503 cuando el Circuit Breaker estÃ© abierto
 def _circuit_guard_json(db: DatabaseManager, endpoint: str = "") -> Optional[JSONResponse]:
     try:
         if hasattr(db, "is_circuit_open") and callable(getattr(db, "is_circuit_open")):
@@ -3449,7 +525,7 @@ def _force_db_init() -> Optional[DatabaseManager]:
     Se usa en el arranque y como reintento defensivo antes de devolver 500.
     """
     global _db, _db_initializing
-    # Log de parámetros de conexión (sin exponer credenciales)
+    # Log de parÃ¡metros de conexiÃ³n (sin exponer credenciales)
     def _redact_dsn(dsn: str) -> str:
         try:
             import re as _re
@@ -3469,7 +545,7 @@ def _force_db_init() -> Optional[DatabaseManager]:
         pass
     with _db_lock:
         try:
-            # Si ya está inicializado, devolverlo
+            # Si ya estÃ¡ inicializado, devolverlo
             if _db is not None:
                 return _db
             _db_initializing = True
@@ -3479,19 +555,19 @@ def _force_db_init() -> Optional[DatabaseManager]:
                     _db.ensure_indexes()  # type: ignore
             except Exception:
                 pass
-            # Verificación ligera de conexión para evitar estados a medio inicializar
+            # VerificaciÃ³n ligera de conexiÃ³n para evitar estados a medio inicializar
             try:
                 with _db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor()
                     cur.execute("SELECT 1")
                     _ = cur.fetchone()
                     try:
-                        logging.debug("_force_db_init: verificación SELECT 1 OK")
+                        logging.debug("_force_db_init: verificaciÃ³n SELECT 1 OK")
                     except Exception:
                         pass
             except Exception as e:
                 try:
-                    logging.exception(f"Verificación de DB tras inicializar falló: {e}")
+                    logging.exception(f"VerificaciÃ³n de DB tras inicializar fallÃ³: {e}")
                 except Exception:
                     pass
                 # Invalidar para que el caller pueda manejar el fallo
@@ -3520,16 +596,16 @@ async def _startup_init_db():
         if _get_db() is None:
             _force_db_init()
     except Exception:
-        # No bloquear el arranque; los endpoints intentarán reintentar
+        # No bloquear el arranque; los endpoints intentarÃ¡n reintentar
         pass
 
-# Inicio/apagado de motores externos de replicación retirado.
-# La replicación se administra desde el servidor PostgreSQL (publications/subscriptions).
+# Inicio/apagado de motores externos de replicaciÃ³n retirado.
+# La replicaciÃ³n se administra desde el servidor PostgreSQL (publications/subscriptions).
 
 
 def require_owner(request: Request):
     if not request.session.get("logged_in"):
-        raise HTTPException(status_code=401, detail="Acceso restringido al dueño")
+        raise HTTPException(status_code=401, detail="Acceso restringido al dueÃ±o")
     return True
 
 
@@ -3547,7 +623,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
             import time as _t
             while True:
                 try:
-                    # Liberar/limpiar el puerto si está ocupado por otro proceso
+                    # Liberar/limpiar el puerto si estÃ¡ ocupado por otro proceso
                     try:
                         for conn in psutil.net_connections(kind='inet'):
                             laddr = getattr(conn, 'laddr', None)
@@ -3565,7 +641,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                                             p.kill()
                                         except Exception:
                                             pass
-                        # pequeña espera para liberar el puerto completamente
+                        # pequeÃ±a espera para liberar el puerto completamente
                         _t.sleep(0.5)
                     except Exception:
                         pass
@@ -3589,19 +665,19 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                         proxy_headers=(os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")),
                     )
                     server = uvicorn.Server(config=config)
-                    # Desactivar instalación de manejadores de señales (no permitidos fuera del hilo principal)
+                    # Desactivar instalaciÃ³n de manejadores de seÃ±ales (no permitidos fuera del hilo principal)
                     try:
                         server.install_signal_handlers = lambda: None
                     except Exception:
                         pass
-                    # Crear explícitamente un event loop en este hilo y servir
+                    # Crear explÃ­citamente un event loop en este hilo y servir
                     try:
                         import asyncio as _asyncio
                         loop = _asyncio.new_event_loop()
                         _asyncio.set_event_loop(loop)
                         loop.run_until_complete(server.serve())
                     except Exception:
-                        # Fallback al modo síncrono
+                        # Fallback al modo sÃ­ncrono
                         server.run()
                 except Exception:
                     pass
@@ -3611,7 +687,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
         # En ejecutables congelados en Windows, preferir proceso separado para robustez
         try:
             # Importante: en ejecutables congelados en Windows, evitar multiprocessing.
-            # Usar siempre hilo dedicado para prevenir re-ejecución del binario (bucle de relanzamiento).
+            # Usar siempre hilo dedicado para prevenir re-ejecuciÃ³n del binario (bucle de relanzamiento).
             t = threading.Thread(target=_run, daemon=True)
             t.start()
         except Exception:
@@ -3625,11 +701,11 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
         pass
 
 
-# Callback global de reconexión del túnel público (LocalTunnel por defecto)
+# Callback global de reconexiÃ³n del tÃºnel pÃºblico (LocalTunnel por defecto)
 _public_tunnel_on_reconnect_cb: Optional[Callable[[str], None]] = None
 
 def set_public_tunnel_reconnect_callback(cb: Optional[Callable[[str], None]]):
-    """Registra callback de reconexión del túnel público."""
+    """Registra callback de reconexiÃ³n del tÃºnel pÃºblico."""
     global _public_tunnel_on_reconnect_cb
     _public_tunnel_on_reconnect_cb = cb
 
@@ -3638,7 +714,7 @@ def set_serveo_reconnect_callback(cb: Optional[Callable[[str], None]]):
     set_public_tunnel_reconnect_callback(cb)
 
 def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, on_reconnect: Optional[Callable[[str], None]] = None) -> Optional[str]:
-    """No-op de túnel público: devuelve la URL Railway configurada."""
+    """No-op de tÃºnel pÃºblico: devuelve la URL Railway configurada."""
     try:
         url = get_webapp_base_url()
         return url
@@ -3647,7 +723,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
     try:
         import shutil, subprocess, os, threading, re, webbrowser, time, socket
 
-        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel').
+        # SelecciÃ³n de proveedor centrado en LocalTunnel (default 'localtunnel').
         provider = str(os.getenv("TUNNEL_PROVIDER", "localtunnel")).strip().lower()
 
         # Localizar binario de SSH
@@ -3675,10 +751,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
         ssh_bin = _find_ssh()
         if not ssh_bin and provider != "localtunnel":
-            print("Cliente SSH no encontrado; no se puede iniciar túnel SSH")
+            print("Cliente SSH no encontrado; no se puede iniciar tÃºnel SSH")
             return None
 
-        # Esperar a que el servicio local esté escuchando
+        # Esperar a que el servicio local estÃ© escuchando
         try:
             deadline = time.time() + 15
             while time.time() < deadline:
@@ -3694,10 +770,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                 time.sleep(0.5)
         except Exception:
-            # Si falla la comprobación, continuamos igualmente
+            # Si falla la comprobaciÃ³n, continuamos igualmente
             pass
 
-        # Host y puerto SSH configurables para proveedores SSH genéricos
+        # Host y puerto SSH configurables para proveedores SSH genÃ©ricos
         ssh_host = os.getenv("PUBLIC_TUNNEL_SSH_HOST", "localhost.run").strip()
         ssh_port_env = os.getenv("PUBLIC_TUNNEL_SSH_PORT")
         ssh_port: int
@@ -3709,7 +785,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
         # Si no especificado por ENV, probar conectividad y usar 443 como fallback
         if ssh_port_env is None:
             if not _tcp_open(ssh_host, 22, 1.5):
-                # Intento rápido de 443
+                # Intento rÃ¡pido de 443
                 if _tcp_open(ssh_host, 443, 1.5):
                     ssh_port = 443
                 else:
@@ -3727,14 +803,14 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         # No hay conectividad saliente; continuar igualmente para que el supervisor reintente
                         ssh_port = 22
 
-        # Intento de permitir tráfico saliente de ssh.exe en Windows (no crítico, puede requerir admin)
+        # Intento de permitir trÃ¡fico saliente de ssh.exe en Windows (no crÃ­tico, puede requerir admin)
         _startupinfo = None
         try:
             if os.name == "nt":
                 _startupinfo = subprocess.STARTUPINFO()
                 _startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
                 try:
-                    # SW_HIDE para asegurar que la ventana esté oculta
+                    # SW_HIDE para asegurar que la ventana estÃ© oculta
                     _startupinfo.wShowWindow = 0
                 except Exception:
                     pass
@@ -3753,11 +829,11 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
         except Exception:
             pass
 
-        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel'). Sin fallback automático.
+        # SelecciÃ³n de proveedor centrado en LocalTunnel (default 'localtunnel'). Sin fallback automÃ¡tico.
         # Bandera de verbosidad SSH configurable
         ssh_verbose = str(os.getenv("PUBLIC_TUNNEL_SSH_VERBOSE", "0")).strip().lower() in ("1", "true", "yes")
 
-        # Helper para construir el comando SSH según proveedor y puerto actual
+        # Helper para construir el comando SSH segÃºn proveedor y puerto actual
         def _build_cmd() -> list:
             try:
                 if provider == "localtunnel":
@@ -3769,7 +845,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                     elif npx_bin:
                         base = [npx_bin, "localtunnel", "--port", str(local_port), "--subdomain", subdomain]
                     else:
-                        logging.warning("[Tunnel] LocalTunnel no disponible (no se encontró 'lt' ni 'npx').")
+                        logging.warning("[Tunnel] LocalTunnel no disponible (no se encontrÃ³ 'lt' ni 'npx').")
                         return []
                     try:
                         logging.info(f"[Tunnel] provider=localtunnel subdomain={subdomain} port={local_port}")
@@ -3777,7 +853,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                     return base
                 if provider == "localhost.run":
-                    # localhost.run: túnel HTTP gratuito (dominio aleatorio) con usuario opcional
+                    # localhost.run: tÃºnel HTTP gratuito (dominio aleatorio) con usuario opcional
                     lhr_user = str(os.getenv("LHR_SSH_USER", "nokey")).strip()
                     remote_spec = f"80:localhost:{local_port}"
                     host_spec = f"{lhr_user}@localhost.run" if lhr_user else "localhost.run"
@@ -3802,7 +878,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                     return base
                 else:
-                    # SSH genérico: sin soporte de subdominio explícito
+                    # SSH genÃ©rico: sin soporte de subdominio explÃ­cito
                     try:
                         logging.info(f"[Tunnel] provider=ssh remote=80:localhost:{local_port} host={ssh_host} port={ssh_port}")
                     except Exception:
@@ -3812,7 +888,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 # Fallback seguro en caso de error construyendo comando
                 return []
 
-        # Comando inicial según proveedor seleccionado
+        # Comando inicial segÃºn proveedor seleccionado
         cmd = _build_cmd()
 
         # Log del comando inicial
@@ -3823,7 +899,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
         attempt = 0
 
-        # Última URL pública detectada desde la salida del proveedor
+        # Ãšltima URL pÃºblica detectada desde la salida del proveedor
         last_public_url: Optional[str] = None
         # Contador de fallas para proveedores SSH
         ssh_failures = 0
@@ -3832,8 +908,8 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
             nonlocal ssh_port, attempt, provider, last_public_url, ssh_failures
             # Supervisor con backoff exponencial para reconectar si el proceso termina
             backoff = 2.0
-            max_backoff = 300.0  # 5 minutos máximo
-            # Estado para notificaciones de reconexión con anti-spam
+            max_backoff = 300.0  # 5 minutos mÃ¡ximo
+            # Estado para notificaciones de reconexiÃ³n con anti-spam
             first_start = True
             last_notify_ts = 0.0
             min_notify_interval = 90.0  # segundos
@@ -3869,7 +945,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         start_ts = time.time()
                     except Exception:
                         start_ts = 0.0
-                    # Notificar reconexión (si no es el primer arranque) con anti-spam
+                    # Notificar reconexiÃ³n (si no es el primer arranque) con anti-spam
                     cb = on_reconnect or _public_tunnel_on_reconnect_cb
                     if cb and not first_start:
                         now = time.time()
@@ -3877,10 +953,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                             last_notify_ts = now
                             try:
                                 cb(f"https://{subdomain}.loca.lt/")
-                                logging.info("[PublicTunnel] notificación de reconexión enviada")
+                                logging.info("[PublicTunnel] notificaciÃ³n de reconexiÃ³n enviada")
                             except Exception:
                                 pass
-                    # Parsear salida del proceso para capturar URL pública (LocalTunnel)
+                    # Parsear salida del proceso para capturar URL pÃºblica (LocalTunnel)
                     if p.stdout:
                         refused_pattern = re.compile(r"banner exchange:.*Connection refused", re.IGNORECASE)
                         url_pattern = re.compile(r"https://[^\s]+", re.IGNORECASE)
@@ -3892,7 +968,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                                         logging.info(f"[PublicTunnel][stdout] {ln}")
                                         if refused_pattern.search(ln):
                                             had_banner_refused = True
-                                        # Intentar capturar la URL pública impresa por el proveedor
+                                        # Intentar capturar la URL pÃºblica impresa por el proveedor
                                         murl = url_pattern.search(ln)
                                         if murl:
                                             last_public_url = murl.group(0)
@@ -3905,7 +981,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                             except Exception:
                                 pass
                             pass
-                    # Esperar a que el proceso termine (por desconexión o error)
+                    # Esperar a que el proceso termine (por desconexiÃ³n o error)
                     try:
                         p.wait()
                         try:
@@ -3917,16 +993,16 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 except Exception:
                     # Fallo al lanzar SSH, continuar con backoff
                     try:
-                        logging.error("[PublicTunnel] excepción al lanzar proceso", exc_info=True)
+                        logging.error("[PublicTunnel] excepciÃ³n al lanzar proceso", exc_info=True)
                     except Exception:
                         pass
                     pass
-                # Marcar que siguientes lanzamientos serán reconexiones
+                # Marcar que siguientes lanzamientos serÃ¡n reconexiones
                 try:
                     first_start = False
                 except Exception:
                     pass
-                # Si el proceso terminó muy rápido y estábamos en 22, probar 443 como siguiente intento (solo serveo)
+                # Si el proceso terminÃ³ muy rÃ¡pido y estÃ¡bamos en 22, probar 443 como siguiente intento (solo serveo)
                 # Sin alternancia de puertos ni fallback: centrado en LocalTunnel
                 try:
                     pass
@@ -3940,7 +1016,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 backoff = min(backoff * 2.0, max_backoff)
 
         threading.Thread(target=_run, daemon=True).start()
-        # Retornar última URL pública detectada si existe; de lo contrario, URL por defecto según proveedor
+        # Retornar Ãºltima URL pÃºblica detectada si existe; de lo contrario, URL por defecto segÃºn proveedor
         try:
             if last_public_url:
                 return last_public_url
@@ -3962,7 +1038,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
 @app.get("/")
 async def root_selector(request: Request):
-    """Página de selección: Dashboard (lleva a login) o Check-in."""
+    """PÃ¡gina de selecciÃ³n: Dashboard (lleva a login) o Check-in."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
         "request": request,
@@ -3976,13 +1052,13 @@ async def root_selector(request: Request):
 async def tunnel_password():
     """Endpoint legado deshabilitado.
 
-    En configuración Railway no hay contraseña de túnel.
+    En configuraciÃ³n Railway no hay contraseÃ±a de tÃºnel.
     """
     return JSONResponse({"password": None, "ok": False})
 
 @app.get("/login")
 async def login_page_get(request: Request):
-    """Muestra el formulario de login del dueño."""
+    """Muestra el formulario de login del dueÃ±o."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
         "request": request,
@@ -4007,20 +1083,20 @@ async def do_login(request: Request):
     if not password:
         return RedirectResponse(url="/?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
     ok = False
-    # Contraseña única: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como último recurso)
+    # ContraseÃ±a Ãºnica: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como Ãºltimo recurso)
     if password == _get_password():
         ok = True
-    # Nota: Se ha eliminado el uso del PIN del dueño para autenticación web
+    # Nota: Se ha eliminado el uso del PIN del dueÃ±o para autenticaciÃ³n web
     if ok:
         request.session["logged_in"] = True
-        request.session["role"] = "dueño"
+        request.session["role"] = "dueÃ±o"
         return RedirectResponse(url="/dashboard", status_code=303)
     return RedirectResponse(url="/?error=Credenciales%20inv%C3%A1lidas", status_code=303)
 
 
 @app.post("/logout")
 async def do_logout(request: Request, _=Depends(require_owner)):
-    # Limpiar sesión y redirigir al login para evitar quedarse en una página JSON
+    # Limpiar sesiÃ³n y redirigir al login para evitar quedarse en una pÃ¡gina JSON
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
 
@@ -4030,11 +1106,11 @@ async def logout_get(request: Request):
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
 
-# --- Endpoint admin para actualizar la contraseña del dueño ---
+# --- Endpoint admin para actualizar la contraseÃ±a del dueÃ±o ---
 @app.post("/api/admin/owner-password")
 async def set_owner_password(request: Request):
     """
-    Actualiza la contraseña del dueño en la base de datos.
+    Actualiza la contraseÃ±a del dueÃ±o en la base de datos.
     Acceso restringido exclusivamente mediante DEV_PASSWORD.
     """
     try:
@@ -4051,9 +1127,9 @@ async def set_owner_password(request: Request):
     new_pwd = str(data.get("new_password", "")).strip()
 
     if not dev_pwd or not new_pwd:
-        return JSONResponse({"success": False, "message": "Parámetros inválidos"}, status_code=400)
+        return JSONResponse({"success": False, "message": "ParÃ¡metros invÃ¡lidos"}, status_code=400)
     if len(new_pwd) < 4:
-        return JSONResponse({"success": False, "message": "La nueva contraseña debe tener al menos 4 caracteres"}, status_code=400)
+        return JSONResponse({"success": False, "message": "La nueva contraseÃ±a debe tener al menos 4 caracteres"}, status_code=400)
 
     # Resolver DEV_PASSWORD real
     real_dev = None
@@ -4069,7 +1145,7 @@ async def set_owner_password(request: Request):
         except Exception:
             real_dev = None
     if not real_dev:
-        # Último intento: variable de entorno
+        # Ãšltimo intento: variable de entorno
         real_dev = os.getenv("DEV_PASSWORD", "").strip()
 
     if not real_dev or dev_pwd != real_dev:
@@ -4084,7 +1160,7 @@ async def set_owner_password(request: Request):
         if hasattr(db, 'actualizar_configuracion'):
             ok = bool(db.actualizar_configuracion('owner_password', new_pwd))  # type: ignore
         else:
-            # Fallback SQL directo si el método no existe
+            # Fallback SQL directo si el mÃ©todo no existe
             with db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
                 # Crear tabla/config si fuera necesario (idempotente)
@@ -4108,14 +1184,14 @@ async def set_owner_password(request: Request):
                 conn.commit()
                 ok = True
         if ok:
-            # Refrescar caché si existe
+            # Refrescar cachÃ© si existe
             try:
                 if hasattr(db, 'prefetch_owner_credentials_async'):
                     db.prefetch_owner_credentials_async(ttl_seconds=0)  # type: ignore
             except Exception:
                 pass
-            return JSONResponse({"success": True, "message": "Contraseña actualizada"})
-        return JSONResponse({"success": False, "message": "No se pudo actualizar la contraseña"}, status_code=500)
+            return JSONResponse({"success": True, "message": "ContraseÃ±a actualizada"})
+        return JSONResponse({"success": False, "message": "No se pudo actualizar la contraseÃ±a"}, status_code=500)
     except Exception as e:
         try:
             logging.exception("Error en /api/admin/owner-password")
@@ -4126,7 +1202,7 @@ async def set_owner_password(request: Request):
 
 @app.get("/dashboard")
 async def dashboard(request: Request):
-    # Redirigir a login si no hay sesión activa
+    # Redirigir a login si no hay sesiÃ³n activa
     if not request.session.get("logged_in"):
         return RedirectResponse(url="/", status_code=303)
     theme_vars = read_theme_vars(static_dir / "style.css")
@@ -4170,7 +1246,7 @@ async def api_kpis(_=Depends(require_owner)):
 async def api_ingresos12m(request: Request, _=Depends(require_owner)):
     db = _get_db()
     result: Dict[str, float] = {}
-    # Sin DB no podemos calcular; devolvemos estructura vacía
+    # Sin DB no podemos calcular; devolvemos estructura vacÃ­a
     if db is None:
         return {"ingresos": result}
     guard = _circuit_guard_json(db, "/api/ingresos12m")
@@ -4188,10 +1264,10 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                     WITH bounds AS (
                       SELECT date_trunc('month', %s::date) AS s, date_trunc('month', %s::date) AS e
                     )
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS total
                     FROM pagos p, bounds b
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -4200,10 +1276,10 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
             else:
                 cur.execute(
                     """
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS total
                     FROM pagos p
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) 
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) 
                           >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
                     GROUP BY 1
                     ORDER BY 1
@@ -4211,7 +1287,7 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                 )
             rows = cur.fetchall() or []
 
-        # Construir base del rango solicitado o últimos 12 meses y completar faltantes
+        # Construir base del rango solicitado o Ãºltimos 12 meses y completar faltantes
         try:
             from datetime import datetime as dt, date, timedelta
             base: Dict[str, float] = {}
@@ -4233,7 +1309,7 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                 base[ym] = float(r.get('total') or 0.0)
             result = dict(sorted(base.items()))
         except Exception:
-            # Si algo falla en el relleno, devolvemos la agregación tal cual
+            # Si algo falla en el relleno, devolvemos la agregaciÃ³n tal cual
             result = {str(r.get('ym')): float(r.get('total') or 0.0) for r in rows}
         return {"ingresos": result}
     except Exception as e:
@@ -4261,11 +1337,11 @@ async def api_nuevos12m(request: Request, _=Depends(require_owner)):
                 fin = datetime.strptime(end, "%Y-%m-%d").date()
                 result = db.obtener_nuevos_usuarios_por_mes_rango(inicio, fin)  # type: ignore
             except Exception:
-                # Si el rango no es válido, usar últimos 12 meses
+                # Si el rango no es vÃ¡lido, usar Ãºltimos 12 meses
                 result = db.obtener_nuevos_usuarios_por_mes_ultimos_12()  # type: ignore
         else:
             result = db.obtener_nuevos_usuarios_por_mes_ultimos_12()  # type: ignore
-        # Rellenar meses faltantes con 0 para evitar gráficos vacíos
+        # Rellenar meses faltantes con 0 para evitar grÃ¡ficos vacÃ­os
         try:
             from datetime import date, timedelta
             base: Dict[str, int] = {}
@@ -4303,11 +1379,11 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
                     WITH bounds AS (
                       SELECT date_trunc('month', %s::date) AS s, date_trunc('month', %s::date) AS e
                     )
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS ingresos,
                            COUNT(DISTINCT p.usuario_id) AS pagadores
                     FROM pagos p, bounds b
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -4316,11 +1392,11 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
             else:
                 cur.execute(
                     """
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS ingresos,
                            COUNT(DISTINCT p.usuario_id) AS pagadores
                     FROM pagos p
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) 
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) 
                           >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
                     GROUP BY 1
                     ORDER BY 1
@@ -4328,7 +1404,7 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
                 )
             rows = cur.fetchall() or []
 
-        # Construir base del rango solicitado o últimos 12 meses y completar faltantes
+        # Construir base del rango solicitado o Ãºltimos 12 meses y completar faltantes
         try:
             from datetime import datetime as dt, date, timedelta
             base: Dict[str, float] = {}
@@ -4365,10 +1441,10 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# --- Check-in inverso por QR (público para socios) ---
+# --- Check-in inverso por QR (pÃºblico para socios) ---
 @app.get("/checkin")
 async def checkin_page(request: Request):
-    """Página pública de check-in para socios: autenticación por DNI+teléfono y lector de QR."""
+    """PÃ¡gina pÃºblica de check-in para socios: autenticaciÃ³n por DNI+telÃ©fono y lector de QR."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     autenticado = bool(request.session.get("checkin_user_id"))
     socio_info = {}
@@ -4415,7 +1491,7 @@ async def checkin_page(request: Request):
 
 @app.get("/checkin/logout")
 async def checkin_logout(request: Request):
-    # Logout específico del flujo de check-in: limpia solo la sesión de socio y vuelve a /checkin
+    # Logout especÃ­fico del flujo de check-in: limpia solo la sesiÃ³n de socio y vuelve a /checkin
     try:
         if "checkin_user_id" in request.session:
             request.session.pop("checkin_user_id", None)
@@ -4426,7 +1502,7 @@ async def checkin_logout(request: Request):
 
 @app.post("/checkin/auth")
 async def checkin_auth(request: Request):
-    """Autentica al socio por DNI y teléfono (ambos numéricos) y guarda la sesión de check-in."""
+    """Autentica al socio por DNI y telÃ©fono (ambos numÃ©ricos) y guarda la sesiÃ³n de check-in."""
     rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
     db = _get_db()
     if db is None:
@@ -4437,7 +1513,7 @@ async def checkin_auth(request: Request):
         db = _force_db_init()
         if db is None:
             try:
-                logging.error(f"/checkin/auth: _force_db_init falló rid={rid}")
+                logging.error(f"/checkin/auth: _force_db_init fallÃ³ rid={rid}")
             except Exception:
                 pass
             return JSONResponse({"success": False, "message": "Base de datos no disponible"}, status_code=500)
@@ -4456,27 +1532,27 @@ async def checkin_auth(request: Request):
             data = {}
     dni = str(data.get("dni", "")).strip()
     telefono = str(data.get("telefono", "")).strip()
-    # Normalizar: solo dígitos
+    # Normalizar: solo dÃ­gitos
     import re
     dni_num = re.sub(r"\D+", "", dni)
     tel_num = re.sub(r"\D+", "", telefono)
     if not dni_num or not tel_num:
         try:
-            logging.info(f"/checkin/auth: input inválido rid={rid} dni_len={len(dni)} tel_len={len(telefono)}")
+            logging.info(f"/checkin/auth: input invÃ¡lido rid={rid} dni_len={len(dni)} tel_len={len(telefono)}")
         except Exception:
             pass
-        return JSONResponse({"success": False, "message": "Ingrese DNI y teléfono válidos"}, status_code=400)
+        return JSONResponse({"success": False, "message": "Ingrese DNI y telÃ©fono vÃ¡lidos"}, status_code=400)
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Preparar variantes del teléfono para permitir coincidencias flexibles
+            # Preparar variantes del telÃ©fono para permitir coincidencias flexibles
             tel_like = f"%{tel_num}"
             tel_last10 = tel_num[-10:] if len(tel_num) >= 10 else tel_num
             try:
                 logging.debug(f"/checkin/auth: consultando usuario por dni={dni_num} tel={tel_num} tel_last10={tel_last10} rid={rid}")
             except Exception:
                 pass
-            # Comparar por equivalencia de dígitos para soportar formatos (+54, 0-prefijo, espacios, guiones)
+            # Comparar por equivalencia de dÃ­gitos para soportar formatos (+54, 0-prefijo, espacios, guiones)
             cur.execute(
                 """
                 SELECT id FROM usuarios
@@ -4498,10 +1574,10 @@ async def checkin_auth(request: Request):
             if not row:
                 # Evitar 404 para no confundir con ruta inexistente
                 try:
-                    logging.info(f"/checkin/auth: credenciales inválidas rid={rid}")
+                    logging.info(f"/checkin/auth: credenciales invÃ¡lidas rid={rid}")
                 except Exception:
                     pass
-                return JSONResponse({"success": False, "message": "Credenciales inválidas"}, status_code=200)
+                return JSONResponse({"success": False, "message": "Credenciales invÃ¡lidas"}, status_code=200)
             user_id = int(row[0])
             request.session["checkin_user_id"] = user_id
             try:
@@ -4543,11 +1619,11 @@ async def api_checkin_validate(request: Request):
         except Exception:
             pass
         if not socio_id:
-            return JSONResponse({"success": False, "message": "Sesión de socio no encontrada"}, status_code=401)
-        # Orden de parámetros: (token, socio_id)
+            return JSONResponse({"success": False, "message": "SesiÃ³n de socio no encontrada"}, status_code=401)
+        # Orden de parÃ¡metros: (token, socio_id)
         ok, msg = db.validar_token_y_registrar_asistencia(token, int(socio_id))  # type: ignore
         status = 200 if ok else 400
-        # Señal explícita: marcar 'used' en checkin_pending para robustecer el polling del escritorio
+        # SeÃ±al explÃ­cita: marcar 'used' en checkin_pending para robustecer el polling del escritorio
         if ok:
             try:
                 with db.get_connection_context() as conn:  # type: ignore
@@ -4575,7 +1651,7 @@ async def api_checkin_token_status(request: Request):
 
     Criterio de 'used': se considera usado si el flag en checkin_pending es TRUE
     o si ya existe una asistencia para el usuario en la fecha actual.
-    Esto hace el polling del escritorio más robusto ante posibles desincronizaciones.
+    Esto hace el polling del escritorio mÃ¡s robusto ante posibles desincronizaciones.
     """
     rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
     db = _get_db()
@@ -4599,7 +1675,7 @@ async def api_checkin_token_status(request: Request):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Obtener también usuario_id para verificar asistencia del día
+            # Obtener tambiÃ©n usuario_id para verificar asistencia del dÃ­a
             cur.execute("SELECT usuario_id, used, expires_at FROM checkin_pending WHERE token = %s LIMIT 1", (token,))
             row = cur.fetchone()
             if not row:
@@ -4654,14 +1730,14 @@ async def api_asistencia_30d(request: Request, _=Depends(require_owner)):
     try:
         start = request.query_params.get("start")
         end = request.query_params.get("end")
-        # Delegar a backend: nueva función agregada para consistencia de esquema
+        # Delegar a backend: nueva funciÃ³n agregada para consistencia de esquema
         if start and end:
             data = db.obtener_asistencias_por_rango_diario(start, end)  # type: ignore
         else:
             data = db.obtener_asistencias_por_dia(30)  # type: ignore
         for d, c in (data or []):
             series[str(d)] = int(c or 0)
-        # Rellenar días faltantes con 0 para últimos 30 días
+        # Rellenar dÃ­as faltantes con 0 para Ãºltimos 30 dÃ­as
         try:
             from datetime import date, timedelta
             base: Dict[str, int] = {}
@@ -4688,7 +1764,7 @@ async def api_asistencia_por_hora_30d(request: Request, _=Depends(require_owner)
     try:
         start = request.query_params.get("start")
         end = request.query_params.get("end")
-        # Delegar a backend: función agregada que agrupa por hora usando hora_registro
+        # Delegar a backend: funciÃ³n agregada que agrupa por hora usando hora_registro
         if start and end:
             data = db.obtener_asistencias_por_hora_rango(start, end)  # type: ignore
         else:
@@ -4752,7 +1828,7 @@ async def api_tipos_cuota(_=Depends(require_owner)):
             def normalize_label(label: str) -> str:
                 s = (label or 'Sin tipo').strip().lower()
                 replacements = {
-                    'estandar': 'Estándar', 'estándar': 'Estándar', 'standard': 'Estándar',
+                    'estandar': 'EstÃ¡ndar', 'estÃ¡ndar': 'EstÃ¡ndar', 'standard': 'EstÃ¡ndar',
                     'sin tipo': 'Sin tipo',
                     'mensualidad': 'Mensual', 'mensual': 'Mensual',
                 }
@@ -4792,7 +1868,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
     if guard:
         return guard
     try:
-        # Fechas clave y métricas utilizando métodos existentes del backend
+        # Fechas clave y mÃ©tricas utilizando mÃ©todos existentes del backend
         from datetime import timedelta
         hoy = datetime.now().date()
         primer_dia_mes = hoy.replace(day=1)
@@ -4804,7 +1880,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         ing_ant = float(db.calcular_ingresos_totales(primer_dia_mes_anterior, fin_mes_anterior) or 0.0)  # type: ignore
         kpis['revenue_growth'] = ((ing_act - ing_ant) / ing_ant * 100.0) if ing_ant > 0 else 0.0
 
-        # Pagadores en el mes actual (roles socio/profesor, robusto a fecha/año-mes)
+        # Pagadores en el mes actual (roles socio/profesor, robusto a fecha/aÃ±o-mes)
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
             cur.execute(
@@ -4814,13 +1890,13 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
                 JOIN pagos p ON p.usuario_id = u.id
                 WHERE u.activo = TRUE
                   AND LOWER(COALESCE(u.rol,'')) IN ('socio','profesor')
-                  AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
+                  AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
                 """
             )
             row = cur.fetchone()
             pagadores_mes = int(row[0] if row and row[0] is not None else 0)
 
-        # Lista de pagos del mes actual para métricas de retención
+        # Lista de pagos del mes actual para mÃ©tricas de retenciÃ³n
         pagos_mes = db.obtener_pagos_por_fecha(primer_dia_mes, hoy) or []  # type: ignore
 
         # Usuarios activos totales desde KPIs generales
@@ -4839,14 +1915,14 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         usuarios_12m = len({p.get('usuario_id') for p in pagos_12m if isinstance(p, dict)})
         kpis['ltv_12m'] = (total_12m / usuarios_12m) if usuarios_12m > 0 else 0.0
 
-        # Retención vs mes anterior
+        # RetenciÃ³n vs mes anterior
         pagos_mes_ant = db.obtener_pagos_por_fecha(primer_dia_mes_anterior, fin_mes_anterior) or []  # type: ignore
         set_act = {p.get('usuario_id') for p in pagos_mes if isinstance(p, dict)}
         set_ant = {p.get('usuario_id') for p in pagos_mes_ant if isinstance(p, dict)}
         kpis['retention_rate'] = (len(set_act & set_ant) / len(set_ant) * 100.0) if len(set_ant) > 0 else 0.0
         kpis['churn_rate'] = 100.0 - kpis['retention_rate']
 
-        # Asistencias últimos 30 días para promedio y hora pico
+        # Asistencias Ãºltimos 30 dÃ­as para promedio y hora pico
         asist_30 = db.obtener_asistencias_por_fecha_limite(hoy - timedelta(days=30)) or []  # type: ignore
         from collections import Counter
         dias_conteo = Counter()
@@ -4870,7 +1946,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         else:
             kpis['peak_hour'] = 'N/A'
 
-        # Usuarios activos semanales por asistencias últimos 7 días
+        # Usuarios activos semanales por asistencias Ãºltimos 7 dÃ­as
         asist_7 = db.obtener_asistencias_por_fecha_limite(hoy - timedelta(days=7)) or []  # type: ignore
         kpis['weekly_active_users'] = len({a.get('usuario_id') for a in asist_7})
 
@@ -4881,7 +1957,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
 
 @app.get("/api/cohort_retencion_6m")
 async def api_cohort_retencion_6m(_=Depends(require_owner)):
-    """Retención por cohorte de registro (últimos 6 meses): % del cohorte que pagó este mes."""
+    """RetenciÃ³n por cohorte de registro (Ãºltimos 6 meses): % del cohorte que pagÃ³ este mes."""
     db = _get_db()
     result: Dict[str, float] = {}
     if db is None:
@@ -4896,13 +1972,13 @@ async def api_cohort_retencion_6m(_=Depends(require_owner)):
                        SUM(CASE WHEN EXISTS (
                            SELECT 1 FROM pagos p
                            WHERE p.usuario_id = u.id
-                             AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
+                             AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
                        ) THEN 1 ELSE 0 END) AS retenidos
                 FROM usuarios u
                 WHERE u.fecha_registro IS NOT NULL
                   AND date_trunc('month', u.fecha_registro) >= date_trunc('month', CURRENT_DATE) - INTERVAL '5 months'
                   AND u.activo = true
-                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
+                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
                 GROUP BY 1
                 ORDER BY 1
                 """
@@ -4917,8 +1993,8 @@ async def api_cohort_retencion_6m(_=Depends(require_owner)):
 
 @app.get("/api/cohort_retencion_heatmap")
 async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)):
-    """Matriz de retención por cohorte (registro) vs mes de pago.
-    Devuelve { months: [...], cohorts: [...], matrix: [[%...], ...] } para últimos N meses.
+    """Matriz de retenciÃ³n por cohorte (registro) vs mes de pago.
+    Devuelve { months: [...], cohorts: [...], matrix: [[%...], ...] } para Ãºltimos N meses.
     """
     db = _get_db()
     res: Dict[str, Any] = { 'months': [], 'cohorts': [], 'matrix': [] }
@@ -4928,17 +2004,17 @@ async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Lista de meses (YYYY-MM) para los últimos N meses
+            # Lista de meses (YYYY-MM) para los Ãºltimos N meses
             cur.execute("SELECT to_char(date_trunc('month', CURRENT_DATE) - s * INTERVAL '1 month', 'YYYY-MM') FROM generate_series(0,%s) s ORDER BY 1", (months-1,))
             months_list = [row[0] for row in cur.fetchall()]
             cohorts = months_list
             matrix: list[list[float]] = []
             for coh in cohorts:
-                # Tamaño de cohorte
+                # TamaÃ±o de cohorte
                 cur.execute("""
                     SELECT COUNT(*) FROM usuarios u
                     WHERE u.activo = true AND u.fecha_registro IS NOT NULL
-                      AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
+                      AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
                       AND to_char(date_trunc('month', u.fecha_registro), 'YYYY-MM') = %s
                 """, (coh,))
                 cohort_size = int(cur.fetchone()[0] or 0)
@@ -4948,12 +2024,12 @@ async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)
                     cur.execute("""
                         SELECT COUNT(*) FROM usuarios u
                         WHERE u.activo = true AND u.fecha_registro IS NOT NULL
-                          AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
+                          AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
                           AND to_char(date_trunc('month', u.fecha_registro), 'YYYY-MM') = %s
                           AND EXISTS (
                             SELECT 1 FROM pagos p
                             WHERE p.usuario_id = u.id
-                              AND to_char(date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))), 'YYYY-MM') = %s
+                              AND to_char(date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))), 'YYYY-MM') = %s
                           )
                     """, (coh, m))
                     retained = int(cur.fetchone()[0] or 0)
@@ -4979,27 +2055,27 @@ async def api_arpa_por_tipo_cuota(_=Depends(require_owner)):
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
             def norm(label: str) -> str:
-                s = (label or '—').strip().lower()
+                s = (label or 'â€”').strip().lower()
                 replacements = {
-                    'estandar': 'Estándar', 'estándar': 'Estándar', 'standard': 'Estándar',
+                    'estandar': 'EstÃ¡ndar', 'estÃ¡ndar': 'EstÃ¡ndar', 'standard': 'EstÃ¡ndar',
                     'estudiante': 'Estudiante', 'student': 'Estudiante',
                     'funcional': 'Funcional', 'functional': 'Funcional',
                 }
                 return replacements.get(s, s.title())
             cur.execute(
                 """
-                SELECT COALESCE(tc.nombre, CAST(u.tipo_cuota AS TEXT), '—') AS tipo,
+                SELECT COALESCE(tc.nombre, CAST(u.tipo_cuota AS TEXT), 'â€”') AS tipo,
                        COALESCE(SUM(CASE WHEN date_trunc('month',
                            CASE
                                WHEN p.fecha_pago IS NOT NULL THEN p.fecha_pago
-                               WHEN p.año IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.año, p.mes, 1)
+                               WHEN p.aÃ±o IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.aÃ±o, p.mes, 1)
                                ELSE NULL
                            END
                        ) = date_trunc('month', CURRENT_DATE) THEN p.monto END), 0) AS monto_mes,
                        COUNT(DISTINCT CASE WHEN date_trunc('month',
                            CASE
                                WHEN p.fecha_pago IS NOT NULL THEN p.fecha_pago
-                               WHEN p.año IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.año, p.mes, 1)
+                               WHEN p.aÃ±o IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.aÃ±o, p.mes, 1)
                                ELSE NULL
                            END
                        ) = date_trunc('month', CURRENT_DATE) THEN u.id END) AS pagadores_mes
@@ -5010,7 +2086,7 @@ async def api_arpa_por_tipo_cuota(_=Depends(require_owner)):
                   ON (CAST(u.tipo_cuota AS TEXT) = tc.nombre)
                   OR (CAST(u.tipo_cuota AS TEXT) = CAST(tc.id AS TEXT))
                 WHERE u.activo = true
-                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
+                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
                 GROUP BY 1
                 """
             )
@@ -5070,11 +2146,11 @@ async def api_payment_status_dist(_=Depends(require_owner)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# --- Tablas detalladas para subpestañas ---
+# --- Tablas detalladas para subpestaÃ±as ---
 
 @app.get("/api/usuarios_detalle")
 async def api_usuarios_detalle(_=Depends(require_owner)):
-    """Detalle de usuarios con métricas reales: pagos y asistencias."""
+    """Detalle de usuarios con mÃ©tricas reales: pagos y asistencias."""
     db = _get_db()
     if db is None:
         return []
@@ -5139,9 +2215,9 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
     """Detalle de profesores con contacto y horarios/sesiones reales.
 
     Devuelve por profesor:
-    - Datos de contacto (nombre, email, teléfono)
+    - Datos de contacto (nombre, email, telÃ©fono)
     - Cantidad de horarios de disponibilidad (activos)
-    - Resumen de horarios (día, hora_inicio, hora_fin)
+    - Resumen de horarios (dÃ­a, hora_inicio, hora_fin)
     - Sesiones del mes actual y horas trabajadas reales
     """
     print("DEBUG: top-level entry in /api/profesores_detalle")
@@ -5151,11 +2227,11 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Mes/año actuales para métricas de sesiones reales
-            # Rango opcional (start/end) para sesiones/horas; si no se envía, usa mes actual
+            # Mes/aÃ±o actuales para mÃ©tricas de sesiones reales
+            # Rango opcional (start/end) para sesiones/horas; si no se envÃ­a, usa mes actual
             start = request.query_params.get("start")
             end = request.query_params.get("end")
-            # Normalizar parámetros vacíos a None para evitar BETWEEN con cadenas vacías
+            # Normalizar parÃ¡metros vacÃ­os a None para evitar BETWEEN con cadenas vacÃ­as
             if not start or (isinstance(start, str) and start.strip() == ""):
                 start = None
             if not end or (isinstance(end, str) and end.strip() == ""):
@@ -5281,8 +2357,8 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
 async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
     """Lista de sesiones trabajadas por un profesor, opcionalmente por rango.
 
-    Devuelve datos reales y completos por sesión obtenidos directamente del backend
-    (database.py) sin cálculos en la web: fecha, inicio, fin, minutos, horas,
+    Devuelve datos reales y completos por sesiÃ³n obtenidos directamente del backend
+    (database.py) sin cÃ¡lculos en la web: fecha, inicio, fin, minutos, horas,
     clase (si existe) y tipo de actividad.
     """
     db = _get_db()
@@ -5311,7 +2387,7 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
             if end:
                 fecha_fin = datetime.strptime(end, "%Y-%m-%d").date()
         except Exception:
-            # Si las fechas no son válidas, se ignoran y se usa mes actual dentro del backend
+            # Si las fechas no son vÃ¡lidas, se ignoran y se usa mes actual dentro del backend
             fecha_inicio = None
             fecha_fin = None
 
@@ -5361,7 +2437,7 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/usuario_pagos")
 async def api_usuario_pagos(request: Request, _=Depends(require_owner)):
-    """Lista de pagos reales de un usuario con soporte de búsqueda y paginación."""
+    """Lista de pagos reales de un usuario con soporte de bÃºsqueda y paginaciÃ³n."""
     db = _get_db()
     if db is None:
         return []
@@ -5413,7 +2489,7 @@ async def api_usuario_pagos(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/usuario_asistencias")
 async def api_usuario_asistencias(request: Request, _=Depends(require_owner)):
-    """Lista de asistencias reales de un usuario con soporte de búsqueda y paginación."""
+    """Lista de asistencias reales de un usuario con soporte de bÃºsqueda y paginaciÃ³n."""
     db = _get_db()
     if db is None:
         return []
@@ -5465,7 +2541,7 @@ async def api_usuario_asistencias(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/asistencias_detalle")
 async def api_asistencias_detalle(request: Request, _=Depends(require_owner)):
-    """Listado de asistencias con nombre del usuario para un rango de fechas (por defecto últimos 30 días), con búsqueda y paginación."""
+    """Listado de asistencias con nombre del usuario para un rango de fechas (por defecto Ãºltimos 30 dÃ­as), con bÃºsqueda y paginaciÃ³n."""
     db = _get_db()
     if db is None:
         return []
@@ -5547,7 +2623,7 @@ async def api_asistencias_detalle(request: Request, _=Depends(require_owner)):
 @app.get("/api/export")
 async def api_export(_=Depends(require_owner)):
     # Exporta CSV de KPIs visibles en el dashboard
-    rows: list[list[Any]] = [["Métrica", "Valor"]]
+    rows: list[list[Any]] = [["MÃ©trica", "Valor"]]
     try:
         kpis = await api_kpis()  # type: ignore
         if isinstance(kpis, dict) and 'kpis' in kpis:
@@ -5568,10 +2644,10 @@ async def api_export(_=Depends(require_owner)):
     buf.seek(0)
     return JSONResponse({"csv": buf.getvalue()})
 
-# --- Exportación completa en ZIP con múltiples CSVs ---
+# --- ExportaciÃ³n completa en ZIP con mÃºltiples CSVs ---
 @app.get("/api/export_csv")
 async def api_export_csv(request: Request, _=Depends(require_owner)):
-    """Genera un ZIP con múltiples CSVs del dashboard aplicando filtros actuales.
+    """Genera un ZIP con mÃºltiples CSVs del dashboard aplicando filtros actuales.
 
     Incluye:
     - kpis.csv: KPIs generales
@@ -5608,7 +2684,7 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
     # 1) KPIs
     try:
         k = await api_kpis()  # type: ignore
-        kpis_rows = [["Métrica", "Valor"]]
+        kpis_rows = [["MÃ©trica", "Valor"]]
         if isinstance(k, dict) and 'kpis' in k:
             kpis_rows += [
                 ["Socios activos", k['kpis'].get('total_activos', 0)],
@@ -5684,7 +2760,7 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
                     (start, end)
                 )
             else:
-                # Últimos 30 días por defecto
+                # Ãšltimos 30 dÃ­as por defecto
                 cur.execute(
                     """
                     SELECT a.fecha::date, a.hora_registro, u.nombre
@@ -5818,7 +2894,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
 
     - Trabajadas: suma de `minutos_totales` de sesiones cerradas en el rango.
     - Proyectadas: suma de minutos desde `horarios_profesores` (disponibilidades activas)
-      por cada día del rango, contando ocurrencias por día de semana. No depende de clases.
+      por cada dÃ­a del rango, contando ocurrencias por dÃ­a de semana. No depende de clases.
     - Extras: trabajadas - proyectadas.
     """
     db = _get_db()
@@ -5867,7 +2943,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
                 end_date = datetime.strptime(end, "%Y-%m-%d").date()
             except Exception:
                 start_date = date(now.year, now.month, 1)
-                # último día del mes
+                # Ãºltimo dÃ­a del mes
                 if now.month == 12:
                     end_date = date(now.year, 12, 31)
                 else:
@@ -5898,7 +2974,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
             min_trabajados = int(r[0] or 0)
             total_sesiones = int(r[1] or 0)
 
-        # 2) Minutos proyectados: cálculo centralizado en database.py (no depende de clases)
+        # 2) Minutos proyectados: cÃ¡lculo centralizado en database.py (no depende de clases)
         min_proyectados = 0
         try:
             if hasattr(db, 'obtener_minutos_proyectados_profesor_rango'):
