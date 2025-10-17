@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """
-Reconciliación segura local→remoto para tablas específicas con desfase.
+Reconciliación segura remoto→local para tablas específicas con desfase.
 
 Pasos:
 - DESHABILITA la suscripción local (por defecto 'gym_sub') para evitar conflictos.
-- Detecta filas presentes en local y ausentes en remoto (por PK simple).
-- Inserta esas filas en remoto.
+- Detecta filas presentes en REMOTO y ausentes en LOCAL (por PK simple).
+- Inserta esas filas en local.
 - VUELVE A HABILITAR la suscripción.
 - Muestra un resumen.
 
 Limitaciones:
-- Sólo soporta PK de una columna (común en tablas objetivo). Si detecta PK compuesta, salta la tabla.
+- Sólo soporta PK de una columna.
 
 Uso:
-  python scripts/reconcile_local_remote_once.py --dry-run
-  python scripts/reconcile_local_remote_once.py --subscription gym_sub --tables usuarios audit_logs whatsapp_config whatsapp_messages
+  python scripts/reconcile_remote_to_local_once.py --tables whatsapp_config
 
 Config:
 - Usa primero DSNs de entorno si existen: DATABASE_URL_LOCAL y DATABASE_URL_REMOTE.
 - Si no, lee config/config.json perfiles 'db_local' y 'db_remote'.
-- Para contraseñas no incluidas en config, puede usar entorno (DB_LOCAL_PASSWORD / DB_REMOTE_PASSWORD) o keyring si está disponible.
 """
 import os
-import sys
 import json
 from pathlib import Path
 from typing import List, Tuple
@@ -32,10 +29,7 @@ import psycopg2.extras
 from psycopg2 import sql
 
 DEFAULT_TABLES = [
-    'usuarios',
-    'audit_logs',
     'whatsapp_config',
-    'whatsapp_messages',
 ]
 
 
@@ -49,13 +43,10 @@ def load_config() -> dict:
 
 
 def build_conn_params(profile: str, cfg: dict) -> dict:
-    # Prefiere DSN si existe
     dsn_env = os.getenv('DATABASE_URL_REMOTE') if profile == 'remote' else os.getenv('DATABASE_URL_LOCAL')
     if dsn_env:
         return {'dsn': dsn_env}
-
     node = cfg.get('db_remote') if profile == 'remote' else (cfg.get('db_local') or {})
-    # Fallbacks
     host = node.get('host') or cfg.get('host') or 'localhost'
     port = int(node.get('port') or cfg.get('port') or 5432)
     database = node.get('database') or cfg.get('database') or ('railway' if profile == 'remote' else 'gimnasio')
@@ -64,19 +55,6 @@ def build_conn_params(profile: str, cfg: dict) -> dict:
         os.getenv('DB_REMOTE_PASSWORD') if profile == 'remote' else os.getenv('DB_LOCAL_PASSWORD')
     ) or os.getenv('DB_PASSWORD') or ''
     sslmode = node.get('sslmode') or cfg.get('sslmode') or ('require' if profile == 'remote' else 'prefer')
-
-    # Intentar keyring si no hay password
-    if not password:
-        try:
-            import keyring
-            from config import KEYRING_SERVICE_NAME
-            acct = f"{user}@{host}:{port}"
-            saved_pwd = keyring.get_password(KEYRING_SERVICE_NAME, acct)
-            if saved_pwd:
-                password = saved_pwd
-        except Exception:
-            pass
-
     return {
         'host': host,
         'port': port,
@@ -85,7 +63,7 @@ def build_conn_params(profile: str, cfg: dict) -> dict:
         'password': password,
         'sslmode': sslmode,
         'connect_timeout': 5,
-        'application_name': 'reconcile_local_remote_once',
+        'application_name': 'reconcile_remote_to_local_once',
     }
 
 
@@ -146,9 +124,8 @@ def table_columns(conn, schema: str, table: str) -> List[str]:
         return [r[0] for r in cur.fetchall()]
 
 
-def fetch_missing_pks(local_conn, remote_conn, schema: str, table: str, pk_cols: List[str]) -> List[Tuple]:
+def fetch_missing_pks(remote_conn, local_conn, schema: str, table: str, pk_cols: List[str]) -> List[Tuple]:
     if not pk_cols:
-        # Fallback a 'id' si existe como única PK
         cols = table_columns(local_conn, schema, table)
         if 'id' in cols:
             pk_cols = ['id']
@@ -158,29 +135,29 @@ def fetch_missing_pks(local_conn, remote_conn, schema: str, table: str, pk_cols:
         print(f"Saltando {schema}.{table}: PK compuesta ({pk_cols}).")
         return []
     pk = pk_cols[0]
-    with local_conn.cursor() as cl, remote_conn.cursor() as cr:
-        cl.execute(sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
-            sql.Identifier(pk), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk)))
-        local_ids = [r[0] for r in cl.fetchall()]
+    with remote_conn.cursor() as cr, local_conn.cursor() as cl:
         cr.execute(sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
             sql.Identifier(pk), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk)))
-        remote_ids = {r[0] for r in cr.fetchall()}
-    return [(i,) for i in local_ids if i not in remote_ids]
+        remote_ids = [r[0] for r in cr.fetchall()]
+        cl.execute(sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
+            sql.Identifier(pk), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk)))
+        local_ids = {r[0] for r in cl.fetchall()}
+    return [(i,) for i in remote_ids if i not in local_ids]
 
 
-def fetch_rows_by_pk(local_conn, schema: str, table: str, pk_col: str, pks: List[Tuple]) -> List[dict]:
+def fetch_rows_by_pk(remote_conn, schema: str, table: str, pk_col: str, pks: List[Tuple]) -> List[dict]:
     if not pks:
         return []
     placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
-    query = sql.SQL("SELECT * FROM {}.{} WHERE {} IN (" + placeholders.as_string(local_conn) + ")").format(
+    query = sql.SQL("SELECT * FROM {}.{} WHERE {} IN (" + placeholders.as_string(remote_conn) + ")").format(
         sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk_col)
     )
-    with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with remote_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, [pk[0] for pk in pks])
         return list(cur.fetchall())
 
 
-def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], dry_run: bool = False) -> int:
+def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry_run: bool = False) -> int:
     if not rows:
         return 0
     cols = list(rows[0].keys())
@@ -193,7 +170,7 @@ def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], d
         sql.SQL(',').join(placeholders)
     )
     inserted = 0
-    with remote_conn.cursor() as cur:
+    with local_conn.cursor() as cur:
         for row in rows:
             vals = [row[c] for c in cols]
             if dry_run:
@@ -202,14 +179,13 @@ def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], d
                 cur.execute(insert_tmpl, vals)
                 inserted += 1
         if not dry_run:
-            remote_conn.commit()
+            local_conn.commit()
     return inserted
 
 
 def main():
     import argparse
-
-    parser = argparse.ArgumentParser(description='Reconciliación segura local→remoto')
+    parser = argparse.ArgumentParser(description='Reconciliación segura remoto→local')
     parser.add_argument('--subscription', default='gym_sub', help='Nombre de la suscripción local a deshabilitar/habilitar')
     parser.add_argument('--schema', default='public', help='Esquema de las tablas')
     parser.add_argument('--tables', nargs='*', default=DEFAULT_TABLES, help='Lista de tablas a reconciliar')
@@ -232,16 +208,16 @@ def main():
     for table in args.tables:
         print(f"Procesando {args.schema}.{table}...")
         pk_cols = get_pk_columns(local_conn, args.schema, table)
-        missing_pks = fetch_missing_pks(local_conn, remote_conn, args.schema, table, pk_cols)
+        missing_pks = fetch_missing_pks(remote_conn, local_conn, args.schema, table, pk_cols)
         if not missing_pks:
-            print(f"  Sin filas faltantes en remoto.")
+            print(f"  Sin filas faltantes en local.")
             continue
         pk = pk_cols[0] if pk_cols else 'id'
-        rows = fetch_rows_by_pk(local_conn, args.schema, table, pk, missing_pks)
-        print(f"  Filas a insertar en remoto: {len(rows)}")
-        inserted = insert_rows_remote(remote_conn, args.schema, table, rows, dry_run=args.dry_run)
+        rows = fetch_rows_by_pk(remote_conn, args.schema, table, pk, missing_pks)
+        print(f"  Filas a insertar en local: {len(rows)}")
+        inserted = insert_rows_local(local_conn, args.schema, table, rows, dry_run=args.dry_run)
         total_inserted += inserted
-        print(f"  Insertadas en remoto: {inserted}")
+        print(f"  Insertadas en local: {inserted}")
 
     # Rehabilitar suscripción
     enable_subscription(local_conn, args.subscription)
@@ -249,7 +225,7 @@ def main():
     local_conn.close()
     remote_conn.close()
 
-    print(f"Listo. Total insertado en remoto: {total_inserted}. Use scripts/verify_replication_status.py para validar.")
+    print(f"Listo. Total insertado en local: {total_inserted}. Use scripts/verify_replication_status.py para validar.")
 
 
 if __name__ == '__main__':

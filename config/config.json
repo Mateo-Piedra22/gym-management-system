@@ -32,6 +32,6 @@
     "subdomain": "gym-ms-zrk",
     "enabled": false
   },
-  
-  "client_base_url": ""
+  "client_base_url": "",
+  "sync_upload_token": "gymms_sync_b3d2a9f6c1e5470ab9d83b7e4c59f12a7d8c3e1f5a9b2c4d6e7f8091a2b3c4d5"
 }

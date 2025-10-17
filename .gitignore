@@ -51,3 +51,4 @@ htmlcov/
 # Archivos específicos a ignorar
 cache_metrics.json
 status.json
+sync_state.json

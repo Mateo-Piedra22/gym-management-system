@@ -13,6 +13,8 @@ Notas:
 """
 
 from typing import Callable, Optional
+import time
+import threading
 
 try:
     from PyQt5.QtCore import QObject, QTimer
@@ -35,7 +37,13 @@ except Exception:  # pragma: no cover - entorno alternativo/packaging
 class SyncService(QObject):
     """Servicio que observa la cola del `sync_client` y notifica cambios."""
 
-    def __init__(self, poll_interval_ms: int = 3000, db_manager: Optional[object] = None):
+    def __init__(
+        self,
+        poll_interval_ms: int = 3000,
+        db_manager: Optional[object] = None,
+        auto_upload_on_change: bool = True,
+        periodic_upload_interval_ms: int = 60000,
+    ):
         super().__init__()
         self.poll_interval_ms = int(poll_interval_ms)
         self._timer: Optional[QTimer] = None
@@ -58,6 +66,11 @@ class SyncService(QObject):
                 self._outbox_poller = OutboxPoller(dbm)
         except Exception:
             self._outbox_poller = None
+        self.auto_upload_on_change = bool(auto_upload_on_change)
+        self.periodic_upload_interval_ms = int(periodic_upload_interval_ms)
+        self._upload_running = False
+        self._upload_lock = threading.Lock()
+        self._last_upload_ts: Optional[float] = None
 
     def start(self):
         """Inicia el polling de la cola de operaciones."""
@@ -104,6 +117,52 @@ class SyncService(QObject):
         except Exception:
             pass
 
+    def _maybe_auto_upload(self, pending: int) -> None:
+        if pending <= 0:
+            return
+        # Avoid overlapping runs
+        if self._upload_running:
+            return
+        now = time.time()
+        should_run = False
+        # Fire on change
+        if self.auto_upload_on_change and (self._last_pending is None or int(pending) != int(self._last_pending)):
+            should_run = True
+        # Also fire periodically if interval elapsed
+        elif self.periodic_upload_interval_ms > 0:
+            last = self._last_upload_ts or 0.0
+            if (now - last) * 1000 >= self.periodic_upload_interval_ms:
+                should_run = True
+        if not should_run:
+            return
+        self._launch_uploader_flush()
+
+    def _launch_uploader_flush(self) -> None:
+        # Double-check guard under lock
+        with self._upload_lock:
+            if self._upload_running:
+                return
+            self._upload_running = True
+        
+        def _runner():
+            try:
+                from sync_uploader import SyncUploader
+                uploader = SyncUploader()
+                uploader.flush_once()
+                self._last_upload_ts = time.time()
+            except Exception:
+                pass
+            finally:
+                with self._upload_lock:
+                    self._upload_running = False
+        
+        th = threading.Thread(target=_runner, name="SyncUploaderFlush", daemon=True)
+        try:
+            th.start()
+        except Exception:
+            with self._upload_lock:
+                self._upload_running = False
+
     def _tick(self):
         """Consulta la cola y dispara callbacks si hay cambios."""
         try:
@@ -133,6 +192,8 @@ class SyncService(QObject):
                         self.on_queue_empty()
                     except Exception:
                         pass
+            # After notifying listeners, attempt auto upload
+            self._maybe_auto_upload(int(pending))
         except Exception:
             # Resiliencia: nunca romper el hilo de UI por errores del observador
             pass
