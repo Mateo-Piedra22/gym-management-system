@@ -125,10 +125,7 @@ def build_options(include_pairs: list[tuple[str, str]]):
     if config_dir.exists():
         include_files.append((str(config_dir), "config"))
 
-    # Incluir carpeta de SymmetricDS (propiedades y posible JAR)
-    sds_dir = PROJECT_ROOT / "symmetricds"
-    if sds_dir.exists():
-        include_files.append((str(sds_dir), "symmetricds"))
+    # No incluir artefactos de replicación externos (jar/binarios de terceros)
 
     gym_data = PROJECT_ROOT / "gym_data.txt"
     if gym_data.exists():

@@ -5,7 +5,9 @@ import psycopg2
 import psycopg2.extras
 import logging
 import json
-import requests
+"""
+Nota: Este widget se centra en métricas locales y replicación lógica (PostgreSQL).
+"""
 from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QGroupBox,
@@ -58,8 +60,7 @@ class SystemHealthAnalyzer(QThread):
             'database': self.check_database_health(),
             'application': self.check_application_health(),
             'storage': self.check_storage_health(),
-            'performance': self.check_performance_metrics(),
-            'symmetricds': self.check_symmetricds_status()
+            'performance': self.check_performance_metrics()
         }
         
         # Calcular puntuación general de salud
@@ -219,48 +220,7 @@ class SystemHealthAnalyzer(QThread):
             logging.error(f"Error verificando rendimiento: {e}")
             return {'error': str(e)}
 
-    def check_symmetricds_status(self):
-        """Verifica el estado del endpoint de SymmetricDS y obtiene el external_id."""
-        try:
-            try:
-                port = int(os.environ.get('WEBAPP_PORT') or os.environ.get('PORT') or 8000)
-            except Exception:
-                port = 8000
-
-            url = f"http://127.0.0.1:{port}/webapp/symmetricds/status"
-            status = {'external_id': None, 'reachable': False, 'endpoint': url}
-
-            try:
-                resp = requests.get(url, timeout=2)
-                if resp.ok:
-                    status['reachable'] = True
-                    ext_id = None
-                    try:
-                        body = resp.json()
-                        if isinstance(body, dict):
-                            ext_id = body.get('external_id') or body.get('node_id') or body.get('externalId') or body.get('id')
-                            if not ext_id:
-                                inner = body.get('status')
-                                if isinstance(inner, dict):
-                                    ext_id = inner.get('external_id') or inner.get('node_id')
-                    except Exception:
-                        ext_id = None
-
-                    if not ext_id:
-                        text = resp.text
-                        import re
-                        m = re.search(r'external_id["\']\s*[:=]\s*["\']([^"\']+)["\']', text)
-                        if m:
-                            ext_id = m.group(1)
-
-                    status['external_id'] = ext_id
-            except Exception as req_err:
-                status['error'] = str(req_err)
-
-            return status
-        except Exception as e:
-            logging.error(f"Error verificando SymmetricDS: {e}")
-            return {'external_id': None, 'reachable': False}
+    
     
     def calculate_health_score(self, report):
         """Calcula una puntuación general de salud (0-100)"""
@@ -535,12 +495,12 @@ class SystemDiagnosticsWidget(QWidget):
         metrics_layout.addRow("Memoria:", self.memory_metric)
         metrics_layout.addRow("Disco:", self.disk_metric)
         metrics_layout.addRow("Base de Datos:", self.db_metric)
-        metrics_layout.addRow("Nodo:", self.node_metric)
+        metrics_layout.addRow("Replicación:", self.node_metric)
         
         layout.addWidget(metrics_group)
 
         # Panel de observabilidad de cola offline (legacy eliminado)
-        # Mantener espacio para métricas futuras basadas en SymmetricDS si se desea
+        # Espacio reservado para métricas futuras de replicación lógica (PostgreSQL)
         
         # Controles
         controls_layout = QHBoxLayout()
@@ -565,7 +525,7 @@ class SystemDiagnosticsWidget(QWidget):
 
     # Legacy OfflineSyncManager snapshot/metrics removidos
 
-    # Espacio reservado para futuras métricas basadas en SymmetricDS
+    # Espacio reservado para futuras métricas de replicación lógica (PostgreSQL)
     
     def setup_system_analysis_tab(self):
         """Configura el tab de análisis detallado del sistema"""
@@ -950,36 +910,16 @@ class SystemDiagnosticsWidget(QWidget):
         # Actualizar métricas rápidas
         system = report.get('system', {})
         database = report.get('database', {})
-        symmetricds = report.get('symmetricds', {})
         
         self.cpu_metric.setText(f"{system.get('cpu_usage', 0):.1f}%")
         self.memory_metric.setText(f"{system.get('memory_usage', 0):.1f}%")
         self.disk_metric.setText(f"{system.get('disk_usage', 0):.1f}%")
         self.db_metric.setText(f"{database.get('size_mb', 0):.1f} MB")
 
-        # Pintar el Nodo según estado de SymmetricDS
-        ext_id = symmetricds.get('external_id')
-        reachable = bool(symmetricds.get('reachable', False))
-        has_status = isinstance(symmetricds, dict) and len(symmetricds) > 0
-
-        if reachable and ext_id:
-            node_color = "#2E7D32"  # verde
-            node_text = ext_id
-        elif reachable and not ext_id:
-            node_color = "#F9A825"  # amarillo (endpoint ok pero sin external_id)
-            node_text = "Sin external_id"
-        elif has_status and not reachable:
-            node_color = "#C62828"  # rojo (no alcanza endpoint)
-            node_text = "Sin conexión"
-        else:
-            node_color = "#607D8B"  # gris (sin datos)
-            node_text = "N/A"
-
-        self.node_metric.setText(node_text)
-        self.node_metric.setStyleSheet(f"color: {node_color};")
-        self.node_metric.setToolTip(
-            f"SymmetricDS: {node_text}\nReachable: {reachable}\nEndpoint: {symmetricds.get('endpoint') or '-'}\nError: {symmetricds.get('error') or '-'}"
-        )
+        # Métrica de replicación lógica (PostgreSQL) - placeholder
+        self.node_metric.setText("N/A")
+        self.node_metric.setStyleSheet("color: #607D8B;")
+        self.node_metric.setToolTip("Replicación lógica (PostgreSQL): N/A")
         
         # Actualizar reporte detallado
         self.update_detailed_report(report)
@@ -1018,11 +958,9 @@ Asistencias hoy: {report.get('application', {}).get('today_attendance', 0)}
 Errores recientes: {report.get('application', {}).get('recent_errors', 0)}
 Tiempo activo: {report.get('application', {}).get('uptime_hours', 0):.2f} horas
 
-SINCRONIZACIÓN (SymmetricDS):
-{'-'*28}
-Nodo externo: {report.get('symmetricds', {}).get('external_id', 'N/A')}
-Endpoint: {report.get('symmetricds', {}).get('endpoint', 'N/A')}
-Alcanzable: {'Sí' if report.get('symmetricds', {}).get('reachable', False) else 'No'}
+REPLICACIÓN (PostgreSQL lógica):
+{'-'*30}
+Estado: Preparado para configurar publicaciones y suscripciones nativas
 
 RENDIMIENTO:
 {'-'*12}

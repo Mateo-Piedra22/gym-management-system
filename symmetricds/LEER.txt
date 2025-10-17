@@ -1,1 +1,0 @@
-Las carpetas de SymmetricDS y jre no se incluyen, se deben descargar desde https://symmetricds.org/download/ (SymmetricDS Community), y https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html y descomprimirlas completas en symmetricds.

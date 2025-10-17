@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional, Callable
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QMessageBox
 
-# Deshabilitar integración de sincronización manual legado; SymmetricDS gestiona la replicación
+# Deshabilitar integración de sincronización manual legado; la replicación se gestiona por PostgreSQL (replicación lógica)
 enqueue_operations = None  # type: ignore
 op_user_add = None  # type: ignore
 op_user_update = None  # type: ignore

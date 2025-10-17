@@ -376,27 +376,36 @@ python initialize_database.py
 python main.py
 ```
 
-### 🔁 Integración de SymmetricDS (Replicación bidireccional)
+### 🔁 Replicación lógica PostgreSQL (bidireccional)
 
-La aplicación de escritorio integra SymmetricDS para replicación bidireccional robusta entre la base local y la base en Railway. El sistema configura automáticamente node groups, links y triggers, y arranca SymmetricDS durante el startup diferido.
+La aplicación no incluye ni inicia motores externos de replicación. La sincronización entre la base local y la base en Railway se realiza mediante replicación lógica nativa de PostgreSQL (publications/subscriptions), administrada exclusivamente desde los servidores de base de datos.
 
-Resumen de configuración automática:
-- Node groups `corp` y `store` y links bidireccionales entre ambos en ambas bases.
-- Canales y routers: `default` y `corp_to_store` (Railway) y `store_to_corp` (Local).
-- Triggers para todas las tablas públicas (excluye `sym_%` y `pg_%`) en `INSERT/UPDATE/DELETE` sobre canal `default`.
-- Propiedades `railway.properties` y `local.properties` generadas con `auto.create=true`, `auto.sync=true`, `registration.open=true` en servidor y conflictos `master_wins`.
-- SymmetricDS se inicia en background desde `main.py` durante el arranque diferido.
+Guía de alto nivel:
+- Crear una `PUBLICATION` en la base origen para las tablas a replicar.
+- Crear una `SUBSCRIPTION` en la base destino apuntando a la publicación, con un rol y conexión seguros.
+- Ajustar filtros de tablas según necesidad (excluir temporales/auditoría si corresponde).
 
-Preparación manual necesaria:
-- Descarga el JAR de SymmetricDS (community) y colócalo en `symmetricds/` junto a `symmetric-ds.properties`.
-- Asegura credenciales de ambas bases en `config/config.json` o vía variables de entorno. El keyring del sistema se usa si está disponible.
+Ejemplo mínimo (adaptar a tu esquema y credenciales):
 
-Verificación rápida:
-- Revisa logs de startup para "SymmetricDS iniciado" y creación de triggers.
-- Inserta/actualiza/elimina registros de prueba y valida replicación cruzada entre local y Railway.
+```sql
+-- En la base origen (Railway o local, según diseño):
+CREATE PUBLICATION gym_pub FOR ALL TABLES;
 
-Nota: El sistema antiguo de proxy/túnel y sincronización HTTP fue retirado completamente en favor de SymmetricDS.
-- `PROXY_QUEUE_DB` (opcional, ruta al SQLite de cola; por defecto `proxy_queue.sqlite`)
+-- En la base destino:
+CREATE SUBSCRIPTION gym_sub
+  CONNECTION 'host=<HOST> port=<PORT> dbname=<DB> user=<USER> password=<PASS> sslmode=require'
+  PUBLICATION gym_pub;
+```
+
+Verificación rápida (PostgreSQL):
+- Consultar `pg_stat_subscription` en la base destino para ver el estado de la suscripción.
+- Consultar `pg_publication`/`pg_publication_tables` en la base origen para revisar la publicación.
+- Probar inserciones/actualizaciones/eliminaciones y confirmar reflectancia en la contraparte.
+
+Limpieza de artefactos antiguos:
+- Si existen objetos heredados `sym_%` de motores previos de replicación, ejecutar el script `scripts/cleanup_symmetricds.sql` en ambas bases para retirar tablas, triggers, funciones y secuencias.
+
+Nota: El sistema legacy de proxy/túnel HTTP permanece archivado en `legacy_sync/` únicamente como referencia histórica.
 
 Ejemplos rápidos con curl:
 

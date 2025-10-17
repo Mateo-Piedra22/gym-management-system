@@ -7,7 +7,7 @@ from models import Pago, Usuario, MetodoPago, ConceptoPago, PagoDetalle
 from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
 from database import DatabaseManager, database_retry
 
-# Deshabilitar integración de sincronización manual legado (SymmetricDS se encarga de replicar)
+# Deshabilitar integración de sincronización manual legado; la replicación se gestiona por PostgreSQL (replicación lógica)
 enqueue_operations = None  # type: ignore
 op_payment_update = None  # type: ignore
 

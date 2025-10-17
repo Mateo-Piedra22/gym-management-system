@@ -20,7 +20,7 @@ class Config:
     """
     
     # --- Configuración de la base de datos ---
-    DATABASE_PATH = "postgresql://localhost/gym_management"  # PostgreSQL connection
+    DATABASE_PATH = "postgresql://localhost/gimnasio"  # PostgreSQL connection
     
     # --- Configuración de directorios de archivos ---
     PDF_OUTPUT_DIR = "recibos"

@@ -46,26 +46,7 @@ def run_cmd_capture(args: list, timeout: Optional[int] = 20) -> Tuple[int, str, 
         return 1, "", str(e)
 
 
-def is_java_installed() -> bool:
-    if not is_command_available("java"):
-        return False
-    code, out, err = run_cmd_capture(["java", "-version"], timeout=10)
-    if code != 0:
-        return False
-    text = (out + "\n" + err).lower()
-    # Acepta cualquier Java válido; preferimos 17+
-    return "version" in text or "openjdk" in text or "temurin" in text
-
-
-def install_java_temurin17() -> Tuple[bool, str]:
-    # Winget ID para Temurin JRE 17
-    args = [
-        "winget", "install", "-e", "--id", "EclipseAdoptium.Temurin.17.JRE", "--source", "winget",
-    ]
-    code, out, err = run_cmd_capture(args, timeout=60)
-    ok = code == 0
-    msg = out if ok else err
-    return ok, msg
+# Eliminado: verificación/instalación de Java ya no es requerida.
 
 
 def is_postgresql_installed(required_major: int = 17) -> bool:
@@ -208,14 +189,12 @@ def write_marker(device_id: str, payload: dict) -> None:
 def ensure_prerequisites(device_id: str) -> dict:
     """
     Verifica e instala (si faltan) prerequisitos de programa:
-    - Java (Temurin JRE 17)
     - PostgreSQL 17
     Marca la ejecución por device_id para evitar repetir en el futuro.
     Retorna diccionario con resultados por componente.
     """
     _ensure_dirs()
     result = {
-        "java": {"installed": False, "attempted": False, "message": ""},
         "postgresql": {"installed": False, "attempted": False, "message": ""},
         "marked": False,
     }
@@ -223,19 +202,10 @@ def ensure_prerequisites(device_id: str) -> dict:
     # Si ya hay marca, evitar reinstalar; solo reportar estado actual
     marker = read_marker(device_id)
     if marker:
-        result["java"]["installed"] = is_java_installed()
+        # Solo reportar estado actual de PostgreSQL
         result["postgresql"]["installed"] = is_postgresql_installed(17)
         result["marked"] = True
         return result
-
-    # Java
-    if is_java_installed():
-        result["java"]["installed"] = True
-    else:
-        ok, msg = install_java_temurin17()
-        result["java"]["attempted"] = True
-        result["java"]["installed"] = ok and is_java_installed()
-        result["java"]["message"] = msg
 
     # PostgreSQL
     if is_postgresql_installed(17):
@@ -257,10 +227,9 @@ def ensure_prerequisites(device_id: str) -> dict:
         result["postgresql"]["db_created"] = False
         result["postgresql"]["db_message"] = str(e)
 
-    # Marcar como completado para este device si ambos están resueltos
-    if result["java"]["installed"] and result["postgresql"]["installed"]:
+    # Marcar como completado para este device si PostgreSQL está resuelto
+    if result["postgresql"]["installed"]:
         write_marker(device_id, {
-            "java": result["java"],
             "postgresql": result["postgresql"],
         })
         result["marked"] = True

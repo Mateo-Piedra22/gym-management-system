@@ -76,28 +76,6 @@ from widgets.custom_style import CustomProxyStyle
 from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled
 from logger_config import setup_logging
 setup_logging()
-import atexit
-
-def _shutdown_symmetricds_safely():
-    """Detiene SymmetricDS de forma graciosa si estaba activo."""
-    try:
-        try:
-            from symmetricds.setup_symmetric import stop_symmetricds  # type: ignore
-        except Exception:
-            stop_symmetricds = None  # type: ignore
-        if stop_symmetricds is not None:
-            try:
-                stop_symmetricds(logger=logging)
-                logging.info("SymmetricDS detenido (cierre de aplicación)")
-            except Exception as e:
-                logging.warning(f"No se pudo detener SymmetricDS en cierre: {e}")
-    except Exception:
-        pass
-
-try:
-    atexit.register(_shutdown_symmetricds_safely)
-except Exception:
-    pass
 import threading
 from datetime import datetime
 
@@ -114,7 +92,6 @@ from widgets.classes_tab_widget import ClassesTabWidget
 from widgets.professors_tab_widget import ProfessorsTabWidget
 from widgets.global_search_widget import GlobalSearchWidget
 from widgets.login_dialog import LoginDialog
-from symmetricds.setup_symmetric import start_symmetricds_background
 from widgets.alerts_widget import AlertsWidget
 
 from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
@@ -126,10 +103,7 @@ from utils_modules.network_health_monitor import (
 from utils_modules.preload_manager import PreloadManager
 from utils_modules.ui_profiler import profile
 from utils_modules.async_runner import TaskThread
-try:
-    from symmetricds.setup_symmetric import start_symmetricds_background
-except Exception:
-    start_symmetricds_background = None  # type: ignore
+# Replicación lógica PostgreSQL: sin motores externos iniciados por la app.
 
 class StartupProgressDialog(QDialog):
     """Diálogo ligero con barra de progreso para el arranque, actualizado por MainWindow."""
@@ -544,8 +518,7 @@ class MainWindow(QMainWindow):
         """Ejecuta pasos pesados de arranque en serie usando QTimer, con progreso."""
         try:
             steps: list[tuple[str, callable]] = [
-                ("Verificando prerequisitos (Java, PostgreSQL)…", self.verify_and_install_prereqs_step),
-                ("Iniciando SymmetricDS…", self._start_symmetricds),
+                ("Verificando prerequisitos (PostgreSQL)…", self.verify_and_install_prereqs_step),
                 ("Configurando pestañas…", self.setup_tabs),
                 ("Aplicando permisos por rol…", self.apply_role_permissions),
                 ("Ajustando visibilidad de pestañas…", self.apply_main_tabs_visibility_by_role),
@@ -602,7 +575,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
     def verify_and_install_prereqs_step(self):
-        """Lanza verificación/instalación de prerequisitos en background para no bloquear la UI."""
+        """Lanza verificación/instalación de prerequisitos (PostgreSQL) en background para no bloquear la UI."""
         try:
             from utils_modules.async_utils import run_in_background
             from utils_modules.prerequisites import ensure_prerequisites
@@ -623,22 +596,20 @@ class MainWindow(QMainWindow):
             def _on_success(result: object):
                 try:
                     if isinstance(result, dict):
-                        java_ok = bool(result.get("java", {}).get("installed"))
                         pg_ok = bool(result.get("postgresql", {}).get("installed"))
                         db_created = bool(result.get("postgresql", {}).get("db_created"))
                         marked = bool(result.get("marked"))
                         summary = []
-                        summary.append(f"Java: {'OK' if java_ok else 'Falta'}")
                         summary.append(f"PostgreSQL 17: {'OK' if pg_ok else 'Falta'}")
                         if pg_ok:
                             summary.append(f"DB: {'creada' if db_created else 'existente/no creada'}")
                         if marked:
                             summary.append("(marcado este equipo)")
-                        text = "✅ " + ", ".join(summary) if (java_ok and pg_ok) else "⚠️ " + ", ".join(summary)
+                        text = "✅ " + ", ".join(summary) if pg_ok else "⚠️ " + ", ".join(summary)
                         try:
                             if hasattr(self, 'system_status_label') and self.system_status_label:
                                 self.system_status_label.setText(text)
-                                self.system_status_label.setToolTip("Auto-instalación de prerequisitos ejecutada en background")
+                                self.system_status_label.setToolTip("Auto-verificación de PostgreSQL ejecutada en background")
                         except Exception:
                             pass
                 except Exception:
@@ -658,16 +629,7 @@ class MainWindow(QMainWindow):
                 logging.debug(f"No se pudo iniciar verificación de prerequisitos: {e}")
             except Exception:
                 pass
-    def _start_symmetricds(self):
-        """Arranca la integración de SymmetricDS en segundo plano si está disponible."""
-        try:
-            if start_symmetricds_background is None:
-                logging.info("Módulo SymmetricDS no disponible; omitiendo arranque")
-                return
-            start_symmetricds_background(self.db_manager, logger=logging)
-            logging.info("SymmetricDS iniciado en segundo plano")
-        except Exception as e:
-            logging.warning(f"No se pudo iniciar SymmetricDS: {e}")
+    # Replicación lógica PostgreSQL: no hay arranque de motor externo
     def _start_background_indexing(self):
         """Lanza ensure_indexes en un hilo en background para reducir el tiempo de inicio."""
         try:
@@ -1486,7 +1448,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error al testear/reiniciar redes desde barra de estado: {e}")
 
     def update_connectivity_indicator(self):
-        """Actualiza el indicador de conectividad consultando tablas locales de SymmetricDS."""
+        """Actualiza el indicador de conectividad considerando replicación lógica (PostgreSQL)."""
         try:
             # Estado de internet (ligero): asumir OK para no bloquear UI
             internet_ok = True
@@ -1507,31 +1469,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 whatsapp_ok = False
 
-            # Pendientes de sincronización vía SymmetricDS (local)
-            pending_ops = 0
-            try:
-                with self.db_manager.get_connection_context() as conn:
-                    cur = conn.cursor()
-                    # Contar batches salientes no enviados o en error (excluyendo canal config)
-                    try:
-                        cur.execute(
-                            """
-                            SELECT COUNT(*)
-                            FROM sym_outgoing_batch
-                            WHERE status IN ('NE','ER','RF')
-                              AND COALESCE(channel_id, '') <> 'config'
-                            """
-                        )
-                        row = cur.fetchone()
-                        if row and row[0] is not None:
-                            pending_ops = int(row[0])
-                    except Exception:
-                        # Si la tabla aún no existe, mantener 0
-                        pending_ops = 0
-            except Exception:
-                # Si la DB está caída, reflejar en db_ok y mantener 0 pendientes
-                db_ok = False
-                pending_ops = 0
+            # Pendientes de replicación lógica (PostgreSQL) - no disponible
+            pending_ops = None
 
             # Desglose mínimo para la UI (sin sistema legacy)
             pending_breakdown = {
@@ -1550,18 +1489,18 @@ class MainWindow(QMainWindow):
             # Determinar estado general
             all_ok = internet_ok and db_ok and (whatsapp_ok or not hasattr(self, 'whatsapp_manager'))
 
-            if all_ok and pending_ops == 0:
+            if all_ok and (pending_ops in (0, None)):
                 self.connectivity_label.setText("🟢 Conectado")
                 self.connectivity_label.setStyleSheet("QLabel { color: #2ecc71; font-weight: bold; padding: 2px 8px; }")
             elif db_ok or internet_ok:
                 status_text = "🟡 Parcial"
-                if pending_ops:
+                if isinstance(pending_ops, int) and pending_ops:
                     status_text += f" • cola {pending_ops}"
                 self.connectivity_label.setText(status_text)
                 self.connectivity_label.setStyleSheet("QLabel { color: #f1c40f; font-weight: bold; padding: 2px 8px; }")
             else:
                 status_text = "🔴 Sin conexión"
-                if pending_ops:
+                if isinstance(pending_ops, int) and pending_ops:
                     status_text += f" • encoladas {pending_ops}"
                 self.connectivity_label.setText(status_text)
                 self.connectivity_label.setStyleSheet("QLabel { color: #e74c3c; font-weight: bold; padding: 2px 8px; }")
@@ -1571,7 +1510,7 @@ class MainWindow(QMainWindow):
                 f"Internet: {'OK' if internet_ok else 'FALLA'}\n"
                 f"Base de datos: {'OK' if db_ok else 'FALLA'}\n"
                 f"WhatsApp: {'OK' if whatsapp_ok else 'FALLA'}\n"
-                f"SymmetricDS pendientes: {pending_ops}\n"
+                f"Replicación lógica (PostgreSQL): {'N/A' if pending_ops is None else pending_ops}\n"
                 f"Programados (backoff): {scheduled_total}"
             )
             self.connectivity_label.setToolTip(tooltip)
@@ -4938,11 +4877,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             # Referencias legacy a download_sync_worker/proxy_watchdog removidas
-            # Apagar SymmetricDS de forma graciosa
-            try:
-                _shutdown_symmetricds_safely()
-            except Exception:
-                pass
             event.accept()
             # Intentar cierre limpio de todos los QThreads activos
             try:
@@ -5132,12 +5066,8 @@ def main():
                     pass
                 window.showMaximized()
 
-                # Iniciar SymmetricDS en segundo plano inmediatamente tras crear la ventana
-                try:
-                    QTimer.singleShot(0, lambda: start_symmetricds_background(window.db_manager, logger=logging.info))
-                    logging.info("[Startup] SymmetricDS programado para iniciar en background")
-                except Exception as e:
-                    logging.warning(f"No se pudo programar arranque de SymmetricDS: {e}")
+                # Replicación lógica PostgreSQL: no se inicia ningún proceso externo desde la app
+                # La replicación debe ser administrada por el servidor de base de datos
 
                 # Lanzar arranque diferido sin bloquear el hilo de UI
                 try:
@@ -5175,7 +5105,7 @@ def main():
                     pass
 
             QTimer.singleShot(0, _create_main_window)
-            # Eliminar reconexión de túnel: sistema de túnel legacy retirado en favor de SymmetricDS
+            # Eliminar reconexión de túnel: sistema de túnel legacy retirado
             # Mostrar toast de estado del servidor (top-centro) con estados WebApp/DB
             try:
                 from widgets.server_status_toast import ServerStatusToast
@@ -5221,20 +5151,8 @@ def main():
                     pass
 
                 try:
-                    # Obtener external_id desde el endpoint de estado de SymmetricDS
+                    # Identificador externo: no disponible (replicación lógica administrada por PostgreSQL)
                     ext_id = None
-                    try:
-                        import requests as _requests  # type: ignore
-                        status_url = f"http://127.0.0.1:{port}/webapp/symmetricds/status"
-                        rs = _requests.get(status_url, timeout=2.5)
-                        if rs.status_code == 200:
-                            try:
-                                data = rs.json()
-                                ext_id = data.get('external_id')
-                            except Exception:
-                                ext_id = None
-                    except Exception:
-                        ext_id = None
 
                     toast = ServerStatusToast(
                         window,

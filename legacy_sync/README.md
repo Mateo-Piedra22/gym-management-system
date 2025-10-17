@@ -9,4 +9,4 @@ Contenido movido desde la raíz del proyecto y utils_modules/:
 - utils_modules/proxy_watchdog.py
 - Bases de cola: proxy_queue.sqlite, offline_queue.sqlite
 
-Motivo: Migración completa a SymmetricDS para sincronización bidireccional.
+Motivo: Migración completa a replicación lógica PostgreSQL para sincronización bidireccional.

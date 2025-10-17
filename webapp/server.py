@@ -403,7 +403,7 @@ async def webapp_base_url():
         return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
 # Endpoints de sincronización para integración con proxy local
-""" Legacy sync removed: api_sync_upload disabled. Use SymmetricDS. """
+""" Legacy sync removed: api_sync_upload disabled. Use PostgreSQL logical replication. """
 # @app.post("/api/sync/upload")  # disabled: legacy sync removed
 async def api_sync_upload(request: Request):
     """Recibe operaciones de sincronización en lote desde clientes y las aplica.
@@ -414,10 +414,10 @@ async def api_sync_upload(request: Request):
     Responde 202 si el payload es válido y 200 si además informa conteos de aplicadas/omitidas.
     """
     return JSONResponse(
-        {"detail": "Legacy sync removed. Use SymmetricDS."},
+        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
         status_code=410,
     )
-    ''' Legacy sync body disabled; see SymmetricDS setup.
+    ''' Legacy sync body disabled; see PostgreSQL logical replication setup.
     try:
         # Autenticación opcional por token
         try:
@@ -2274,10 +2274,10 @@ async def admin_sync_migrate(request: Request):
     (tablas y columnas necesarias). Protegido por dev_password u owner_password.
     """
     return JSONResponse(
-        {"detail": "Legacy sync removed. Use SymmetricDS."},
+        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
         status_code=410,
     )
-    ''' Legacy admin_sync_migrate body disabled; use SymmetricDS migration.
+    ''' Legacy admin_sync_migrate body disabled; use PostgreSQL logical replication.
     try:
         content_type = request.headers.get("content-type", "")
         if content_type.startswith("application/json"):
@@ -2343,10 +2343,10 @@ async def api_sync_download(request: Request):
       { "success": true, "operations": [ {"type": "user.update", "payload": {...}, "ts": "..." } ], "latest": "..." }
     """
     return JSONResponse(
-        {"detail": "Legacy sync removed. Use SymmetricDS."},
+        {"detail": "Legacy sync removed. Use PostgreSQL logical replication."},
         status_code=410,
     )
-    ''' Legacy download body disabled; see SymmetricDS setup.
+    ''' Legacy download body disabled; see PostgreSQL logical replication setup.
     try:
         # Autenticación opcional por token
         try:
@@ -3255,35 +3255,7 @@ async def api_sync_download(request: Request):
 async def vite_client_stub():
     return Response("// Vite client stub (deshabilitado en esta app)", media_type="application/javascript")
 
-# Estado de SymmetricDS para toast/diagnóstico en producción (Railway)
-@app.get("/webapp/symmetricds/status")
-async def symmetricds_status():
-    try:
-        from pathlib import Path as _Path
-        import json as _json
-        base_dir = _Path(__file__).resolve().parent.parent
-        status_path = base_dir / 'symmetricds' / 'status.json'
-        if status_path.exists():
-            try:
-                data = _json.loads(status_path.read_text(encoding='utf-8') or '{}')
-            except Exception:
-                data = {}
-        else:
-            data = {}
-        return JSONResponse({
-            "running": bool(data.get("running", False)),
-            "message": str(data.get("message", "Sin estado disponible")),
-            "railway_port": data.get("railway_port"),
-            "local_port": data.get("local_port"),
-            "java_version": data.get("java_version"),
-            "external_id": data.get("external_id"),
-            "last_check_ts": data.get("last_check_ts"),
-        }, status_code=200)
-    except Exception as e:
-        return JSONResponse({
-            "running": False,
-            "message": f"Error leyendo estado: {e}",
-        }, status_code=200)
+# Endpoint de estado de replicación externa retirado; usamos replicación lógica nativa de PostgreSQL.
 
 # Generar CSS desde QSS de forma automática evitando sobrescritura
 try:
@@ -3551,53 +3523,8 @@ async def _startup_init_db():
         # No bloquear el arranque; los endpoints intentarán reintentar
         pass
 
-# Arrancar SymmetricDS en Railway/headless para replicación automática
-@app.on_event("startup")
-async def _startup_launch_symmetricds():
-    try:
-        # Evitar arranque si no hay DB todavía
-        dbm = _get_db()
-        if dbm is None:
-            return
-        # Gate por variable de entorno: por defecto NO iniciar en web
-        try:
-            if str(os.getenv("SYM_START_ON_WEB", "0")).strip().lower() not in ("1", "true", "yes"):
-                return
-        except Exception:
-            return
-        try:
-            from symmetricds.setup_symmetric import start_symmetricds_background  # type: ignore
-        except Exception:
-            start_symmetricds_background = None  # type: ignore
-        if start_symmetricds_background is not None:
-            try:
-                start_symmetricds_background(dbm, logger=logging)
-                logging.info("SymmetricDS iniciado en segundo plano (startup web)")
-            except Exception as e:
-                logging.warning(f"No se pudo iniciar SymmetricDS en startup web: {e}")
-    except Exception:
-        # No bloquear el arranque del servidor web
-        pass
-
-# Apagado gracioso de SymmetricDS si fue iniciado desde la web
-@app.on_event("shutdown")
-async def _shutdown_stop_symmetricds():
-    try:
-        # Solo detener si estaba habilitado iniciar en la web
-        if str(os.getenv("SYM_START_ON_WEB", "0")).strip().lower() not in ("1", "true", "yes"):
-            return
-        try:
-            from symmetricds.setup_symmetric import stop_symmetricds  # type: ignore
-        except Exception:
-            stop_symmetricds = None  # type: ignore
-        if stop_symmetricds is not None:
-            try:
-                stop_symmetricds(logger=logging)
-                logging.info("SymmetricDS detenido (shutdown web)")
-            except Exception as e:
-                logging.warning(f"No se pudo detener SymmetricDS en shutdown web: {e}")
-    except Exception:
-        pass
+# Inicio/apagado de motores externos de replicación retirado.
+# La replicación se administra desde el servidor PostgreSQL (publications/subscriptions).
 
 
 def require_owner(request: Request):

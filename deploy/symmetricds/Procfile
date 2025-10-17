@@ -1,1 +1,0 @@
-web: python scripts/start_symmetric_server.py
