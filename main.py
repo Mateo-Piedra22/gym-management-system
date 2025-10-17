@@ -1342,6 +1342,13 @@ class MainWindow(QMainWindow):
             "QLabel { font-weight: bold; padding: 2px 8px; }"
         )
 
+        # Resumen breve de replicación en barra de estado
+        self.replication_status_label = QLabel("🛰️ Replicación: N/A")
+        self.replication_status_label.setToolTip("Estado de replicación lógica (PostgreSQL) — suscripción y pequeño lag")
+        self.replication_status_label.setStyleSheet(
+            "QLabel { color: #607D8B; font-weight: bold; padding: 2px 8px; }"
+        )
+
         # Advertencia visual separada para pendientes no accionables (ej. WhatsApp)
         self.whatsapp_pending_label = QLabel("")
         self.whatsapp_pending_label.setObjectName("whatsapp_pending_label")
@@ -1366,6 +1373,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.warning_alerts_label)
         self.status_bar.addPermanentWidget(self.alerts_button)
         self.status_bar.addPermanentWidget(self.system_status_label)
+        self.status_bar.addPermanentWidget(self.replication_status_label)
         self.status_bar.addPermanentWidget(self.connectivity_label)
         self.status_bar.addPermanentWidget(self.whatsapp_pending_label)
         self.status_bar.addPermanentWidget(self.scheduled_pending_label)
@@ -1403,6 +1411,58 @@ class MainWindow(QMainWindow):
         self.connectivity_timer.timeout.connect(self.update_connectivity_indicator)
         self.connectivity_timer.start(5000)  # cada 5 segundos
         self.update_connectivity_indicator()
+
+        # Intentar auto-configurar replicación en background (idempotente)
+        try:
+            QTimer.singleShot(1500, self._start_replication_setup_thread)
+        except Exception:
+            pass
+
+        # Servicio de sincronización: observar cola local y refrescar UI al cambiar
+        try:
+            from utils_modules.sync_service import SyncService
+            self.sync_service = SyncService(poll_interval_ms=3000)
+            # Cuando cambian los pendientes, refrescar el indicador de conectividad
+            self.sync_service.on_pending_change = lambda count: self.update_connectivity_indicator()
+            # Cuando la cola queda vacía, actualizar indicadores de pestañas
+            self.sync_service.on_queue_empty = lambda: self.update_tab_notifications()
+            self.sync_service.start()
+            try:
+                # Parada limpia cuando se destruya la ventana
+                self.destroyed.connect(self.sync_service.stop)
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                logging.warning(f"No se pudo iniciar SyncService: {e}")
+            except Exception:
+                pass
+
+        # Observador de replicación: refrescar UI cuando lleguen cambios entrantes
+        try:
+            from utils_modules.replication_observer import ReplicationObserver
+            self.replication_observer = ReplicationObserver(db_manager=self.db_manager, poll_interval_ms=5000)
+            self.replication_observer.on_inbound_change = self._on_replication_inbound_change
+            # Registrar callback de estado para usar métricas en el indicador de conectividad
+            try:
+                self._last_replication_metrics = {}
+            except Exception:
+                pass
+            try:
+                self.replication_observer.on_status_update = self._on_replication_status_update
+            except Exception:
+                pass
+            self.replication_observer.start()
+            try:
+                # Parada limpia cuando se destruya la ventana
+                self.destroyed.connect(self.replication_observer.stop)
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                logging.warning(f"No se pudo iniciar ReplicationObserver: {e}")
+            except Exception:
+                pass
 
     def _test_networks_from_status_bar(self):
         """Prueba salud de red local y pública y reinicia automáticamente si fallan."""
@@ -1469,8 +1529,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 whatsapp_ok = False
 
-            # Pendientes de replicación lógica (PostgreSQL) - no disponible
-            pending_ops = None
+            # Pendientes de replicación lógica (PostgreSQL) - obtener desde sync_client si disponible
+            try:
+                from sync_client import get_pending_count  # type: ignore
+                pending_ops = get_pending_count()
+            except Exception:
+                pending_ops = None
 
             # Desglose mínimo para la UI (sin sistema legacy)
             pending_breakdown = {
@@ -1505,15 +1569,55 @@ class MainWindow(QMainWindow):
                 self.connectivity_label.setText(status_text)
                 self.connectivity_label.setStyleSheet("QLabel { color: #e74c3c; font-weight: bold; padding: 2px 8px; }")
 
+            # Métricas de replicación lógica obtenidas del observador
+            repl = getattr(self, '_last_replication_metrics', {}) or {}
+            has_sub = bool(repl.get('has_subscription'))
+            apply_lag = repl.get('max_apply_lag_s')
+            sync_states = repl.get('sync_states') or []
+            lag_text = (f"{float(apply_lag):.1f}s" if isinstance(apply_lag, (int, float)) else "N/A")
+            sync_text = ", ".join(sync_states) if sync_states else "N/A"
+
+            # Razón técnica si no hay suscripción (de auto-setup)
+            setup_res = getattr(self, '_replication_setup_result', {}) or {}
+            remote_checks = None
+            try:
+                for step in setup_res.get('steps', []):
+                    if 'remote_checks' in step:
+                        remote_checks = step['remote_checks']
+                        break
+            except Exception:
+                remote_checks = None
+            reason_text = ''
+            if not has_sub and remote_checks and not remote_checks.get('ok'):
+                wl = remote_checks.get('wal_level')
+                slots = remote_checks.get('max_replication_slots')
+                senders = remote_checks.get('max_wal_senders')
+                reason_text = f" (remoto: wal_level={wl}, slots={slots}, senders={senders})"
+
             # Tooltip detallado
             tooltip = (
                 f"Internet: {'OK' if internet_ok else 'FALLA'}\n"
                 f"Base de datos: {'OK' if db_ok else 'FALLA'}\n"
                 f"WhatsApp: {'OK' if whatsapp_ok else 'FALLA'}\n"
-                f"Replicación lógica (PostgreSQL): {'N/A' if pending_ops is None else pending_ops}\n"
+                f"Replicación: {'OK' if has_sub else 'SIN SUSCRIPCIÓN'} | Lag: {lag_text} | Estado: {sync_text}{reason_text}\n"
+                f"Cola local (pendientes): {'N/A' if pending_ops is None else pending_ops}\n"
                 f"Programados (backoff): {scheduled_total}"
             )
             self.connectivity_label.setToolTip(tooltip)
+
+            # Resumen breve en la barra de estado (no intrusivo)
+            try:
+                short = f"Rep: {'OK' if has_sub else 'SIN SUB'} • lag {lag_text} • {sync_text}"
+                self.replication_status_label.setText(f"🛰️ {short}")
+                self.replication_status_label.setStyleSheet(
+                    "QLabel { color: %s; font-weight: bold; padding: 2px 8px; }" % ("#2ecc71" if has_sub else "#e74c3c")
+                )
+                # Tooltip específico de replicación con razón técnica si aplica
+                self.replication_status_label.setToolTip(
+                    f"Replicación: {'OK' if has_sub else 'SIN SUSCRIPCIÓN'} • lag {lag_text} • {sync_text}{reason_text}"
+                )
+            except Exception:
+                pass
 
             # Actualizar advertencia separada para pendientes no accionables de WhatsApp
             try:
@@ -1560,6 +1664,58 @@ class MainWindow(QMainWindow):
         except Exception as e:
             # No romper UI por errores en el indicador
             logging.debug(f"Error actualizando indicador de conectividad: {e}")
+
+    def _on_replication_status_update(self, metrics: dict):
+        """Callback de estado del observador de replicación para refrescar la UI."""
+        try:
+            self._last_replication_metrics = metrics or {}
+            # Refrescar indicador para reflejar métricas recientes
+            self.update_connectivity_indicator()
+        except Exception:
+            pass
+
+    def _start_replication_setup_thread(self):
+        """Inicia hilo ligero para auto-setup de replicación sin bloquear la UI."""
+        try:
+            import threading
+            t = threading.Thread(target=self._auto_setup_logical_replication, daemon=True)
+            t.start()
+            try:
+                self._replication_setup_thread = t
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _auto_setup_logical_replication(self):
+        """Asegura PUBLICATION/SUBSCRIPTION y siembra keyring usando config.json."""
+        try:
+            from pathlib import Path
+            from utils_modules.replication_setup import ensure_logical_replication_from_config_path
+
+            base_dir = Path(__file__).resolve().parent
+            cfg_path = base_dir / 'config' / 'config.json'
+            res = ensure_logical_replication_from_config_path(cfg_path)
+            try:
+                self._replication_setup_result = res
+            except Exception:
+                pass
+            # Feedback no bloqueante en la barra de estado
+            try:
+                def _update_msg():
+                    ok = bool(res.get('ok'))
+                    msg = f"Replicación {'OK' if ok else 'FALLÓ'}"
+                    self.status_bar.showMessage(msg, 5000)
+                    # Refrescar indicador con métricas actuales
+                    self.update_connectivity_indicator()
+                QTimer.singleShot(0, _update_msg)
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                logging.warning(f"Auto-setup de replicación falló: {e}")
+            except Exception:
+                pass
     
     def setup_alert_system(self):
         """Configura el sistema de alertas y sus conexiones"""
@@ -1919,6 +2075,24 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             logging.error(f"Error actualizando notificaciones: {e}")
+
+    def _on_replication_inbound_change(self):
+        """Callback de observador de replicación: refresca UI ante cambios entrantes."""
+        try:
+            self.update_tab_notifications()
+        except Exception:
+            pass
+        try:
+            # Emitir señal para forzar re-render en pestañas dependientes
+            usuarios_tab = self.tabs.get('usuarios')
+            if usuarios_tab and hasattr(usuarios_tab, 'usuarios_modificados'):
+                usuarios_tab.usuarios_modificados.emit()
+        except Exception:
+            pass
+        try:
+            self.update_monthly_hours()
+        except Exception:
+            pass
     
     def count_overdue_payments(self) -> int:
         """Cuenta los pagos vencidos"""

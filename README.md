@@ -402,6 +402,12 @@ Verificación rápida (PostgreSQL):
 - Consultar `pg_publication`/`pg_publication_tables` en la base origen para revisar la publicación.
 - Probar inserciones/actualizaciones/eliminaciones y confirmar reflectancia en la contraparte.
 
+Automatización con script:
+- Ejecuta `python scripts/setup_logical_replication.py` para crear/asegurar la `PUBLICATION` remota (`gym_pub`) y la `SUBSCRIPTION` local (`gym_sub`).
+- El script lee `config/config.json` y admite variables de entorno: `PGREMOTE_DSN`, `PGREMOTE_PASSWORD`, `PGREMOTE_USER`, `PGLOCAL_DSN`, `PGLOCAL_PASSWORD`.
+- Si no hay contraseña remota en entorno/DSN, intenta obtenerla de `keyring` (Windows Credential Manager) bajo el servicio `GymMS_DB`.
+- Tras ejecutar, verifica estado con: `SELECT subname, sync_state, apply_lag FROM pg_stat_subscription;` en la base local.
+
 Limpieza de artefactos antiguos:
 - Si existen objetos heredados `sym_%` de motores previos de replicación, ejecutar el script `scripts/cleanup_symmetricds.sql` en ambas bases para retirar tablas, triggers, funciones y secuencias.
 

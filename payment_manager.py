@@ -7,9 +7,13 @@ from models import Pago, Usuario, MetodoPago, ConceptoPago, PagoDetalle
 from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
 from database import DatabaseManager, database_retry
 
-# Deshabilitar integración de sincronización manual legado; la replicación se gestiona por PostgreSQL (replicación lógica)
-enqueue_operations = None  # type: ignore
-op_payment_update = None  # type: ignore
+# Integración de sincronización: importar cliente de sync si está disponible
+try:
+    from sync_client import enqueue_operations, op_payment_update, op_payment_delete  # type: ignore
+except Exception:
+    enqueue_operations = None  # type: ignore
+    op_payment_update = None  # type: ignore
+    op_payment_delete = None  # type: ignore
 
 # Importar módulos WhatsApp (importación condicional para evitar errores si no están disponibles)
 try:
@@ -208,6 +212,21 @@ class PaymentManager:
         # Obtener información del pago antes de eliminar para construir la alerta
         pago = self.obtener_pago(pago_id)
         self.db_manager.eliminar_pago(pago_id)
+        # Encolar sync: payment.delete usando claves naturales si está disponible
+        try:
+            if enqueue_operations and op_payment_delete and pago:
+                usuario = self.db_manager.obtener_usuario(pago.usuario_id)
+                dni = getattr(usuario, 'dni', None) if usuario else None
+                payload = {
+                    'user_id': int(getattr(pago, 'usuario_id', 0)),
+                    'dni': str(dni) if dni is not None else None,
+                    'mes': int(getattr(pago, 'mes', 0)),
+                    'año': int(getattr(pago, 'año', 0)),
+                }
+                enqueue_operations([op_payment_delete(payload)])
+        except Exception:
+            # No bloquear flujo si el encolado falla
+            pass
         # Generar alerta de pago eliminado
         try:
             if pago:
