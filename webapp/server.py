@@ -329,16 +329,33 @@ async def api_sync_upload(request: Request):
     ops = data.get("ops")
     if not isinstance(ops, list):
         return JSONResponse({"error": "Formato inválido: 'ops' debe ser lista"}, status_code=400)
-    # Autenticación opcional por token Bearer (si SYNC_UPLOAD_TOKEN está definido)
+    # Autenticación opcional por token (Bearer o X-Upload-Token), con fallback a config
     try:
         expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
+        if not expected:
+            try:
+                from utils import resource_path  # type: ignore
+                cfg_path = resource_path("config/config.json")
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    c = data.get("sync_upload_token")
+                    if isinstance(c, str) and c.strip():
+                        expected = c.strip()
+            except Exception:
+                pass
     except Exception:
         expected = ""
     if expected:
         auth = str(request.headers.get("Authorization", "")).strip()
-        if not auth.startswith("Bearer "):
+        x_token = str(request.headers.get("X-Upload-Token", "")).strip()
+        token = ""
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1].strip()
+        elif x_token:
+            token = x_token
+        if not token:
             return JSONResponse({"error": "Falta token"}, status_code=401)
-        token = auth.split(" ", 1)[1].strip()
         if token != expected:
             return JSONResponse({"error": "Token inválido"}, status_code=401)
     # Registrar en inbox para observabilidad
@@ -394,16 +411,33 @@ async def api_sync_upload_outbox(request: Request):
     changes = payload.get("changes")
     if not isinstance(changes, list):
         return JSONResponse({"error": "Formato inválido: 'changes' debe ser lista"}, status_code=400)
-    # Autenticación por token Bearer (como /api/sync/upload)
+    # Autenticación por token (Bearer o X-Upload-Token), con fallback a config
     try:
         expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
+        if not expected:
+            try:
+                from utils import resource_path  # type: ignore
+                cfg_path = resource_path("config/config.json")
+                if os.path.exists(cfg_path):
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    c = data.get("sync_upload_token")
+                    if isinstance(c, str) and c.strip():
+                        expected = c.strip()
+            except Exception:
+                pass
     except Exception:
         expected = ""
     if expected:
         auth = str(request.headers.get("Authorization", "")).strip()
-        if not auth.startswith("Bearer "):
+        x_token = str(request.headers.get("X-Upload-Token", "")).strip()
+        token = ""
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1].strip()
+        elif x_token:
+            token = x_token
+        if not token:
             return JSONResponse({"error": "Falta token"}, status_code=401)
-        token = auth.split(" ", 1)[1].strip()
         if token != expected:
             return JSONResponse({"error": "Token inválido"}, status_code=401)
 

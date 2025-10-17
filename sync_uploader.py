@@ -71,6 +71,7 @@ class HttpTransport(Transport):
             headers = {"Content-Type": "application/json"}
             if self.auth_token:
                 headers["Authorization"] = f"Bearer {self.auth_token}"
+                headers["X-Upload-Token"] = self.auth_token
             payload = {"ops": ops}
             resp = requests.post(self.url, json=payload, headers=headers, timeout=self.timeout)  # type: ignore
             if resp.status_code // 100 == 2:
@@ -116,6 +117,25 @@ class SyncUploader:
                     cfg = json.load(f)
                     url = str(cfg.get('url') or url).strip()
                     token = str(cfg.get('auth_token') or token).strip()
+        except Exception:
+            pass
+        # Fallback: leer token y URL desde config/config.json y utils.get_webapp_base_url
+        try:
+            from utils import resource_path, get_webapp_base_url  # type: ignore
+            cfg_path = resource_path('config/config.json')
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    app_cfg = json.load(f)
+                c = app_cfg.get('sync_upload_token')
+                if isinstance(c, str) and c.strip() and not token:
+                    token = c.strip()
+                if not url:
+                    base = app_cfg.get('webapp_base_url')
+                    if isinstance(base, str) and base.strip():
+                        base_url = base.strip()
+                    else:
+                        base_url = get_webapp_base_url()
+                    url = base_url.rstrip('/') + '/api/sync/upload'
         except Exception:
             pass
         # Si hay URL y requests disponible, usar HTTP; si no, fallback a archivo

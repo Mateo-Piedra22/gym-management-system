@@ -68,7 +68,21 @@ class OutboxPoller:
             return os.getenv('WEBAPP_BASE_URL', 'https://gym-ms-zrk.up.railway.app')
 
     def _token(self) -> str:
-        return os.getenv('SYNC_UPLOAD_TOKEN', '').strip()
+        t = os.getenv('SYNC_UPLOAD_TOKEN', '').strip()
+        if t:
+            return t
+        try:
+            from utils import resource_path  # type: ignore
+            cfg_path = resource_path('config/config.json')
+            if os.path.exists(cfg_path):
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                c = data.get('sync_upload_token')
+                if isinstance(c, str) and c.strip():
+                    return c.strip()
+        except Exception:
+            pass
+        return ''
 
     def _loop(self):
         if requests is None or psycopg2 is None:
@@ -85,10 +99,11 @@ class OutboxPoller:
                 payload = {"changes": [self._change_to_payload(ch) for ch in to_send]}
                 url = self._webapp_base_url().rstrip('/') + '/api/sync/upload_outbox'
                 token = self._token()
-                headers = {"Content-Type": "application/json"}
+                headers = {}
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
-                resp = requests.post(url, data=json.dumps(payload), headers=headers, timeout=15)
+                    headers["X-Upload-Token"] = token
+                resp = requests.post(url, json=payload, headers=headers, timeout=15)
                 acked: List[str] = []
                 if resp.status_code == 200:
                     body = resp.json() if resp.content else {}
