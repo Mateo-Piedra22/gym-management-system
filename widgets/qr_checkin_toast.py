@@ -66,6 +66,19 @@ class QRCheckinToast(QDialog):
         except Exception:
             pass
 
+        # Cerrar siempre si la app está saliendo o el main se destruye
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.aboutToQuit.connect(self._on_app_quit)
+        except Exception:
+            pass
+        try:
+            if hasattr(self.main_window, 'destroyed'):
+                self.main_window.destroyed.connect(self._on_app_quit)
+        except Exception:
+            pass
+
         self._build_ui()
         # Resolver y cachear la URL base al crear el toast
         try:
@@ -155,6 +168,23 @@ class QRCheckinToast(QDialog):
             self.move(geo.x() + geo.width() - self.width() - 24, geo.y() + geo.height() - self.height() - 24)
         except Exception:
             pass
+
+    def _on_app_quit(self):
+        """Forzar cierre seguro cuando la app o el main se cierran."""
+        try:
+            self._token_finalized = True
+            self._allow_close = True
+            self._stop_polling_timers()
+            try:
+                logging.info("QRCheckinToast: cierre forzado por salida de la aplicación")
+            except Exception:
+                pass
+            QTimer.singleShot(0, self.close)
+        except Exception:
+            try:
+                self.close()
+            except Exception:
+                pass
 
     def _render_qr_or_fallback(self):
         try:
@@ -403,7 +433,7 @@ class QRCheckinToast(QDialog):
             except Exception:
                 pass
 
-            # Cerrar sólo en caso de confirmación correcta (used)
+            # Cerrar en éxito; permitir cierre inmediato en expirado o inexistente
             if used:
                 try:
                     # Detener timers inmediatamente para evitar más peticiones/contador
@@ -435,14 +465,36 @@ class QRCheckinToast(QDialog):
                     self._allow_close = True
                     self.close()
             else:
-                # En expiración o inexistencia, mantener el toast hasta timeout
+                # En expiración o inexistencia, permitir cerrar y (si expiró) autocerrar rápido
                 try:
                     if expired:
                         self.status_label.setText("⚠️ Token expirado")
                         self.status_label.setVisible(True)
+                        self._allow_close = True
+                        self._stop_polling_timers()
+                        try:
+                            self.close_btn.setEnabled(True)
+                        except Exception:
+                            pass
+                        # Autocerrar tras una breve pausa para no dejar el proceso abierto
+                        try:
+                            if not hasattr(self, '_close_watchdog') or self._close_watchdog is None:
+                                self._close_watchdog = QTimer(self)
+                                self._close_watchdog.setSingleShot(True)
+                                self._close_watchdog.timeout.connect(self.close)
+                            QTimer.singleShot(1200, self.close)
+                            self._close_watchdog.start(1600)
+                        except Exception:
+                            QTimer.singleShot(1200, self.close)
                     elif exists is False:
+                        # Token no encontrado: habilitar cierre manual y mostrar estado
                         self.status_label.setText("⏳ Esperando confirmación")
                         self.status_label.setVisible(True)
+                        self._allow_close = True
+                        try:
+                            self.close_btn.setEnabled(True)
+                        except Exception:
+                            pass
                 except Exception:
                     pass
         except Exception:

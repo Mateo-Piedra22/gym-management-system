@@ -8726,7 +8726,7 @@ class DatabaseManager:
 
         El token NO contiene datos sensibles y expira en `expires_minutes`.
         """
-        expires_at = datetime.now() + timedelta(minutes=expires_minutes)
+        expires_at = datetime.utcnow() + timedelta(minutes=expires_minutes)
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
                 # Validar que el usuario esté activo
@@ -8775,7 +8775,7 @@ class DatabaseManager:
 
         Retorna (success, message).
         """
-        now = datetime.now()
+        now = datetime.utcnow()
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute(

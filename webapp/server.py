@@ -1958,7 +1958,7 @@ async def api_checkin_token_status(request: Request):
 
             used_flag = bool(row.get("used") or False)
             expires_at = row.get("expires_at")
-            now = _dt.datetime.now()
+            now = _dt.datetime.utcnow()
             expired = bool(expires_at and expires_at < now)
 
             usuario_id = row.get("usuario_id")
