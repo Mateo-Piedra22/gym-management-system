@@ -68,6 +68,15 @@ class OutboxPoller:
             return os.getenv('WEBAPP_BASE_URL', 'https://gym-ms-zrk.up.railway.app')
 
     def _token(self) -> str:
+        # Usar helper centralizado que además persiste en config si viene desde ENV
+        try:
+            from utils import get_sync_upload_token  # type: ignore
+            token = get_sync_upload_token(persist_from_env=True)
+            if isinstance(token, str):
+                return token.strip()
+        except Exception:
+            pass
+        # Fallback legacy (no debería llegar aquí si utils está disponible)
         t = os.getenv('SYNC_UPLOAD_TOKEN', '').strip()
         if t:
             return t
@@ -96,18 +105,27 @@ class OutboxPoller:
                     time.sleep(self.interval_s)
                     backoff = 1.0
                     continue
-                payload = {"changes": [self._change_to_payload(ch) for ch in to_send]}
                 url = self._webapp_base_url().rstrip('/') + '/api/sync/upload_outbox'
                 token = self._token()
-                headers = {}
-                if token:
-                    headers["Authorization"] = f"Bearer {token}"
-                    headers["X-Upload-Token"] = token
+                if not token:
+                    # Sin token configurado: no intentar enviar para evitar 401 spam
+                    self._emit({"pending": len(to_send), "auth": "missing"})
+                    time.sleep(max(self.interval_s, 5.0))
+                    backoff = min(backoff * 2.0, 60.0)
+                    continue
+                payload = {"changes": [self._change_to_payload(ch) for ch in to_send]}
+                headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}", "X-Upload-Token": token}
                 resp = requests.post(url, json=payload, headers=headers, timeout=15)
                 acked: List[str] = []
                 if resp.status_code == 200:
                     body = resp.json() if resp.content else {}
                     acked = list(body.get('acked') or [])
+                elif resp.status_code == 401:
+                    # Token inválido o faltante en el servidor: emitir estado y aplicar cooldown fuerte
+                    self._emit({"pending": len(to_send), "auth": "invalid"})
+                    time.sleep(60.0)
+                    backoff = min(max(backoff, 10.0) * 2.0, 120.0)
+                    continue
                 # Borrar acked
                 if acked:
                     self._delete_acked_by_dedup(acked)
@@ -141,14 +159,17 @@ class OutboxPoller:
         return out
 
     def _change_to_payload(self, ch: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "schema": ch.get("schema_name") or "public",
-            "table": ch.get("table_name"),
-            "op": ch.get("op"),
-            "pk": ch.get("pk") or {},
-            "data": ch.get("data"),
-            "dedup_key": ch.get("dedup_key"),
-        }
+        try:
+            return {
+                "schema": str(ch.get("schema_name") or "public"),
+                "table": str(ch.get("table_name") or ""),
+                "op": str(ch.get("op") or "").upper(),
+                "pk": ch.get("pk") or {},
+                "data": ch.get("data"),
+                "dedup_key": str(ch.get("dedup_key") or ""),
+            }
+        except Exception:
+            return {"schema": "public", "table": "", "op": "", "pk": {}, "data": None, "dedup_key": ""}
 
     def _delete_acked_by_dedup(self, dedup_keys: List[str]) -> None:
         if not dedup_keys:

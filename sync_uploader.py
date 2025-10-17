@@ -121,14 +121,15 @@ class SyncUploader:
             pass
         # Fallback: leer token y URL desde config/config.json y utils.get_webapp_base_url
         try:
-            from utils import resource_path, get_webapp_base_url  # type: ignore
+            from utils import resource_path, get_webapp_base_url, get_sync_upload_token  # type: ignore
+            # Token centralizado (persistirá desde ENV si aplica)
+            token2 = get_sync_upload_token(persist_from_env=True)
+            if token2 and not token:
+                token = token2
             cfg_path = resource_path('config/config.json')
             if os.path.exists(cfg_path):
                 with open(cfg_path, 'r', encoding='utf-8') as f:
                     app_cfg = json.load(f)
-                c = app_cfg.get('sync_upload_token')
-                if isinstance(c, str) and c.strip() and not token:
-                    token = c.strip()
                 if not url:
                     base = app_cfg.get('webapp_base_url')
                     if isinstance(base, str) and base.strip():
@@ -136,6 +137,9 @@ class SyncUploader:
                     else:
                         base_url = get_webapp_base_url()
                     url = base_url.rstrip('/') + '/api/sync/upload'
+            if not url:
+                # Último recurso: utils.get_webapp_base_url
+                url = get_webapp_base_url().rstrip('/') + '/api/sync/upload'
         except Exception:
             pass
         # Si hay URL y requests disponible, usar HTTP; si no, fallback a archivo

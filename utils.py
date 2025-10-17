@@ -218,15 +218,66 @@ def delete_files(paths: list, progress=None):
         except Exception:
             errors += 1
     # Completar progreso si se proporcionó
-    if progress is not None:
+    try:
+        if progress is not None and hasattr(progress, 'setValue'):
+            progress.setValue(total)
+    except Exception:
+        pass
+    return deleted, errors
+
+
+# --- Token de subida (centralizado) ---
+def get_sync_upload_token(persist_from_env: bool = True) -> str:
+    """Obtiene el token de subida de forma centralizada.
+
+    Prioridad:
+    1) ENV `SYNC_UPLOAD_TOKEN` (si `persist_from_env` está activo, lo guarda en config)
+    2) `config/config.json` → `sync_upload_token`
+    3) "" (cadena vacía si no está configurado)
+    """
+    try:
+        env_token = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
+        if env_token:
+            if persist_from_env:
+                try:
+                    cfg_path = resource_path("config/config.json")
+                    # Leer config existente (si existe)
+                    cfg = {}
+                    if os.path.exists(cfg_path):
+                        import json as _json
+                        try:
+                            with open(cfg_path, "r", encoding="utf-8") as f:
+                                cfg = _json.load(f) or {}
+                            if not isinstance(cfg, dict):
+                                cfg = {}
+                        except Exception:
+                            cfg = {}
+                    cur = str(cfg.get("sync_upload_token") or "").strip()
+                    if cur != env_token:
+                        cfg["sync_upload_token"] = env_token
+                        try:
+                            with open(cfg_path, "w", encoding="utf-8") as f:
+                                _json.dump(cfg, f, ensure_ascii=False, indent=2)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            return env_token
+        # Fallback: leer desde config.json
         try:
-            if hasattr(progress, 'setValue'):
-                progress.setValue(total)
-            if hasattr(progress, 'close'):
-                progress.close()
+            cfg_path = resource_path("config/config.json")
+            if os.path.exists(cfg_path):
+                import json as _json
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    data = _json.load(f) or {}
+                c = data.get("sync_upload_token")
+                if isinstance(c, str) and c.strip():
+                    return c.strip()
         except Exception:
             pass
-    return deleted, errors
+    except Exception:
+        pass
+    return ""
 
 
 # --- Gestión de procesos de túnel público (deprecado, sin LocalTunnel) ---
