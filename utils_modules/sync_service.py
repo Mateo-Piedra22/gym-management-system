@@ -27,17 +27,35 @@ except Exception:  # pragma: no cover - entorno alternativo/packaging
         # Fallback mínimo para evitar romper importaciones en entornos sin Qt
         class QObject:  # type: ignore
             pass
-        class _DummySignal:  # type: ignore
-            def connect(self, *_):
+
+        class QTimer:  # type: ignore
+            def __init__(self, *args, **kwargs):
                 pass
-        class QTimer:   # type: ignore
-            def __init__(self):
-                self._interval = 0
-                self.timeout = _DummySignal()
-            def start(self, *_):
+
+            def start(self, *args, **kwargs):
                 pass
-            def stop(self):
+
+            def stop(self, *args, **kwargs):
                 pass
+
+            def timeout(self, *args, **kwargs):  # type: ignore
+                return None
+
+            @staticmethod
+            def singleShot(ms: int, cb):  # type: ignore
+                # Fallback: ejecutar en hilo aparte con retardo mínimo
+                import threading as _th, time as _t
+                def _run():
+                    try:
+                        if ms > 0:
+                            _t.sleep(ms / 1000.0)
+                    except Exception:
+                        pass
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+                _th.Thread(target=_run, daemon=True).start()
 
 
 class SyncService(QObject):
@@ -213,4 +231,24 @@ class SyncService(QObject):
             self._maybe_auto_upload(int(pending))
         except Exception:
             # Resiliencia: nunca romper el hilo de UI por errores del observador
+            pass
+
+    # Nuevo: ejecución puntual del OutboxPoller para acelerar subida de triggers
+    def flush_outbox_once_bg(self, delay_ms: int = 0) -> None:
+        try:
+            poller = getattr(self, '_outbox_poller', None)
+            if not poller:
+                return
+            def _run():
+                try:
+                    poller.flush_once()  # type: ignore
+                except Exception:
+                    pass
+            try:
+                # Programar en el hilo de UI el arranque de un hilo real de trabajo
+                QTimer.singleShot(int(delay_ms or 0), lambda: threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True).start())
+            except Exception:
+                # Fallback: lanzar directamente en hilo
+                threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True).start()
+        except Exception:
             pass

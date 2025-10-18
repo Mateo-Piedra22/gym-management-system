@@ -792,6 +792,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"No se pudo crear el token de check-in: {e}")
                 return
 
+            # Empujar subida inmediata del outbox para acortar ventana de sincronización
+            try:
+                svc = getattr(self, 'sync_service', None)
+                if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
+                    svc.flush_outbox_once_bg(delay_ms=0)
+            except Exception:
+                pass
+
             try:
                 if QRCheckinToast is None:
                     QMessageBox.information(self, "QR generado", f"Token: {token}\nInstale dependencia de QR para vista avanzada.")

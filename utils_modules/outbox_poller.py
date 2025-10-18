@@ -39,6 +39,8 @@ class OutboxPoller:
         self._stop = threading.Event()
         self._running = False
         self.on_status: Optional[callable] = None  # callback opcional
+        # Lock para evitar ejecuciones simultáneas de flush explícito
+        self._flush_lock = threading.Lock()
 
     def start(self):
         if self._running:
@@ -187,3 +189,63 @@ class OutboxPoller:
                 conn.commit()
         except Exception:
             pass
+
+    # Nuevo: ejecutar una iteración de envío inmediatamente bajo demanda
+    def flush_once(self) -> Dict[str, Any]:
+        """Envía un lote inmediatamente (si hay) y devuelve un resumen.
+        No bloquea el hilo principal si se llama desde un hilo de background.
+        """
+        res: Dict[str, Any] = {}
+        if requests is None or psycopg2 is None:
+            res.update({"ok": False, "error": "deps_missing"})
+            self._emit(res)
+            return res
+        if not self.db_manager:
+            res.update({"ok": False, "error": "no_db"})
+            self._emit(res)
+            return res
+        # Evitar solapamiento de flushes explícitos
+        if not self._flush_lock.acquire(blocking=False):
+            # Ya hay un flush en curso; emitir estado neutro
+            res.update({"ok": False, "error": "flush_busy"})
+            self._emit(res)
+            return res
+        try:
+            to_send = self._read_batch()
+            if not to_send:
+                res.update({"pending": 0, "sent": 0, "acked": 0})
+                self._emit(res)
+                return res
+            url = self._webapp_base_url().rstrip('/') + '/api/sync/upload_outbox'
+            token = self._token()
+            if not token:
+                res.update({"pending": len(to_send), "auth": "missing"})
+                self._emit(res)
+                return res
+            payload = {"changes": [self._change_to_payload(ch) for ch in to_send]}
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}", "X-Upload-Token": token}
+            acked: List[str] = []
+            try:
+                resp = requests.post(url, json=payload, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    body = resp.json() if resp.content else {}
+                    acked = list(body.get('acked') or [])
+                elif resp.status_code == 401:
+                    res.update({"pending": len(to_send), "auth": "invalid"})
+                    self._emit(res)
+                    return res
+            except Exception:
+                # Error de red; emitir sin bloquear
+                res.update({"pending": len(to_send), "error": "network"})
+                self._emit(res)
+                return res
+            if acked:
+                self._delete_acked_by_dedup(acked)
+            res.update({"sent": len(to_send), "acked": len(acked)})
+            self._emit(res)
+            return res
+        finally:
+            try:
+                self._flush_lock.release()
+            except Exception:
+                pass
