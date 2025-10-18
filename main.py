@@ -816,7 +816,7 @@ class MainWindow(QMainWindow):
             logging.error(f"Error generando QR de check-in: {e}")
 
     def on_checkin_token_processed(self, info: dict):
-        """Señal al procesarse un token de check-in: refresca componentes críticos."""
+        """Señal al procesarse un token de check-in: registra asistencia local y refresca UI."""
         try:
             used = bool(info.get('used'))
             expired = bool(info.get('expired'))
@@ -826,31 +826,64 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # Refrescar componentes críticos: notificaciones y listas de presentes
         try:
-            # 1) Actualizar contadores y notificaciones del sistema
+            if used:
+                token = str(info.get('token') or '').strip()
+                usuario_id = None
+                try:
+                    if token and hasattr(self, 'db_manager') and hasattr(self.db_manager, 'obtener_checkin_por_token'):
+                        row = self.db_manager.obtener_checkin_por_token(token)
+                        if isinstance(row, dict) and row.get('usuario_id') is not None:
+                            usuario_id = int(row.get('usuario_id'))
+                except Exception:
+                    usuario_id = None
+                if usuario_id:
+                    try:
+                        from datetime import date
+                        if hasattr(self.db_manager, 'registrar_asistencia'):
+                            try:
+                                self.db_manager.registrar_asistencia(usuario_id, date.today())
+                            except ValueError:
+                                pass
+                        elif hasattr(self.db_manager, 'registrar_asistencia_comun'):
+                            try:
+                                self.db_manager.registrar_asistencia_comun(usuario_id, date.today())
+                            except ValueError:
+                                pass
+                    except Exception:
+                        pass
+                    try:
+                        if token and hasattr(self.db_manager, 'marcar_checkin_usado'):
+                            self.db_manager.marcar_checkin_usado(token)
+                    except Exception:
+                        pass
+                    try:
+                        svc = getattr(self, 'sync_service', None)
+                        if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
+                            svc.flush_outbox_once_bg(delay_ms=0)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        try:
             self.update_tab_notifications()
         except Exception:
             pass
 
         try:
-            # 2) Refrescar vistas relacionadas a asistencia si exponen métodos comunes
-            # Usuarios: muchas implementaciones tienen métodos refresh o actualizar lista
             usuarios_tab = self.tabs.get('usuarios')
             if usuarios_tab:
-                # Preferir recarga explícita de usuarios para reflejar "Asistió Hoy"
                 if hasattr(usuarios_tab, 'load_users'):
                     try:
                         usuarios_tab.load_users(usar_cache=False)
                     except TypeError:
                         usuarios_tab.load_users()
                     try:
-                        # Emitir señal de usuarios modificados si existe para forzar re-render
                         if hasattr(usuarios_tab, 'usuarios_modificados'):
                             usuarios_tab.usuarios_modificados.emit()
                     except Exception:
                         pass
-                # Fallbacks: otros métodos de refresco si existen
                 for m in ['refresh_data', 'actualizar_lista_usuarios', 'update_users_list', 'update_attendance_display']:
                     if hasattr(usuarios_tab, m):
                         getattr(usuarios_tab, m)()
@@ -859,7 +892,6 @@ class MainWindow(QMainWindow):
             pass
 
         try:
-            # 3) Reportes operativos: actualizar paneles si existen (asistencia general)
             reportes_tab = self.tabs.get('reportes')
             if reportes_tab:
                 for m in ['refresh_all_reports', 'update_attendance_display', 'reload_kpis']:
