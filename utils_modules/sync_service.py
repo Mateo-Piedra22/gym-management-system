@@ -17,21 +17,27 @@ import time
 import threading
 
 try:
-    from PyQt5.QtCore import QObject, QTimer
+    # Preferir PyQt6 si está disponible
+    from PyQt6.QtCore import QObject, QTimer  # type: ignore
 except Exception:  # pragma: no cover - entorno alternativo/packaging
-    # Fallback mínimo para evitar romper importaciones en entornos sin Qt
-    class QObject:  # type: ignore
-        pass
-    class QTimer:   # type: ignore
-        def __init__(self):
-            self._interval = 0
-            self._cb = None
-        def timeout(self):
-            return None
-        def start(self, *_):
+    try:
+        # Fallback a PyQt5
+        from PyQt5.QtCore import QObject, QTimer  # type: ignore
+    except Exception:
+        # Fallback mínimo para evitar romper importaciones en entornos sin Qt
+        class QObject:  # type: ignore
             pass
-        def stop(self):
-            pass
+        class _DummySignal:  # type: ignore
+            def connect(self, *_):
+                pass
+        class QTimer:   # type: ignore
+            def __init__(self):
+                self._interval = 0
+                self.timeout = _DummySignal()
+            def start(self, *_):
+                pass
+            def stop(self):
+                pass
 
 
 class SyncService(QObject):
@@ -74,21 +80,32 @@ class SyncService(QObject):
 
     def start(self):
         """Inicia el polling de la cola de operaciones."""
+        # Intentar iniciar timer de UI si Qt está disponible
         try:
             if self._timer is None:
                 self._timer = QTimer()
-                self._timer.timeout.connect(self._tick)  # type: ignore
-            self._timer.start(self.poll_interval_ms)
-            # Primer tick inmediato para reflejar estado actual
-            self._tick()
-            # Iniciar outbox poller si está disponible
+                try:
+                    # Tanto en PyQt5 como en PyQt6, timeout expone signal con connect
+                    self._timer.timeout.connect(self._tick)  # type: ignore
+                except Exception:
+                    pass
             try:
-                if self._outbox_poller:
-                    self._outbox_poller.start()  # type: ignore
+                self._timer.start(self.poll_interval_ms)
+            except Exception:
+                pass
+            # Primer tick inmediato para reflejar estado actual
+            try:
+                self._tick()
             except Exception:
                 pass
         except Exception:
             # No bloquear si Qt no está disponible o falla el timer
+            pass
+        # Iniciar outbox poller aunque el timer de UI no haya podido iniciar
+        try:
+            if self._outbox_poller:
+                self._outbox_poller.start()  # type: ignore
+        except Exception:
             pass
 
     def stop(self):

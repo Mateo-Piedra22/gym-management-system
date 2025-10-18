@@ -141,9 +141,10 @@ class QRCheckinToast(QDialog):
         btns = QHBoxLayout()
         self.close_btn = QPushButton("Cerrar")
         self.close_btn.setObjectName("closeBtn")
-        # No permitir cierre manual antes de éxito o timeout
+        # Habilitar cierre manual desde el inicio, con cancelación del token
         try:
-            self.close_btn.setEnabled(False)
+            self.close_btn.setEnabled(True)
+            self.close_btn.clicked.connect(self._on_close_clicked)
         except Exception:
             pass
         # Botón para copiar el token al portapapeles
@@ -172,6 +173,12 @@ class QRCheckinToast(QDialog):
     def _on_app_quit(self):
         """Forzar cierre seguro cuando la app o el main se cierran."""
         try:
+            # Si el token seguía pendiente, cancelarlo para invalidarlo de inmediato
+            try:
+                if not getattr(self, "_token_finalized", False) and self.seconds_left > 0:
+                    self._cancel_token(async_mode=True)
+            except Exception:
+                pass
             self._token_finalized = True
             self._allow_close = True
             self._stop_polling_timers()
@@ -422,10 +429,10 @@ class QRCheckinToast(QDialog):
                 )
             except Exception:
                 pass
-            # Emitir señal si el token deja de existir o expira, para que el main pueda reaccionar
+            # Emitir señal SOLO si el token se usa o expira; no marcar 'inexistente' como expirado
             payload = {"token": self.token, "used": used, "expired": expired}
             try:
-                if used or expired or (exists is False):
+                if used or expired:
                     self.tokenProcessed.emit(payload)
                     handler = getattr(self.main_window, 'on_checkin_token_processed', None)
                     if callable(handler):
@@ -433,7 +440,7 @@ class QRCheckinToast(QDialog):
             except Exception:
                 pass
 
-            # Cerrar en éxito; permitir cierre inmediato en expirado o inexistente
+            # Cerrar en éxito; permitir cierre inmediato en expirado. Si no existe, mostrar espera sin cerrar.
             if used:
                 try:
                     # Detener timers inmediatamente para evitar más peticiones/contador
@@ -456,7 +463,7 @@ class QRCheckinToast(QDialog):
                         self._close_watchdog.start(1600)
                     except Exception:
                         pass
-                    # Habilitar botón cerrar tras confirmación
+                    # Botón cerrar sigue habilitado
                     try:
                         self.close_btn.setEnabled(True)
                     except Exception:
@@ -465,7 +472,7 @@ class QRCheckinToast(QDialog):
                     self._allow_close = True
                     self.close()
             else:
-                # En expiración o inexistencia, permitir cerrar y (si expiró) autocerrar rápido
+                # En expiración, permitir cerrar y autocerrar. En inexistencia, mostrar espera sin cerrar.
                 try:
                     if expired:
                         self.status_label.setText("⚠️ Token expirado")
@@ -487,10 +494,10 @@ class QRCheckinToast(QDialog):
                         except Exception:
                             QTimer.singleShot(1200, self.close)
                     elif exists is False:
-                        # Token no encontrado: habilitar cierre manual y mostrar estado
-                        self.status_label.setText("⏳ Esperando confirmación")
+                        # Token no encontrado: probablemente en tránsito de replicación → esperar
+                        self.status_label.setText("⏳ Esperando sincronización…")
                         self.status_label.setVisible(True)
-                        self._allow_close = True
+                        # Mantener botón de cerrar habilitado, pero no cerrar automáticamente
                         try:
                             self.close_btn.setEnabled(True)
                         except Exception:
@@ -502,7 +509,7 @@ class QRCheckinToast(QDialog):
 
     def closeEvent(self, event):
         try:
-            # Bloquear cierre si aún no hay éxito o timeout
+            # Bloquear cierre si aún no hay éxito o timeout (salvo cancelación explícita)
             if not getattr(self, '_allow_close', False) and self.seconds_left > 0:
                 try:
                     logging.info("QRCheckinToast.closeEvent: intento de cierre bloqueado")
@@ -546,3 +553,47 @@ class QRCheckinToast(QDialog):
             self._polling_inflight = False
         except Exception:
             pass
+
+    def _on_close_clicked(self):
+        """Cancelar manualmente el token y cerrar el toast."""
+        try:
+            # Cancelar (marcar usado) en segundo plano para no bloquear UI
+            self._cancel_token(async_mode=True)
+        except Exception:
+            pass
+        # Permitir y forzar cierre
+        try:
+            self.status_label.setText("🚫 Token cancelado")
+            self.status_label.setVisible(True)
+        except Exception:
+            pass
+        self._allow_close = True
+        self._token_finalized = True
+        self._stop_polling_timers()
+        try:
+            QTimer.singleShot(0, self.close)
+        except Exception:
+            self.close()
+
+    def _cancel_token(self, async_mode: bool = True):
+        """Marca el token como usado en la BD local para invalidarlo de inmediato.
+        Se usa al cerrar manualmente o al salir de la app antes de confirmación.
+        """
+        def _do_cancel():
+            try:
+                dbm = getattr(self.main_window, 'db_manager', None)
+                if dbm and hasattr(dbm, 'marcar_checkin_usado'):
+                    dbm.marcar_checkin_usado(self.token)
+                    try:
+                        logging.info(f"QRCheckinToast: token cancelado localmente {self.token}")
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    logging.exception("QRCheckinToast: error cancelando token localmente")
+                except Exception:
+                    pass
+        if async_mode:
+            threading.Thread(target=_do_cancel, daemon=True).start()
+        else:
+            _do_cancel()
