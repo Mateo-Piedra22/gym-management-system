@@ -353,6 +353,10 @@ class ConnectionPool:
                     pass
             conn = psycopg2.connect(**params)
             conn.autocommit = False  # Explicit transaction control
+            try:
+                conn.set_client_encoding('UTF8')
+            except Exception:
+                pass
             
             # Configuraciones optimizadas para PostgreSQL
             with conn.cursor() as cursor:
@@ -550,6 +554,10 @@ class ConnectionPool:
             # Crear conexión directa sin usar el pool
             conn = psycopg2.connect(**params)
             conn.autocommit = False
+            try:
+                conn.set_client_encoding('UTF8')
+            except Exception:
+                pass
             
             # Configuraciones básicas para la conexión de emergencia
             with conn.cursor() as cursor:
@@ -632,6 +640,10 @@ class ConnectionPool:
                     params['dbname'] = params['database']
                 conn = psycopg2.connect(**params)
                 conn.autocommit = False
+                try:
+                    conn.set_client_encoding('UTF8')
+                except Exception:
+                    pass
                 
                 # Ensure timezone for transaction-scoped connection
                 with conn.cursor() as cursor:

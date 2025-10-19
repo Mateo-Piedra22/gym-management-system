@@ -955,7 +955,7 @@ class ReportsTabWidget(QWidget):
         except Exception:
             pass
         self.clear_grid_layout_kpis()
-        loading = QLabel("Cargando KPIs...")
+        loading = QLabel("") #Cargando KPIs...
         loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.grid_layout.addWidget(loading, 0, 0, 1, 4)
         try:

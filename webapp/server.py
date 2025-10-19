@@ -22,7 +22,7 @@ import psutil
 import psycopg2
 import psycopg2.extras
 import time
-# HTTP client para probes (con fallback si no estÃ¡ disponible)
+# HTTP client para probes (con fallback si no está disponible)
 try:
     import requests  # type: ignore
 except Exception:
@@ -34,7 +34,7 @@ try:
 except Exception:
     DatabaseManager = None  # type: ignore
 
-# Importar utilidades del proyecto principal para branding y contraseÃ±a de desarrollador
+# Importar utilidades del proyecto principal para branding y contraseña de desarrollador
 try:
     from utils import get_gym_name  # type: ignore
 except Exception:
@@ -54,7 +54,7 @@ try:
 except Exception:
     DEV_PASSWORD = None  # type: ignore
 
-# Base URL pÃºblica (Railway) sin tÃºneles
+# Base URL pública (Railway) sin túneles
 try:
     from utils import get_webapp_base_url  # type: ignore
 except Exception:
@@ -62,7 +62,7 @@ except Exception:
         import os as _os
         return _os.getenv("WEBAPP_BASE_URL", default).strip()
 
-# Utilidad para cerrar tÃºneles pÃºblicos de forma segura
+# Utilidad para cerrar túneles públicos de forma segura
 try:
     from utils import terminate_tunnel_processes  # type: ignore
 except Exception:
@@ -81,17 +81,17 @@ except Exception:
 from .qss_to_css import generate_css_from_qss, read_theme_vars
 
 _db: Optional[DatabaseManager] = None
-# Bloqueo para inicializaciÃ³n segura de la instancia global de DB y evitar condiciones de carrera
+# Bloqueo para inicialización segura de la instancia global de DB y evitar condiciones de carrera
 _db_lock = threading.RLock()
 _db_initializing = False
 
 # Ajuste de stdout/stderr para ejecutables sin consola en Windows (runw.exe)
-# Evita fallos de configuraciÃ³n de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
+# Evita fallos de configuración de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
 try:
     if os.name == "nt":
         import os as _os
         import io as _io
-        # Asegurar stdout/stderr vÃ¡lidos aunque estÃ©n cerrados en ejecutables sin consola
+        # Asegurar stdout/stderr válidos aunque estén cerrados en ejecutables sin consola
         _sout = getattr(sys, "stdout", None)
         try:
             if _sout is None or getattr(_sout, "closed", False):
@@ -108,7 +108,7 @@ try:
                 sys.stderr = _io.TextIOWrapper(_serr.buffer, encoding="utf-8", errors="replace")
         except Exception:
             pass
-        # Forzar polÃ­tica de event loop compatible en Windows a nivel global
+        # Forzar política de event loop compatible en Windows a nivel global
         try:
             import asyncio as _asyncio
             _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
@@ -117,8 +117,8 @@ try:
 except Exception:
     pass
 
-# Fallback defensivo: rebind local de print a versiÃ³n segura que no falle
-# si stdout/stderr estÃ¡ cerrado en ejecutables sin consola.
+# Fallback defensivo: rebind local de print a versión segura que no falle
+# si stdout/stderr está cerrado en ejecutables sin consola.
 try:
     import builtins as _builtins
     def _safe_print(*args, **kwargs):
@@ -127,10 +127,10 @@ try:
         except Exception:
             try:
                 import logging as _logging
-                # Registrar el mensaje concatenado para no perder diagnÃ³stico
+                # Registrar el mensaje concatenado para no perder diagnóstico
                 _logging.info(" ".join(str(a) for a in args))
             except Exception:
-                # No romper si logging aÃºn no estÃ¡ configurado
+                # No romper si logging aún no está configurado
                 pass
     print = _safe_print  # type: ignore
 except Exception:
@@ -140,7 +140,7 @@ def _compute_base_dir() -> Path:
     """Determina la carpeta base desde la cual resolver recursos.
     - En ejecutable PyInstaller (onedir): junto al exe.
     - En modo onefile: carpeta temporal _MEIPASS.
-    - En desarrollo: raÃ­z del proyecto.
+    - En desarrollo: raíz del proyecto.
     """
     try:
         if getattr(sys, "frozen", False):
@@ -153,14 +153,14 @@ def _compute_base_dir() -> Path:
         pass
     # Desarrollo: carpeta del proyecto
     try:
-        # server.py estÃ¡ en webapp/, subimos un nivel
+        # server.py está en webapp/, subimos un nivel
         return Path(__file__).resolve().parent.parent
     except Exception:
         return Path('.')
 
 def _resolve_existing_dir(*parts: str) -> Path:
     """Devuelve el primer directorio existente entre varias ubicaciones candidatas.
-    Prioriza BASE_DIR, luego el directorio del ejecutable (onedir) y por Ãºltimo el proyecto.
+    Prioriza BASE_DIR, luego el directorio del ejecutable (onedir) y por último el proyecto.
     """
     candidates = []
     try:
@@ -183,7 +183,7 @@ def _resolve_existing_dir(*parts: str) -> Path:
                 return c
         except Exception:
             continue
-    # Fallback: primera opciÃ³n aunque no exista
+    # Fallback: primera opción aunque no exista
     return candidates[0] if candidates else Path(*parts)
 
 # Helper para secreto de sesion estable
@@ -227,11 +227,11 @@ def _get_session_secret() -> str:
     import secrets as _secrets
     return _secrets.token_urlsafe(32)
 
-# InicializaciÃ³n de la app web
+# Inicialización de la app web
 app = FastAPI(
     title="GymMS WebApp",
     version="2.0",
-    # Permite servir detrÃ¡s de reverse proxy con subpath
+    # Permite servir detrás de reverse proxy con subpath
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
@@ -284,18 +284,18 @@ try:
 except Exception:
     pass
 
-# Middlewares de producciÃ³n (opcionales via ENV, cambios mÃ­nimos)
+# Middlewares de producción (opcionales via ENV, cambios mínimos)
 try:
-    # Restringir hosts confiables. Si no hay ENV, aÃ±adir dominio Railway por defecto
+    # Restringir hosts confiables. Si no hay ENV, añadir dominio Railway por defecto
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     hosts = [h.strip() for h in th.split(",") if h.strip()] if th else []
     if not hosts:
         hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1", "*.loca.lt"]
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
-    # Forzar HTTPS en producciÃ³n si se indica
+    # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
         app.add_middleware(HTTPSRedirectMiddleware)
-    # Nota: GestiÃ³n de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
+    # Nota: Gestión de cabeceras de proxy delegada a Uvicorn (proxy_headers=True)
     if (os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")):
         logging.info("Cabeceras de proxy gestionadas por Uvicorn (proxy_headers=True)")
 except Exception:
@@ -312,7 +312,7 @@ try:
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 except Exception:
     pass
-# Preferir assets del proyecto raÃ­z; fallback a assets dentro de webapp
+# Preferir assets del proyecto raíz; fallback a assets dentro de webapp
 try:
     app.mount("/assets", StaticFiles(directory=str(_resolve_existing_dir("assets"))), name="assets")
 except Exception:
@@ -321,19 +321,19 @@ except Exception:
     except Exception:
         pass
 
-# --- Utilidad legacy de sincronizaciÃ³n eliminada ---
-# Nota: La replicaciÃ³n lÃ³gica de PostgreSQL reemplaza el sistema de sync vÃ­a HTTP.
+# --- Utilidad legacy de sincronización eliminada ---
+# Nota: La replicación lógica de PostgreSQL reemplaza el sistema de sync vía HTTP.
 
 # Endpoint de salud ligero para probes y monitores
 @app.get("/healthz")
 async def healthz():
-    """Devuelve estado 200 si la app responde. Incluye mÃ­nimos detalles."""
+    """Devuelve estado 200 si la app responde. Incluye mínimos detalles."""
     try:
         details: Dict[str, Any] = {
             "status": "ok",
             "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
-        # ComprobaciÃ³n opcional de DB (no bloqueante)
+        # Comprobación opcional de DB (no bloqueante)
         try:
             db = _get_db()
             if db is not None:
@@ -345,7 +345,7 @@ async def healthz():
         # Fallback defensivo: responder 200 para evitar cascadas de reinicios
         return JSONResponse({"status": "ok"})
 
-# Endpoint para exponer la URL base pÃºblica (Railway)
+# Endpoint para exponer la URL base pública (Railway)
 @app.get("/webapp/base_url")
 async def webapp_base_url():
     try:
@@ -354,7 +354,7 @@ async def webapp_base_url():
     except Exception:
         return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
-# Endpoints de sincronizaciÃ³n para integraciÃ³n con proxy local
+# Endpoints de sincronización para integración con proxy local
 @app.post("/api/sync/upload")
 async def api_sync_upload(request: Request):
     rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
@@ -605,22 +605,22 @@ async def api_sync_download(request: Request):
     return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
 
 
-# Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacÃ­o
+# Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacío
 @app.get("/@vite/client")
 async def vite_client_stub():
     return Response("// Vite client stub (deshabilitado en esta app)", media_type="application/javascript")
 
-# Endpoint de estado de replicaciÃ³n externa retirado; usamos replicaciÃ³n lÃ³gica nativa de PostgreSQL.
+# Endpoint de estado de replicación externa retirado; usamos replicación lógica nativa de PostgreSQL.
 
-# Generar CSS desde QSS de forma automÃ¡tica evitando sobrescritura
+# Generar CSS desde QSS de forma automática evitando sobrescritura
 try:
     css_path = static_dir / "style.css"
-    # Solo regenerar si no existe o si se fuerza explÃ­citamente por ENV
+    # Solo regenerar si no existe o si se fuerza explícitamente por ENV
     if (not css_path.exists()) or (os.getenv("REGENERATE_STYLE_CSS", "0").strip() == "1"):
         qss_path = _resolve_existing_dir("styles", "style.qss")
         generate_css_from_qss(qss_path, css_path)
 except Exception:
-    # Fallback silencioso; la UI seguirÃ¡ mostrando colores por defecto
+    # Fallback silencioso; la UI seguirá mostrando colores por defecto
     pass
 
 
@@ -667,11 +667,11 @@ def _get_db() -> Optional[DatabaseManager]:
         return _db
     if DatabaseManager is None:
         try:
-            logging.error("_get_db: DatabaseManager no disponible (import fallÃ³)")
+            logging.error("_get_db: DatabaseManager no disponible (import falló)")
         except Exception:
             pass
         return None
-    # InicializaciÃ³n con bloqueo para evitar carreras entre hilos
+    # Inicialización con bloqueo para evitar carreras entre hilos
     with _db_lock:
         if _db is not None:
             return _db
@@ -679,7 +679,7 @@ def _get_db() -> Optional[DatabaseManager]:
         try:
             logging.debug("_get_db: inicializando DatabaseManager (lazy, locked)")
             _db = DatabaseManager()
-            # Opcional: crear Ã­ndices de rendimiento de forma diferida y no bloqueante
+            # Opcional: crear índices de rendimiento de forma diferida y no bloqueante
             try:
                 if hasattr(_db, 'ensure_indexes'):
                     import threading
@@ -692,18 +692,18 @@ def _get_db() -> Optional[DatabaseManager]:
                                 _db.ensure_indexes()  # type: ignore
                             except Exception as ie:
                                 try:
-                                    _logging.exception(f"ensure_indexes diferido fallÃ³: {ie}")
+                                    _logging.exception(f"ensure_indexes diferido falló: {ie}")
                                 except Exception:
                                     pass
                         except Exception:
-                            # No bloquear la inicializaciÃ³n por errores aquÃ­
+                            # No bloquear la inicialización por errores aquí
                             pass
                     threading.Thread(target=_defer_ensure_indexes, daemon=True).start()
             except Exception:
-                # No bloquear la inicializaciÃ³n por errores al programar el hilo
+                # No bloquear la inicialización por errores al programar el hilo
                 pass
             try:
-                # VerificaciÃ³n ligera para asegurar que la conexiÃ³n estÃ¡ saludable (con timeouts de lectura)
+                # Verificación ligera para asegurar que la conexión está saludable (con timeouts de lectura)
                 with _db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor()
                     try:
@@ -719,12 +719,12 @@ def _get_db() -> Optional[DatabaseManager]:
                             conn.rollback()
                         except Exception:
                             pass
-                logging.debug("_get_db: verificaciÃ³n SELECT 1 OK")
+                logging.debug("_get_db: verificación SELECT 1 OK")
             except Exception as e:
-                logging.exception(f"_get_db: verificaciÃ³n de conexiÃ³n fallÃ³ tras init: {e}")
-                # Invalidar si la verificaciÃ³n falla para permitir reintentos controlados
+                logging.exception(f"_get_db: verificación de conexión falló tras init: {e}")
+                # Invalidar si la verificación falla para permitir reintentos controlados
                 _db = None
-            # Prefetch asÃ­ncrono de credenciales del dueÃ±o para respuesta mÃ¡s rÃ¡pida
+            # Prefetch asíncrono de credenciales del dueño para respuesta más rápida
             try:
                 if _db is not None and hasattr(_db, 'prefetch_owner_credentials_async'):
                     _db.prefetch_owner_credentials_async(ttl_seconds=600)  # type: ignore
@@ -735,7 +735,7 @@ def _get_db() -> Optional[DatabaseManager]:
                     logging.info("_get_db: DatabaseManager inicializado")
                 except Exception:
                     pass
-                # Seed inicial: si hay WEBAPP_OWNER_PASSWORD y la DB no tiene valor, guardarlo en configuraciÃ³n
+                # Seed inicial: si hay WEBAPP_OWNER_PASSWORD y la DB no tiene valor, guardarlo en configuración
                 try:
                     env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
                     if env_pwd and hasattr(_db, 'obtener_configuracion') and hasattr(_db, 'actualizar_configuracion'):
@@ -767,7 +767,7 @@ def _get_db() -> Optional[DatabaseManager]:
     return _db
 
 
-# Guard sencillo para responder 503 cuando el Circuit Breaker estÃ© abierto
+# Guard sencillo para responder 503 cuando el Circuit Breaker esté abierto
 def _circuit_guard_json(db: DatabaseManager, endpoint: str = "") -> Optional[JSONResponse]:
     try:
         if hasattr(db, "is_circuit_open") and callable(getattr(db, "is_circuit_open")):
@@ -800,7 +800,7 @@ def _force_db_init() -> Optional[DatabaseManager]:
     Se usa en el arranque y como reintento defensivo antes de devolver 500.
     """
     global _db, _db_initializing
-    # Log de parÃ¡metros de conexiÃ³n (sin exponer credenciales)
+    # Log de parámetros de conexión (sin exponer credenciales)
     def _redact_dsn(dsn: str) -> str:
         try:
             import re as _re
@@ -820,7 +820,7 @@ def _force_db_init() -> Optional[DatabaseManager]:
         pass
     with _db_lock:
         try:
-            # Si ya estÃ¡ inicializado, devolverlo
+            # Si ya está inicializado, devolverlo
             if _db is not None:
                 return _db
             _db_initializing = True
@@ -830,19 +830,19 @@ def _force_db_init() -> Optional[DatabaseManager]:
                     _db.ensure_indexes()  # type: ignore
             except Exception:
                 pass
-            # VerificaciÃ³n ligera de conexiÃ³n para evitar estados a medio inicializar
+            # Verificación ligera de conexión para evitar estados a medio inicializar
             try:
                 with _db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor()
                     cur.execute("SELECT 1")
                     _ = cur.fetchone()
                     try:
-                        logging.debug("_force_db_init: verificaciÃ³n SELECT 1 OK")
+                        logging.debug("_force_db_init: verificación SELECT 1 OK")
                     except Exception:
                         pass
             except Exception as e:
                 try:
-                    logging.exception(f"VerificaciÃ³n de DB tras inicializar fallÃ³: {e}")
+                    logging.exception(f"Verificación de DB tras inicializar falló: {e}")
                 except Exception:
                     pass
                 # Invalidar para que el caller pueda manejar el fallo
@@ -871,16 +871,16 @@ async def _startup_init_db():
         if _get_db() is None:
             _force_db_init()
     except Exception:
-        # No bloquear el arranque; los endpoints intentarÃ¡n reintentar
+        # No bloquear el arranque; los endpoints intentarán reintentar
         pass
 
-# Inicio/apagado de motores externos de replicaciÃ³n retirado.
-# La replicaciÃ³n se administra desde el servidor PostgreSQL (publications/subscriptions).
+# Inicio/apagado de motores externos de replicación retirado.
+# La replicación se administra desde el servidor PostgreSQL (publications/subscriptions).
 
 
 def require_owner(request: Request):
     if not request.session.get("logged_in"):
-        raise HTTPException(status_code=401, detail="Acceso restringido al dueÃ±o")
+        raise HTTPException(status_code=401, detail="Acceso restringido al dueño")
     return True
 
 
@@ -898,7 +898,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
             import time as _t
             while True:
                 try:
-                    # Liberar/limpiar el puerto si estÃ¡ ocupado por otro proceso
+                    # Liberar/limpiar el puerto si está ocupado por otro proceso
                     try:
                         for conn in psutil.net_connections(kind='inet'):
                             laddr = getattr(conn, 'laddr', None)
@@ -916,7 +916,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                                             p.kill()
                                         except Exception:
                                             pass
-                        # pequeÃ±a espera para liberar el puerto completamente
+                        # pequeña espera para liberar el puerto completamente
                         _t.sleep(0.5)
                     except Exception:
                         pass
@@ -940,19 +940,19 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                         proxy_headers=(os.getenv("PROXY_HEADERS_ENABLED", "1").strip() in ("1", "true", "yes")),
                     )
                     server = uvicorn.Server(config=config)
-                    # Desactivar instalaciÃ³n de manejadores de seÃ±ales (no permitidos fuera del hilo principal)
+                    # Desactivar instalación de manejadores de señales (no permitidos fuera del hilo principal)
                     try:
                         server.install_signal_handlers = lambda: None
                     except Exception:
                         pass
-                    # Crear explÃ­citamente un event loop en este hilo y servir
+                    # Crear explícitamente un event loop en este hilo y servir
                     try:
                         import asyncio as _asyncio
                         loop = _asyncio.new_event_loop()
                         _asyncio.set_event_loop(loop)
                         loop.run_until_complete(server.serve())
                     except Exception:
-                        # Fallback al modo sÃ­ncrono
+                        # Fallback al modo síncrono
                         server.run()
                 except Exception:
                     pass
@@ -962,7 +962,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
         # En ejecutables congelados en Windows, preferir proceso separado para robustez
         try:
             # Importante: en ejecutables congelados en Windows, evitar multiprocessing.
-            # Usar siempre hilo dedicado para prevenir re-ejecuciÃ³n del binario (bucle de relanzamiento).
+            # Usar siempre hilo dedicado para prevenir re-ejecución del binario (bucle de relanzamiento).
             t = threading.Thread(target=_run, daemon=True)
             t.start()
         except Exception:
@@ -976,11 +976,11 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
         pass
 
 
-# Callback global de reconexiÃ³n del tÃºnel pÃºblico (LocalTunnel por defecto)
+# Callback global de reconexión del túnel público (LocalTunnel por defecto)
 _public_tunnel_on_reconnect_cb: Optional[Callable[[str], None]] = None
 
 def set_public_tunnel_reconnect_callback(cb: Optional[Callable[[str], None]]):
-    """Registra callback de reconexiÃ³n del tÃºnel pÃºblico."""
+    """Registra callback de reconexión del túnel público."""
     global _public_tunnel_on_reconnect_cb
     _public_tunnel_on_reconnect_cb = cb
 
@@ -989,7 +989,7 @@ def set_serveo_reconnect_callback(cb: Optional[Callable[[str], None]]):
     set_public_tunnel_reconnect_callback(cb)
 
 def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, on_reconnect: Optional[Callable[[str], None]] = None) -> Optional[str]:
-    """No-op de tÃºnel pÃºblico: devuelve la URL Railway configurada."""
+    """No-op de túnel público: devuelve la URL Railway configurada."""
     try:
         url = get_webapp_base_url()
         return url
@@ -998,7 +998,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
     try:
         import shutil, subprocess, os, threading, re, webbrowser, time, socket
 
-        # SelecciÃ³n de proveedor centrado en LocalTunnel (default 'localtunnel').
+        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel').
         provider = str(os.getenv("TUNNEL_PROVIDER", "localtunnel")).strip().lower()
 
         # Localizar binario de SSH
@@ -1026,10 +1026,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
         ssh_bin = _find_ssh()
         if not ssh_bin and provider != "localtunnel":
-            print("Cliente SSH no encontrado; no se puede iniciar tÃºnel SSH")
+            print("Cliente SSH no encontrado; no se puede iniciar túnel SSH")
             return None
 
-        # Esperar a que el servicio local estÃ© escuchando
+        # Esperar a que el servicio local esté escuchando
         try:
             deadline = time.time() + 15
             while time.time() < deadline:
@@ -1045,10 +1045,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                 time.sleep(0.5)
         except Exception:
-            # Si falla la comprobaciÃ³n, continuamos igualmente
+            # Si falla la comprobación, continuamos igualmente
             pass
 
-        # Host y puerto SSH configurables para proveedores SSH genÃ©ricos
+        # Host y puerto SSH configurables para proveedores SSH genéricos
         ssh_host = os.getenv("PUBLIC_TUNNEL_SSH_HOST", "localhost.run").strip()
         ssh_port_env = os.getenv("PUBLIC_TUNNEL_SSH_PORT")
         ssh_port: int
@@ -1060,7 +1060,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
         # Si no especificado por ENV, probar conectividad y usar 443 como fallback
         if ssh_port_env is None:
             if not _tcp_open(ssh_host, 22, 1.5):
-                # Intento rÃ¡pido de 443
+                # Intento rápido de 443
                 if _tcp_open(ssh_host, 443, 1.5):
                     ssh_port = 443
                 else:
@@ -1078,14 +1078,14 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         # No hay conectividad saliente; continuar igualmente para que el supervisor reintente
                         ssh_port = 22
 
-        # Intento de permitir trÃ¡fico saliente de ssh.exe en Windows (no crÃ­tico, puede requerir admin)
+        # Intento de permitir tráfico saliente de ssh.exe en Windows (no crítico, puede requerir admin)
         _startupinfo = None
         try:
             if os.name == "nt":
                 _startupinfo = subprocess.STARTUPINFO()
                 _startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
                 try:
-                    # SW_HIDE para asegurar que la ventana estÃ© oculta
+                    # SW_HIDE para asegurar que la ventana esté oculta
                     _startupinfo.wShowWindow = 0
                 except Exception:
                     pass
@@ -1104,11 +1104,11 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
         except Exception:
             pass
 
-        # SelecciÃ³n de proveedor centrado en LocalTunnel (default 'localtunnel'). Sin fallback automÃ¡tico.
+        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel'). Sin fallback automático.
         # Bandera de verbosidad SSH configurable
         ssh_verbose = str(os.getenv("PUBLIC_TUNNEL_SSH_VERBOSE", "0")).strip().lower() in ("1", "true", "yes")
 
-        # Helper para construir el comando SSH segÃºn proveedor y puerto actual
+        # Helper para construir el comando SSH según proveedor y puerto actual
         def _build_cmd() -> list:
             try:
                 if provider == "localtunnel":
@@ -1120,7 +1120,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                     elif npx_bin:
                         base = [npx_bin, "localtunnel", "--port", str(local_port), "--subdomain", subdomain]
                     else:
-                        logging.warning("[Tunnel] LocalTunnel no disponible (no se encontrÃ³ 'lt' ni 'npx').")
+                        logging.warning("[Tunnel] LocalTunnel no disponible (no se encontró 'lt' ni 'npx').")
                         return []
                     try:
                         logging.info(f"[Tunnel] provider=localtunnel subdomain={subdomain} port={local_port}")
@@ -1128,7 +1128,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                     return base
                 if provider == "localhost.run":
-                    # localhost.run: tÃºnel HTTP gratuito (dominio aleatorio) con usuario opcional
+                    # localhost.run: túnel HTTP gratuito (dominio aleatorio) con usuario opcional
                     lhr_user = str(os.getenv("LHR_SSH_USER", "nokey")).strip()
                     remote_spec = f"80:localhost:{local_port}"
                     host_spec = f"{lhr_user}@localhost.run" if lhr_user else "localhost.run"
@@ -1153,7 +1153,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         pass
                     return base
                 else:
-                    # SSH genÃ©rico: sin soporte de subdominio explÃ­cito
+                    # SSH genérico: sin soporte de subdominio explícito
                     try:
                         logging.info(f"[Tunnel] provider=ssh remote=80:localhost:{local_port} host={ssh_host} port={ssh_port}")
                     except Exception:
@@ -1163,7 +1163,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 # Fallback seguro en caso de error construyendo comando
                 return []
 
-        # Comando inicial segÃºn proveedor seleccionado
+        # Comando inicial según proveedor seleccionado
         cmd = _build_cmd()
 
         # Log del comando inicial
@@ -1174,7 +1174,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
         attempt = 0
 
-        # Ãšltima URL pÃºblica detectada desde la salida del proveedor
+        # Última URL pública detectada desde la salida del proveedor
         last_public_url: Optional[str] = None
         # Contador de fallas para proveedores SSH
         ssh_failures = 0
@@ -1183,8 +1183,8 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
             nonlocal ssh_port, attempt, provider, last_public_url, ssh_failures
             # Supervisor con backoff exponencial para reconectar si el proceso termina
             backoff = 2.0
-            max_backoff = 300.0  # 5 minutos mÃ¡ximo
-            # Estado para notificaciones de reconexiÃ³n con anti-spam
+            max_backoff = 300.0  # 5 minutos máximo
+            # Estado para notificaciones de reconexión con anti-spam
             first_start = True
             last_notify_ts = 0.0
             min_notify_interval = 90.0  # segundos
@@ -1220,7 +1220,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                         start_ts = time.time()
                     except Exception:
                         start_ts = 0.0
-                    # Notificar reconexiÃ³n (si no es el primer arranque) con anti-spam
+                    # Notificar reconexión (si no es el primer arranque) con anti-spam
                     cb = on_reconnect or _public_tunnel_on_reconnect_cb
                     if cb and not first_start:
                         now = time.time()
@@ -1228,10 +1228,10 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                             last_notify_ts = now
                             try:
                                 cb(f"https://{subdomain}.loca.lt/")
-                                logging.info("[PublicTunnel] notificaciÃ³n de reconexiÃ³n enviada")
+                                logging.info("[PublicTunnel] notificación de reconexión enviada")
                             except Exception:
                                 pass
-                    # Parsear salida del proceso para capturar URL pÃºblica (LocalTunnel)
+                    # Parsear salida del proceso para capturar URL pública (LocalTunnel)
                     if p.stdout:
                         refused_pattern = re.compile(r"banner exchange:.*Connection refused", re.IGNORECASE)
                         url_pattern = re.compile(r"https://[^\s]+", re.IGNORECASE)
@@ -1243,7 +1243,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                                         logging.info(f"[PublicTunnel][stdout] {ln}")
                                         if refused_pattern.search(ln):
                                             had_banner_refused = True
-                                        # Intentar capturar la URL pÃºblica impresa por el proveedor
+                                        # Intentar capturar la URL pública impresa por el proveedor
                                         murl = url_pattern.search(ln)
                                         if murl:
                                             last_public_url = murl.group(0)
@@ -1256,7 +1256,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                             except Exception:
                                 pass
                             pass
-                    # Esperar a que el proceso termine (por desconexiÃ³n o error)
+                    # Esperar a que el proceso termine (por desconexión o error)
                     try:
                         p.wait()
                         try:
@@ -1268,16 +1268,16 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 except Exception:
                     # Fallo al lanzar SSH, continuar con backoff
                     try:
-                        logging.error("[PublicTunnel] excepciÃ³n al lanzar proceso", exc_info=True)
+                        logging.error("[PublicTunnel] excepción al lanzar proceso", exc_info=True)
                     except Exception:
                         pass
                     pass
-                # Marcar que siguientes lanzamientos serÃ¡n reconexiones
+                # Marcar que siguientes lanzamientos serán reconexiones
                 try:
                     first_start = False
                 except Exception:
                     pass
-                # Si el proceso terminÃ³ muy rÃ¡pido y estÃ¡bamos en 22, probar 443 como siguiente intento (solo serveo)
+                # Si el proceso terminó muy rápido y estábamos en 22, probar 443 como siguiente intento (solo serveo)
                 # Sin alternancia de puertos ni fallback: centrado en LocalTunnel
                 try:
                     pass
@@ -1291,7 +1291,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
                 backoff = min(backoff * 2.0, max_backoff)
 
         threading.Thread(target=_run, daemon=True).start()
-        # Retornar Ãºltima URL pÃºblica detectada si existe; de lo contrario, URL por defecto segÃºn proveedor
+        # Retornar última URL pública detectada si existe; de lo contrario, URL por defecto según proveedor
         try:
             if last_public_url:
                 return last_public_url
@@ -1313,7 +1313,7 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
 
 @app.get("/")
 async def root_selector(request: Request):
-    """PÃ¡gina de selecciÃ³n: Dashboard (lleva a login) o Check-in."""
+    """Página de selección: Dashboard (lleva a login) o Check-in."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
         "request": request,
@@ -1327,13 +1327,13 @@ async def root_selector(request: Request):
 async def tunnel_password():
     """Endpoint legado deshabilitado.
 
-    En configuraciÃ³n Railway no hay contraseÃ±a de tÃºnel.
+    En configuración Railway no hay contraseña de túnel.
     """
     return JSONResponse({"password": None, "ok": False})
 
 @app.get("/login")
 async def login_page_get(request: Request):
-    """Muestra el formulario de login del dueÃ±o."""
+    """Muestra el formulario de login del dueño."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
         "request": request,
@@ -1358,20 +1358,20 @@ async def do_login(request: Request):
     if not password:
         return RedirectResponse(url="/?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
     ok = False
-    # ContraseÃ±a Ãºnica: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como Ãºltimo recurso)
+    # Contraseña única: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como último recurso)
     if password == _get_password():
         ok = True
-    # Nota: Se ha eliminado el uso del PIN del dueÃ±o para autenticaciÃ³n web
+    # Nota: Se ha eliminado el uso del PIN del dueño para autenticación web
     if ok:
         request.session["logged_in"] = True
-        request.session["role"] = "dueÃ±o"
+        request.session["role"] = "dueño"
         return RedirectResponse(url="/dashboard", status_code=303)
     return RedirectResponse(url="/?error=Credenciales%20inv%C3%A1lidas", status_code=303)
 
 
 @app.post("/logout")
 async def do_logout(request: Request, _=Depends(require_owner)):
-    # Limpiar sesiÃ³n y redirigir al login para evitar quedarse en una pÃ¡gina JSON
+    # Limpiar sesión y redirigir al login para evitar quedarse en una página JSON
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
 
@@ -1381,11 +1381,11 @@ async def logout_get(request: Request):
     request.session.clear()
     return RedirectResponse(url="/", status_code=303)
 
-# --- Endpoint admin para actualizar la contraseÃ±a del dueÃ±o ---
+# --- Endpoint admin para actualizar la contraseña del dueño ---
 @app.post("/api/admin/owner-password")
 async def set_owner_password(request: Request):
     """
-    Actualiza la contraseÃ±a del dueÃ±o en la base de datos.
+    Actualiza la contraseña del dueño en la base de datos.
     Acceso restringido exclusivamente mediante DEV_PASSWORD.
     """
     try:
@@ -1402,9 +1402,9 @@ async def set_owner_password(request: Request):
     new_pwd = str(data.get("new_password", "")).strip()
 
     if not dev_pwd or not new_pwd:
-        return JSONResponse({"success": False, "message": "ParÃ¡metros invÃ¡lidos"}, status_code=400)
+        return JSONResponse({"success": False, "message": "Parámetros inválidos"}, status_code=400)
     if len(new_pwd) < 4:
-        return JSONResponse({"success": False, "message": "La nueva contraseÃ±a debe tener al menos 4 caracteres"}, status_code=400)
+        return JSONResponse({"success": False, "message": "La nueva contraseña debe tener al menos 4 caracteres"}, status_code=400)
 
     # Resolver DEV_PASSWORD real
     real_dev = None
@@ -1420,7 +1420,7 @@ async def set_owner_password(request: Request):
         except Exception:
             real_dev = None
     if not real_dev:
-        # Ãšltimo intento: variable de entorno
+        # Último intento: variable de entorno
         real_dev = os.getenv("DEV_PASSWORD", "").strip()
 
     if not real_dev or dev_pwd != real_dev:
@@ -1435,7 +1435,7 @@ async def set_owner_password(request: Request):
         if hasattr(db, 'actualizar_configuracion'):
             ok = bool(db.actualizar_configuracion('owner_password', new_pwd))  # type: ignore
         else:
-            # Fallback SQL directo si el mÃ©todo no existe
+            # Fallback SQL directo si el método no existe
             with db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
                 # Crear tabla/config si fuera necesario (idempotente)
@@ -1459,14 +1459,14 @@ async def set_owner_password(request: Request):
                 conn.commit()
                 ok = True
         if ok:
-            # Refrescar cachÃ© si existe
+            # Refrescar caché si existe
             try:
                 if hasattr(db, 'prefetch_owner_credentials_async'):
                     db.prefetch_owner_credentials_async(ttl_seconds=0)  # type: ignore
             except Exception:
                 pass
-            return JSONResponse({"success": True, "message": "ContraseÃ±a actualizada"})
-        return JSONResponse({"success": False, "message": "No se pudo actualizar la contraseÃ±a"}, status_code=500)
+            return JSONResponse({"success": True, "message": "Contraseña actualizada"})
+        return JSONResponse({"success": False, "message": "No se pudo actualizar la contraseña"}, status_code=500)
     except Exception as e:
         try:
             logging.exception("Error en /api/admin/owner-password")
@@ -1477,7 +1477,7 @@ async def set_owner_password(request: Request):
 
 @app.get("/dashboard")
 async def dashboard(request: Request):
-    # Redirigir a login si no hay sesiÃ³n activa
+    # Redirigir a login si no hay sesión activa
     if not request.session.get("logged_in"):
         return RedirectResponse(url="/", status_code=303)
     theme_vars = read_theme_vars(static_dir / "style.css")
@@ -1521,7 +1521,7 @@ async def api_kpis(_=Depends(require_owner)):
 async def api_ingresos12m(request: Request, _=Depends(require_owner)):
     db = _get_db()
     result: Dict[str, float] = {}
-    # Sin DB no podemos calcular; devolvemos estructura vacÃ­a
+    # Sin DB no podemos calcular; devolvemos estructura vacía
     if db is None:
         return {"ingresos": result}
     guard = _circuit_guard_json(db, "/api/ingresos12m")
@@ -1539,10 +1539,10 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                     WITH bounds AS (
                       SELECT date_trunc('month', %s::date) AS s, date_trunc('month', %s::date) AS e
                     )
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS total
                     FROM pagos p, bounds b
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -1551,10 +1551,10 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
             else:
                 cur.execute(
                     """
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS total
                     FROM pagos p
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) 
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) 
                           >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
                     GROUP BY 1
                     ORDER BY 1
@@ -1562,7 +1562,7 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                 )
             rows = cur.fetchall() or []
 
-        # Construir base del rango solicitado o Ãºltimos 12 meses y completar faltantes
+        # Construir base del rango solicitado o últimos 12 meses y completar faltantes
         try:
             from datetime import datetime as dt, date, timedelta
             base: Dict[str, float] = {}
@@ -1584,7 +1584,7 @@ async def api_ingresos12m(request: Request, _=Depends(require_owner)):
                 base[ym] = float(r.get('total') or 0.0)
             result = dict(sorted(base.items()))
         except Exception:
-            # Si algo falla en el relleno, devolvemos la agregaciÃ³n tal cual
+            # Si algo falla en el relleno, devolvemos la agregación tal cual
             result = {str(r.get('ym')): float(r.get('total') or 0.0) for r in rows}
         return {"ingresos": result}
     except Exception as e:
@@ -1612,11 +1612,11 @@ async def api_nuevos12m(request: Request, _=Depends(require_owner)):
                 fin = datetime.strptime(end, "%Y-%m-%d").date()
                 result = db.obtener_nuevos_usuarios_por_mes_rango(inicio, fin)  # type: ignore
             except Exception:
-                # Si el rango no es vÃ¡lido, usar Ãºltimos 12 meses
+                # Si el rango no es válido, usar últimos 12 meses
                 result = db.obtener_nuevos_usuarios_por_mes_ultimos_12()  # type: ignore
         else:
             result = db.obtener_nuevos_usuarios_por_mes_ultimos_12()  # type: ignore
-        # Rellenar meses faltantes con 0 para evitar grÃ¡ficos vacÃ­os
+        # Rellenar meses faltantes con 0 para evitar gráficos vacíos
         try:
             from datetime import date, timedelta
             base: Dict[str, int] = {}
@@ -1654,11 +1654,11 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
                     WITH bounds AS (
                       SELECT date_trunc('month', %s::date) AS s, date_trunc('month', %s::date) AS e
                     )
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS ingresos,
                            COUNT(DISTINCT p.usuario_id) AS pagadores
                     FROM pagos p, bounds b
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) BETWEEN b.s AND b.e
                     GROUP BY 1
                     ORDER BY 1
                     """,
@@ -1667,11 +1667,11 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
             else:
                 cur.execute(
                     """
-                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
+                    SELECT to_char(date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))), 'YYYY-MM') AS ym,
                            COALESCE(SUM(p.monto), 0) AS ingresos,
                            COUNT(DISTINCT p.usuario_id) AS pagadores
                     FROM pagos p
-                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.aÃ±o, p.mes, 1, 0, 0, 0))) 
+                    WHERE date_trunc('month', COALESCE(p.fecha_pago::timestamp, make_timestamp(p.año, p.mes, 1, 0, 0, 0))) 
                           >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
                     GROUP BY 1
                     ORDER BY 1
@@ -1679,7 +1679,7 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
                 )
             rows = cur.fetchall() or []
 
-        # Construir base del rango solicitado o Ãºltimos 12 meses y completar faltantes
+        # Construir base del rango solicitado o últimos 12 meses y completar faltantes
         try:
             from datetime import datetime as dt, date, timedelta
             base: Dict[str, float] = {}
@@ -1716,10 +1716,10 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# --- Check-in inverso por QR (pÃºblico para socios) ---
+# --- Check-in inverso por QR (público para socios) ---
 @app.get("/checkin")
 async def checkin_page(request: Request):
-    """PÃ¡gina pÃºblica de check-in para socios: autenticaciÃ³n por DNI+telÃ©fono y lector de QR."""
+    """Página pública de check-in para socios: autenticación por DNI+teléfono y lector de QR."""
     theme_vars = read_theme_vars(static_dir / "style.css")
     autenticado = bool(request.session.get("checkin_user_id"))
     socio_info = {}
@@ -1766,7 +1766,7 @@ async def checkin_page(request: Request):
 
 @app.get("/checkin/logout")
 async def checkin_logout(request: Request):
-    # Logout especÃ­fico del flujo de check-in: limpia solo la sesiÃ³n de socio y vuelve a /checkin
+    # Logout específico del flujo de check-in: limpia solo la sesión de socio y vuelve a /checkin
     try:
         if "checkin_user_id" in request.session:
             request.session.pop("checkin_user_id", None)
@@ -1777,7 +1777,7 @@ async def checkin_logout(request: Request):
 
 @app.post("/checkin/auth")
 async def checkin_auth(request: Request):
-    """Autentica al socio por DNI y telÃ©fono (ambos numÃ©ricos) y guarda la sesiÃ³n de check-in."""
+    """Autentica al socio por DNI y teléfono (ambos numéricos) y guarda la sesión de check-in."""
     rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
     db = _get_db()
     if db is None:
@@ -1788,7 +1788,7 @@ async def checkin_auth(request: Request):
         db = _force_db_init()
         if db is None:
             try:
-                logging.error(f"/checkin/auth: _force_db_init fallÃ³ rid={rid}")
+                logging.error(f"/checkin/auth: _force_db_init falló rid={rid}")
             except Exception:
                 pass
             return JSONResponse({"success": False, "message": "Base de datos no disponible"}, status_code=500)
@@ -1807,27 +1807,27 @@ async def checkin_auth(request: Request):
             data = {}
     dni = str(data.get("dni", "")).strip()
     telefono = str(data.get("telefono", "")).strip()
-    # Normalizar: solo dÃ­gitos
+    # Normalizar: solo dígitos
     import re
     dni_num = re.sub(r"\D+", "", dni)
     tel_num = re.sub(r"\D+", "", telefono)
     if not dni_num or not tel_num:
         try:
-            logging.info(f"/checkin/auth: input invÃ¡lido rid={rid} dni_len={len(dni)} tel_len={len(telefono)}")
+            logging.info(f"/checkin/auth: input inválido rid={rid} dni_len={len(dni)} tel_len={len(telefono)}")
         except Exception:
             pass
-        return JSONResponse({"success": False, "message": "Ingrese DNI y telÃ©fono vÃ¡lidos"}, status_code=400)
+        return JSONResponse({"success": False, "message": "Ingrese DNI y teléfono válidos"}, status_code=400)
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Preparar variantes del telÃ©fono para permitir coincidencias flexibles
+            # Preparar variantes del teléfono para permitir coincidencias flexibles
             tel_like = f"%{tel_num}"
             tel_last10 = tel_num[-10:] if len(tel_num) >= 10 else tel_num
             try:
                 logging.debug(f"/checkin/auth: consultando usuario por dni={dni_num} tel={tel_num} tel_last10={tel_last10} rid={rid}")
             except Exception:
                 pass
-            # Comparar por equivalencia de dÃ­gitos para soportar formatos (+54, 0-prefijo, espacios, guiones)
+            # Comparar por equivalencia de dígitos para soportar formatos (+54, 0-prefijo, espacios, guiones)
             cur.execute(
                 """
                 SELECT id FROM usuarios
@@ -1849,10 +1849,10 @@ async def checkin_auth(request: Request):
             if not row:
                 # Evitar 404 para no confundir con ruta inexistente
                 try:
-                    logging.info(f"/checkin/auth: credenciales invÃ¡lidas rid={rid}")
+                    logging.info(f"/checkin/auth: credenciales inválidas rid={rid}")
                 except Exception:
                     pass
-                return JSONResponse({"success": False, "message": "Credenciales invÃ¡lidas"}, status_code=200)
+                return JSONResponse({"success": False, "message": "Credenciales inválidas"}, status_code=200)
             user_id = int(row[0])
             request.session["checkin_user_id"] = user_id
             try:
@@ -1894,11 +1894,11 @@ async def api_checkin_validate(request: Request):
         except Exception:
             pass
         if not socio_id:
-            return JSONResponse({"success": False, "message": "SesiÃ³n de socio no encontrada"}, status_code=401)
-        # Orden de parÃ¡metros: (token, socio_id)
+            return JSONResponse({"success": False, "message": "Sesión de socio no encontrada"}, status_code=401)
+        # Orden de parámetros: (token, socio_id)
         ok, msg = db.validar_token_y_registrar_asistencia(token, int(socio_id))  # type: ignore
         status = 200 if ok else 400
-        # SeÃ±al explÃ­cita: marcar 'used' en checkin_pending para robustecer el polling del escritorio
+        # Señal explícita: marcar 'used' en checkin_pending para robustecer el polling del escritorio
         if ok:
             try:
                 with db.get_connection_context() as conn:  # type: ignore
@@ -1926,7 +1926,7 @@ async def api_checkin_token_status(request: Request):
 
     Criterio de 'used': se considera usado si el flag en checkin_pending es TRUE
     o si ya existe una asistencia para el usuario en la fecha actual.
-    Esto hace el polling del escritorio mÃ¡s robusto ante posibles desincronizaciones.
+    Esto hace el polling del escritorio más robusto ante posibles desincronizaciones.
     """
     rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
     db = _get_db()
@@ -1950,7 +1950,7 @@ async def api_checkin_token_status(request: Request):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Obtener tambiÃ©n usuario_id para verificar asistencia del dÃ­a
+            # Obtener también usuario_id para verificar asistencia del día
             cur.execute("SELECT usuario_id, used, expires_at FROM checkin_pending WHERE token = %s LIMIT 1", (token,))
             row = cur.fetchone()
             if not row:
@@ -2005,14 +2005,14 @@ async def api_asistencia_30d(request: Request, _=Depends(require_owner)):
     try:
         start = request.query_params.get("start")
         end = request.query_params.get("end")
-        # Delegar a backend: nueva funciÃ³n agregada para consistencia de esquema
+        # Delegar a backend: nueva función agregada para consistencia de esquema
         if start and end:
             data = db.obtener_asistencias_por_rango_diario(start, end)  # type: ignore
         else:
             data = db.obtener_asistencias_por_dia(30)  # type: ignore
         for d, c in (data or []):
             series[str(d)] = int(c or 0)
-        # Rellenar dÃ­as faltantes con 0 para Ãºltimos 30 dÃ­as
+        # Rellenar días faltantes con 0 para últimos 30 días
         try:
             from datetime import date, timedelta
             base: Dict[str, int] = {}
@@ -2039,7 +2039,7 @@ async def api_asistencia_por_hora_30d(request: Request, _=Depends(require_owner)
     try:
         start = request.query_params.get("start")
         end = request.query_params.get("end")
-        # Delegar a backend: funciÃ³n agregada que agrupa por hora usando hora_registro
+        # Delegar a backend: función agregada que agrupa por hora usando hora_registro
         if start and end:
             data = db.obtener_asistencias_por_hora_rango(start, end)  # type: ignore
         else:
@@ -2141,7 +2141,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
     if guard:
         return guard
     try:
-        # Fechas clave y mÃ©tricas utilizando mÃ©todos existentes del backend
+        # Fechas clave y métricas utilizando métodos existentes del backend
         from datetime import timedelta
         hoy = datetime.now().date()
         primer_dia_mes = hoy.replace(day=1)
@@ -2153,7 +2153,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         ing_ant = float(db.calcular_ingresos_totales(primer_dia_mes_anterior, fin_mes_anterior) or 0.0)  # type: ignore
         kpis['revenue_growth'] = ((ing_act - ing_ant) / ing_ant * 100.0) if ing_ant > 0 else 0.0
 
-        # Pagadores en el mes actual (roles socio/profesor, robusto a fecha/aÃ±o-mes)
+        # Pagadores en el mes actual (roles socio/profesor, robusto a fecha/año-mes)
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
             cur.execute(
@@ -2163,13 +2163,13 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
                 JOIN pagos p ON p.usuario_id = u.id
                 WHERE u.activo = TRUE
                   AND LOWER(COALESCE(u.rol,'')) IN ('socio','profesor')
-                  AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
+                  AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
                 """
             )
             row = cur.fetchone()
             pagadores_mes = int(row[0] if row and row[0] is not None else 0)
 
-        # Lista de pagos del mes actual para mÃ©tricas de retenciÃ³n
+        # Lista de pagos del mes actual para métricas de retención
         pagos_mes = db.obtener_pagos_por_fecha(primer_dia_mes, hoy) or []  # type: ignore
 
         # Usuarios activos totales desde KPIs generales
@@ -2188,14 +2188,14 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         usuarios_12m = len({p.get('usuario_id') for p in pagos_12m if isinstance(p, dict)})
         kpis['ltv_12m'] = (total_12m / usuarios_12m) if usuarios_12m > 0 else 0.0
 
-        # RetenciÃ³n vs mes anterior
+        # Retención vs mes anterior
         pagos_mes_ant = db.obtener_pagos_por_fecha(primer_dia_mes_anterior, fin_mes_anterior) or []  # type: ignore
         set_act = {p.get('usuario_id') for p in pagos_mes if isinstance(p, dict)}
         set_ant = {p.get('usuario_id') for p in pagos_mes_ant if isinstance(p, dict)}
         kpis['retention_rate'] = (len(set_act & set_ant) / len(set_ant) * 100.0) if len(set_ant) > 0 else 0.0
         kpis['churn_rate'] = 100.0 - kpis['retention_rate']
 
-        # Asistencias Ãºltimos 30 dÃ­as para promedio y hora pico
+        # Asistencias últimos 30 días para promedio y hora pico
         asist_30 = db.obtener_asistencias_por_fecha_limite(hoy - timedelta(days=30)) or []  # type: ignore
         from collections import Counter
         dias_conteo = Counter()
@@ -2219,7 +2219,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
         else:
             kpis['peak_hour'] = 'N/A'
 
-        # Usuarios activos semanales por asistencias Ãºltimos 7 dÃ­as
+        # Usuarios activos semanales por asistencias últimos 7 días
         asist_7 = db.obtener_asistencias_por_fecha_limite(hoy - timedelta(days=7)) or []  # type: ignore
         kpis['weekly_active_users'] = len({a.get('usuario_id') for a in asist_7})
 
@@ -2230,7 +2230,7 @@ async def api_kpis_avanzados(_=Depends(require_owner)):
 
 @app.get("/api/cohort_retencion_6m")
 async def api_cohort_retencion_6m(_=Depends(require_owner)):
-    """RetenciÃ³n por cohorte de registro (Ãºltimos 6 meses): % del cohorte que pagÃ³ este mes."""
+    """Retención por cohorte de registro (últimos 6 meses): % del cohorte que pagó este mes."""
     db = _get_db()
     result: Dict[str, float] = {}
     if db is None:
@@ -2245,13 +2245,13 @@ async def api_cohort_retencion_6m(_=Depends(require_owner)):
                        SUM(CASE WHEN EXISTS (
                            SELECT 1 FROM pagos p
                            WHERE p.usuario_id = u.id
-                             AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
+                             AND date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))) = date_trunc('month', CURRENT_DATE)
                        ) THEN 1 ELSE 0 END) AS retenidos
                 FROM usuarios u
                 WHERE u.fecha_registro IS NOT NULL
                   AND date_trunc('month', u.fecha_registro) >= date_trunc('month', CURRENT_DATE) - INTERVAL '5 months'
                   AND u.activo = true
-                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
+                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
                 GROUP BY 1
                 ORDER BY 1
                 """
@@ -2266,8 +2266,8 @@ async def api_cohort_retencion_6m(_=Depends(require_owner)):
 
 @app.get("/api/cohort_retencion_heatmap")
 async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)):
-    """Matriz de retenciÃ³n por cohorte (registro) vs mes de pago.
-    Devuelve { months: [...], cohorts: [...], matrix: [[%...], ...] } para Ãºltimos N meses.
+    """Matriz de retención por cohorte (registro) vs mes de pago.
+    Devuelve { months: [...], cohorts: [...], matrix: [[%...], ...] } para últimos N meses.
     """
     db = _get_db()
     res: Dict[str, Any] = { 'months': [], 'cohorts': [], 'matrix': [] }
@@ -2277,17 +2277,17 @@ async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Lista de meses (YYYY-MM) para los Ãºltimos N meses
+            # Lista de meses (YYYY-MM) para los últimos N meses
             cur.execute("SELECT to_char(date_trunc('month', CURRENT_DATE) - s * INTERVAL '1 month', 'YYYY-MM') FROM generate_series(0,%s) s ORDER BY 1", (months-1,))
             months_list = [row[0] for row in cur.fetchall()]
             cohorts = months_list
             matrix: list[list[float]] = []
             for coh in cohorts:
-                # TamaÃ±o de cohorte
+                # Tamaño de cohorte
                 cur.execute("""
                     SELECT COUNT(*) FROM usuarios u
                     WHERE u.activo = true AND u.fecha_registro IS NOT NULL
-                      AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
+                      AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
                       AND to_char(date_trunc('month', u.fecha_registro), 'YYYY-MM') = %s
                 """, (coh,))
                 cohort_size = int(cur.fetchone()[0] or 0)
@@ -2297,12 +2297,12 @@ async def api_cohort_retencion_heatmap(months: int = 6, _=Depends(require_owner)
                     cur.execute("""
                         SELECT COUNT(*) FROM usuarios u
                         WHERE u.activo = true AND u.fecha_registro IS NOT NULL
-                          AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
+                          AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
                           AND to_char(date_trunc('month', u.fecha_registro), 'YYYY-MM') = %s
                           AND EXISTS (
                             SELECT 1 FROM pagos p
                             WHERE p.usuario_id = u.id
-                              AND to_char(date_trunc('month', COALESCE(p.fecha_pago, make_date(p.aÃ±o, p.mes, 1))), 'YYYY-MM') = %s
+                              AND to_char(date_trunc('month', COALESCE(p.fecha_pago, make_date(p.año, p.mes, 1))), 'YYYY-MM') = %s
                           )
                     """, (coh, m))
                     retained = int(cur.fetchone()[0] or 0)
@@ -2328,27 +2328,27 @@ async def api_arpa_por_tipo_cuota(_=Depends(require_owner)):
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
             def norm(label: str) -> str:
-                s = (label or 'â€”').strip().lower()
+                s = (label or '—').strip().lower()
                 replacements = {
-                    'estandar': 'EstÃ¡ndar', 'estÃ¡ndar': 'EstÃ¡ndar', 'standard': 'EstÃ¡ndar',
+                    'estandar': 'Estándar', 'estándar': 'Estándar', 'standard': 'Estándar',
                     'estudiante': 'Estudiante', 'student': 'Estudiante',
                     'funcional': 'Funcional', 'functional': 'Funcional',
                 }
                 return replacements.get(s, s.title())
             cur.execute(
                 """
-                SELECT COALESCE(tc.nombre, CAST(u.tipo_cuota AS TEXT), 'â€”') AS tipo,
+                SELECT COALESCE(tc.nombre, CAST(u.tipo_cuota AS TEXT), '—') AS tipo,
                        COALESCE(SUM(CASE WHEN date_trunc('month',
                            CASE
                                WHEN p.fecha_pago IS NOT NULL THEN p.fecha_pago
-                               WHEN p.aÃ±o IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.aÃ±o, p.mes, 1)
+                               WHEN p.año IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.año, p.mes, 1)
                                ELSE NULL
                            END
                        ) = date_trunc('month', CURRENT_DATE) THEN p.monto END), 0) AS monto_mes,
                        COUNT(DISTINCT CASE WHEN date_trunc('month',
                            CASE
                                WHEN p.fecha_pago IS NOT NULL THEN p.fecha_pago
-                               WHEN p.aÃ±o IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.aÃ±o, p.mes, 1)
+                               WHEN p.año IS NOT NULL AND p.mes IS NOT NULL THEN make_date(p.año, p.mes, 1)
                                ELSE NULL
                            END
                        ) = date_trunc('month', CURRENT_DATE) THEN u.id END) AS pagadores_mes
@@ -2359,7 +2359,7 @@ async def api_arpa_por_tipo_cuota(_=Depends(require_owner)):
                   ON (CAST(u.tipo_cuota AS TEXT) = tc.nombre)
                   OR (CAST(u.tipo_cuota AS TEXT) = CAST(tc.id AS TEXT))
                 WHERE u.activo = true
-                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueÃ±o','dueno','owner','administrador','admin')
+                  AND LOWER(COALESCE(u.rol,'')) NOT IN ('dueño','dueno','owner','administrador','admin')
                 GROUP BY 1
                 """
             )
@@ -2419,11 +2419,11 @@ async def api_payment_status_dist(_=Depends(require_owner)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# --- Tablas detalladas para subpestaÃ±as ---
+# --- Tablas detalladas para subpestañas ---
 
 @app.get("/api/usuarios_detalle")
 async def api_usuarios_detalle(_=Depends(require_owner)):
-    """Detalle de usuarios con mÃ©tricas reales: pagos y asistencias."""
+    """Detalle de usuarios con métricas reales: pagos y asistencias."""
     db = _get_db()
     if db is None:
         return []
@@ -2488,9 +2488,9 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
     """Detalle de profesores con contacto y horarios/sesiones reales.
 
     Devuelve por profesor:
-    - Datos de contacto (nombre, email, telÃ©fono)
+    - Datos de contacto (nombre, email, teléfono)
     - Cantidad de horarios de disponibilidad (activos)
-    - Resumen de horarios (dÃ­a, hora_inicio, hora_fin)
+    - Resumen de horarios (día, hora_inicio, hora_fin)
     - Sesiones del mes actual y horas trabajadas reales
     """
     print("DEBUG: top-level entry in /api/profesores_detalle")
@@ -2500,11 +2500,11 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor()
-            # Mes/aÃ±o actuales para mÃ©tricas de sesiones reales
-            # Rango opcional (start/end) para sesiones/horas; si no se envÃ­a, usa mes actual
+            # Mes/año actuales para métricas de sesiones reales
+            # Rango opcional (start/end) para sesiones/horas; si no se envía, usa mes actual
             start = request.query_params.get("start")
             end = request.query_params.get("end")
-            # Normalizar parÃ¡metros vacÃ­os a None para evitar BETWEEN con cadenas vacÃ­as
+            # Normalizar parámetros vacíos a None para evitar BETWEEN con cadenas vacías
             if not start or (isinstance(start, str) and start.strip() == ""):
                 start = None
             if not end or (isinstance(end, str) and end.strip() == ""):
@@ -2630,8 +2630,8 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
 async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
     """Lista de sesiones trabajadas por un profesor, opcionalmente por rango.
 
-    Devuelve datos reales y completos por sesiÃ³n obtenidos directamente del backend
-    (database.py) sin cÃ¡lculos en la web: fecha, inicio, fin, minutos, horas,
+    Devuelve datos reales y completos por sesión obtenidos directamente del backend
+    (database.py) sin cálculos en la web: fecha, inicio, fin, minutos, horas,
     clase (si existe) y tipo de actividad.
     """
     db = _get_db()
@@ -2660,7 +2660,7 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
             if end:
                 fecha_fin = datetime.strptime(end, "%Y-%m-%d").date()
         except Exception:
-            # Si las fechas no son vÃ¡lidas, se ignoran y se usa mes actual dentro del backend
+            # Si las fechas no son válidas, se ignoran y se usa mes actual dentro del backend
             fecha_inicio = None
             fecha_fin = None
 
@@ -2710,7 +2710,7 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/usuario_pagos")
 async def api_usuario_pagos(request: Request, _=Depends(require_owner)):
-    """Lista de pagos reales de un usuario con soporte de bÃºsqueda y paginaciÃ³n."""
+    """Lista de pagos reales de un usuario con soporte de búsqueda y paginación."""
     db = _get_db()
     if db is None:
         return []
@@ -2762,7 +2762,7 @@ async def api_usuario_pagos(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/usuario_asistencias")
 async def api_usuario_asistencias(request: Request, _=Depends(require_owner)):
-    """Lista de asistencias reales de un usuario con soporte de bÃºsqueda y paginaciÃ³n."""
+    """Lista de asistencias reales de un usuario con soporte de búsqueda y paginación."""
     db = _get_db()
     if db is None:
         return []
@@ -2814,7 +2814,7 @@ async def api_usuario_asistencias(request: Request, _=Depends(require_owner)):
 
 @app.get("/api/asistencias_detalle")
 async def api_asistencias_detalle(request: Request, _=Depends(require_owner)):
-    """Listado de asistencias con nombre del usuario para un rango de fechas (por defecto Ãºltimos 30 dÃ­as), con bÃºsqueda y paginaciÃ³n."""
+    """Listado de asistencias con nombre del usuario para un rango de fechas (por defecto últimos 30 días), con búsqueda y paginación."""
     db = _get_db()
     if db is None:
         return []
@@ -2896,7 +2896,7 @@ async def api_asistencias_detalle(request: Request, _=Depends(require_owner)):
 @app.get("/api/export")
 async def api_export(_=Depends(require_owner)):
     # Exporta CSV de KPIs visibles en el dashboard
-    rows: list[list[Any]] = [["MÃ©trica", "Valor"]]
+    rows: list[list[Any]] = [["Métrica", "Valor"]]
     try:
         kpis = await api_kpis()  # type: ignore
         if isinstance(kpis, dict) and 'kpis' in kpis:
@@ -2917,10 +2917,10 @@ async def api_export(_=Depends(require_owner)):
     buf.seek(0)
     return JSONResponse({"csv": buf.getvalue()})
 
-# --- ExportaciÃ³n completa en ZIP con mÃºltiples CSVs ---
+# --- Exportación completa en ZIP con múltiples CSVs ---
 @app.get("/api/export_csv")
 async def api_export_csv(request: Request, _=Depends(require_owner)):
-    """Genera un ZIP con mÃºltiples CSVs del dashboard aplicando filtros actuales.
+    """Genera un ZIP con múltiples CSVs del dashboard aplicando filtros actuales.
 
     Incluye:
     - kpis.csv: KPIs generales
@@ -2957,7 +2957,7 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
     # 1) KPIs
     try:
         k = await api_kpis()  # type: ignore
-        kpis_rows = [["MÃ©trica", "Valor"]]
+        kpis_rows = [["Métrica", "Valor"]]
         if isinstance(k, dict) and 'kpis' in k:
             kpis_rows += [
                 ["Socios activos", k['kpis'].get('total_activos', 0)],
@@ -3033,7 +3033,7 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
                     (start, end)
                 )
             else:
-                # Ãšltimos 30 dÃ­as por defecto
+                # Últimos 30 días por defecto
                 cur.execute(
                     """
                     SELECT a.fecha::date, a.hora_registro, u.nombre
@@ -3167,7 +3167,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
 
     - Trabajadas: suma de `minutos_totales` de sesiones cerradas en el rango.
     - Proyectadas: suma de minutos desde `horarios_profesores` (disponibilidades activas)
-      por cada dÃ­a del rango, contando ocurrencias por dÃ­a de semana. No depende de clases.
+      por cada día del rango, contando ocurrencias por día de semana. No depende de clases.
     - Extras: trabajadas - proyectadas.
     """
     db = _get_db()
@@ -3216,7 +3216,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
                 end_date = datetime.strptime(end, "%Y-%m-%d").date()
             except Exception:
                 start_date = date(now.year, now.month, 1)
-                # Ãºltimo dÃ­a del mes
+                # último día del mes
                 if now.month == 12:
                     end_date = date(now.year, 12, 31)
                 else:
@@ -3247,7 +3247,7 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
             min_trabajados = int(r[0] or 0)
             total_sesiones = int(r[1] or 0)
 
-        # 2) Minutos proyectados: cÃ¡lculo centralizado en database.py (no depende de clases)
+        # 2) Minutos proyectados: cálculo centralizado en database.py (no depende de clases)
         min_proyectados = 0
         try:
             if hasattr(db, 'obtener_minutos_proyectados_profesor_rango'):
