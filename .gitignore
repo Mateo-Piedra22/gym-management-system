@@ -32,6 +32,7 @@ Thumbs.db
 *.cfg
 *.toml
 !config.toml  # descomenta si hay algún archivo de config que SÍ quieras trackear
+*.db
 
 # Archivos temporales
 *.tmp
@@ -55,7 +56,42 @@ sync_state.json
 config/sync_state.json
 
 # Carpetas específicas a ignorar
-.rutinas_exportadas/
-.recibos/
+rutinas_exportadas/
+recibos/
+backups/
+scripts/_archive/
+_archive/
 
-config/sync_state.json
+# Artefactos de build
+build/
+dist/
+*.msi
+*.egg-info/
+.eggs/
+*.whl
+
+# Binarios/objetos Python adicionales
+*.pyd
+*.pyo
+*.so
+
+# Cobertura y cache de herramientas
+.coverage.*
+coverage.xml
+.mypy_cache/
+
+# IDE/Editor adicionales
+.vs/
+*.code-workspace
+
+# Archivos del sistema (Windows/macOS)
+Desktop.ini
+ehthumbs.db
+
+# Marcadores/estado de runtime y secretos locales
+config/first_run_prereqs/
+config/device_id.txt
+config/sync_outbox.jsonl
+
+# Salidas generadas
+exports/

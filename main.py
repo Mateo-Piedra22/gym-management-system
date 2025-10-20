@@ -6086,6 +6086,29 @@ def main():
         os.environ['PGCONNECT_TIMEOUT'] = str(ct_tmp)
     except Exception:
         pass
+
+    # Verificar e instalar PostgreSQL 17 antes del login (bloqueante)
+    try:
+        from utils_modules.prerequisites import ensure_prerequisites
+        from device_id import get_device_id
+        device = get_device_id()
+        logging.info("Verificando/instalando PostgreSQL 17 y creando base local…")
+        prereq_result = ensure_prerequisites(device)
+        pg_ok = bool(prereq_result.get("postgresql", {}).get("installed"))
+        db_created = bool(prereq_result.get("postgresql", {}).get("db_created"))
+        logging.info(
+            f"Prerequisitos: PostgreSQL={'OK' if pg_ok else 'Falta'}, DB={'creada' if db_created else 'existente/no creada'}"
+        )
+        # Asegurar tareas programadas clave en primer arranque
+        try:
+            from utils_modules.prerequisites import ensure_scheduled_tasks
+            tasks_res = ensure_scheduled_tasks(device)
+            logging.info(f"Tareas programadas aseguradas: {tasks_res}")
+        except Exception as te:
+            logging.warning(f"No se pudieron asegurar tareas programadas: {te}")
+    except Exception as e:
+        logging.warning(f"No se pudo completar prerequisitos antes del login: {e}")
+
     db_manager_for_login = DatabaseManager()
     # No iniciar servidor web local desde la app de escritorio
     public_url = None

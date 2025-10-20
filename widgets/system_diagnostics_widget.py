@@ -1176,25 +1176,14 @@ ALMACENAMIENTO:
             QMessageBox.critical(self, "Error", f"Error limpiando temporales: {e}")
     
     def quick_backup_database(self):
-        """Backup rápido de la base de datos"""
+        """Backup rápido de la base de datos (unificado)."""
         try:
-            import shutil
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_name = f"quick_backup_{timestamp}.db"
-            
-            os.makedirs('backups', exist_ok=True)
-            backup_path = os.path.join('backups', backup_name)
-            
-            # Para PostgreSQL, usar pg_dump para backup
-            import subprocess
-            result = subprocess.run(['pg_dump', '-h', 'localhost', '-U', 'postgres', '-d', 'gimnasio', '-f', backup_path], 
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Error en pg_dump: {result.stderr}")
-            
-            QMessageBox.information(self, "Éxito", f"Backup creado: {backup_path}")
-            
+            from utils_modules.backup_utils import perform_quick_backup
+            rc, out_path = perform_quick_backup()
+            if rc == 0:
+                QMessageBox.information(self, "Éxito", f"Backup creado: {out_path}")
+            else:
+                QMessageBox.warning(self, "Advertencia", f"Backup con problemas (código {rc}). Revisa backups/backup_daily.log")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error creando backup: {e}")
     

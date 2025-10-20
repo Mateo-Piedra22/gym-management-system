@@ -17,6 +17,7 @@ import platform
 from pathlib import Path
 import subprocess
 import argparse
+import json
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 ENTRY_SCRIPT = PROJECT_ROOT / "main.py"
@@ -188,6 +189,74 @@ def parse_args():
     )
     return parser.parse_args()
 
+# --- Generación de credenciales remotas para primera ejecución (bootstrap) ---
+
+def _env_get(name: str) -> str | None:
+    v = os.getenv(name)
+    return v if v and str(v).strip() else None
+
+
+def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
+    """Genera config/remote_bootstrap.json a partir de variables de entorno.
+    Reconoce PGREMOTE_DSN/DATABASE_URL_REMOTE y campos sueltos.
+    Devuelve True si se generó archivo.
+    """
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    dsn = _env_get("PGREMOTE_DSN") or _env_get("DATABASE_URL_REMOTE")
+    host = _env_get("PGREMOTE_HOST")
+    port = _env_get("PGREMOTE_PORT")
+    db = _env_get("PGREMOTE_DB") or _env_get("PGREMOTE_DATABASE")
+    user = _env_get("PGREMOTE_USER")
+    password = _env_get("PGREMOTE_PASSWORD")
+    sslmode = _env_get("PGREMOTE_SSLMODE")
+    appname = _env_get("PGREMOTE_APPNAME") or "gym_management_system"
+    timeout = _env_get("PGREMOTE_TIMEOUT")
+
+    if not any([dsn, host, user, password, db]):
+        # No hay datos suficientes; no generar
+        return False
+
+    payload = {"remote": {}}
+    r = payload["remote"]
+    if dsn:
+        r["dsn"] = dsn
+    if host:
+        r["host"] = host
+    if port:
+        try:
+            r["port"] = int(port)
+        except Exception:
+            r["port"] = port
+    if db:
+        r["database"] = db
+    if user:
+        r["user"] = user
+    if password:
+        r["password"] = password
+    if sslmode:
+        r["sslmode"] = sslmode
+    if appname:
+        r["application_name"] = appname
+    if timeout:
+        try:
+            r["connect_timeout"] = int(timeout)
+        except Exception:
+            r["connect_timeout"] = timeout
+
+    out_path = config_dir / "remote_bootstrap.json"
+    try:
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"- Generado {out_path} desde variables de entorno (credenciales remotas).")
+        return True
+    except Exception as e:
+        print(f"ADVERTENCIA: No se pudo generar remote_bootstrap.json: {e}")
+        return False
+
 
 def main():
     args_cli = parse_args()
@@ -197,6 +266,9 @@ def main():
         sys.exit(1)
 
     ensure_cx_freeze_installed()
+
+    # Generar bootstrap remoto si hay variables de entorno definidas
+    generate_remote_bootstrap_from_env(PROJECT_ROOT / "config")
 
     data_pairs = discover_data_inclusions(PROJECT_ROOT)
 

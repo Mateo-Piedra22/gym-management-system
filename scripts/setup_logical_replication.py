@@ -152,16 +152,16 @@ def _ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub')
         conn = _connect(remote_params)
         conn.autocommit = True
         with conn.cursor() as cur:
-            # Cargar lista de tablas transaccionales (Local→Railway) para excluirlas de la publicación remota
+            # Cargar lista de tablas a publicar (remoto→local) desde config
             base_dir = Path(__file__).resolve().parent.parent
             cfg_path = base_dir / 'config' / 'sync_tables.json'
-            uploads_local_to_remote: list = []
+            publishes_remote_to_local: list = []
             try:
                 with open(cfg_path, 'r', encoding='utf-8') as f:
                     cfg_tables = json.load(f) or {}
-                    uploads_local_to_remote = list(cfg_tables.get('uploads_local_to_remote') or [])
+                    publishes_remote_to_local = list(cfg_tables.get('publishes_remote_to_local') or [])
             except Exception:
-                uploads_local_to_remote = []
+                publishes_remote_to_local = []
 
             # Enumerar tablas reales en remoto (schema public)
             cur.execute(
@@ -173,14 +173,17 @@ def _ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub')
                 """
             )
             remote_tables = [r[0] for r in cur.fetchall()]
-            # Calcular lista de tablas a publicar: todo menos las transaccionales de local
-            pub_tables = [t for t in remote_tables if t not in uploads_local_to_remote]
+            # Calcular lista de tablas a publicar: si hay lista explícita, usarla; si no, todas
+            if publishes_remote_to_local:
+                pub_tables = [t for t in remote_tables if t in publishes_remote_to_local]
+            else:
+                pub_tables = remote_tables
 
             cur.execute("SELECT 1 FROM pg_publication WHERE pubname = %s", (pubname,))
             exists = bool(cur.fetchone())
             if not exists:
                 if pub_tables:
-                    # Publicación explícita: sólo tablas maestras
+                    # Publicación explícita: tablas seleccionadas
                     parts = []
                     for t in pub_tables:
                         parts.append(sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t)))
@@ -201,23 +204,21 @@ def _ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub')
                 to_drop = sorted(list(current - desired))
                 for t in to_add:
                     try:
-                        cur.execute(sql.SQL("ALTER PUBLICATION {} ADD TABLE {}.{}")
-                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
-                    except Exception:
-                        pass
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} ADD TABLE {}.{}").format(
+                            sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                        print(f"ADD {t}")
+                    except Exception as e:
+                        print(f"WARN add {t}: {e}")
                 for t in to_drop:
                     try:
-                        cur.execute(sql.SQL("ALTER PUBLICATION {} DROP TABLE {}.{}")
-                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
-                    except Exception:
-                        pass
-                print(f"Publicación ya existe en remoto: {pubname}. Ajustes ADD={len(to_add)} DROP={len(to_drop)}")
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} DROP TABLE {}.{}").format(
+                            sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                        print(f"DROP {t}")
+                    except Exception as e:
+                        print(f"WARN drop {t}: {e}")
     finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
+        if conn:
+            conn.close()
 
 
 def _ensure_subscription_on_local(local_params: dict, remote_params: dict, subname: str = 'gym_sub', pubname: str = 'gym_pub'):

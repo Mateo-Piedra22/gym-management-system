@@ -2,15 +2,18 @@ import os
 import sys
 from pathlib import Path
 import json
+from urllib.parse import urlparse, parse_qs
+from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QFormLayout, QLineEdit, QSpinBox, QComboBox,
     QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QMessageBox, QInputDialog,
-    QCheckBox
+    QCheckBox, QTimeEdit
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTime
 
 import psycopg2
+from psycopg2 import sql
 from config import KEYRING_SERVICE_NAME, LEGACY_KEYRING_SERVICE_NAMES
 try:
     import keyring  # Almacén seguro de credenciales (Windows Credential Manager)
@@ -108,7 +111,7 @@ class DBConfigDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Configuración de Base de Datos")
         self.setModal(True)
-        self.resize(560, 420)
+        self.resize(680, 700)
 
         # Cargar configuración completa del archivo para manejar perfiles
         self.full_cfg = self._load_full_config()
@@ -135,6 +138,15 @@ class DBConfigDialog(QDialog):
         # Selector de perfil (Local / Remoto)
         self.profile_combo = QComboBox()
         self.profile_combo.addItems(["Local", "Remoto"])
+
+        # Campo DSN y botón de importación
+        self.dsn_edit = QLineEdit()
+        self.dsn_edit.setPlaceholderText("postgresql://usuario:contraseña@host:puerto/db?sslmode=require")
+        self.dsn_edit.setToolTip("DSN/URL de conexión; si lo ingresas, se rellenan los campos.")
+        self.dsn_import_button = QPushButton("Importar desde DSN")
+        dsn_row = QHBoxLayout()
+        dsn_row.addWidget(self.dsn_edit)
+        dsn_row.addWidget(self.dsn_import_button)
 
         self.host_edit = QLineEdit()
         self.port_spin = QSpinBox()
@@ -167,6 +179,7 @@ class DBConfigDialog(QDialog):
         self.app_name_edit.setToolTip("Nombre de la aplicación para identificar conexiones en PostgreSQL")
 
         form.addRow("Perfil:", self.profile_combo)
+        form.addRow("DSN (opcional):", dsn_row)
         form.addRow("Host:", self.host_edit)
         form.addRow("Puerto:", self.port_spin)
         form.addRow("Base de datos:", self.db_edit)
@@ -177,10 +190,58 @@ class DBConfigDialog(QDialog):
         form.addRow("Application Name:", self.app_name_edit)
         form.addRow("", self.store_pwd_checkbox)
 
+        # --- Sección de Tareas Programadas ---
+        section_label = QLabel("Tareas programadas")
+        section_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", section_label)
+
+        self.tasks_master_checkbox = QCheckBox("Activar tareas programadas")
+        form.addRow("", self.tasks_master_checkbox)
+
+        self.uploader_enable_checkbox = QCheckBox("Uploader periódico (outbox)")
+        self.uploader_interval_spin = QSpinBox()
+        self.uploader_interval_spin.setRange(1, 60)
+        up_row = QHBoxLayout()
+        up_row.addWidget(self.uploader_enable_checkbox)
+        up_row.addStretch()
+        up_row.addWidget(QLabel("Cada (min):"))
+        up_row.addWidget(self.uploader_interval_spin)
+        form.addRow("Uploader:", up_row)
+
+        self.reconcile_enable_checkbox = QCheckBox("Reconciliación periódica Local↔Remoto")
+        self.reconcile_interval_spin = QSpinBox()
+        self.reconcile_interval_spin.setRange(1, 60)
+        rec_row = QHBoxLayout()
+        rec_row.addWidget(self.reconcile_enable_checkbox)
+        rec_row.addStretch()
+        rec_row.addWidget(QLabel("Cada (min):"))
+        rec_row.addWidget(self.reconcile_interval_spin)
+        form.addRow("Reconciliar:", rec_row)
+
+        self.cleanup_enable_checkbox = QCheckBox("Limpieza diaria de retención")
+        self.cleanup_time_edit = QTimeEdit()
+        self.cleanup_time_edit.setDisplayFormat("HH:mm")
+        clean_row = QHBoxLayout()
+        clean_row.addWidget(self.cleanup_enable_checkbox)
+        clean_row.addStretch()
+        clean_row.addWidget(QLabel("Hora:"))
+        clean_row.addWidget(self.cleanup_time_edit)
+        form.addRow("Limpieza:", clean_row)
+
+        self.backup_enable_checkbox = QCheckBox("Backup diario rápido")
+        self.backup_time_edit = QTimeEdit()
+        self.backup_time_edit.setDisplayFormat("HH:mm")
+        bkp_row = QHBoxLayout()
+        bkp_row.addWidget(self.backup_enable_checkbox)
+        bkp_row.addStretch()
+        bkp_row.addWidget(QLabel("Hora:"))
+        bkp_row.addWidget(self.backup_time_edit)
+        form.addRow("Backup:", bkp_row)
+
         # Indicador de estado de conexión
         self.status_label = QLabel("Estado: Sin probar")
         self.status_label.setStyleSheet("color: #666;")
-        self.info_label = QLabel("Nota: Las variables de entorno DB_* (si existen) tienen prioridad sobre config.json.")
+        self.info_label = QLabel("Nota: Puedes pegar el DSN de Railway para autocompletar. Los cambios de tareas se aplican al guardar.")
         self.info_label.setStyleSheet("color: #666; font-size: 11px;")
 
         # Botones
@@ -196,6 +257,8 @@ class DBConfigDialog(QDialog):
         btns.addWidget(self.test_local_button)
         btns.addWidget(self.show_password_button)
         btns.addWidget(self.clear_password_button)
+        self.cleanup_button = QPushButton("⚠️ Limpiar Bases de Datos…")
+        btns.addWidget(self.cleanup_button)
         btns.addStretch()
         btns.addWidget(self.save_button)
         btns.addWidget(self.cancel_button)
@@ -213,9 +276,12 @@ class DBConfigDialog(QDialog):
         self.save_button.clicked.connect(self._on_save)
         self.show_password_button.clicked.connect(self._on_show_password)
         self.clear_password_button.clicked.connect(self._on_clear_password)
+        self.cleanup_button.clicked.connect(self._on_cleanup_databases)
         self.cancel_button.clicked.connect(self.reject)
         self.toggle_password_btn.toggled.connect(self._on_toggle_password)
         self.profile_combo.currentTextChanged.connect(self._on_profile_changed)
+        self.dsn_import_button.clicked.connect(self._on_import_dsn)
+        self.tasks_master_checkbox.toggled.connect(self._on_tasks_master_toggled)
 
     def _load_params(self):
         # Establecer perfil actual en el combo
@@ -240,6 +306,8 @@ class DBConfigDialog(QDialog):
         self.ssl_combo.setCurrentIndex(idx)
         self.timeout_spin.setValue(int(self.params.get('connect_timeout', 10)))
         self.app_name_edit.setText(str(self.params.get('application_name', 'gym_management_system')))
+        # Cargar configuración de tareas
+        self._load_tasks_cfg()
 
     def _collect_params(self) -> dict:
         return {
@@ -254,6 +322,61 @@ class DBConfigDialog(QDialog):
             'store_password_in_file': bool(self.store_pwd_checkbox.isChecked()),
             'profile': 'local' if self.profile_combo.currentText().lower().startswith('local') else 'remoto',
         }
+
+    def _parse_dsn_to_params(self, dsn: str, defaults: dict) -> dict:
+        if not dsn:
+            return defaults
+        try:
+            u = urlparse(dsn)
+            host = u.hostname or defaults.get('host', '')
+            try:
+                port = int(u.port or defaults.get('port', 5432))
+            except Exception:
+                port = defaults.get('port', 5432)
+            database = (u.path or '').lstrip('/') or defaults.get('database', '')
+            user = u.username or defaults.get('user', '')
+            password = u.password or defaults.get('password', '')
+            q = parse_qs(u.query or '')
+            sslmode = (q.get('sslmode') or [defaults.get('sslmode', 'prefer')])[0]
+            appname = (q.get('application_name') or [defaults.get('application_name', 'gym_management_system')])[0]
+            try:
+                timeout = int((q.get('connect_timeout') or [defaults.get('connect_timeout', 10)])[0])
+            except Exception:
+                timeout = defaults.get('connect_timeout', 10)
+            return {
+                'host': host,
+                'port': port,
+                'database': database,
+                'user': user,
+                'password': password,
+                'sslmode': sslmode,
+                'application_name': appname,
+                'connect_timeout': timeout,
+            }
+        except Exception:
+            return defaults
+
+    def _on_import_dsn(self):
+        dsn = self.dsn_edit.text().strip()
+        if not dsn:
+            QMessageBox.warning(self, "DSN requerido", "Ingresa un DSN válido.")
+            return
+        defaults = self._collect_params()
+        newp = self._parse_dsn_to_params(dsn, defaults)
+        self.host_edit.setText(str(newp['host']))
+        self.port_spin.setValue(int(newp['port']))
+        self.db_edit.setText(str(newp['database']))
+        self.user_edit.setText(str(newp['user']))
+        if newp.get('password'):
+            self.password_edit.setText(newp['password'])
+        idx = max(0, self.ssl_combo.findText(str(newp['sslmode'])))
+        self.ssl_combo.setCurrentIndex(idx)
+        self.timeout_spin.setValue(int(newp['connect_timeout']))
+        self.app_name_edit.setText(str(newp['application_name']))
+        if str(newp['host']).lower() not in ('localhost', '127.0.0.1'):
+            self.profile_combo.setCurrentText('Remoto')
+        self.status_label.setText("Estado: Sin probar")
+        self.status_label.setStyleSheet("color: #666;")
 
     def _on_test(self):
         params = self._collect_params()
@@ -289,7 +412,13 @@ class DBConfigDialog(QDialog):
 
         try:
             self._write_config_and_password(params)
-            QMessageBox.information(self, "Guardado", "Configuración guardada en config/config.json y contraseña en almacén seguro.")
+            # Aplicar configuración de tareas programadas inmediatamente
+            try:
+                from utils_modules.prerequisites import ensure_scheduled_tasks
+                ensure_scheduled_tasks('local')
+            except Exception:
+                pass
+            QMessageBox.information(self, "Guardado", "Configuración guardada y tareas programadas aplicadas.")
             self.accept()
         except Exception as e:
             QMessageBox.critical(self, "Error al guardar", f"No se pudo guardar la configuración: {e}")
@@ -446,9 +575,24 @@ class DBConfigDialog(QDialog):
             # Si no hay keyring, ya quedó guardada en config.json; no fallar la operación
             return
         try:
-            keyring.set_password(KEYRING_SERVICE_NAME, params['user'], params['password'])
+            accounts = []
+            if str(params.get('profile', 'local')).lower() == 'local':
+                accounts = [
+                    params['user'],
+                    f"{params['user']}@{params['host']}:{params['port']}",
+                ]
+            else:
+                accounts = [
+                    f"{params['user']}@railway",
+                    f"{params['user']}@{params['host']}:{params['port']}",
+                    params['user'],
+                ]
+            for acct in accounts:
+                try:
+                    keyring.set_password(KEYRING_SERVICE_NAME, acct, params['password'])
+                except Exception:
+                    pass
         except Exception:
-            # No interrumpir el guardado si falla el backend de keyring (p.ej., win32timezone faltante)
             pass
 
     def _on_profile_changed(self, _: str):
@@ -513,6 +657,92 @@ class DBConfigDialog(QDialog):
         base.setdefault('application_name', 'gym_management_system')
         return base
 
+    # --- NUEVO: Configuración de tareas programadas ---
+    def _ensure_tasks_defaults(self, scfg: dict | None) -> dict:
+        base = scfg.copy() if isinstance(scfg, dict) else {}
+        # Maestro
+        base.setdefault('enabled', False)
+        # Subtareas con valores por defecto (desactivadas por defecto)
+        uploader = base.get('uploader') if isinstance(base.get('uploader'), dict) else {}
+        uploader.setdefault('enabled', False)
+        uploader.setdefault('interval_minutes', 3)
+        base['uploader'] = uploader
+        reconcile = base.get('reconcile') if isinstance(base.get('reconcile'), dict) else {}
+        reconcile.setdefault('enabled', False)
+        reconcile.setdefault('interval_minutes', 5)
+        base['reconcile'] = reconcile
+        cleanup = base.get('cleanup') if isinstance(base.get('cleanup'), dict) else {}
+        cleanup.setdefault('enabled', False)
+        cleanup.setdefault('time', '03:15')
+        base['cleanup'] = cleanup
+        backup = base.get('backup') if isinstance(base.get('backup'), dict) else {}
+        backup.setdefault('enabled', False)
+        backup.setdefault('time', '02:30')
+        base['backup'] = backup
+        return base
+
+    def _load_tasks_cfg(self):
+        try:
+            scfg = self._ensure_tasks_defaults(self.full_cfg.get('scheduled_tasks'))
+            self.tasks_master_checkbox.setChecked(bool(scfg.get('enabled', True)))
+            # Uploader
+            self.uploader_enable_checkbox.setChecked(bool(scfg['uploader'].get('enabled', True)))
+            self.uploader_interval_spin.setValue(int(scfg['uploader'].get('interval_minutes', 3)))
+            # Reconcile
+            self.reconcile_enable_checkbox.setChecked(bool(scfg['reconcile'].get('enabled', True)))
+            self.reconcile_interval_spin.setValue(int(scfg['reconcile'].get('interval_minutes', 5)))
+            # Cleanup time
+            t_clean = QTime.fromString(str(scfg['cleanup'].get('time', '03:15')), "HH:mm")
+            if not t_clean.isValid():
+                t_clean = QTime(3, 15)
+            self.cleanup_time_edit.setTime(t_clean)
+            self.cleanup_enable_checkbox.setChecked(bool(scfg['cleanup'].get('enabled', True)))
+            # Backup time
+            t_backup = QTime.fromString(str(scfg['backup'].get('time', '02:30')), "HH:mm")
+            if not t_backup.isValid():
+                t_backup = QTime(2, 30)
+            self.backup_time_edit.setTime(t_backup)
+            self.backup_enable_checkbox.setChecked(bool(scfg['backup'].get('enabled', True)))
+            # Aplicar estado master
+            self._on_tasks_master_toggled(self.tasks_master_checkbox.isChecked())
+        except Exception:
+            pass
+
+    def _collect_tasks_cfg(self) -> dict:
+        def fmt_time(qt: QTime) -> str:
+            return f"{qt.hour():02d}:{qt.minute():02d}"
+        return {
+            'enabled': bool(self.tasks_master_checkbox.isChecked()),
+            'uploader': {
+                'enabled': bool(self.uploader_enable_checkbox.isChecked()),
+                'interval_minutes': int(self.uploader_interval_spin.value()),
+            },
+            'reconcile': {
+                'enabled': bool(self.reconcile_enable_checkbox.isChecked()),
+                'interval_minutes': int(self.reconcile_interval_spin.value()),
+            },
+            'cleanup': {
+                'enabled': bool(self.cleanup_enable_checkbox.isChecked()),
+                'time': fmt_time(self.cleanup_time_edit.time()),
+            },
+            'backup': {
+                'enabled': bool(self.backup_enable_checkbox.isChecked()),
+                'time': fmt_time(self.backup_time_edit.time()),
+            },
+        }
+
+    def _on_tasks_master_toggled(self, checked: bool):
+        try:
+            for w in [
+                self.uploader_enable_checkbox, self.uploader_interval_spin,
+                self.reconcile_enable_checkbox, self.reconcile_interval_spin,
+                self.cleanup_enable_checkbox, self.cleanup_time_edit,
+                self.backup_enable_checkbox, self.backup_time_edit,
+            ]:
+                w.setEnabled(checked)
+        except Exception:
+            pass
+
     def _on_clear_password(self):
         try:
             user = self.user_edit.text().strip()
@@ -520,15 +750,19 @@ class DBConfigDialog(QDialog):
                 QMessageBox.warning(self, "Usuario requerido", "Indica el usuario para eliminar la contraseña guardada.")
                 return
             cleared_any = False
-            # Eliminar de keyring
+            prof = 'local' if self.profile_combo.currentText().lower().startswith('local') else 'remoto'
+            host = self.host_edit.text().strip()
+            port = int(self.port_spin.value())
+            # Eliminar de keyring variantes
             if keyring is not None:
-                try:
-                    keyring.delete_password(KEYRING_SERVICE_NAME, user)
-                    cleared_any = True
-                except Exception:
-                    # Ignorar si no existe
-                    pass
-            # Eliminar de config.json
+                variants = [f"{user}@{host}:{port}", user] if prof == 'local' else [f"{user}@railway", f"{user}@{host}:{port}", user]
+                for acct in variants:
+                    try:
+                        keyring.delete_password(KEYRING_SERVICE_NAME, acct)
+                        cleared_any = True
+                    except Exception:
+                        pass
+            # Eliminar de config.json (sección correspondiente)
             try:
                 base_dir = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
             except Exception:
@@ -538,11 +772,15 @@ class DBConfigDialog(QDialog):
                 if config_path.exists():
                     with open(config_path, 'r', encoding='utf-8') as f:
                         cfg = json.load(f) or {}
+                    key = 'db_local' if prof == 'local' else 'db_remote'
+                    if isinstance(cfg.get(key), dict) and 'password' in cfg[key]:
+                        del cfg[key]['password']
+                        cleared_any = True
                     if 'password' in cfg:
                         del cfg['password']
-                        with open(config_path, 'w', encoding='utf-8') as f:
-                            json.dump(cfg, f, ensure_ascii=False, indent=2)
                         cleared_any = True
+                    with open(config_path, 'w', encoding='utf-8') as f:
+                        json.dump(cfg, f, ensure_ascii=False, indent=2)
             except Exception:
                 pass
             if cleared_any:
@@ -581,8 +819,18 @@ class DBConfigDialog(QDialog):
                 QMessageBox.critical(self, "No disponible", "El almacén seguro no está disponible.")
                 return
 
-            # Intentar primero por la etiqueta actual
-            saved = keyring.get_password(KEYRING_SERVICE_NAME, user)
+            prof = 'local' if self.profile_combo.currentText().lower().startswith('local') else 'remoto'
+            host = self.host_edit.text().strip()
+            port = int(self.port_spin.value())
+            variants = [f"{user}@{host}:{port}", user] if prof == 'local' else [f"{user}@railway", f"{user}@{host}:{port}", user]
+            saved = None
+            for acct in variants:
+                try:
+                    saved = keyring.get_password(KEYRING_SERVICE_NAME, acct)
+                except Exception:
+                    saved = None
+                if saved:
+                    break
             # Migración automática desde etiquetas legacy si no existe en la actual
             if not saved:
                 for old_service in LEGACY_KEYRING_SERVICE_NAMES:
@@ -605,6 +853,190 @@ class DBConfigDialog(QDialog):
                 QMessageBox.information(self, "Sin contraseña", "No hay contraseña guardada para el usuario.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo recuperar la contraseña: {e}")
+
+    # --- Limpieza peligrosa de bases de datos ---
+    def _resolve_password_for(self, params: dict, scope_hint: str) -> dict:
+        try:
+            if str(params.get('password', '')).strip():
+                return params
+            if keyring is None:
+                return params
+            user = str(params.get('user', 'postgres'))
+            host = str(params.get('host', ''))
+            try:
+                port = int(params.get('port', 5432))
+            except Exception:
+                port = 5432
+            variants = [f"{user}@{host}:{port}", user] if scope_hint == 'local' else [f"{user}@railway", f"{user}@{host}:{port}", user]
+            for acct in variants:
+                try:
+                    saved = keyring.get_password(KEYRING_SERVICE_NAME, acct)
+                except Exception:
+                    saved = None
+                if saved:
+                    params['password'] = saved
+                    break
+        except Exception:
+            pass
+        return params
+
+    def _get_profile_params(self, profile: str) -> dict:
+        base = self._ensure_db_local_defaults(self.db_local_cfg) if profile == 'local' else self._ensure_db_remote_defaults(self.db_remote_cfg)
+        return self._resolve_password_for(base, profile)
+
+    def _truncate_public_tables(self, params: dict) -> dict:
+        conn = None
+        try:
+            conn = psycopg2.connect(
+                host=params.get('host'),
+                port=int(params.get('port') or 5432),
+                dbname=params.get('database'),
+                user=params.get('user'),
+                password=params.get('password'),
+                sslmode=params.get('sslmode') or 'prefer',
+                application_name=params.get('application_name', 'gym_management_system'),
+                connect_timeout=int(params.get('connect_timeout') or 10),
+            )
+            conn.autocommit = False
+            cur = conn.cursor()
+
+            # Listado de tablas public (incluye base y particionadas), excluye posibles tablas sym_* legadas
+            cur.execute(
+                """
+                SELECT c.relname
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname='public' AND c.relkind IN ('r','p')
+                  AND c.relname NOT LIKE 'sym_%'
+                ORDER BY 1
+                """
+            )
+            tables = [r[0] for r in (cur.fetchall() or [])]
+
+            truncated = []
+            if tables:
+                try:
+                    parts = [sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t)) for t in tables]
+                    stmt = sql.SQL("TRUNCATE TABLE ") + sql.SQL(", ").join(parts) + sql.SQL(" RESTART IDENTITY CASCADE")
+                    cur.execute(stmt)
+                    truncated = tables
+                except Exception:
+                    # Fallback conservador: borrar por tabla si TRUNCATE falla
+                    for t in tables:
+                        try:
+                            cur.execute(sql.SQL("DELETE FROM {}.{}").format(sql.Identifier('public'), sql.Identifier(t)))
+                        except Exception:
+                            pass
+
+            # Reiniciar secuencias adicionales en public
+            restarted = []
+            try:
+                cur.execute(
+                    """
+                    SELECT sequence_name
+                    FROM information_schema.sequences
+                    WHERE sequence_schema='public'
+                    """
+                )
+                seqs = [r[0] for r in (cur.fetchall() or [])]
+                for s in seqs:
+                    try:
+                        cur.execute(sql.SQL("ALTER SEQUENCE {}.{} RESTART WITH 1").format(sql.Identifier('public'), sql.Identifier(s)))
+                        restarted.append(s)
+                    except Exception:
+                        pass
+            except Exception:
+                restarted = []
+
+            conn.commit()
+            return {"ok": True, "truncated": truncated, "restarted_sequences": restarted}
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            return {"ok": False, "error": str(e)}
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+
+    def _on_cleanup_databases(self):
+        try:
+            # Primera confirmación
+            resp = QMessageBox.warning(
+                self,
+                "Confirmar limpieza peligrosa",
+                (
+                    "Esta acción TRUNCARÁ todos los datos de las tablas en 'public' "
+                    "(RESTART IDENTITY, CASCADE) en las bases configuradas.\n\n"
+                    "- Publicación actual incluye 'truncate' para replicación (si hay suscriptores).\n"
+                    "- Se reiniciarán secuencias en 'public'.\n\n"
+                    "¿Deseas continuar?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
+            # Segunda confirmación por frase
+            phrase, ok = QInputDialog.getText(
+                self,
+                "Confirmación final",
+                "Escribe 'BORRAR TODO' para confirmar:",
+                QLineEdit.EchoMode.Normal,
+            )
+            if not ok or phrase.strip().upper() != "BORRAR TODO":
+                QMessageBox.information(self, "Cancelado", "Operación cancelada.")
+                return
+
+            # Requiere contraseña admin
+            pwd, ok = QInputDialog.getText(
+                self,
+                "Autorización",
+                "Contraseña de administrador:",
+                QLineEdit.EchoMode.Password,
+            )
+            if not ok or pwd != "Matute03!?":
+                QMessageBox.warning(self, "Denegado", "Contraseña incorrecta.")
+                return
+
+            # Ejecutar limpieza en local y remoto (si configurado)
+            local_params = self._get_profile_params('local')
+            remote_params = self._get_profile_params('remoto')
+
+            results = []
+            # Local
+            try:
+                rloc = self._truncate_public_tables(local_params)
+                results.append(("LOCAL", rloc))
+            except Exception as e:
+                results.append(("LOCAL", {"ok": False, "error": str(e)}))
+
+            # Remoto si hay host informado
+            try:
+                if str(remote_params.get('host', '')).strip():
+                    rrem = self._truncate_public_tables(remote_params)
+                    results.append(("REMOTO", rrem))
+                else:
+                    results.append(("REMOTO", {"ok": False, "error": "No configurado"}))
+            except Exception as e:
+                results.append(("REMOTO", {"ok": False, "error": str(e)}))
+
+            # Mostrar resumen
+            lines = []
+            for name, res in results:
+                if res.get('ok'):
+                    lines.append(f"[{name}] OK: {len(res.get('truncated', []))} tablas truncadas; {len(res.get('restarted_sequences', []))} secuencias reiniciadas")
+                else:
+                    lines.append(f"[{name}] FALLÓ: {res.get('error')}")
+            QMessageBox.information(self, "Limpieza completada", "\n".join(lines))
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo en limpieza: {e}")
 
 
 def main():
