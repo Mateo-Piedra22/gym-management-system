@@ -5,7 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gestión • {{ gym_name }}</title>
   <link rel="stylesheet" href="/static/style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+  <script>
+    (function(){
+      function loadScript(src){
+        return new Promise(function(resolve, reject){
+          try {
+            var s = document.createElement('script');
+            s.src = src; s.async = true;
+            s.onload = function(){ resolve(true); };
+            s.onerror = function(){ reject(new Error('Failed to load ' + src)); };
+            document.head.appendChild(s);
+          } catch(e){ reject(e); }
+        });
+      }
+      async function loadQRCodeLib(){
+        if (window.QRCode) return true;
+        var sources = [
+          'https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js',
+          'https://unpkg.com/qrcode@1.5.1/build/qrcode.min.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.1/qrcode.min.js',
+          '/static/libs/qrcode.min.js'
+        ];
+        for (var i=0; i<sources.length; i++){
+          try {
+            await loadScript(sources[i]);
+            if (window.QRCode) return true;
+          } catch(_){}
+        }
+        return false;
+      }
+      try { window.loadQRCodeLib = loadQRCodeLib; } catch(_){}
+      // Intento inicial de carga (no bloqueante)
+      try { loadQRCodeLib(); } catch(_){}
+    })();
+  </script>
   <script src="/static/js/toast.js"></script>
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
@@ -112,7 +145,7 @@
           <img src="{{ logo_url }}" alt="Logo" />
           <div>
             <h1 style="margin:0; font-size: 18px;">Gestión • {{ gym_name }}</h1>
-            <p class="muted" style="margin:2px 0 0 0">Operaciones interactivas (separado del Dashboard informativo)</p>
+            <p class="muted" style="margin:2px 0 0 0">Operaciones interactivas</p>
           </div>
         </div>
         <div class="nav-actions">
@@ -812,7 +845,21 @@
         const un = document.getElementById('qr-user-name'); if(un) un.textContent = String(u.nombre || `Usuario #${u.id}`);
         const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent = `token: ***${token.slice(-4)}`;
         openModal('modal-qr-toast');
-        try{ const canvas = document.getElementById('qr-canvas'); if(canvas && window.QRCode){ window.QRCode.toCanvas(canvas, token, { width: 240 }); } }catch(e){ /* ignorar */ }
+        let qrLibReady = false;
+        try{
+          if(typeof window.loadQRCodeLib === 'function'){
+            qrLibReady = await window.loadQRCodeLib();
+          } else {
+            qrLibReady = !!window.QRCode;
+          }
+        }catch(_){ qrLibReady = !!window.QRCode; }
+        const canvas = document.getElementById('qr-canvas');
+        if(canvas && qrLibReady && window.QRCode && typeof window.QRCode.toCanvas === 'function'){
+          try { window.QRCode.toCanvas(canvas, token, { width: 240 }); } catch(_){}
+        } else {
+          const status = document.getElementById('qr-status-msg'); if(status) status.textContent = 'No se pudo cargar la librería de QR. Usa ingreso manual.';
+          if(tm) tm.textContent = `token: ${token}`;
+        }
         updateQRCountdown(); stopQRTimers(); qrState.countdownInt = setInterval(updateQRCountdown, 1000); qrState.pollInt = setInterval(pollTokenStatus, 2000);
       }catch(e){ showToast(`No se pudo emitir token: ${e.message}`, 'error', 4500); }
     }
@@ -1011,6 +1058,8 @@
       f('u-nombre').value = (user && user.nombre) || '';
       f('u-dni').value = (user && user.dni) || '';
       f('u-telefono').value = (user && user.telefono) || '';
+      // Prefijo por defecto si no hay teléfono
+      if(!user || !user.telefono){ const telEl = f('u-telefono'); if(telEl && !telEl.value) telEl.value = '+54'; }
       f('u-pin').value = (user && user.pin) || '';
       f('u-rol').value = (user && user.rol) ? String(user.rol).toLowerCase() : 'socio';
       f('u-activo').checked = user ? !!user.activo : true;
@@ -1301,17 +1350,36 @@
       } catch(e){ console.warn('No se pudo asegurar concepto Cuota Mensual variable/activo:', e); }
     }
 
+    async function ensureTiposCuotaCatalogo(){
+      try{
+        if(Array.isArray(state.tiposCuotaCatalogo) && state.tiposCuotaCatalogo.length > 0){ return; }
+        const res = await fetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' } });
+        const full = await res.json();
+        const rows = Array.isArray(full.items) ? full.items : (Array.isArray(full) ? full : []);
+        state.tiposCuotaCatalogo = rows;
+        state.tiposCuotaCatalogoMap = Object.fromEntries(rows.map(t => [String(t.id ?? t.nombre ?? ''), t]));
+      }catch(e){ console.warn('No se pudo cargar catálogo de tipos de cuota:', e); }
+    }
+
     function resolveTipoCuota(val){
       if(val == null) return null;
-      const lista = Array.isArray(state.tiposCuotaActivos) ? state.tiposCuotaActivos : [];
       const sv = String(val).trim();
       if(!sv) return null;
+      const activos = Array.isArray(state.tiposCuotaActivos) ? state.tiposCuotaActivos : [];
       let tipo = null;
       if(/^[0-9]+$/.test(sv)){
-        tipo = lista.find(t => String(t.id) === sv);
+        tipo = activos.find(t => String(t.id) === sv);
       }
       if(!tipo){
-        tipo = lista.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
+        tipo = activos.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
+      }
+      if(tipo) return tipo;
+      const catalogo = Array.isArray(state.tiposCuotaCatalogo) ? state.tiposCuotaCatalogo : [];
+      if(/^[0-9]+$/.test(sv)){
+        tipo = catalogo.find(t => String(t.id) === sv);
+      }
+      if(!tipo){
+        tipo = catalogo.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
       }
       return tipo || null;
     }
@@ -1332,6 +1400,7 @@
         if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){
           await loadTiposCuotaActivos();
         }
+        await ensureTiposCuotaCatalogo();
         const usuarioEl = document.getElementById('pago-usuario');
         const metodoEl = document.getElementById('pago-metodo');
         const montoEl = document.getElementById('pago-monto');
@@ -1667,10 +1736,11 @@
     // ===== Configuración: Tipos de cuota, Conceptos y Métodos =====
     async function loadTiposCuotaAdmin(){
       try{
-        const res = await fetch('/api/tipos_cuota', { headers:{ 'Accept':'application/json' } });
+        const res = await fetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' } });
         const data = await res.json();
         const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.configTipos = rows;
+        state.configTiposMap = Object.fromEntries(rows.map(t => [String(t.id ?? t.nombre ?? ''), t]));
         renderTiposCuotaTable(rows);
       }catch(e){ console.warn('No se pudieron cargar tipos de cuota:', e); }
     }

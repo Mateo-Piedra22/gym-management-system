@@ -93,3 +93,6 @@ class DeveloperManager:
                                             f"{asistencias_eliminadas} registros de asistencias.")
                 except Exception as e:
                     QMessageBox.critical(self.parent, "Error", f"No se pudo completar la limpieza: {e}")
+
+# Exponer DEV_PASSWORD para uso por componentes web (server.py)
+DEV_PASSWORD = DeveloperManager.DEV_PASSWORD

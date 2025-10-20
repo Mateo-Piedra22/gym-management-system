@@ -1817,13 +1817,28 @@ async def api_metodos_pago_delete(metodo_id: int, _=Depends(require_gestion_acce
     guard = _circuit_guard_json(db, f"/api/metodos_pago/{metodo_id}[DELETE]")
     if guard:
         return guard
-    if pm is None:
-        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    pm_ready = (pm is not None)
     try:
-        deleted = pm.eliminar_metodo_pago(int(metodo_id))
-        if not deleted:
-            raise HTTPException(status_code=404, detail="No se pudo eliminar el método de pago")
-        return {"ok": True}
+        if pm_ready:
+            deleted = pm.eliminar_metodo_pago(int(metodo_id))
+            if not deleted:
+                raise HTTPException(status_code=404, detail="No se pudo eliminar el método de pago")
+            return {"ok": True}
+        else:
+            with db.get_connection_context() as conn:  # type: ignore
+                ok = _apply_change_idempotent(
+                    conn,
+                    schema="public",
+                    table="metodos_pago",
+                    operation="DELETE",
+                    key_column="id",
+                    key_value=int(metodo_id),
+                    where=[("id", int(metodo_id))],
+                )
+                if not ok:
+                    raise HTTPException(status_code=404, detail="No se pudo eliminar el método de pago")
+                conn.commit()
+                return {"ok": True}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except HTTPException:
@@ -1858,8 +1873,7 @@ async def api_conceptos_pago_create(request: Request, _=Depends(require_gestion_
     guard = _circuit_guard_json(db, "/api/conceptos_pago[POST]")
     if guard:
         return guard
-    if pm is None or ConceptoPago is None:
-        raise HTTPException(status_code=503, detail="PaymentManager o modelo ConceptoPago no disponible")
+    pm_ready = (pm is not None and ConceptoPago is not None)
     payload = await request.json()
     try:
         nombre = (payload.get("nombre") or "").strip()
@@ -1874,9 +1888,38 @@ async def api_conceptos_pago_create(request: Request, _=Depends(require_gestion_
         if tipo not in ["fijo", "variable"]:
             raise HTTPException(status_code=400, detail="'tipo' debe ser 'fijo' o 'variable'")
         activo = bool(payload.get("activo", True))
-        concepto = ConceptoPago(nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo)  # type: ignore
-        new_id = pm.crear_concepto_pago(concepto)
-        return {"ok": True, "id": int(new_id)}
+        if pm_ready:
+            concepto = ConceptoPago(nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo)  # type: ignore
+            new_id = pm.crear_concepto_pago(concepto)
+            return {"ok": True, "id": int(new_id)}
+        else:
+            from psycopg2 import sql as _sql
+            with db.get_connection_context() as conn:  # type: ignore
+                data = {
+                    "nombre": nombre,
+                    "descripcion": descripcion,
+                    "precio_base": precio_base,
+                    "tipo": tipo,
+                    "activo": activo,
+                    "categoria": (payload.get("categoria") or "general").strip().lower(),
+                }
+                filtered = _filter_existing_columns(conn, "public", "conceptos_pago", data)
+                if not filtered:
+                    raise HTTPException(status_code=400, detail="No hay columnas válidas para insertar")
+                cols = list(filtered.keys())
+                stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({}) RETURNING id").format(
+                    _sql.Identifier("public"), _sql.Identifier("conceptos_pago"),
+                    _sql.SQL(", ").join([_sql.Identifier(c) for c in cols]),
+                    _sql.SQL(", ").join([_sql.Placeholder() for _ in cols]),
+                )
+                cur = conn.cursor()
+                cur.execute(stmt, [filtered[c] for c in cols])
+                row_id = cur.fetchone()
+                new_id = int(row_id[0]) if row_id else None
+                if new_id is None:
+                    raise HTTPException(status_code=500, detail="No se pudo crear el concepto de pago")
+                conn.commit()
+                return {"ok": True, "id": new_id}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except HTTPException:
@@ -1895,8 +1938,7 @@ async def api_conceptos_pago_update(concepto_id: int, request: Request, _=Depend
     guard = _circuit_guard_json(db, f"/api/conceptos_pago/{concepto_id}[PUT]")
     if guard:
         return guard
-    if pm is None or ConceptoPago is None:
-        raise HTTPException(status_code=503, detail="PaymentManager o modelo ConceptoPago no disponible")
+    pm_ready = (pm is not None and ConceptoPago is not None)
     payload = await request.json()
     try:
         # Como no hay método para obtener un concepto individual, consultamos SQL para merge
@@ -1919,11 +1961,36 @@ async def api_conceptos_pago_update(concepto_id: int, request: Request, _=Depend
             raise HTTPException(status_code=400, detail="'tipo' debe ser 'fijo' o 'variable'")
         activo = bool(payload.get("activo")) if ("activo" in payload) else bool(row.get("activo"))
         categoria = (payload.get("categoria") or row.get("categoria") or "general").strip().lower()
-        concepto = ConceptoPago(id=int(concepto_id), nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo, categoria=categoria)  # type: ignore
-        updated = pm.actualizar_concepto_pago(concepto)
-        if not updated:
-            raise HTTPException(status_code=404, detail="No se pudo actualizar el concepto de pago")
-        return {"ok": True, "id": int(concepto_id)}
+        if pm_ready:
+            concepto = ConceptoPago(id=int(concepto_id), nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo, categoria=categoria)  # type: ignore
+            updated = pm.actualizar_concepto_pago(concepto)
+            if not updated:
+                raise HTTPException(status_code=404, detail="No se pudo actualizar el concepto de pago")
+            return {"ok": True, "id": int(concepto_id)}
+        else:
+            updates = {
+                "nombre": nombre,
+                "descripcion": descripcion,
+                "precio_base": precio_base,
+                "tipo": tipo,
+                "activo": activo,
+                "categoria": categoria,
+            }
+            with db.get_connection_context() as conn:  # type: ignore
+                ok = _apply_change_idempotent(
+                    conn,
+                    schema="public",
+                    table="conceptos_pago",
+                    operation="UPDATE",
+                    key_column="id",
+                    key_value=int(concepto_id),
+                    update_fields=updates,
+                    where=[("id", int(concepto_id))],
+                )
+                if not ok:
+                    raise HTTPException(status_code=404, detail="No se pudo actualizar el concepto de pago")
+                conn.commit()
+                return {"ok": True, "id": int(concepto_id)}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except HTTPException:
@@ -1942,13 +2009,28 @@ async def api_conceptos_pago_delete(concepto_id: int, _=Depends(require_gestion_
     guard = _circuit_guard_json(db, f"/api/conceptos_pago/{concepto_id}[DELETE]")
     if guard:
         return guard
-    if pm is None:
-        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    pm_ready = (pm is not None)
     try:
-        deleted = pm.eliminar_concepto_pago(int(concepto_id))
-        if not deleted:
-            raise HTTPException(status_code=404, detail="No se pudo eliminar el concepto de pago")
-        return {"ok": True}
+        if pm_ready:
+            deleted = pm.eliminar_concepto_pago(int(concepto_id))
+            if not deleted:
+                raise HTTPException(status_code=404, detail="No se pudo eliminar el concepto de pago")
+            return {"ok": True}
+        else:
+            with db.get_connection_context() as conn:  # type: ignore
+                ok = _apply_change_idempotent(
+                    conn,
+                    schema="public",
+                    table="conceptos_pago",
+                    operation="DELETE",
+                    key_column="id",
+                    key_value=int(concepto_id),
+                    where=[("id", int(concepto_id))],
+                )
+                if not ok:
+                    raise HTTPException(status_code=404, detail="No se pudo eliminar el concepto de pago")
+                conn.commit()
+                return {"ok": True}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except HTTPException:
@@ -2050,6 +2132,7 @@ async def api_tipos_cuota_create(request: Request, _=Depends(require_gestion_acc
             new_id = int(new_id_row[0]) if new_id_row else None
             if new_id is None:
                 raise HTTPException(status_code=500, detail="No se pudo crear el tipo de cuota")
+            conn.commit()
             return {"ok": True, "id": new_id}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -2098,6 +2181,7 @@ async def api_tipos_cuota_update(tipo_id: int, request: Request, _=Depends(requi
             ok = _apply_change_idempotent(conn, "public", "tipos_cuota", "UPDATE", {"id": int(tipo_id)}, updates)
             if not ok:
                 raise HTTPException(status_code=500, detail="No se pudo actualizar el tipo de cuota")
+            conn.commit()
             return {"ok": True, "id": int(tipo_id)}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -2121,6 +2205,7 @@ async def api_tipos_cuota_delete(tipo_id: int, _=Depends(require_gestion_access)
             ok = _apply_change_idempotent(conn, "public", "tipos_cuota", "DELETE", {"id": int(tipo_id)}, {})
             if not ok:
                 raise HTTPException(status_code=500, detail="No se pudo eliminar el tipo de cuota")
+            conn.commit()
             return {"ok": True}
     except HTTPException:
         raise
@@ -3517,21 +3602,48 @@ async def api_usuario_historial(usuario_id: int, request: Request, _=Depends(req
         off = int(offset_q) if (offset_q and str(offset_q).isdigit()) else 0
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(
-                """
-                SELECT 
-                    p.id, p.fecha_pago::date AS fecha, p.monto,
-                    COALESCE(mp.nombre,'') AS metodo, COALESCE(cp.nombre,'') AS concepto
-                FROM pagos p
-                LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
-                LEFT JOIN conceptos_pago cp ON cp.id = p.concepto_id
-                WHERE p.usuario_id = %s
-                ORDER BY p.fecha_pago DESC
-                LIMIT %s OFFSET %s
-                """,
-                (usuario_id, lim, off)
-            )
-            rows = cur.fetchall() or []
+            try:
+                cur.execute(
+                    """
+                    SELECT 
+                        p.id, p.fecha_pago::date AS fecha, p.monto,
+                        COALESCE(mp.nombre,'') AS metodo,
+                        COALESCE(
+                            (
+                                SELECT COALESCE(cp.nombre, pd.descripcion)
+                                FROM pago_detalles pd
+                                LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                                WHERE pd.pago_id = p.id
+                                ORDER BY pd.id
+                                LIMIT 1
+                            ),
+                            ''
+                        ) AS concepto
+                    FROM pagos p
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    WHERE p.usuario_id = %s
+                    ORDER BY p.fecha_pago DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (usuario_id, lim, off)
+                )
+                rows = cur.fetchall() or []
+            except Exception:
+                cur.execute(
+                    """
+                    SELECT 
+                        p.id, p.fecha_pago::date AS fecha, p.monto,
+                        COALESCE(mp.nombre,'') AS metodo,
+                        '' AS concepto
+                    FROM pagos p
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    WHERE p.usuario_id = %s
+                    ORDER BY p.fecha_pago DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (usuario_id, lim, off)
+                )
+                rows = cur.fetchall() or []
         return rows
     except Exception as e:
         import traceback
