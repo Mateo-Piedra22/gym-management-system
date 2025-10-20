@@ -992,6 +992,37 @@ class PaymentManager:
         except Exception:
             raise
 
+    def asegurar_concepto_cuota_mensual(self) -> Optional[int]:
+        """
+        Asegura que exista el concepto 'Cuota Mensual' en la tabla conceptos_pago.
+        Si no existe, lo crea con valores por defecto y devuelve su ID.
+        Si ya existe, devuelve None.
+        """
+        try:
+            conceptos = self.obtener_conceptos_pago(solo_activos=False) or []
+            for c in conceptos:
+                if c.nombre.strip().lower() == "cuota mensual":
+                    # Activar si estaba inactivo (no crítico si falla)
+                    if not c.activo:
+                        try:
+                            c.activo = True
+                            self.actualizar_concepto_pago(c)
+                        except Exception:
+                            pass
+                    return None
+            nuevo = ConceptoPago(
+                nombre="Cuota Mensual",
+                descripcion="Pago mensual de cuota",
+                precio_base=0.0,
+                tipo="variable",
+                activo=True,
+                categoria="cuota",
+            )
+            return self.crear_concepto_pago(nuevo)
+        except Exception as e:
+            logging.warning(f"No se pudo asegurar concepto 'Cuota Mensual': {e}")
+            return None
+
     # --- MÉTODOS DE INTEGRACIÓN WHATSAPP ---
     def _enviar_notificacion_pago_confirmado(self, usuario_id: int, monto: float, mes: int, año: int):
         """Envía notificación WhatsApp de confirmación de pago"""

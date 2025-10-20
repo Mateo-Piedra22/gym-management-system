@@ -36,10 +36,12 @@ except Exception:
 
 # Importar dataclasses de modelos para payloads del API
 try:
-    from models import Usuario, Pago  # type: ignore
+    from models import Usuario, Pago, MetodoPago, ConceptoPago  # type: ignore
 except Exception:
     Usuario = None  # type: ignore
     Pago = None  # type: ignore
+    MetodoPago = None  # type: ignore
+    ConceptoPago = None  # type: ignore
 
 # Importar utilidades del proyecto principal para branding y contraseña de desarrollador
 try:
@@ -898,6 +900,13 @@ async def _startup_init_db():
     try:
         if _get_db() is None:
             _force_db_init()
+        pm = _get_pm()
+        if pm is not None:
+            try:
+                pm.asegurar_concepto_cuota_mensual()
+            except Exception:
+                # No bloquear el arranque si falla la autocreación
+                pass
     except Exception:
         # No bloquear el arranque; los endpoints intentarán reintentar
         pass
@@ -1390,7 +1399,7 @@ async def do_login(request: Request):
         data = {}
     password = str(data.get("password", "")).strip()
     if not password:
-        return RedirectResponse(url="/?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
+        return RedirectResponse(url="/login?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
     ok = False
     # Contraseña única: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como último recurso)
     if password == _get_password():
@@ -1400,7 +1409,7 @@ async def do_login(request: Request):
         request.session["logged_in"] = True
         request.session["role"] = "dueño"
         return RedirectResponse(url="/dashboard", status_code=303)
-    return RedirectResponse(url="/?error=Credenciales%20inv%C3%A1lidas", status_code=303)
+    return RedirectResponse(url="/login?error=Credenciales%20inv%C3%A1lidas", status_code=303)
 
 
 @app.post("/logout")
@@ -1725,6 +1734,105 @@ async def api_metodos_pago(_=Depends(require_gestion_access)):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+@app.post("/api/metodos_pago")
+async def api_metodos_pago_create(request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/metodos_pago[POST]")
+    if guard:
+        return guard
+    if pm is None or MetodoPago is None:
+        raise HTTPException(status_code=503, detail="PaymentManager o modelo MetodoPago no disponible")
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        icono = payload.get("icono")
+        color = (payload.get("color") or "#3498db").strip() or "#3498db"
+        comision_raw = payload.get("comision")
+        comision = float(comision_raw) if comision_raw is not None else 0.0
+        if comision < 0 or comision > 100:
+            raise HTTPException(status_code=400, detail="'comision' debe estar entre 0 y 100")
+        activo = bool(payload.get("activo", True))
+        descripcion = payload.get("descripcion")
+        metodo = MetodoPago(nombre=nombre, icono=icono, color=color, comision=comision, activo=activo, descripcion=descripcion)  # type: ignore
+        new_id = pm.crear_metodo_pago(metodo)
+        return {"ok": True, "id": int(new_id)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/metodos_pago/{metodo_id}")
+async def api_metodos_pago_update(metodo_id: int, request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/metodos_pago/{metodo_id}[PUT]")
+    if guard:
+        return guard
+    if pm is None or MetodoPago is None:
+        raise HTTPException(status_code=503, detail="PaymentManager o modelo MetodoPago no disponible")
+    payload = await request.json()
+    try:
+        existing = pm.obtener_metodo_pago(int(metodo_id))
+        if not existing:
+            raise HTTPException(status_code=404, detail="Método de pago no encontrado")
+        nombre = (payload.get("nombre") or existing.nombre or "").strip() or existing.nombre
+        icono = payload.get("icono") if ("icono" in payload) else existing.icono
+        color = (payload.get("color") or existing.color or "#3498db").strip() or existing.color
+        comision = float(payload.get("comision")) if (payload.get("comision") is not None) else float(existing.comision or 0.0)
+        if comision < 0 or comision > 100:
+            raise HTTPException(status_code=400, detail="'comision' debe estar entre 0 y 100")
+        activo = bool(payload.get("activo")) if ("activo" in payload) else bool(existing.activo)
+        descripcion = payload.get("descripcion") if ("descripcion" in payload) else existing.descripcion
+        metodo = MetodoPago(id=int(metodo_id), nombre=nombre, icono=icono, color=color, comision=comision, activo=activo, descripcion=descripcion)  # type: ignore
+        updated = pm.actualizar_metodo_pago(metodo)
+        if not updated:
+            raise HTTPException(status_code=404, detail="No se pudo actualizar el método de pago")
+        return {"ok": True, "id": int(metodo_id)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/metodos_pago/{metodo_id}")
+async def api_metodos_pago_delete(metodo_id: int, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/metodos_pago/{metodo_id}[DELETE]")
+    if guard:
+        return guard
+    if pm is None:
+        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    try:
+        deleted = pm.eliminar_metodo_pago(int(metodo_id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="No se pudo eliminar el método de pago")
+        return {"ok": True}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/api/conceptos_pago")
 async def api_conceptos_pago(_=Depends(require_gestion_access)):
     db = _get_db()
@@ -1739,6 +1847,115 @@ async def api_conceptos_pago(_=Depends(require_gestion_access)):
             cur.execute("SELECT id, nombre, descripcion, precio_base, tipo, activo FROM conceptos_pago ORDER BY nombre")
             return cur.fetchall() or []
     except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/conceptos_pago")
+async def api_conceptos_pago_create(request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/conceptos_pago[POST]")
+    if guard:
+        return guard
+    if pm is None or ConceptoPago is None:
+        raise HTTPException(status_code=503, detail="PaymentManager o modelo ConceptoPago no disponible")
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        descripcion = payload.get("descripcion")
+        precio_base_raw = payload.get("precio_base")
+        precio_base = float(precio_base_raw) if precio_base_raw is not None else 0.0
+        if precio_base < 0:
+            raise HTTPException(status_code=400, detail="'precio_base' no puede ser negativo")
+        tipo = (payload.get("tipo") or "fijo").strip().lower()
+        if tipo not in ["fijo", "variable"]:
+            raise HTTPException(status_code=400, detail="'tipo' debe ser 'fijo' o 'variable'")
+        activo = bool(payload.get("activo", True))
+        concepto = ConceptoPago(nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo)  # type: ignore
+        new_id = pm.crear_concepto_pago(concepto)
+        return {"ok": True, "id": int(new_id)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/conceptos_pago/{concepto_id}")
+async def api_conceptos_pago_update(concepto_id: int, request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/conceptos_pago/{concepto_id}[PUT]")
+    if guard:
+        return guard
+    if pm is None or ConceptoPago is None:
+        raise HTTPException(status_code=503, detail="PaymentManager o modelo ConceptoPago no disponible")
+    payload = await request.json()
+    try:
+        # Como no hay método para obtener un concepto individual, consultamos SQL para merge
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT id, nombre, descripcion, precio_base, tipo, activo FROM conceptos_pago WHERE id = %s",
+                (int(concepto_id),)
+            )
+            row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Concepto de pago no encontrado")
+        nombre = (payload.get("nombre") or row.get("nombre") or "").strip() or row.get("nombre")
+        descripcion = payload.get("descripcion") if ("descripcion" in payload) else row.get("descripcion")
+        precio_base = float(payload.get("precio_base")) if (payload.get("precio_base") is not None) else float(row.get("precio_base") or 0.0)
+        if precio_base < 0:
+            raise HTTPException(status_code=400, detail="'precio_base' no puede ser negativo")
+        tipo = (payload.get("tipo") or row.get("tipo") or "fijo").strip().lower()
+        if tipo not in ["fijo", "variable"]:
+            raise HTTPException(status_code=400, detail="'tipo' debe ser 'fijo' o 'variable'")
+        activo = bool(payload.get("activo")) if ("activo" in payload) else bool(row.get("activo"))
+        categoria = (payload.get("categoria") or row.get("categoria") or "general").strip().lower()
+        concepto = ConceptoPago(id=int(concepto_id), nombre=nombre, descripcion=descripcion, precio_base=precio_base, tipo=tipo, activo=activo, categoria=categoria)  # type: ignore
+        updated = pm.actualizar_concepto_pago(concepto)
+        if not updated:
+            raise HTTPException(status_code=404, detail="No se pudo actualizar el concepto de pago")
+        return {"ok": True, "id": int(concepto_id)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/conceptos_pago/{concepto_id}")
+async def api_conceptos_pago_delete(concepto_id: int, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/conceptos_pago/{concepto_id}[DELETE]")
+    if guard:
+        return guard
+    if pm is None:
+        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    try:
+        deleted = pm.eliminar_concepto_pago(int(concepto_id))
+        if not deleted:
+            raise HTTPException(status_code=404, detail="No se pudo eliminar el concepto de pago")
+        return {"ok": True}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/tipos_cuota_activos")
@@ -1761,12 +1978,164 @@ async def api_tipos_cuota_activos(_=Depends(require_gestion_access)):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+# --- CRUD Tipos de Cuota ---
+@app.get("/api/tipos_cuota_catalogo")
+async def api_tipos_cuota_catalogo(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/tipos_cuota_catalogo")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, nombre, precio, duracion_dias, activo, descripcion, icono_path FROM tipos_cuota ORDER BY activo DESC, precio ASC, nombre ASC")
+            rows = cur.fetchall() or []
+            for r in rows:
+                r["nombre"] = (r.get("nombre") or "").strip()
+            return rows
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/tipos_cuota")
+async def api_tipos_cuota_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/tipos_cuota[POST]")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        precio_raw = payload.get("precio")
+        precio = float(precio_raw) if precio_raw is not None else 0.0
+        if precio < 0:
+            raise HTTPException(status_code=400, detail="'precio' no puede ser negativo")
+        duracion_raw = payload.get("duracion_dias")
+        duracion_dias = int(duracion_raw) if duracion_raw is not None else 30
+        if duracion_dias <= 0:
+            raise HTTPException(status_code=400, detail="'duracion_dias' debe ser > 0")
+        activo = bool(payload.get("activo", True))
+        descripcion = payload.get("descripcion")
+        icono_path = payload.get("icono_path")
+        with db.get_connection_context() as conn:  # type: ignore
+            from psycopg2 import sql as _sql
+            data = {
+                "nombre": nombre,
+                "precio": precio,
+                "duracion_dias": duracion_dias,
+                "activo": activo,
+                "descripcion": descripcion,
+                "icono_path": icono_path,
+            }
+            filtered = _filter_existing_columns(conn, "public", "tipos_cuota", data)
+            if not filtered:
+                raise HTTPException(status_code=400, detail="No hay columnas válidas para insertar")
+            cols = list(filtered.keys())
+            stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({}) RETURNING id").format(
+                _sql.Identifier("public"),
+                _sql.Identifier("tipos_cuota"),
+                _sql.SQL(", ").join([_sql.Identifier(c) for c in cols]),
+                _sql.SQL(", ").join([_sql.Placeholder() for _ in cols]),
+            )
+            cur = conn.cursor()
+            cur.execute(stmt, [filtered[c] for c in cols])
+            new_id_row = cur.fetchone()
+            new_id = int(new_id_row[0]) if new_id_row else None
+            if new_id is None:
+                raise HTTPException(status_code=500, detail="No se pudo crear el tipo de cuota")
+            return {"ok": True, "id": new_id}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/tipos_cuota/{tipo_id}")
+async def api_tipos_cuota_update(tipo_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/tipos_cuota/{tipo_id}[PUT]")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, nombre, precio, duracion_dias, activo, descripcion, icono_path FROM tipos_cuota WHERE id = %s", (int(tipo_id),))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Tipo de cuota no encontrado")
+        nombre = (payload.get("nombre") or row.get("nombre") or "").strip() or row.get("nombre")
+        precio = float(payload.get("precio")) if (payload.get("precio") is not None) else float(row.get("precio") or 0.0)
+        if precio < 0:
+            raise HTTPException(status_code=400, detail="'precio' no puede ser negativo")
+        duracion_dias = int(payload.get("duracion_dias")) if (payload.get("duracion_dias") is not None) else int(row.get("duracion_dias") or 30)
+        if duracion_dias <= 0:
+            raise HTTPException(status_code=400, detail="'duracion_dias' debe ser > 0")
+        activo = bool(payload.get("activo")) if ("activo" in payload) else bool(row.get("activo"))
+        descripcion = payload.get("descripcion") if ("descripcion" in payload) else row.get("descripcion")
+        icono_path = payload.get("icono_path") if ("icono_path" in payload) else row.get("icono_path")
+        updates = {
+            "nombre": nombre,
+            "precio": precio,
+            "duracion_dias": duracion_dias,
+            "activo": activo,
+            "descripcion": descripcion,
+            "icono_path": icono_path,
+        }
+        with db.get_connection_context() as conn:  # type: ignore
+            ok = _apply_change_idempotent(conn, "public", "tipos_cuota", "UPDATE", {"id": int(tipo_id)}, updates)
+            if not ok:
+                raise HTTPException(status_code=500, detail="No se pudo actualizar el tipo de cuota")
+            return {"ok": True, "id": int(tipo_id)}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/tipos_cuota/{tipo_id}")
+async def api_tipos_cuota_delete(tipo_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/tipos_cuota/{tipo_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            ok = _apply_change_idempotent(conn, "public", "tipos_cuota", "DELETE", {"id": int(tipo_id)}, {})
+            if not ok:
+                raise HTTPException(status_code=500, detail="No se pudo eliminar el tipo de cuota")
+            return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/gestion/login")
 async def gestion_login_get(request: Request):
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
         "request": request,
         "theme": theme_vars,
+        "error": request.query_params.get("error"),
         "gym_name": get_gym_name("Gimnasio"),
         "logo_url": _resolve_logo_url(),
     }
@@ -1826,14 +2195,14 @@ async def gestion_auth(request: Request):
     # Modo Dueño: usuario_id == "__OWNER__" y contraseña
     if isinstance(usuario_id_raw, str) and usuario_id_raw == "__OWNER__":
         if not owner_password:
-            return JSONResponse({"success": False, "message": "Ingrese la contraseña"}, status_code=400)
+            return RedirectResponse(url="/gestion/login?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
         if owner_password == _get_password():
             request.session.clear()
             request.session["logged_in"] = True
             request.session["role"] = "dueño"
             # Dueño también puede entrar a Gestión
             return RedirectResponse(url="/gestion", status_code=303)
-        return JSONResponse({"success": False, "message": "Credenciales inválidas"}, status_code=401)
+        return RedirectResponse(url="/gestion/login?error=Credenciales%20inv%C3%A1lidas", status_code=303)
 
     # Modo Profesor: usuario_id numérico y PIN
     try:
@@ -1842,7 +2211,7 @@ async def gestion_auth(request: Request):
         usuario_id = None
     pin = str(pin_raw or "").strip()
     if not usuario_id or not pin:
-        return JSONResponse({"success": False, "message": "Parámetros inválidos"}, status_code=400)
+        return RedirectResponse(url="/gestion/login?error=Par%C3%A1metros%20inv%C3%A1lidos", status_code=303)
 
     ok = False
     try:
@@ -1850,7 +2219,7 @@ async def gestion_auth(request: Request):
     except Exception:
         ok = False
     if not ok:
-        return JSONResponse({"success": False, "message": "PIN inválido"}, status_code=401)
+        return RedirectResponse(url="/gestion/login?error=PIN%20inv%C3%A1lido", status_code=303)
 
     profesor_id = None
     try:
@@ -2367,6 +2736,76 @@ async def api_checkin_token_status(request: Request):
         except Exception:
             pass
         return JSONResponse({"exists": False, "used": False, "expired": True, "error": str(e)}, status_code=200)
+
+@app.post("/api/checkin/create_token")
+async def api_checkin_create_token(request: Request, _=Depends(require_gestion_access)):
+    rid = getattr(getattr(request,'state',object()), 'request_id', '-')
+    db = _get_db()
+    if db is None:
+        try:
+            logging.error(f"/api/checkin/create_token: DB=None rid={rid}")
+        except Exception:
+            pass
+        db = _force_db_init()
+        if db is None:
+            raise HTTPException(status_code=500, detail="DB no disponible")
+    payload = await request.json()
+    usuario_id = int(payload.get("usuario_id") or 0)
+    expires_minutes = int(payload.get("expires_minutes") or 5)
+    if not usuario_id:
+        raise HTTPException(status_code=400, detail="usuario_id es requerido")
+    token = secrets.token_urlsafe(12)
+    try:
+        db.crear_checkin_token(usuario_id, token, expires_minutes)  # type: ignore
+        try:
+            logging.info(f"/api/checkin/create_token: usuario_id={usuario_id} token=***{token[-4:]} expires={expires_minutes}m rid={rid}")
+        except Exception:
+            pass
+        return JSONResponse({"success": True, "token": token, "expires_minutes": expires_minutes}, status_code=200)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/asistencias/registrar")
+async def api_asistencias_registrar(request: Request, _=Depends(require_gestion_access)):
+    rid = getattr(getattr(request,'state',object()), 'request_id', '-')
+    db = _get_db()
+    if db is None:
+        db = _force_db_init()
+        if db is None:
+            raise HTTPException(status_code=500, detail="DB no disponible")
+    payload = await request.json()
+    usuario_id = int(payload.get("usuario_id") or 0)
+    fecha_str = str(payload.get("fecha") or "").strip()
+    if not usuario_id:
+        raise HTTPException(status_code=400, detail="usuario_id es requerido")
+    from datetime import date
+    fecha = None
+    try:
+        if fecha_str:
+            parts = fecha_str.split("-")
+            if len(parts) == 3:
+                fecha = date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except Exception:
+        fecha = None
+    try:
+        asistencia_id = db.registrar_asistencia(usuario_id, fecha)  # type: ignore
+        try:
+            logging.info(f"/api/asistencias/registrar: usuario_id={usuario_id} fecha={fecha} rid={rid}")
+        except Exception:
+            pass
+        return JSONResponse({"success": True, "asistencia_id": asistencia_id}, status_code=200)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        try:
+            logging.info(f"/api/asistencias/registrar: ya existía asistencia usuario_id={usuario_id} rid={rid}")
+        except Exception:
+            pass
+        return JSONResponse({"success": True, "message": str(e)}, status_code=200)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/asistencia_30d")

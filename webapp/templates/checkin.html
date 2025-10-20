@@ -28,6 +28,19 @@
     .msg.err { background: #3a1212; color: #f4aaaa; }
     .scanner { margin-top: 16px; }
   </style>
+  <style>
+    /* Toasts consistentes con Gestión/Login */
+    .toast-container { position: fixed; top: 12px; right: 12px; display:flex; flex-direction:column; gap:8px; z-index: 9999; }
+    .toast { display:flex; align-items:center; gap:12px; background: var(--card); color: var(--text); border:1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+    .toast.success { border-color: #10b98133; background: #065f4633; }
+    .toast.warning { border-color: #f59e0b33; background: #78350f33; }
+    .toast.error { border-color: #ef444433; background: #7f1d1d33; }
+    .toast .message { flex:1; }
+    .toast .actions .btn { background: transparent; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; color: var(--text); cursor: pointer; }
+    @keyframes toast-in { from { transform: translateY(-6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
+  </style>
+  <script src="/static/js/toast.js"></script>
 </head>
 <body data-autenticado="{{ 'true' if autenticado else 'false' }}">
   <main class="screen">
@@ -172,9 +185,7 @@
         msg.style.display = 'none';
         msg.className = 'msg';
         if (!dni || !tel) {
-          msg.textContent = 'Ingrese DNI y teléfono válidos';
-          msg.classList.add('err');
-          msg.style.display = 'block';
+          showToast('Ingrese DNI y teléfono válidos', 'error', 4000);
           return;
         }
         const { data } = await postJSON('/checkin/auth', { dni, telefono: tel });

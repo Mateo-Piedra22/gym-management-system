@@ -8,6 +8,7 @@
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="/static/js/toast.js"></script>
   <style>
     .layout { display:flex; flex-direction:column; min-height:100vh; }
     header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); transition: transform 200ms ease; }
@@ -130,6 +131,16 @@
     .brand-actions { display:flex; align-items:center; gap:8px; flex-wrap: nowrap; }
     /* Quitar margen izquierdo del label Mes en móvil */
     @media (max-width: 640px){ label[for="filter-month"] { margin-left: 0 !important; } }
+    /* Toasts */
+    .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+    .toast { pointer-events: all; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .toast .message { flex: 1; }
+    .toast .actions { display: flex; gap: 8px; }
+    .toast.success { border-left-color: #22c55e; }
+    .toast.warning { border-left-color: #f59e0b; }
+    .toast.error { border-left-color: #ef4444; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
   </style>
 </head>
 <body>
@@ -480,6 +491,9 @@
         filters && filters.classList.toggle('show');
       });
     })();
+    // Toasts de notificación — centralizados en /static/js/toast.js
+    // Usa showToast(message, type='info', duration=3500, actionText='OK');
+
     function fmtCurrency(n) { try { return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n||0); } catch(e) { return (n||0).toFixed(2); } }
     function fmtNumber(n) {
       const raw = String(n ?? '0');
@@ -865,7 +879,7 @@ async function loadAdvanced() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url; a.download = 'dashboard_export.zip'; a.click(); URL.revokeObjectURL(url);
-      } catch (err) { console.error(err); alert('No se pudo exportar los datos.'); }
+      } catch (err) { console.error(err); showToast('No se pudo exportar los datos.', 'error', 4500); }
     });
     // Aplicación automática al cambiar Desde/Hasta y actualizar vista en español
     document.getElementById('filter-start').addEventListener('change', async () => { updateDateDisplay('filter-start'); await loadCharts(); });

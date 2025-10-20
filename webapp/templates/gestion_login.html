@@ -17,6 +17,19 @@
     .actions { margin-top: 16px; display:flex; gap: 8px; }
     .error { margin-top: 10px; color: #f87171; font-size: 14px; }
   </style>
+  <style>
+    .toast-container { position: fixed; top: 12px; right: 12px; display:flex; flex-direction:column; gap:8px; z-index: 9999; }
+    .toast { display:flex; align-items:center; gap:12px; background: var(--card); color: var(--text); border:1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+    .toast.success { border-color: #10b98133; background: #065f4633; }
+    .toast.warning { border-color: #f59e0b33; background: #78350f33; }
+    .toast.error { border-color: #ef444433; background: #7f1d1d33; }
+    .toast .message { flex:1; }
+    .toast .actions .btn { background: transparent; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; color: var(--text); cursor: pointer; }
+    @keyframes toast-in { from { transform: translateY(-6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
+    /* Achicar botón principal en gestión */
+    .login-card .actions .btn { padding: 8px 12px; font-size: 14px; line-height: 1.2; }
+  </style>
   <script>
     async function loadProfessors() {
       const sel = document.getElementById('prof-selector');
@@ -64,9 +77,11 @@
       document.getElementById('prof-selector').addEventListener('change', onSelectorChange);
     });
   </script>
+  <script src="/static/js/toast.js"></script>
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <meta name="color-scheme" content="dark light">
+  <meta name="x-error" content="{{ error | e if error else '' }}">
 </head>
 <body>
   <main class="screen">
@@ -97,10 +112,39 @@
         <div class="actions">
           <button class="btn" type="submit">Entrar</button>
         </div>
-        {% if error %}
-          <div class="error">{{ error }}</div>
-        {% endif %}
       </form>
+      <script>
+        document.addEventListener('DOMContentLoaded', () => {
+          const metaErr = document.querySelector('meta[name="x-error"]');
+          const err = metaErr && metaErr.content ? metaErr.content : null;
+          if (err) { showToast(err, 'error', 4500); }
+          const form = document.querySelector('form[method="post"]');
+          if (form) {
+            form.addEventListener('submit', (e) => {
+              const sel = document.getElementById('prof-selector');
+              const val = sel ? sel.value : '';
+              if (!val) {
+                e.preventDefault();
+                showToast('Selecciona un perfil.', 'warning', 3500);
+                return;
+              }
+              if (val === '__OWNER__') {
+                const ownerPwd = (form.querySelector('input[name="owner_password"]') || { value: '' }).value.trim();
+                if (!ownerPwd) {
+                  e.preventDefault();
+                  showToast('Ingresa la contraseña del dueño.', 'warning', 3500);
+                }
+              } else {
+                const pin = (form.querySelector('input[name="pin"]') || { value: '' }).value.trim();
+                if (!pin) {
+                  e.preventDefault();
+                  showToast('Ingresa tu PIN.', 'warning', 3500);
+                }
+              }
+            });
+          }
+        });
+      </script>
     </section>
   </main>
 </body>

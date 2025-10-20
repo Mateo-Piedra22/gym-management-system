@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gestión • {{ gym_name }}</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+  <script src="/static/js/toast.js"></script>
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <meta name="color-scheme" content="dark light">
@@ -15,7 +17,10 @@
     .brand .info { display:flex; align-items:center; gap:8px; }
     .brand img { width:32px; height:32px; }
     .nav-actions { display:flex; gap:8px; align-items:center; }
-    .tabs { display:flex; gap:8px; padding: 8px 24px; border-bottom: 1px solid var(--border); }
+    /* Logout más compacto */
+    .nav-actions .btn.icon-only { padding: 4px; }
+    .nav-actions img { width: 20px; height: 20px; }
+    .tabs { display:flex; gap:8px; padding: 8px 24px; border-bottom: 1px solid var(--border); overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .tab { padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.06); cursor:pointer; }
     .tab.active { background: var(--card); border:1px solid var(--border); }
     main { flex:1; padding: 24px; }
@@ -34,7 +39,7 @@
     .card { padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
     .card-title { font-size: 12px; color: var(--muted); }
     .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
-    .table-scroll { overflow:auto; border: 1px solid var(--border); border-radius: 12px; }
+    .table-scroll { overflow:auto; border: 1px solid var(--border); border-radius: 12px; -webkit-overflow-scrolling: touch; }
     .table-scroll thead th { position: sticky; top: 0; background: rgba(17,24,39,0.9); backdrop-filter: blur(4px); }
     .table-actions .btn { margin-right: 6px; }
     /* Modales */
@@ -53,8 +58,50 @@
     .block-body { padding:12px; }
     .side-empty { color: var(--muted); padding: 16px; }
     .row-selectable tr:hover { background: rgba(255,255,255,.04); cursor: pointer; }
-    .table-compact th, .table-compact td { padding: 8px; }
+    .table-compact th, .table-compact td { padding: 8px; word-break: break-word; }
     @media (max-width: 960px){ .split { grid-template-columns: 1fr; } .split-side { position: static; height:auto; } }
+    @media (max-width: 640px){
+      header { padding: 12px; }
+      .brand { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .nav-actions { width: 100%; justify-content: flex-end; }
+      .modal { width: 95vw; }
+      .input-row > * { flex: 1 1 100%; }
+      .tabs { flex-wrap: wrap; }
+    }
+    /* Botón pequeño y variantes */
+    .btn.sm { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+    .btn.icon-only { padding: 6px; border-radius: 8px; background: transparent; }
+    .btn.icon-only:hover { background: rgba(255,255,255,0.06); }
+    .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+    /* Toasts */
+    .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+    .toast { pointer-events: all; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .toast .message { flex: 1; }
+    .toast .actions { display: flex; gap: 8px; }
+    .toast.success { border-left-color: #22c55e; }
+    .toast.warning { border-left-color: #f59e0b; }
+    .toast.error { border-left-color: #ef4444; }
+    /* Tabs hover */
+    .tab:hover { background: rgba(255,255,255,.12); }
+
+    /* Zebra stripes y selección */
+    .table-scroll tbody tr:nth-child(odd){ background: rgba(255,255,255,.03); }
+    .row-selectable tr.selected{ background: rgba(34,197,94,.14); outline: 1px solid rgba(34,197,94,.35); }
+    /* Animaciones toast */
+    @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
+    /* Animaciones modal */
+    @keyframes modal-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes modal-out { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-6px) scale(.98); } }
+    .modal-backdrop.active .modal{ animation: modal-in 180ms ease-out; }
+    .modal.closing{ animation: modal-out 160ms ease-in forwards; }
+    /* Mini loader overlay */
+    #usuario-side{ position: relative; }
+    .loader-overlay{ position:absolute; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,0.35); backdrop-filter: blur(2px); z-index: 5; }
+    .loader-overlay.active{ display:flex; }
+    .loader-overlay .spinner{ width:24px; height:24px; border:3px solid var(--border); border-top-color:#22c55e; border-radius:50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
   </style>
 </head>
 <body>
@@ -75,13 +122,14 @@
         </div>
       </div>
       <nav class="tabs">
-        <button class="tab active" data-tab="pagos">Pagos</button>
-        <button class="tab" data-tab="usuarios">Usuarios</button>
+        <button class="tab active" data-tab="usuarios">Usuarios</button>
+        <button class="tab" data-tab="pagos">Pagos</button>
+        <button class="tab" data-tab="configuracion">Configuración</button>
       </nav>
     </header>
 
     <main>
-      <section id="panel-pagos" class="panel active">
+      <section id="panel-pagos" class="panel">
         <div class="split">
           <div class="split-main">
             <div class="panel-controls">
@@ -180,7 +228,7 @@
         </div>
       </section>
 
-      <section id="panel-usuarios" class="panel">
+      <section id="panel-usuarios" class="panel active">
         <div class="split">
           <div class="split-main">
             <div class="cards" id="usuarios-cards">
@@ -233,10 +281,12 @@
               <div class="block-body">
                 <div id="usuario-side-empty" class="side-empty">Selecciona un usuario para ver sus datos y pagos.</div>
                 <div id="usuario-side" style="display:none">
+                  <div id="usuario-side-loader" class="loader-overlay"><div class="spinner"></div><span style="margin-left:8px">Cargando…</span></div>
                   <div class="cards" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
                     <div class="card"><div class="card-title">Estado</div><div class="card-value" id="usuario-side-estado">—</div></div>
                     <div class="card"><div class="card-title">Próximo vencimiento</div><div class="card-value" id="usuario-side-vencimiento">—</div></div>
                     <div class="card"><div class="card-title">Cuotas vencidas</div><div class="card-value" id="usuario-side-cuotas-vencidas">—</div></div>
+                    <div class="card"><div class="card-title">Asistencias recientes (30d)</div><div class="card-value" id="usuario-side-asistencias-recientes">—</div></div>
                   </div>
                   <div class="input-row" style="margin-top:8px">
                     <div style="flex:1"><label class="muted">Nombre</label><div id="usuario-side-nombre"></div></div>
@@ -271,6 +321,8 @@
                   <button class="btn" id="usuario-side-ver-pagos">Ver pagos</button>
                   <button class="btn secondary" id="usuario-side-toggle-activo">Activar/Inactivar</button>
                   <button class="btn" id="usuario-side-registrar">Registrar pago</button>
+                  <button class="btn" id="usuario-side-qr">Emitir QR Check-in</button>
+                  <button class="btn secondary" id="usuario-side-asistencia">Registrar asistencia</button>
                 </div>
               </div>
             </div>
@@ -281,6 +333,92 @@
           </aside>
         </div>
       </section>
+      <section id="panel-configuracion" class="panel">
+        <div class="split">
+          <div class="split-main">
+            <div class="block">
+              <div class="block-header">
+                <h3 style="margin:0; font-size:16px;">Tipos de cuota</h3>
+                <div class="panel-controls" style="margin-left:auto">
+                  <button class="btn" id="config-tipos-refresh">Actualizar</button>
+                  <button class="btn" id="config-tipos-new">Nuevo</button>
+                </div>
+              </div>
+              <div class="block-body">
+                <div class="table-scroll row-selectable">
+                  <table id="config-tipos-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Precio</th>
+                        <th>Duración (días)</th>
+                        <th>Activo</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="block" style="margin-top:16px">
+              <div class="block-header">
+                <h3 style="margin:0; font-size:16px;">Conceptos de pago</h3>
+                <div class="panel-controls" style="margin-left:auto">
+                  <button class="btn" id="config-conceptos-refresh">Actualizar</button>
+                  <button class="btn" id="config-conceptos-new">Nuevo</button>
+                </div>
+              </div>
+              <div class="block-body">
+                <div class="table-scroll row-selectable">
+                  <table id="config-conceptos-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Precio base</th>
+                        <th>Tipo</th>
+                        <th>Activo</th>
+                        <th>Categoría</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="block" style="margin-top:16px">
+              <div class="block-header">
+                <h3 style="margin:0; font-size:16px;">Métodos de pago</h3>
+                <div class="panel-controls" style="margin-left:auto">
+                  <button class="btn" id="config-metodos-refresh">Actualizar</button>
+                  <button class="btn" id="config-metodos-new">Nuevo</button>
+                </div>
+              </div>
+              <div class="block-body">
+                <div class="table-scroll row-selectable">
+                  <table id="config-metodos-table">
+                    <thead>
+                      <tr>
+                        <th>Nombre</th>
+                        <th>Comisión (%)</th>
+                        <th>Color</th>
+                        <th>Activo</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
     </main>
 
     <!-- Modal: Filtros avanzados de Pagos -->
@@ -419,7 +557,7 @@
             <select id="pago-usuario" style="flex:1">
               <option value="">Seleccionar usuario</option>
             </select>
-            <input id="pago-monto" type="number" step="0.01" placeholder="Monto" style="flex:1" />
+            <input id="pago-monto" type="number" step="0.01" placeholder="Monto (auto)" style="flex:1" readonly />
           </div>
           <div class="input-row">
             <input id="pago-fecha" type="date" style="flex:1" />
@@ -431,6 +569,12 @@
               <option value="">Método de pago (opcional)</option>
             </select>
           </div>
+          <div id="pago-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
+            <div><strong>Concepto:</strong> <span id="pago-resumen-concepto">Cuota Mensual</span></div>
+            <div><strong>Base:</strong> $<span id="pago-resumen-base">—</span></div>
+            <div><strong>Comisión:</strong> $<span id="pago-resumen-comision">—</span> <span id="pago-resumen-comision-porcentaje"></span></div>
+            <div><strong>Total:</strong> $<span id="pago-resumen-total">—</span></div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" id="pago-save">Guardar</button>
@@ -441,10 +585,165 @@
 
   </div>
 
+  <!-- Modal: Tipo de Cuota (Crear/Editar) -->
+  <div class="modal-backdrop" id="modal-tipo-cuota" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-tipo-cuota-title">Tipo de Cuota</h3>
+        <button class="modal-close" id="close-modal-tipo-cuota">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Nombre</label>
+            <input type="text" id="tipo-nombre" placeholder="Mensual, Trimestral, ...">
+          </div>
+          <div class="form-row">
+            <label>Precio</label>
+            <input type="number" id="tipo-precio" min="0" step="0.01">
+          </div>
+          <div class="form-row">
+            <label>Duración (días)</label>
+            <input type="number" id="tipo-duracion" min="1" step="1">
+          </div>
+          <div class="form-row">
+            <label>Activo</label>
+            <select id="tipo-activo">
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Descripción</label>
+            <textarea id="tipo-descripcion"></textarea>
+          </div>
+          <div class="form-row">
+            <label>Icono (ruta opcional)</label>
+            <input type="text" id="tipo-icono" placeholder="/static/icons/monthly.svg">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="save-tipo-cuota">Guardar</button>
+        <button class="btn" id="cancel-tipo-cuota">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Concepto de Pago (Crear/Editar) -->
+  <div class="modal-backdrop" id="modal-concepto" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-concepto-title">Concepto de Pago</h3>
+        <button class="modal-close" id="close-modal-concepto">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Nombre</label>
+            <input type="text" id="concepto-nombre" placeholder="Cuota Mensual, Matrícula, ...">
+          </div>
+          <div class="form-row">
+            <label>Precio base</label>
+            <input type="number" id="concepto-precio-base" min="0" step="0.01">
+          </div>
+          <div class="form-row">
+            <label>Tipo</label>
+            <input type="text" id="concepto-tipo" placeholder="cuota, servicio">
+          </div>
+          <div class="form-row">
+            <label>Activo</label>
+            <select id="concepto-activo">
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Categoría</label>
+            <input type="text" id="concepto-categoria" placeholder="mensualidad, inscripción">
+          </div>
+          <div class="form-row">
+            <label>Descripción</label>
+            <textarea id="concepto-descripcion"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="save-concepto">Guardar</button>
+        <button class="btn" id="cancel-concepto">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Método de Pago (Crear/Editar) -->
+  <div class="modal-backdrop" id="modal-metodo" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-metodo-title">Método de Pago</h3>
+        <button class="modal-close" id="close-modal-metodo">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-row">
+            <label>Nombre</label>
+            <input type="text" id="metodo-nombre" placeholder="Efectivo, Tarjeta, ...">
+          </div>
+          <div class="form-row">
+            <label>Comisión (%)</label>
+            <input type="number" id="metodo-comision" min="0" step="0.01">
+          </div>
+          <div class="form-row">
+            <label>Color</label>
+            <input type="text" id="metodo-color" placeholder="#00AA66">
+          </div>
+          <div class="form-row">
+            <label>Activo</label>
+            <select id="metodo-activo">
+              <option value="true">Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Descripción</label>
+            <textarea id="metodo-descripcion"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="save-metodo">Guardar</button>
+        <button class="btn" id="cancel-metodo">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: QR Check-in Toast -->
+  <div class="modal-backdrop" id="modal-qr-toast" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 style="margin:0; font-size:16px;">QR Check-in</h3>
+        <button class="modal-close" id="qr-close-btn">×</button>
+      </div>
+      <div class="modal-body" style="text-align:center">
+        <div class="muted" id="qr-user-name" style="margin-bottom:6px">—</div>
+        <canvas id="qr-canvas" width="240" height="240" style="display:inline-block; border-radius:8px; background:#fff; margin-bottom:8px"></canvas>
+        <div class="muted" id="qr-token-masked" style="margin-top:4px">token: —</div>
+        <div style="margin-top:8px">
+          <strong>Tiempo restante:</strong> <span id="qr-countdown">—</span>
+        </div>
+        <div id="qr-status-msg" class="muted" style="margin-top:8px">Esperando confirmación…</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" id="qr-close-footer">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container"></div>
+
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [] };
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {} };
 
     function fmtDate(d){
       if(!d) return '';
@@ -469,7 +768,63 @@
     }
 
     function openModal(id){ const el = document.getElementById(id); if(el) el.classList.add('active'); }
-    function closeModal(id){ const el = document.getElementById(id); if(el) el.classList.remove('active'); }
+    function closeModal(id){
+      const el = document.getElementById(id);
+      if(!el) return;
+      const m = el.querySelector('.modal');
+      if(m){
+        m.classList.add('closing');
+        setTimeout(() => { el.classList.remove('active'); m.classList.remove('closing'); }, 160);
+      } else {
+        el.classList.remove('active');
+      }
+    }
+
+    // Toasts de notificación — centralizado en /static/js/toast.js
+    // Usa showToast(message, type='info', duration=3500, actionText='OK');
+
+    // ===== QR Check-in (Gestión) =====
+    let qrState = { token: null, expiresTs: 0, countdownInt: null, pollInt: null };
+    function stopQRTimers(){ if(qrState.countdownInt){ clearInterval(qrState.countdownInt); qrState.countdownInt=null; } if(qrState.pollInt){ clearInterval(qrState.pollInt); qrState.pollInt=null; } }
+    function formatCountdown(ms){ if(ms<=0) return '0:00'; const total = Math.floor(ms/1000); const m = Math.floor(total/60); const s = String(total%60).padStart(2,'0'); return `${m}:${s}`; }
+    function updateQRCountdown(){ const el = document.getElementById('qr-countdown'); const now = Date.now(); const rem = Math.max(0, qrState.expiresTs - now); if(el) el.textContent = formatCountdown(rem); if(rem<=0){ const status = document.getElementById('qr-status-msg'); if(status) status.textContent = 'Token expirado'; stopQRTimers(); setTimeout(() => closeQRModal(), 1200); } }
+    function pollTokenStatus(){ if(!qrState.token) return; fetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' } })
+      .then(r => r.json()).then(j => {
+        const status = document.getElementById('qr-status-msg');
+        if(j && j.exists){
+          const used = !!j.used; const expired = !!j.expired;
+          if(status){ status.textContent = used ? '¡Asistencia registrada!' : (expired ? 'Token expirado' : 'Esperando confirmación…'); }
+          if(used || expired){ stopQRTimers(); setTimeout(() => closeQRModal(), 1200); }
+        } else {
+          if(status) status.textContent = 'Token inválido o inexistente';
+        }
+      }).catch(() => {});
+    }
+    function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; closeModal('modal-qr-toast'); }
+    async function emitirQRCheckin(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
+      const expires_minutes = 5;
+      try{
+        const res = await fetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) });
+        if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
+        const data = await res.json();
+        const token = String(data.token || '').trim(); if(!token){ throw new Error('No se generó token'); }
+        qrState.token = token; qrState.expiresTs = Date.now() + (Number(data.expires_minutes||expires_minutes) * 60 * 1000);
+        const un = document.getElementById('qr-user-name'); if(un) un.textContent = String(u.nombre || `Usuario #${u.id}`);
+        const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent = `token: ***${token.slice(-4)}`;
+        openModal('modal-qr-toast');
+        try{ const canvas = document.getElementById('qr-canvas'); if(canvas && window.QRCode){ window.QRCode.toCanvas(canvas, token, { width: 240 }); } }catch(e){ /* ignorar */ }
+        updateQRCountdown(); stopQRTimers(); qrState.countdownInt = setInterval(updateQRCountdown, 1000); qrState.pollInt = setInterval(pollTokenStatus, 2000);
+      }catch(e){ showToast(`No se pudo emitir token: ${e.message}`, 'error', 4500); }
+    }
+    async function registrarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
+      try{
+        const res = await fetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) });
+        if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
+        const j = await res.json().catch(() => ({}));
+        showToast('Asistencia registrada', 'success', 3000);
+        await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx);
+      }catch(e){ showToast(`No se pudo registrar asistencia: ${e.message}`, 'error', 4500); }
+    }
 
     function pagosAplicaFiltros(items){
       const metodo = (state.pagosFilters.metodo || '').trim().toLowerCase();
@@ -580,18 +935,14 @@
       try {
         const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' } });
         const tipos = await res.json();
+        const lista = Array.isArray(tipos) ? tipos : [];
+        state.tiposCuotaActivos = lista;
+        state.tiposCuotaMap = Object.fromEntries(lista.map(t => [String(t.id ?? t.nombre ?? ''), t]));
         const sel = document.getElementById('u-tipo-cuota');
-        if(!sel) return;
-        sel.innerHTML = '<option value="">Tipo de cuota</option>';
-        (Array.isArray(tipos) ? tipos : []).forEach(t => {
-          const opt = document.createElement('option');
-          opt.value = t.id ?? t.nombre ?? '';
-          opt.textContent = t.nombre ?? String(t.id ?? '');
-          sel.appendChild(opt);
-        });
-      } catch(e){
-        console.warn('No se pudieron cargar tipos de cuota:', e);
-      }
+        if(sel){
+          sel.innerHTML = '<option value="">Tipo de cuota</option>' + lista.map(t => `<option value="${t.id ?? t.nombre ?? ''}">${t.nombre ?? String(t.id ?? '')}</option>`).join('');
+        }
+      } catch(e){ console.warn('No se pudieron cargar tipos de cuota activos:', e); }
     }
 
     function updateUsuariosCards(rows){
@@ -692,7 +1043,7 @@
         tipo_cuota: f('u-tipo-cuota').value || null,
         notas: f('u-notas').value || null,
       };
-      if(!payload.nombre || !payload.dni){ alert('Nombre y DNI son obligatorios'); return; }
+      if(!payload.nombre || !payload.dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
       try {
         const url = editingUserId ? `/api/usuarios/${editingUserId}` : '/api/usuarios';
         const method = editingUserId ? 'PUT' : 'POST';
@@ -700,7 +1051,7 @@
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         hideUserForm();
         await loadUsers();
-      } catch(e){ alert(`No se pudo guardar: ${e.message}`); }
+      } catch(e){ showToast(`No se pudo guardar: ${e.message}`, 'error', 4500); }
     }
 
     async function deleteUser(id){
@@ -709,7 +1060,7 @@
         const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         await loadUsers();
-      } catch(e){ alert(`No se pudo eliminar: ${e.message}`); }
+      } catch(e){ showToast(`No se pudo eliminar: ${e.message}`, 'error', 4500); }
     }
 
     function renderPagoSide(pago, detalles){
@@ -764,6 +1115,8 @@
         console.warn('No se pudo cargar detalles del pago:', e);
         renderPagoSide(row, []);
       }
+      const ptbody = document.querySelector('#pagos-table tbody');
+      if(ptbody){ ptbody.querySelectorAll('tr').forEach(t => t.classList.remove('selected')); const tr = ptbody.querySelector(`tr[data-index="${idx}"]`); if(tr) tr.classList.add('selected'); }
     }
 
     function clearPagoSelection(){
@@ -777,7 +1130,7 @@
 
     function openPagoDetalleModal(){
       const p = state.selectedPago;
-      if(!p){ alert('Selecciona un pago primero'); return; }
+      if(!p){ showToast('Selecciona un pago primero', 'warning', 4000); return; }
       const fecha = p.fecha_pago || p.fecha || p.fechaPago || null;
       document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDate(fecha) : '';
       document.getElementById('pago-detalle-nombre').textContent = p.usuario_nombre || p.nombre || '';
@@ -790,9 +1143,9 @@
 
     async function navigateToUsuarioDesdePago(){
       const pago = state.selectedPago;
-      if(!pago){ alert('Selecciona un pago primero'); return; }
+      if(!pago){ showToast('Selecciona un pago primero', 'warning', 4000); return; }
       const dni = pago.dni ? String(pago.dni).trim() : '';
-      if(!dni){ alert('No se encuentra DNI del pago'); return; }
+      if(!dni){ showToast('No se encuentra DNI del pago', 'error', 4500); return; }
       const findByDni = () => (state.usuarios || []).findIndex(u => String(u.dni || '').trim() === dni);
       let idx = findByDni();
       switchTab('usuarios');
@@ -800,7 +1153,7 @@
       await loadUsers();
       idx = findByDni();
       if(idx >= 0) selectUsuarioByIndex(idx);
-      else alert('No se encontró el usuario del pago en la lista.');
+      else showToast('No se encontró el usuario del pago en la lista.', 'warning', 4000);
     }
 
     function bindPagosEvents(){
@@ -824,7 +1177,7 @@
               fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
                 .then(r => r.json())
                 .then(data => showPagoForm(data.pago || row))
-                .catch(() => alert('No se pudo cargar el pago'));
+                .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
             } else {
               showPagoForm(row);
             }
@@ -832,7 +1185,7 @@
           }
           if(action === 'eliminar'){
             const id = btn.getAttribute('data-id');
-            if(!id){ alert('Pago inválido'); return; }
+            if(!id){ showToast('Pago inválido', 'error', 4500); return; }
             state.deletePagoId = parseInt(id, 10);
             openModal('modal-pagos-delete');
             return;
@@ -868,20 +1221,20 @@
       if(exportBtn) exportBtn.addEventListener('click', exportPagosCSV);
       const editarPagoBtn = document.getElementById('pago-side-editar');
       if(editarPagoBtn) editarPagoBtn.addEventListener('click', () => {
-        const p = state.selectedPago; if(!p) { alert('Selecciona un pago primero'); return; }
+        const p = state.selectedPago; if(!p) { showToast('Selecciona un pago primero', 'warning', 4000); return; }
         const id = p.id || p.pago_id;
         if(id){
           fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
             .then(r => r.json())
             .then(data => showPagoForm(data.pago || p))
-            .catch(() => alert('No se pudo cargar el pago'));
+            .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
         } else {
           showPagoForm(p);
         }
       });
       const eliminarPagoBtn = document.getElementById('pago-side-eliminar');
       if(eliminarPagoBtn) eliminarPagoBtn.addEventListener('click', () => {
-        const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { alert('Selecciona un pago válido'); return; }
+        const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { showToast('Selecciona un pago válido', 'warning', 4000); return; }
         state.deletePagoId = p.id || p.pago_id;
         openModal('modal-pagos-delete');
       });
@@ -893,6 +1246,9 @@
       const pagoClose = document.getElementById('pago-form-close'); if(pagoClose) pagoClose.addEventListener('click', hidePagoForm);
       const pagoCancel = document.getElementById('pago-form-cancel'); if(pagoCancel) pagoCancel.addEventListener('click', hidePagoForm);
       const pagoSave = document.getElementById('pago-save'); if(pagoSave) pagoSave.addEventListener('click', savePago);
+      // Recalcular al cambiar usuario o método de pago
+      const uSel = document.getElementById('pago-usuario'); if(uSel) uSel.addEventListener('change', () => recalcPagoTotal());
+      const mSel = document.getElementById('pago-metodo'); if(mSel) mSel.addEventListener('change', () => recalcPagoTotal());
       // Modal delete pago controls
       document.getElementById('pagos-delete-close').addEventListener('click', () => closeModal('modal-pagos-delete'));
       document.getElementById('pagos-delete-cancel').addEventListener('click', () => closeModal('modal-pagos-delete'));
@@ -917,9 +1273,84 @@
         const res = await fetch('/api/metodos_pago', { headers:{ 'Accept':'application/json' } });
         const data = await res.json();
         const items = Array.isArray(data) ? data : (Array.isArray(data.metodos) ? data.metodos : []);
+        state.metodosPago = items;
+        state.metodosPagoMap = Object.fromEntries(items.map(m => [String(m.id), m]));
         sel.innerHTML = '<option value="">Método de pago (opcional)</option>' + items.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
         if(selectedId) sel.value = String(selectedId);
-      } catch(e) {}
+      } catch(e) { console.warn('No se pudieron cargar métodos de pago:', e); }
+    }
+
+    // ---- cálculo dinámico de monto según tipo de cuota y comisión ----
+    async function ensureMonthlyQuotaConceptVariableActive(){
+      try {
+        const res = await fetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' } });
+        const conceptos = await res.json();
+        const items = Array.isArray(conceptos) ? conceptos : [];
+        const existing = items.find(c => String(c.nombre || '').trim().toLowerCase() === 'cuota mensual');
+        if(!existing){
+          await fetch('/api/conceptos_pago', {
+            method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+            body: JSON.stringify({ nombre: 'Cuota Mensual', descripcion: 'Pago mensual según tipo de cuota del usuario', precio_base: 0, tipo: 'variable', activo: true, categoria: 'cuota' })
+          }).catch(()=>null);
+        } else if(existing && (String(existing.tipo).toLowerCase() !== 'variable' || existing.activo === false)){
+          await fetch(`/api/conceptos_pago/${existing.id}`, {
+            method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
+            body: JSON.stringify({ tipo: 'variable', activo: true })
+          }).catch(()=>null);
+        }
+      } catch(e){ console.warn('No se pudo asegurar concepto Cuota Mensual variable/activo:', e); }
+    }
+
+    function resolveTipoCuota(val){
+      if(val == null) return null;
+      const lista = Array.isArray(state.tiposCuotaActivos) ? state.tiposCuotaActivos : [];
+      const sv = String(val).trim();
+      if(!sv) return null;
+      let tipo = null;
+      if(/^[0-9]+$/.test(sv)){
+        tipo = lista.find(t => String(t.id) === sv);
+      }
+      if(!tipo){
+        tipo = lista.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
+      }
+      return tipo || null;
+    }
+
+    function round2(v){ const n = Number(v) || 0; return Math.round(n * 100) / 100; }
+
+    function updatePagoResumen({ conceptoNombre, base, pct, comision, total }){
+      const elConcepto = document.getElementById('pago-resumen-concepto'); if(elConcepto) elConcepto.textContent = conceptoNombre || 'Cuota Mensual';
+      const elBase = document.getElementById('pago-resumen-base'); if(elBase) elBase.textContent = (base != null ? round2(base).toFixed(2) : '—');
+      const elCom = document.getElementById('pago-resumen-comision'); if(elCom) elCom.textContent = (comision != null ? round2(comision).toFixed(2) : '—');
+      const elPct = document.getElementById('pago-resumen-comision-porcentaje'); if(elPct) elPct.textContent = (pct ? `(${round2(pct)}%)` : '');
+      const elTot = document.getElementById('pago-resumen-total'); if(elTot) elTot.textContent = (total != null ? round2(total).toFixed(2) : '—');
+    }
+
+    async function recalcPagoTotal(){
+      try{
+        await ensureMonthlyQuotaConceptVariableActive();
+        if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){
+          await loadTiposCuotaActivos();
+        }
+        const usuarioEl = document.getElementById('pago-usuario');
+        const metodoEl = document.getElementById('pago-metodo');
+        const montoEl = document.getElementById('pago-monto');
+        const uid = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null;
+        let base = 0; let conceptoNombre = 'Cuota Mensual';
+        if(uid){
+          const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+          const tipoVal = u ? (u.tipo_cuota ?? null) : null;
+          const tipoObj = resolveTipoCuota(tipoVal);
+          base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+        }
+        const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
+        const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
+        const pct = metodo ? Number(metodo.comision_porcentaje ?? metodo.comision ?? 0) : 0;
+        const comision = round2(base * pct / 100);
+        const total = round2(base + comision);
+        if(montoEl){ montoEl.value = total > 0 ? String(total) : ''; }
+        updatePagoResumen({ conceptoNombre, base, pct, comision, total });
+      } catch(e){ console.warn('No se pudo recalcular el total del pago:', e); }
     }
 
     function resetPagoForm(){
@@ -959,6 +1390,7 @@
         if(añoEl) añoEl.value = String(now.getFullYear());
         const uSel = document.getElementById('pago-usuario'); if(uSel && state.selectedUsuario && state.selectedUsuario.id) uSel.value = String(state.selectedUsuario.id);
       }
+      await recalcPagoTotal();
       openModal('modal-pago-form');
     }
 
@@ -980,7 +1412,7 @@
       let mes = mesEl && mesEl.value ? Number(mesEl.value) : null;
       let año = añoEl && añoEl.value ? Number(añoEl.value) : null;
       const metodo_pago_id = metodoEl && metodoEl.value ? Number(metodoEl.value) : null;
-      if(!usuario_id || !monto){ alert('Usuario y monto son obligatorios'); return; }
+      if(!usuario_id || !monto){ showToast('Usuario y monto son obligatorios', 'warning', 4000); return; }
       let url = '/api/pagos'; let method = 'POST'; let body = { usuario_id, monto, mes: mes, año: año, metodo_pago_id };
       if(editingPagoId){
         url = `/api/pagos/${editingPagoId}`; method = 'PUT'; body = { usuario_id, monto, metodo_pago_id };
@@ -991,23 +1423,23 @@
       }
       try{
         const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
-        if(!res.ok){ const err = await res.json().catch(()=>({})); alert(err.detail || err.error || 'Error al guardar el pago'); return; }
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoForm();
         await loadPayments();
-      } catch(e){ alert('Error de red al guardar'); }
+      } catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 
     async function deletePago(){
       const id = state.deletePagoId; if(!id){ closeModal('modal-pagos-delete'); return; }
       try{
         const res = await fetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
-        if(!res.ok){ const err = await res.json().catch(()=>({})); alert(err.detail || err.error || 'No se pudo eliminar el pago'); return; }
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         closeModal('modal-pagos-delete');
         if(state.selectedPago && (state.selectedPago.id === id || state.selectedPago.pago_id === id)) clearPagoSelection();
         await loadPayments();
-      } catch(e){ alert('Error de red al eliminar'); }
+      } catch(e){ showToast('Error de red al eliminar', 'error', 4500); }
     }
 
     function exportPagosCSV(){
@@ -1074,6 +1506,9 @@
       document.getElementById('usuario-side-empty').style.display = 'none';
       document.getElementById('usuario-side').style.display = 'block';
       document.getElementById('usuario-side-id').textContent = id ? `#${id}` : '';
+      const btnQR = document.getElementById('usuario-side-qr'); if(btnQR) btnQR.disabled = false;
+      const btnAsis = document.getElementById('usuario-side-asistencia'); if(btnAsis) btnAsis.disabled = false;
+      const loader = document.getElementById('usuario-side-loader'); if(loader) loader.classList.add('active');
       try {
         const [detRes, histRes] = await Promise.all([
           id ? fetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' } }) : Promise.resolve(null),
@@ -1084,10 +1519,22 @@
         const historial = Array.isArray(histJson.items) ? histJson.items : (Array.isArray(histJson) ? histJson : []);
         state.usuarioHistorial = historial;
         renderUsuarioSide(det || u, historial);
+        let recent = '—';
+        if(id){
+          try{
+            const aRes = await fetch(`/api/usuario_asistencias?usuario_id=${id}&limit=200&offset=0`, { headers: { 'Accept': 'application/json' } });
+            const aData = await aRes.json();
+            const arr = Array.isArray(aData) ? aData : (Array.isArray(aData?.items) ? aData.items : []);
+            const now = new Date(); const start = new Date(now); start.setDate(now.getDate()-30);
+            recent = arr.filter(a => { const d = new Date(a.fecha||''); return !isNaN(d.getTime()) && d >= start && d <= now; }).length;
+          }catch(_){ }
+        }
+        const asEl = document.getElementById('usuario-side-asistencias-recientes'); if(asEl) asEl.textContent = recent === '—' ? '—' : String(recent);
+        const utbody = document.querySelector('#usuarios-table tbody'); if(utbody){ utbody.querySelectorAll('tr').forEach(t => t.classList.remove('selected')); const tr = utbody.querySelector(`tr[data-index="${idx}"]`); if(tr) tr.classList.add('selected'); }
       } catch(e){
         console.warn('No se pudo cargar detalles/historial del usuario:', e);
         renderUsuarioSide(u, []);
-      }
+      } finally { if(loader) loader.classList.remove('active'); }
     }
 
     function clearUsuarioSelection(){
@@ -1095,6 +1542,8 @@
       document.getElementById('usuario-side-id').textContent = '';
       document.getElementById('usuario-side').style.display = 'none';
       document.getElementById('usuario-side-empty').style.display = 'block';
+      const btnQR = document.getElementById('usuario-side-qr'); if(btnQR) btnQR.disabled = true;
+      const btnAsis = document.getElementById('usuario-side-asistencia'); if(btnAsis) btnAsis.disabled = true;
       const tbody = document.querySelector('#usuario-historial-table tbody');
       if(tbody) tbody.innerHTML = '';
     }
@@ -1110,7 +1559,7 @@
             fetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' } })
               .then(r => r.json())
               .then(u => showUserForm(u))
-              .catch(() => alert('No se pudo cargar el usuario'));
+              .catch(() => showToast('No se pudo cargar el usuario', 'error', 4500));
           } else if(action === 'delete'){
             state.deleteUserId = id;
             openModal('modal-usuarios-delete');
@@ -1148,11 +1597,19 @@
       if(toggleActivoQuick) toggleActivoQuick.addEventListener('click', toggleUsuarioActivo);
       const exportUsuariosBtn = document.getElementById('usuarios-export-csv');
       if(exportUsuariosBtn) exportUsuariosBtn.addEventListener('click', exportUsuariosCSV);
+      const qrBtn = document.getElementById('usuario-side-qr');
+      if(qrBtn) qrBtn.addEventListener('click', emitirQRCheckin);
+      const asisBtn = document.getElementById('usuario-side-asistencia');
+      if(asisBtn) asisBtn.addEventListener('click', registrarAsistenciaQuick);
+      const qrCloseBtn = document.getElementById('qr-close-btn');
+      if(qrCloseBtn) qrCloseBtn.addEventListener('click', closeQRModal);
+      const qrCloseFooter = document.getElementById('qr-close-footer');
+      if(qrCloseFooter) qrCloseFooter.addEventListener('click', closeQRModal);
     }
 
     function verPagosDeUsuario(){
       const u = state.selectedUsuario;
-      if(!u){ alert('Selecciona un usuario primero'); return; }
+      if(!u){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       const dni = String(u.dni || '').trim();
       switchTab('pagos');
       const input = document.getElementById('pagos-q');
@@ -1164,7 +1621,7 @@
 
     function toggleUsuarioActivo(){
       const u = state.selectedUsuario;
-      if(!u || !u.id){ alert('Selecciona un usuario válido'); return; }
+      if(!u || !u.id){ showToast('Selecciona un usuario válido', 'warning', 3500); return; }
       const nombre = (document.getElementById('usuario-side-nombre').textContent || '').trim();
       const dni = (document.getElementById('usuario-side-dni').textContent || '').trim();
       const telefono = (document.getElementById('usuario-side-telefono').textContent || '').trim();
@@ -1173,13 +1630,13 @@
       const tipo_cuota = tipo_cuota_text || null;
       const notasText = (document.getElementById('usuario-side-notas').textContent || '').trim();
       const notas = notasText && notasText !== '—' ? notasText : null;
-      if(!nombre || !dni){ alert('Nombre y DNI son obligatorios'); return; }
+      if(!nombre || !dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
       const nuevoActivo = !(u.activo === true || u.activo === 'true');
       const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo: nuevoActivo, tipo_cuota, notas };
       fetch(`/api/usuarios/${u.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) })
         .then(async res => { if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } return res; })
         .then(async () => { await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); })
-        .catch(e => alert(`No se pudo actualizar estado: ${e.message}`));
+        .catch(e => showToast(`No se pudo actualizar estado: ${e.message}`, 'error', 4500));
     }
 
     function exportUsuariosCSV(){
@@ -1207,6 +1664,269 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
+    // ===== Configuración: Tipos de cuota, Conceptos y Métodos =====
+    async function loadTiposCuotaAdmin(){
+      try{
+        const res = await fetch('/api/tipos_cuota', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.configTipos = rows;
+        renderTiposCuotaTable(rows);
+      }catch(e){ console.warn('No se pudieron cargar tipos de cuota:', e); }
+    }
+    function renderTiposCuotaTable(rows){
+      const tbody = document.querySelector('#config-tipos-table tbody');
+      if(!tbody) return;
+      tbody.innerHTML = '';
+      (Array.isArray(rows) ? rows : []).forEach((t) => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-id', String(t.id ?? ''));
+        tr.innerHTML = `
+          <td>${t.nombre ?? ''}</td>
+          <td>${t.precio != null ? t.precio : ''}</td>
+          <td>${t.duracion_dias != null ? t.duracion_dias : ''}</td>
+          <td>${(t.activo === true || t.activo === 'true') ? 'Sí' : 'No'}</td>
+          <td class="table-actions">
+            <button class="btn" data-action="edit-tipo" data-id="${t.id ?? ''}">Editar</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    function showTipoForm(t){
+      state.editingTipoId = t && t.id ? t.id : null;
+      document.getElementById('modal-tipo-cuota-title').textContent = t && t.id ? `Editar tipo #${t.id}` : 'Nuevo tipo de cuota';
+      const nombre = document.getElementById('tipo-nombre'); if(nombre) nombre.value = t?.nombre ?? '';
+      const precio = document.getElementById('tipo-precio'); if(precio) precio.value = t?.precio ?? '';
+      const dur = document.getElementById('tipo-duracion'); if(dur) dur.value = t?.duracion_dias ?? '';
+      const activo = document.getElementById('tipo-activo'); if(activo) activo.value = (t && (t.activo === true || t.activo === 'true')) ? 'true' : 'false';
+      const desc = document.getElementById('tipo-descripcion'); if(desc) desc.value = t?.descripcion ?? '';
+      const icono = document.getElementById('tipo-icono'); if(icono) icono.value = t?.icono_path ?? '';
+      openModal('modal-tipo-cuota');
+    }
+    function hideTipoForm(){ state.editingTipoId = null; closeModal('modal-tipo-cuota'); }
+    async function saveTipoCuota(){
+      const nombre = (document.getElementById('tipo-nombre').value || '').trim();
+      const precio = Number(document.getElementById('tipo-precio').value || '0');
+      const duracion_dias = Number(document.getElementById('tipo-duracion').value || '0');
+      const activoVal = document.getElementById('tipo-activo').value || 'true';
+      const activo = (String(activoVal).toLowerCase() === 'true');
+      const descripcion = (document.getElementById('tipo-descripcion').value || '').trim() || null;
+      const icono_path = (document.getElementById('tipo-icono').value || '').trim() || null;
+      if(!nombre){ showToast('El nombre es obligatorio', 'warning', 3000); return; }
+      if(!(duracion_dias > 0)){ showToast('Duración debe ser mayor a 0', 'warning', 3000); return; }
+      if(precio < 0){ showToast('Precio no puede ser negativo', 'warning', 3000); return; }
+      let url = '/api/tipos_cuota'; let method = 'POST';
+      const body = { nombre, precio, duracion_dias, activo, descripcion, icono_path };
+      if(state.editingTipoId){ url = `/api/tipos_cuota/${state.editingTipoId}`; method = 'PUT'; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el tipo', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        hideTipoForm();
+        await loadTiposCuotaAdmin();
+      }catch(e){ showToast('Error de red al guardar tipo', 'error', 4500); }
+    }
+
+    async function loadConceptosAdmin(){
+      try{
+        const res = await fetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.configConceptos = rows;
+        renderConceptosTable(rows);
+      }catch(e){ console.warn('No se pudieron cargar conceptos:', e); }
+    }
+    function renderConceptosTable(rows){
+      const tbody = document.querySelector('#config-conceptos-table tbody'); if(!tbody) return;
+      tbody.innerHTML = '';
+      (Array.isArray(rows) ? rows : []).forEach(c => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-id', String(c.id ?? ''));
+        tr.innerHTML = `
+          <td>${c.nombre ?? ''}</td>
+          <td>${c.precio_base != null ? c.precio_base : ''}</td>
+          <td>${c.tipo ?? ''}</td>
+          <td>${(c.activo === true || c.activo === 'true') ? 'Sí' : 'No'}</td>
+          <td>${c.categoria ?? ''}</td>
+          <td class="table-actions">
+            <button class="btn" data-action="edit-concepto" data-id="${c.id ?? ''}">Editar</button>
+            <button class="btn secondary" data-action="delete-concepto" data-id="${c.id ?? ''}">Borrar</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    function showConceptoForm(c){
+      state.editingConceptoId = c && c.id ? c.id : null;
+      document.getElementById('modal-concepto-title').textContent = c && c.id ? `Editar concepto #${c.id}` : 'Nuevo concepto de pago';
+      const nombre = document.getElementById('concepto-nombre'); if(nombre) nombre.value = c?.nombre ?? '';
+      const precio = document.getElementById('concepto-precio-base'); if(precio) precio.value = c?.precio_base ?? '';
+      const tipo = document.getElementById('concepto-tipo'); if(tipo) tipo.value = c?.tipo ?? '';
+      const activo = document.getElementById('concepto-activo'); if(activo) activo.value = (c && (c.activo === true || c.activo === 'true')) ? 'true' : 'false';
+      const cat = document.getElementById('concepto-categoria'); if(cat) cat.value = c?.categoria ?? '';
+      const desc = document.getElementById('concepto-descripcion'); if(desc) desc.value = c?.descripcion ?? '';
+      openModal('modal-concepto');
+    }
+    function hideConceptoForm(){ state.editingConceptoId = null; closeModal('modal-concepto'); }
+    async function saveConcepto(){
+      const nombre = (document.getElementById('concepto-nombre').value || '').trim();
+      const precio_base = Number(document.getElementById('concepto-precio-base').value || '0');
+      const tipo = (document.getElementById('concepto-tipo').value || '').trim();
+      const activoVal = document.getElementById('concepto-activo').value || 'true';
+      const activo = (String(activoVal).toLowerCase() === 'true');
+      const categoria = (document.getElementById('concepto-categoria').value || '').trim() || null;
+      const descripcion = (document.getElementById('concepto-descripcion').value || '').trim() || null;
+      if(!nombre){ showToast('El nombre es obligatorio', 'warning', 3000); return; }
+      if(precio_base < 0){ showToast('Precio base no puede ser negativo', 'warning', 3000); return; }
+      const body = { nombre, precio_base, tipo, activo, categoria, descripcion };
+      let url = '/api/conceptos_pago'; let method = 'POST';
+      if(state.editingConceptoId){ url = `/api/conceptos_pago/${state.editingConceptoId}`; method = 'PUT'; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar concepto', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        hideConceptoForm();
+        await loadConceptosAdmin();
+      }catch(e){ showToast('Error de red al guardar concepto', 'error', 4500); }
+    }
+    async function deleteConcepto(id){
+      if(!id) return; const conf = confirm('¿Eliminar concepto de pago?'); if(!conf) return;
+      try{
+        const res = await fetch(`/api/conceptos_pago/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        await loadConceptosAdmin();
+      }catch(e){ showToast('Error de red al eliminar concepto', 'error', 4500); }
+    }
+
+    async function loadMetodosAdmin(){
+      try{
+        const res = await fetch('/api/metodos_pago', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.configMetodos = rows;
+        renderMetodosTable(rows);
+      }catch(e){ console.warn('No se pudieron cargar métodos:', e); }
+    }
+    function renderMetodosTable(rows){
+      const tbody = document.querySelector('#config-metodos-table tbody'); if(!tbody) return;
+      tbody.innerHTML = '';
+      (Array.isArray(rows) ? rows : []).forEach(m => {
+        const tr = document.createElement('tr');
+        const colorBadge = m.color ? `<span style=\"background:${m.color};display:inline-block;width:12px;height:12px;border-radius:3px;\"></span>` : '';
+        tr.setAttribute('data-id', String(m.id ?? ''));
+        tr.innerHTML = `
+          <td>${m.nombre ?? ''}</td>
+          <td>${m.comision != null ? m.comision : ''}</td>
+          <td>${m.color ?? ''} ${colorBadge}</td>
+          <td>${(m.activo === true || m.activo === 'true') ? 'Sí' : 'No'}</td>
+          <td class="table-actions">
+            <button class="btn" data-action="edit-metodo" data-id="${m.id ?? ''}">Editar</button>
+            <button class="btn secondary" data-action="delete-metodo" data-id="${m.id ?? ''}">Borrar</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    function showMetodoForm(m){
+      state.editingMetodoId = m && m.id ? m.id : null;
+      document.getElementById('modal-metodo-title').textContent = m && m.id ? `Editar método #${m.id}` : 'Nuevo método de pago';
+      const nombre = document.getElementById('metodo-nombre'); if(nombre) nombre.value = m?.nombre ?? '';
+      const comision = document.getElementById('metodo-comision'); if(comision) comision.value = m?.comision ?? '';
+      const color = document.getElementById('metodo-color'); if(color) color.value = m?.color ?? '';
+      const activo = document.getElementById('metodo-activo'); if(activo) activo.value = (m && (m.activo === true || m.activo === 'true')) ? 'true' : 'false';
+      const desc = document.getElementById('metodo-descripcion'); if(desc) desc.value = m?.descripcion ?? '';
+      openModal('modal-metodo');
+    }
+    function hideMetodoForm(){ state.editingMetodoId = null; closeModal('modal-metodo'); }
+    async function saveMetodo(){
+      const nombre = (document.getElementById('metodo-nombre').value || '').trim();
+      const comision = Number(document.getElementById('metodo-comision').value || '0');
+      const color = (document.getElementById('metodo-color').value || '').trim() || null;
+      const activoVal = document.getElementById('metodo-activo').value || 'true';
+      const activo = (String(activoVal).toLowerCase() === 'true');
+      const descripcion = (document.getElementById('metodo-descripcion').value || '').trim() || null;
+      if(!nombre){ showToast('El nombre es obligatorio', 'warning', 3000); return; }
+      if(comision < 0){ showToast('La comisión no puede ser negativa', 'warning', 3000); return; }
+      const body = { nombre, comision, color, activo, descripcion };
+      let url = '/api/metodos_pago'; let method = 'POST';
+      if(state.editingMetodoId){ url = `/api/metodos_pago/${state.editingMetodoId}`; method = 'PUT'; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar método', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        hideMetodoForm();
+        await loadMetodosAdmin();
+      }catch(e){ showToast('Error de red al guardar método', 'error', 4500); }
+    }
+    async function deleteMetodo(id){
+      if(!id) return; const conf = confirm('¿Eliminar método de pago?'); if(!conf) return;
+      try{
+        const res = await fetch(`/api/metodos_pago/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        await loadMetodosAdmin();
+      }catch(e){ showToast('Error de red al eliminar método', 'error', 4500); }
+    }
+
+    async function loadConfigData(){
+      await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin()]).catch(()=>{});
+    }
+    function bindConfiguracionEvents(){
+      const tiposTbody = document.querySelector('#config-tipos-table tbody');
+      if(tiposTbody){
+        tiposTbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const id = btn.getAttribute('data-id'); const action = btn.getAttribute('data-action');
+          if(action === 'edit-tipo'){
+            const t = (state.configTipos || []).find(x => String(x.id) === String(id));
+            showTipoForm(t || null);
+          }
+        });
+      }
+      const concTbody = document.querySelector('#config-conceptos-table tbody');
+      if(concTbody){
+        concTbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const id = btn.getAttribute('data-id'); const action = btn.getAttribute('data-action');
+          if(action === 'edit-concepto'){
+            const c = (state.configConceptos || []).find(x => String(x.id) === String(id));
+            showConceptoForm(c || null);
+          } else if(action === 'delete-concepto'){
+            deleteConcepto(id);
+          }
+        });
+      }
+      const metTbody = document.querySelector('#config-metodos-table tbody');
+      if(metTbody){
+        metTbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const id = btn.getAttribute('data-id'); const action = btn.getAttribute('data-action');
+          if(action === 'edit-metodo'){
+            const m = (state.configMetodos || []).find(x => String(x.id) === String(id));
+            showMetodoForm(m || null);
+          } else if(action === 'delete-metodo'){
+            deleteMetodo(id);
+          }
+        });
+      }
+      const btnTiposRefresh = document.getElementById('config-tipos-refresh'); if(btnTiposRefresh) btnTiposRefresh.addEventListener('click', loadTiposCuotaAdmin);
+      const btnTiposNew = document.getElementById('config-tipos-new'); if(btnTiposNew) btnTiposNew.addEventListener('click', () => showTipoForm(null));
+      const btnSaveTipo = document.getElementById('save-tipo-cuota'); if(btnSaveTipo) btnSaveTipo.addEventListener('click', saveTipoCuota);
+      const btnCancelTipo = document.getElementById('cancel-tipo-cuota'); if(btnCancelTipo) btnCancelTipo.addEventListener('click', hideTipoForm);
+      const btnCloseTipo = document.getElementById('close-modal-tipo-cuota'); if(btnCloseTipo) btnCloseTipo.addEventListener('click', hideTipoForm);
+
+      const btnConcRefresh = document.getElementById('config-conceptos-refresh'); if(btnConcRefresh) btnConcRefresh.addEventListener('click', loadConceptosAdmin);
+      const btnConcNew = document.getElementById('config-conceptos-new'); if(btnConcNew) btnConcNew.addEventListener('click', () => showConceptoForm(null));
+      const btnSaveConc = document.getElementById('save-concepto'); if(btnSaveConc) btnSaveConc.addEventListener('click', saveConcepto);
+      const btnCancelConc = document.getElementById('cancel-concepto'); if(btnCancelConc) btnCancelConc.addEventListener('click', hideConceptoForm);
+      const btnCloseConc = document.getElementById('close-modal-concepto'); if(btnCloseConc) btnCloseConc.addEventListener('click', hideConceptoForm);
+
+      const btnMetRefresh = document.getElementById('config-metodos-refresh'); if(btnMetRefresh) btnMetRefresh.addEventListener('click', loadMetodosAdmin);
+      const btnMetNew = document.getElementById('config-metodos-new'); if(btnMetNew) btnMetNew.addEventListener('click', () => showMetodoForm(null));
+      const btnSaveMet = document.getElementById('save-metodo'); if(btnSaveMet) btnSaveMet.addEventListener('click', saveMetodo);
+      const btnCancelMet = document.getElementById('cancel-metodo'); if(btnCancelMet) btnCancelMet.addEventListener('click', hideMetodoForm);
+      const btnCloseMet = document.getElementById('close-modal-metodo'); if(btnCloseMet) btnCloseMet.addEventListener('click', hideMetodoForm);
+    }
+
     function init(){
       document.querySelectorAll('.tab').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1214,6 +1934,7 @@
           switchTab(tab);
           if(tab === 'pagos') loadPayments();
           if(tab === 'usuarios') loadUsers();
+          if(tab === 'configuracion') loadConfigData();
         });
       });
       const { start, end } = defaultRange();
@@ -1226,6 +1947,7 @@
       document.getElementById('pagos-limit').addEventListener('change', loadPayments);
       bindPagosEvents();
       bindUsuariosEvents();
+      bindConfiguracionEvents();
       loadPayments();
     }
     document.addEventListener('DOMContentLoaded', init);
