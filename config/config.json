@@ -27,6 +27,10 @@
     "connect_timeout": 10,
     "application_name": "gym_management_system"
   },
+  "replication": {
+    "subscription_name": "gym_sub",
+    "publication_name": "gym_pub"
+  },
   "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
   "public_tunnel": {
     "subdomain": "gym-ms-zrk",

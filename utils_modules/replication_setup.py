@@ -262,18 +262,94 @@ def check_remote_logical_capability(remote_params: dict) -> Dict[str, Any]:
 
 
 def ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub') -> Dict[str, Any]:
+    """Asegura PUBLICATION remoto filtrando tablas transaccionales locales.
+    Excluye tablas listadas en `config/sync_tables.json` bajo `uploads_local_to_remote`.
+    Si no hay tablas específicas, hace fallback a `FOR ALL TABLES`.
+    """
     changed = False
     conn = None
+    added_count = 0
+    dropped_count = 0
     try:
+        # Cargar configuración de tablas a excluir de la publicación remota
+        try:
+            base_dir = Path(__file__).resolve().parent.parent
+            cfg_path = base_dir / 'config' / 'sync_tables.json'
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg_tables = json.load(f) or {}
+            uploads_local_to_remote = list(cfg_tables.get('uploads_local_to_remote') or [])
+        except Exception:
+            uploads_local_to_remote = []
+
         conn = _connect(remote_params)
         conn.autocommit = True
         with conn.cursor() as cur:
+            # Enumerar tablas actuales en remoto (schema public)
+            try:
+                cur.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema='public' AND table_type='BASE TABLE'
+                    ORDER BY 1
+                    """
+                )
+                remote_tables = [r[0] for r in (cur.fetchall() or [])]
+            except Exception:
+                remote_tables = []
+
+            # Calcular la lista de tablas a publicar: todas menos las transaccionales locales
+            pub_tables = [t for t in remote_tables if t not in uploads_local_to_remote]
+
             cur.execute("SELECT 1 FROM pg_publication WHERE pubname = %s", (pubname,))
             exists = bool(cur.fetchone())
             if not exists:
-                cur.execute(sql.SQL("CREATE PUBLICATION {} FOR ALL TABLES").format(sql.Identifier(pubname)))
+                if pub_tables:
+                    # Crear publicación explícita solo para tablas permitidas
+                    parts = [
+                        sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t))
+                        for t in pub_tables
+                    ]
+                    create_stmt = sql.SQL("CREATE PUBLICATION {} FOR TABLE ")\
+                        .format(sql.Identifier(pubname)) + sql.SQL(", ").join(parts)
+                    cur.execute(create_stmt)
+                else:
+                    # Fallback: publicar todas las tablas
+                    cur.execute(sql.SQL("CREATE PUBLICATION {} FOR ALL TABLES").format(sql.Identifier(pubname)))
                 changed = True
-        return {"ok": True, "changed": changed, "message": "PUBLICATION remoto verificado/creado"}
+            else:
+                # Sincronizar conjunto de tablas de la publicación existente
+                try:
+                    cur.execute("SELECT tablename FROM pg_publication_tables WHERE pubname = %s", (pubname,))
+                    current = {r[0] for r in (cur.fetchall() or [])}
+                except Exception:
+                    current = set()
+                desired = set(pub_tables) if pub_tables else set(remote_tables)
+                to_add = sorted(list(desired - current))
+                to_drop = sorted(list(current - desired))
+                for t in to_add:
+                    try:
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} ADD TABLE {}.{}")
+                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                        added_count += 1
+                        changed = True
+                    except Exception:
+                        pass
+                for t in to_drop:
+                    try:
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} DROP TABLE {}.{}")
+                                    .format(sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
+                        dropped_count += 1
+                        changed = True
+                    except Exception:
+                        pass
+        return {
+            "ok": True,
+            "changed": changed,
+            "message": f"PUBLICATION remoto verificado/ajustado (ADD={added_count} DROP={dropped_count})",
+            "added": added_count,
+            "dropped": dropped_count,
+        }
     except Exception as e:
         return {"ok": False, "changed": changed, "message": f"Fallo PUBLICATION remoto: {e}"}
     finally:
@@ -395,15 +471,19 @@ def ensure_logical_replication(cfg: dict) -> Dict[str, Any]:
             return results
 
         # Paso 3: asegurar PUBLICATION remoto (si hay credenciales suficientes)
+        rep_cfg = cfg.get('replication') or {}
+        pubname = rep_cfg.get('publication_name') or 'gym_pub'
+        subname = rep_cfg.get('subscription_name') or 'gym_sub'
+
         pub_res = {"ok": False, "message": "Saltado"}
         if remote.get('user') and (remote.get('password') or remote.get('dsn')):
-            pub_res = ensure_publication_on_remote(remote)
+            pub_res = ensure_publication_on_remote(remote, pubname=pubname)
         results["steps"].append({"publication": pub_res})
         if not pub_res.get("ok"):
             logging.warning(pub_res.get("message"))
 
         # Paso 4: asegurar SUBSCRIPTION local
-        sub_res = ensure_subscription_on_local(local, remote)
+        sub_res = ensure_subscription_on_local(local, remote, subname=subname, pubname=pubname)
         results["steps"].append({"subscription": sub_res})
 
         results["ok"] = bool(pub_res.get("ok") and sub_res.get("ok"))

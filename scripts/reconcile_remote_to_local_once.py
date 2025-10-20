@@ -125,50 +125,68 @@ def table_columns(conn, schema: str, table: str) -> List[str]:
 
 
 def fetch_missing_pks(remote_conn, local_conn, schema: str, table: str, pk_cols: List[str]) -> List[Tuple]:
+    # Fallback a 'id' si no hay PKs
     if not pk_cols:
         cols = table_columns(local_conn, schema, table)
         if 'id' in cols:
             pk_cols = ['id']
         else:
             return []
-    if len(pk_cols) != 1:
-        print(f"Saltando {schema}.{table}: PK compuesta ({pk_cols}).")
-        return []
-    pk = pk_cols[0]
+    # Seleccionar claves completas en ambos lados (soporta PK compuesta)
     with remote_conn.cursor() as cr, local_conn.cursor() as cl:
-        cr.execute(sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
-            sql.Identifier(pk), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk)))
-        remote_ids = [r[0] for r in cr.fetchall()]
-        cl.execute(sql.SQL("SELECT {} FROM {}.{} ORDER BY {}").format(
-            sql.Identifier(pk), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk)))
-        local_ids = {r[0] for r in cl.fetchall()}
-    return [(i,) for i in remote_ids if i not in local_ids]
+        cr.execute(sql.SQL("SELECT {} FROM {}.{}").format(
+            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
+        remote_keys = [tuple(r) for r in cr.fetchall()]
+        cl.execute(sql.SQL("SELECT {} FROM {}.{}").format(
+            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
+        local_keys = {tuple(r) for r in cl.fetchall()}
+    return [k for k in remote_keys if k not in local_keys]
 
 
-def fetch_rows_by_pk(remote_conn, schema: str, table: str, pk_col: str, pks: List[Tuple]) -> List[dict]:
+def fetch_rows_by_pk(remote_conn, schema: str, table: str, pk_cols: List[str], pks: List[Tuple]) -> List[dict]:
     if not pks:
         return []
-    placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
-    query = sql.SQL("SELECT * FROM {}.{} WHERE {} IN (" + placeholders.as_string(remote_conn) + ")").format(
-        sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk_col)
-    )
+    # Construir cláusula WHERE para PK simple o compuesta
+    if len(pk_cols) == 1:
+        placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
+        query = sql.SQL("SELECT * FROM {}.{} WHERE {} IN (" + placeholders.as_string(remote_conn) + ")").format(
+            sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk_cols[0])
+        )
+        params = [pk[0] for pk in pks]
+    else:
+        conds = []
+        params = []
+        for key in pks:
+            cond = sql.SQL('(') + sql.SQL(' AND ').join(
+                sql.SQL("{} = %s").format(sql.Identifier(col)) for col in pk_cols
+            ) + sql.SQL(')')
+            conds.append(cond)
+            params.extend(list(key))
+        where_clause = sql.SQL(' OR ').join(conds)
+        query = sql.SQL("SELECT * FROM {}.{} WHERE ") + where_clause
+        query = query.format(sql.Identifier(schema), sql.Identifier(table))
     with remote_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(query, [pk[0] for pk in pks])
+        cur.execute(query, params)
         return list(cur.fetchall())
 
 
-def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry_run: bool = False) -> int:
+def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], pk_cols: List[str], dry_run: bool = False) -> int:
     if not rows:
         return 0
     cols = list(rows[0].keys())
     col_idents = [sql.Identifier(c) for c in cols]
     placeholders = [sql.Placeholder() for _ in cols]
-    insert_tmpl = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
+    base_insert = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
         sql.Identifier(schema),
         sql.Identifier(table),
         sql.SQL(',').join(col_idents),
         sql.SQL(',').join(placeholders)
     )
+    if pk_cols:
+        conflict_target = sql.SQL(',').join(sql.Identifier(c) for c in pk_cols)
+        insert_tmpl = base_insert + sql.SQL(" ON CONFLICT ({}) DO NOTHING").format(conflict_target)
+    else:
+        insert_tmpl = base_insert
     inserted = 0
     with local_conn.cursor() as cur:
         for row in rows:
@@ -181,6 +199,51 @@ def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry
         if not dry_run:
             local_conn.commit()
     return inserted
+
+
+def reconcile_updates_local(remote_conn, local_conn, schema: str, table: str, pk_cols: List[str], dry_run: bool = False) -> int:
+    """Actualiza filas existentes en local cuando remoto tiene updated_at más reciente.
+    Requiere columna 'updated_at' en ambas bases. Actualiza columnas no-PK.
+    """
+    local_cols = table_columns(local_conn, schema, table)
+    remote_cols = table_columns(remote_conn, schema, table)
+    if ('updated_at' not in local_cols) or ('updated_at' not in remote_cols):
+        return 0
+    non_pk_cols = [c for c in local_cols if c not in pk_cols]
+    with local_conn.cursor() as cl, remote_conn.cursor() as cr:
+        cl.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
+            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
+        local_entries = {tuple(r[:-1]): r[-1] for r in cl.fetchall()}
+        cr.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
+            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
+        remote_entries = [(tuple(r[:-1]), r[-1]) for r in cr.fetchall()]
+    to_update_keys = [k for (k, ru) in remote_entries if (k in local_entries) and (ru is not None) and (local_entries.get(k) is not None) and (ru > local_entries[k])]
+    if not to_update_keys:
+        return 0
+    rows = fetch_rows_by_pk(remote_conn, schema, table, pk_cols, to_update_keys)
+    if not rows:
+        return 0
+    set_clause = sql.SQL(', ').join(
+        sql.SQL("{} = %s").format(sql.Identifier(c)) for c in non_pk_cols
+    )
+    where_clause = sql.SQL(' AND ').join(
+        sql.SQL("{} = %s").format(sql.Identifier(c)) for c in pk_cols
+    )
+    update_tmpl = sql.SQL("UPDATE {}.{} SET {} WHERE {}").format(
+        sql.Identifier(schema), sql.Identifier(table), set_clause, where_clause
+    )
+    updated = 0
+    with local_conn.cursor() as cur:
+        for row in rows:
+            vals = [row[c] for c in non_pk_cols] + [row[c] for c in pk_cols]
+            if dry_run:
+                print(f"DRY-RUN: UPDATE {schema}.{table} SET {', '.join(non_pk_cols)} WHERE {pk_cols} KEYS {to_update_keys}")
+            else:
+                cur.execute(update_tmpl, vals)
+                updated += 1
+        if not dry_run:
+            local_conn.commit()
+    return updated
 
 
 def main():
@@ -204,20 +267,41 @@ def main():
     # Deshabilitar suscripción para evitar conflictos en la aplicación
     disable_subscription(local_conn, args.subscription)
 
+    # Resolver tablas desde config/sync_tables.json si está disponible
+    tables_to_process = list(args.tables)
+    try:
+        sync_path = Path(__file__).resolve().parent.parent / 'config' / 'sync_tables.json'
+        if sync_path.exists():
+            with open(sync_path, 'r', encoding='utf-8') as f:
+                sync_cfg = json.load(f) or {}
+            publishes = sync_cfg.get('publishes_remote_to_local') or []
+            if publishes:
+                tables_to_process = publishes
+    except Exception:
+        pass
+
     total_inserted = 0
-    for table in args.tables:
+    total_updated = 0
+    for table in tables_to_process:
         print(f"Procesando {args.schema}.{table}...")
         pk_cols = get_pk_columns(local_conn, args.schema, table)
+        # Inserciones: claves presentes en remoto y faltantes en local
         missing_pks = fetch_missing_pks(remote_conn, local_conn, args.schema, table, pk_cols)
-        if not missing_pks:
-            print(f"  Sin filas faltantes en local.")
-            continue
-        pk = pk_cols[0] if pk_cols else 'id'
-        rows = fetch_rows_by_pk(remote_conn, args.schema, table, pk, missing_pks)
-        print(f"  Filas a insertar en local: {len(rows)}")
-        inserted = insert_rows_local(local_conn, args.schema, table, rows, dry_run=args.dry_run)
-        total_inserted += inserted
-        print(f"  Insertadas en local: {inserted}")
+        if missing_pks:
+            rows = fetch_rows_by_pk(remote_conn, args.schema, table, pk_cols, missing_pks)
+            print(f"  Filas a insertar en local: {len(rows)}")
+            inserted = insert_rows_local(local_conn, args.schema, table, rows, pk_cols, dry_run=args.dry_run)
+            total_inserted += inserted
+            print(f"  Insertadas en local: {inserted}")
+        else:
+            print("  Sin filas faltantes en local.")
+        # Actualizaciones: filas existentes con updated_at más reciente en remoto
+        updated = reconcile_updates_local(remote_conn, local_conn, args.schema, table, pk_cols, dry_run=args.dry_run)
+        if updated:
+            print(f"  Filas actualizadas en local: {updated}")
+            total_updated += updated
+        else:
+            print("  Sin actualizaciones pendientes en local.")
 
     # Rehabilitar suscripción
     enable_subscription(local_conn, args.subscription)
@@ -225,7 +309,7 @@ def main():
     local_conn.close()
     remote_conn.close()
 
-    print(f"Listo. Total insertado en local: {total_inserted}. Use scripts/verify_replication_status.py para validar.")
+    print(f"Listo. Total insertado en local: {total_inserted}, actualizadas: {total_updated}. Use scripts/verify_replication_status.py para validar.")
 
 
 if __name__ == '__main__':

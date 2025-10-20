@@ -1,5 +1,6 @@
 import os
 import shutil
+import copy
 from PyQt6.QtWidgets import (QDialog, QMessageBox, QLabel, QLineEdit, QFormLayout,
                              QDialogButtonBox, QCheckBox, QRadioButton, QHBoxLayout,
                              QVBoxLayout, QPushButton, QFileDialog, QTextEdit, QComboBox)
@@ -27,11 +28,16 @@ class UserDialog(QDialog):
         self.telefono_input = QLineEdit()
         self.pin_input = QLineEdit()
         self.pin_input.setMaxLength(4)
+
+        # Campo para ID de Usuario (editable sólo al editar)
+        self.id_input = QLineEdit()
+        self.id_input.setPlaceholderText("Auto")
         
         form_layout.addRow(QLabel("Nombre Completo:"), self.nombre_input)
         form_layout.addRow(QLabel("DNI (8 dígitos):"), self.dni_input)
         form_layout.addRow(QLabel("Teléfono:"), self.telefono_input)
         form_layout.addRow(QLabel("PIN (4 dígitos):"), self.pin_input)
+        form_layout.addRow(QLabel("ID de Usuario:"), self.id_input)
         
         # --- MODIFICACIÓN: Selector de Rol ---
         self.rol_combobox = QComboBox()
@@ -71,6 +77,9 @@ class UserDialog(QDialog):
             if self.tipo_cuota_combobox.count() > 0:
                 self.tipo_cuota_combobox.setCurrentIndex(0)
             self.activo_checkbox.setChecked(True)
+            # ID autogenerado al crear: mostrar como 'Auto' y bloquear edición
+            self.id_input.setText("Auto")
+            self.id_input.setReadOnly(True)
 
     def _apply_role_pin_permissions(self):
         """Aplica restricciones para edición de PIN cuando el rol actual es 'profesor'."""
@@ -203,6 +212,13 @@ class UserDialog(QDialog):
         self.dni_input.setText(self.user.dni or "")
         self.telefono_input.setText(self.user.telefono)
         self.pin_input.setText(self.user.pin or "1234")
+        # Mostrar y habilitar ID al editar
+        try:
+            self.id_input.setText(str(self.user.id))
+            self.id_input.setReadOnly(False)
+        except Exception:
+            self.id_input.setText("")
+            self.id_input.setReadOnly(False)
         # Registrar PIN original para comparaciones de permisos
         self._original_pin = self.user.pin or ""
         self.activo_checkbox.setChecked(self.user.activo)
@@ -218,6 +234,8 @@ class UserDialog(QDialog):
             self.rol_combobox.setEnabled(False)
             self.nombre_input.setReadOnly(True)
             self.dni_input.setReadOnly(True)
+            self.id_input.setReadOnly(True)
+            self.id_input.setToolTip("El ID del dueño no puede modificarse.")
 
         # Cargar tipo de cuota
         if hasattr(self.user, 'tipo_cuota') and self.user.tipo_cuota:
@@ -246,8 +264,16 @@ class UserDialog(QDialog):
         self.user.rol = self.rol_combobox.currentData()
         self.user.tipo_cuota = self.tipo_cuota_combobox.currentData()
         self.user.notas = self.notas_input.toPlainText().strip()
+
+        # Tomar ID del campo si está en modo edición
+        try:
+            new_id_text = self.id_input.text().strip()
+            if self.user and self.user.id is not None and new_id_text and new_id_text.isdigit():
+                self.user.id = int(new_id_text)
+        except Exception:
+            pass
         
-        return self.user
+        return copy.deepcopy(self.user)
 
     def accept(self):
         nombre = self.nombre_input.text().strip()
@@ -281,6 +307,25 @@ class UserDialog(QDialog):
             if self.db_manager.dni_existe(dni, user_id_to_ignore):
                 QMessageBox.warning(self, "DNI Duplicado", "El DNI ingresado ya pertenece a otro usuario.")
                 return
+            
+            # Validaciones para cambio de ID (solo en modo edición)
+            if self.user:
+                current_id_str = str(self.user.id)
+                new_id_text = self.id_input.text().strip()
+                if new_id_text and new_id_text != current_id_str:
+                    if self.user.rol == 'dueño':
+                        QMessageBox.warning(self, "ID No Permitido", "El ID del dueño no puede modificarse.")
+                        return
+                    if not new_id_text.isdigit():
+                        QMessageBox.warning(self, "ID Inválido", "El ID debe ser numérico y positivo.")
+                        return
+                    new_id = int(new_id_text)
+                    if new_id <= 0:
+                        QMessageBox.warning(self, "ID Inválido", "El ID debe ser mayor a 0.")
+                        return
+                    if self.db_manager.usuario_id_existe(new_id):
+                        QMessageBox.warning(self, "ID Duplicado", "El ID ingresado ya pertenece a otro usuario.")
+                        return
 
         # Validación de PIN sólo cuando se permite editar
         if self._is_pin_edit_allowed:

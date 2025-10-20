@@ -63,12 +63,13 @@ except Exception:
 # Desktop nunca arranca servidores locales; Railway gestiona la webapp.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget,
-    QHBoxLayout, QLabel, QPushButton, QMessageBox, QFrame, QSplitter,
+    QHBoxLayout, QLabel, QPushButton, QCheckBox, QMessageBox, QFrame, QSplitter,
     QSizePolicy, QSpacerItem, QMenuBar, QGraphicsDropShadowEffect,
     QDialog, QProgressBar, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QAction, QCloseEvent, QPixmap, QColor
+from typing import Callable
 
 # --- NUEVA IMPORTACIÓN ---
 from widgets.custom_style import CustomProxyStyle
@@ -106,44 +107,387 @@ from utils_modules.async_runner import TaskThread
 # Replicación lógica PostgreSQL: sin motores externos iniciados por la app.
 
 class StartupProgressDialog(QDialog):
-    """Diálogo ligero con barra de progreso para el arranque, actualizado por MainWindow."""
+    """Diálogo mejorado para el arranque con progreso determinista y acciones."""
     def __init__(self):
         super().__init__(None)
         try:
             self.setWindowTitle("Cargando aplicación…")
-            # No modal para no interferir con la pintura de la UI
             self.setModal(False)
             self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            # Evitar tomar foco/activación para no bloquear la interacción al inicio
+            self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            try:
+                self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            except Exception:
+                pass
         except Exception:
             pass
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(10)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(0)
+
+        self.card = QFrame(self)
+        self.card.setObjectName("startup_card")
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(10)
+
+        try:
+            # Sombra eliminada para reducir costo de pintura y evitar bloqueos iniciales
+            self.card.setGraphicsEffect(None)
+        except Exception:
+            pass
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        # Logo del gimnasio a la izquierda del título (si existe)
+        self.logo = QLabel()
+        try:
+            lp = resource_path("assets/gym_logo.png")
+            if os.path.exists(lp):
+                pm = QPixmap(lp).scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.logo.setPixmap(pm)
+        except Exception:
+            pass
+        try:
+            if self.logo.pixmap() is None:
+                self.logo.setFixedWidth(0)
+        except Exception:
+            pass
+        header.addWidget(self.logo)
         self.label = QLabel("Preparando inicio…")
-        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        try:
+            f = self.label.font()
+            f.setPointSize(max(f.pointSize() - 1, 11))
+            f.setBold(True)
+            self.label.setFont(f)
+        except Exception:
+            pass
+        header.addWidget(self.label, 1)
+
+        self.detail_label = QLabel("")
+        self.detail_label.setWordWrap(True)
+        try:
+            f2 = self.detail_label.font()
+            f2.setPointSize(max(f2.pointSize() - 2, 10))
+            self.detail_label.setFont(f2)
+        except Exception:
+            pass
+
         self.bar = QProgressBar()
         try:
             self.bar.setRange(0, 100)
         except Exception:
             pass
         self.bar.setTextVisible(False)
-        layout.addWidget(self.label)
-        layout.addWidget(self.bar)
-        # Estilo ligero para evitar fondo completamente negro en algunos sistemas
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.hide_btn = QPushButton("Ocultar")
+        self.hide_btn.setObjectName("startup_hide_btn")
+        actions.addStretch(1)
+        actions.addWidget(self.hide_btn)
+
+        card_layout.addLayout(header)
+        card_layout.addWidget(self.detail_label)
+        card_layout.addWidget(self.bar)
+        card_layout.addLayout(actions)
+        outer.addWidget(self.card)
+
         try:
-            self.setStyleSheet(
-                "QDialog { background-color: #2b2b2b; border-radius: 10px; }\n"
-                "QLabel { color: #f0f0f0; }"
-            )
+            self.setStyleSheet("""
+                #startup_card {
+                    background-color: rgba(36, 36, 36, 240);
+                    border-radius: 12px;
+                }
+                #startup_card QLabel {
+                    color: #f0f0f0;
+                    background-color: transparent;
+                }
+                #startup_hide_btn {
+                    padding: 4px 12px;
+                    color: #f0f0f0;
+                    background-color: #303030;
+                    border: 1px solid #404040;
+                    border-radius: 6px;
+                }
+                QProgressBar {
+                    background-color: #202020;
+                    border: 1px solid #404040;
+                    border-radius: 4px;
+                    height: 8px;
+                }
+                QProgressBar::chunk {
+                    background-color: #3b82f6;
+                    border-radius: 4px;
+                }
+            """)
         except Exception:
             pass
         try:
-            self.setFixedSize(420, 140)
+            self.setFixedSize(540, 200)
         except Exception:
             pass
+
+        self._fade = None
+        try:
+            self.setWindowOpacity(0.0)
+        except Exception:
+            pass
+
+    def fade_in(self, duration_ms: int = 220):
+        try:
+            # Mostrar sin activar para evitar bloqueos de foco al inicio
+            self.show()
+            anim = QPropertyAnimation(self, b"windowOpacity")
+            anim.setDuration(int(duration_ms))
+            try:
+                anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            except Exception:
+                pass
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            self._fade = anim
+            anim.start()
+        except Exception:
+            try:
+                self.show()
+            except Exception:
+                pass
+
+    def fade_out(self, duration_ms: int = 180, on_finished: Callable | None = None):
+        try:
+            anim = QPropertyAnimation(self, b"windowOpacity")
+            anim.setDuration(int(duration_ms))
+            try:
+                anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            except Exception:
+                pass
+            anim.setStartValue(self.windowOpacity())
+            anim.setEndValue(0.0)
+            def _done():
+                try:
+                    self.hide()
+                    self.setWindowOpacity(1.0)
+                except Exception:
+                    pass
+                if on_finished:
+                    try:
+                        on_finished()
+                    except Exception:
+                        pass
+            try:
+                anim.finished.connect(_done)
+            except Exception:
+                _done()
+            self._fade = anim
+            anim.start()
+        except Exception:
+            try:
+                self.hide()
+            except Exception:
+                pass
 # Diálogo de progreso de arranque: definir antes de su uso
 # Eliminado: clase duplicada StartupProgressDialog (definida arriba)
+
+class SyncProgressDialog(QDialog):
+    """Diálogo mejorado para la sincronización inicial con progreso y acciones."""
+    def __init__(self):
+        super().__init__(None)
+        try:
+            self.setWindowTitle("Sincronizando datos…")
+            self.setModal(False)
+            self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+            # Fondo translúcido para animación suave y sombra
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        except Exception:
+            pass
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(0)
+
+        # Tarjeta central con sombra
+        self.card = QFrame(self)
+        self.card.setObjectName("sync_card")
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(10)
+
+        try:
+            # Eliminar sombra para consistencia y rendimiento
+            self.card.setGraphicsEffect(None)
+        except Exception:
+            pass
+
+        # Encabezado con icono y título
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        self.icon = QLabel()
+        try:
+            pm = None
+            for candidate in ["assets/gym_logo.png", "assets/standard_icon.png"]:
+                icon_path = resource_path(candidate)
+                if os.path.exists(icon_path):
+                    pm = QPixmap(icon_path)
+                    break
+            if pm and not pm.isNull():
+                pm = pm.scaled(26, 26, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                self.icon.setPixmap(pm)
+        except Exception:
+            pass
+        self.label = QLabel("Sincronización inicial en curso…")
+        try:
+            f = self.label.font()
+            f.setPointSize(max(f.pointSize() - 1, 11))
+            f.setBold(True)
+            self.label.setFont(f)
+        except Exception:
+            pass
+        header.addWidget(self.icon)
+        header.addWidget(self.label, 1)
+
+        # Detalle pequeño
+        self.detail_label = QLabel("")
+        self.detail_label.setWordWrap(True)
+        try:
+            f2 = self.detail_label.font()
+            f2.setPointSize(max(f2.pointSize() - 2, 10))
+            self.detail_label.setFont(f2)
+        except Exception:
+            pass
+
+        # Barra de progreso (indeterminada por defecto)
+        self.bar = QProgressBar()
+        try:
+            self.bar.setRange(0, 0)
+        except Exception:
+            pass
+        self.bar.setTextVisible(False)
+
+        # Acciones
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.hide_btn = QPushButton("Ocultar")
+        self.hide_btn.setObjectName("sync_hide_btn")
+        self.dnd_checkbox = QCheckBox("No molestar")
+        self.dnd_checkbox.setObjectName("sync_dnd_checkbox")
+        actions.addStretch(1)
+        actions.addWidget(self.dnd_checkbox)
+        actions.addWidget(self.hide_btn)
+
+        # Ensamblar tarjeta
+        card_layout.addLayout(header)
+        card_layout.addWidget(self.detail_label)
+        card_layout.addWidget(self.bar)
+        card_layout.addLayout(actions)
+        outer.addWidget(self.card)
+
+        # Estilos
+        try:
+            self.setStyleSheet("""
+                #sync_card {
+                    background-color: rgba(36, 36, 36, 240);
+                    border-radius: 12px;
+                }
+                #sync_card QLabel {
+                    color: #f0f0f0;
+                    background: transparent;
+                }
+                #sync_hide_btn {
+                    padding: 6px 12px;
+                    color: #eaeaea;
+                    background: rgba(255, 255, 255, 0.06);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 8px;
+                }
+                #sync_hide_btn:hover {
+                    background: rgba(255, 255, 255, 0.10);
+                }
+                #sync_hide_btn:pressed {
+                    background: rgba(255, 255, 255, 0.08);
+                }
+                QProgressBar {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    border-radius: 6px;
+                    padding: 2px;
+                }
+                QProgressBar::chunk {
+                    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #4caf50, stop:1 #66bb6a);
+                    border-radius: 4px;
+                }
+            """)
+        except Exception:
+            pass
+
+        try:
+            self.setFixedSize(540, 200)
+        except Exception:
+            pass
+
+        # Animación de entrada/salida
+        self._fade = None
+        try:
+            self.setWindowOpacity(0.0)
+        except Exception:
+            pass
+
+    def fade_in(self, duration_ms: int = 220):
+        try:
+            self.show()
+            anim = QPropertyAnimation(self, b"windowOpacity")
+            anim.setDuration(int(duration_ms))
+            try:
+                anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            except Exception:
+                pass
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            self._fade = anim
+            anim.start()
+        except Exception:
+            try:
+                self.show()
+            except Exception:
+                pass
+
+    def fade_out(self, duration_ms: int = 180, on_finished: Callable | None = None):
+        try:
+            anim = QPropertyAnimation(self, b"windowOpacity")
+            anim.setDuration(int(duration_ms))
+            try:
+                anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            except Exception:
+                pass
+            anim.setStartValue(self.windowOpacity())
+            anim.setEndValue(0.0)
+            def _done():
+                try:
+                    self.hide()
+                    self.setWindowOpacity(1.0)
+                except Exception:
+                    pass
+                if on_finished:
+                    try:
+                        on_finished()
+                    except Exception:
+                        pass
+            try:
+                anim.finished.connect(_done)
+            except Exception:
+                _done()
+            self._fade = anim
+            anim.start()
+        except Exception:
+            try:
+                self.hide()
+            except Exception:
+                pass
 
 class MainWindow(QMainWindow):
     monthly_hours_ready = pyqtSignal(int, int, bool)
@@ -167,8 +511,10 @@ class MainWindow(QMainWindow):
         # Debounce para refrescos por replicación
         self._inbound_debounce_ms = 2000
         self._last_inbound_refresh_ts = 0
-        # Overlay de arranque
+        # Overlays de arranque y sincronización
         self._startup_overlay: StartupProgressDialog | None = None
+        self._sync_overlay: SyncProgressDialog | None = None
+        self._sync_dnd: bool = False
         try:
             logging.info(f"Iniciando la aplicación con el rol: {self.user_role}...")
             # Instalar guardia de QThreads para evitar destrucción de hilos activos
@@ -310,6 +656,13 @@ class MainWindow(QMainWindow):
                                 self.startupProgressBar.show()
                         except Exception:
                             pass
+                        # Actualizar overlay mejorado en paralelo
+                        try:
+                            self.update_startup_overlay(i, total, label)
+                            if i >= total:
+                                self.hide_startup_overlay()
+                        except Exception:
+                            pass
                     self.startup_progress_step.connect(_on_startup_step)
                 except Exception:
                     pass
@@ -342,6 +695,8 @@ class MainWindow(QMainWindow):
             
             # Diferir tareas pesadas de configuración de pestañas y estilos
             try:
+                # Mostrar overlay de arranque inmediatamente
+                self.show_startup_overlay("Cargando aplicación…", "Preparando inicio…", 0)
                 QTimer.singleShot(0, self._run_deferred_startup)
             except Exception:
                 # Fallback: ejecutar directamente si QTimer falla
@@ -359,6 +714,12 @@ class MainWindow(QMainWindow):
                     pass
                 try:
                     self.apply_complete_styling()
+                except Exception:
+                    pass
+                # Fallback: actualizar y ocultar overlay
+                try:
+                    self.update_startup_overlay(1, 1, "Inicio completado")
+                    self.hide_startup_overlay()
                 except Exception:
                     pass
 
@@ -431,22 +792,53 @@ class MainWindow(QMainWindow):
 
     # Eliminado: stub legacy de inicialización de OfflineSyncManager
 
-    def show_startup_overlay(self):
+    def show_startup_overlay(self, title: str = "Cargando aplicación…", detail: str = "", percent: int | None = None):
         try:
             if self._startup_overlay is None:
                 self._startup_overlay = StartupProgressDialog()
-            # Centrar sobre la ventana principal
+                try:
+                    self._startup_overlay.hide_btn.clicked.connect(self.hide_startup_overlay)
+                except Exception:
+                    pass
+            # Textos
             try:
-                geo = self.frameGeometry()
-                center = geo.center()
-                dlg_geo = self._startup_overlay.frameGeometry()
-                dlg_geo.moveCenter(center)
-                self._startup_overlay.move(dlg_geo.topLeft())
+                self._startup_overlay.label.setText(title)
             except Exception:
                 pass
-            self._startup_overlay.show()
-            self._startup_overlay.raise_()
-            self._startup_overlay.activateWindow()
+            try:
+                self._startup_overlay.detail_label.setText(detail or "")
+            except Exception:
+                pass
+            # Progreso
+            try:
+                if isinstance(percent, int):
+                    self._startup_overlay.bar.setRange(0, 100)
+                    self._startup_overlay.bar.setValue(max(0, min(100, percent)))
+                else:
+                    # Si no hay porcentaje, mantener determinista al recibir señales
+                    self._startup_overlay.bar.setRange(0, 100)
+                
+            except Exception:
+                pass
+            # Centrar sobre la ventana principal
+            try:
+                geo = self.geometry()
+                dlg_w = self._startup_overlay.width()
+                dlg_h = self._startup_overlay.height()
+                x = geo.x() + (geo.width() - dlg_w) // 2
+                y = geo.y() + (geo.height() - dlg_h) // 3
+                self._startup_overlay.move(max(0, x), max(0, y))
+            except Exception:
+                pass
+            # Mostrar con fade-in
+            try:
+                self._startup_overlay.fade_in()
+            except Exception:
+                try:
+                    # Mostrar sin activar para evitar robar foco y bloquear interacción
+                    self._startup_overlay.show()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -454,18 +846,20 @@ class MainWindow(QMainWindow):
         try:
             if not self._startup_overlay:
                 return
-            # Actualizar barra como porcentaje
+            # Actualizar barra como porcentaje determinista
             pct = 0
             try:
                 pct = int((i / max(total, 1)) * 100)
             except Exception:
                 pct = i
             try:
-                self._startup_overlay.bar.setValue(pct)
+                self._startup_overlay.bar.setRange(0, 100)
+                self._startup_overlay.bar.setValue(max(0, min(100, pct)))
             except Exception:
                 pass
+            # Detalle descriptivo
             try:
-                self._startup_overlay.label.setText(label or "")
+                self._startup_overlay.detail_label.setText(label or "")
             except Exception:
                 pass
         except Exception:
@@ -474,8 +868,115 @@ class MainWindow(QMainWindow):
     def hide_startup_overlay(self):
         try:
             if self._startup_overlay:
-                self._startup_overlay.close()
-                self._startup_overlay = None
+                try:
+                    self._startup_overlay.fade_out(on_finished=lambda: setattr(self, "_startup_overlay", None))
+                except Exception:
+                    self._startup_overlay.close()
+                    self._startup_overlay = None
+        except Exception:
+            pass
+
+    def show_sync_overlay(self, message: str = "Sincronizando datos iniciales…", ready: int | None = None, total: int | None = None, detail: str | None = None):
+        try:
+            if getattr(self, "_sync_dnd", False):
+                return
+            if self._sync_overlay is None:
+                self._sync_overlay = SyncProgressDialog()
+                try:
+                    self._sync_overlay.hide_btn.clicked.connect(self.hide_sync_overlay)
+                except Exception:
+                    pass
+                try:
+                    self._sync_overlay.dnd_checkbox.stateChanged.connect(self._on_sync_dnd_changed)
+                except Exception:
+                    pass
+            # Actualizar textos
+            try:
+                self._sync_overlay.label.setText(message or "Sincronizando datos…")
+            except Exception:
+                pass
+            try:
+                if detail and detail.strip():
+                    self._sync_overlay.detail_label.setText(detail)
+                    self._sync_overlay.detail_label.show()
+                else:
+                    self._sync_overlay.detail_label.hide()
+            except Exception:
+                pass
+            # Progreso (ready/total) o indeterminado
+            try:
+                if isinstance(ready, int) and isinstance(total, int) and total > 0:
+                    self._sync_overlay.bar.setRange(0, int(total))
+                    self._sync_overlay.bar.setValue(max(0, min(int(ready), int(total))))
+                else:
+                    self._sync_overlay.bar.setRange(0, 0)
+            except Exception:
+                pass
+            # Centrar sobre la ventana principal
+            try:
+                geo = self.frameGeometry()
+                center = geo.center()
+                dlg_geo = self._sync_overlay.frameGeometry()
+                dlg_geo.moveCenter(center)
+                self._sync_overlay.move(dlg_geo.topLeft())
+            except Exception:
+                pass
+            # Mostrar con fade-in
+            try:
+                self._sync_overlay.fade_in()
+            except Exception:
+                self._sync_overlay.show()
+                self._sync_overlay.raise_()
+                self._sync_overlay.activateWindow()
+        except Exception:
+            pass
+
+    def update_sync_overlay(self, message: str | None = None, ready: int | None = None, total: int | None = None, detail: str | None = None):
+        try:
+            if not self._sync_overlay or getattr(self, "_sync_dnd", False):
+                return
+            if message is not None:
+                try:
+                    self._sync_overlay.label.setText(message or "")
+                except Exception:
+                    pass
+            if detail is not None:
+                try:
+                    if detail.strip():
+                        self._sync_overlay.detail_label.setText(detail)
+                        self._sync_overlay.detail_label.show()
+                    else:
+                        self._sync_overlay.detail_label.hide()
+                except Exception:
+                    pass
+            if (ready is not None) or (total is not None):
+                try:
+                    if isinstance(ready, int) and isinstance(total, int) and int(total) > 0:
+                        self._sync_overlay.bar.setRange(0, int(total))
+                        self._sync_overlay.bar.setValue(max(0, min(int(ready or 0), int(total))))
+                    else:
+                        self._sync_overlay.bar.setRange(0, 0)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def hide_sync_overlay(self):
+        try:
+            if self._sync_overlay:
+                try:
+                    self._sync_overlay.fade_out(on_finished=lambda: setattr(self, "_sync_overlay", None))
+                except Exception:
+                    self._sync_overlay.close()
+                    self._sync_overlay = None
+        except Exception:
+            pass
+
+    def _on_sync_dnd_changed(self, state: int):
+        try:
+            self._sync_dnd = (int(state) == int(Qt.CheckState.Checked))
+            if self._sync_dnd:
+                self.hide_sync_overlay()
         except Exception:
             pass
     def _apply_responsive_window_constraints(self):
@@ -1673,6 +2174,23 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+            # Overlay de sincronización inicial: mostrar mientras haya tablas no listas
+            try:
+                if has_sub and not getattr(self, '_sync_dnd', False):
+                    prog = self._get_initial_sync_progress_counts()
+                    if prog and int(prog.get('total', 0)) > 0 and int(prog.get('ready', 0)) < int(prog.get('total', 0)):
+                        ready = int(prog.get('ready', 0))
+                        total = int(prog.get('total', 0))
+                        detail = f"Tablas listas: {ready}/{total} • lag {lag_text}"
+                        self.show_sync_overlay("Sincronizando datos iniciales…", ready=ready, total=total, detail=detail)
+                    else:
+                        self.hide_sync_overlay()
+                else:
+                    self.hide_sync_overlay()
+            except Exception:
+                # No romper si falla la detección
+                pass
+
             # Actualizar advertencia separada para pendientes no accionables de WhatsApp
             try:
                 if total_whatsapp and actionable_whatsapp == 0 and not whatsapp_ok:
@@ -1728,6 +2246,44 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _is_initial_sync_in_progress(self) -> bool:
+        """Detecta si hay sincronización inicial en curso consultando pg_subscription_rel."""
+        try:
+            with self.db_manager.get_connection_context() as conn:
+                cur = conn.cursor()
+                # Contar tablas no listas (estados distintos de 'r' ready)
+                try:
+                    cur.execute("SELECT COUNT(*) FROM pg_subscription_rel WHERE srsubstate <> 'r'")
+                except Exception:
+                    # Fallback si columna/tabla no existe (versiones antiguas)
+                    return False
+                row = cur.fetchone()
+                pending = int(row[0]) if row and row[0] is not None else 0
+                return pending > 0
+        except Exception:
+            return False
+
+    def _get_initial_sync_progress_counts(self) -> dict | None:
+        """Devuelve dict con 'ready' y 'total' consultando pg_subscription_rel, o None si no disponible."""
+        try:
+            with self.db_manager.get_connection_context() as conn:
+                cur = conn.cursor()
+                try:
+                    cur.execute("""
+                        SELECT
+                            SUM(CASE WHEN srsubstate = 'r' THEN 1 ELSE 0 END) AS ready,
+                            COUNT(*) AS total
+                        FROM pg_subscription_rel
+                    """)
+                except Exception:
+                    return None
+                row = cur.fetchone() or (0, 0)
+                ready = int(row[0] or 0)
+                total = int(row[1] or 0)
+                return {"ready": ready, "total": total}
+        except Exception:
+            return None
+
     def _start_replication_setup_thread(self):
         """Inicia hilo ligero para auto-setup de replicación sin bloquear la UI."""
         try:
@@ -1752,6 +2308,19 @@ class MainWindow(QMainWindow):
             res = ensure_logical_replication_from_config_path(cfg_path)
             try:
                 self._replication_setup_result = res
+            except Exception:
+                pass
+            # Si la suscripción fue creada, mostrar overlay de sincronización inicial
+            try:
+                for step in (res.get('steps') or []):
+                    sub = step.get('subscription') if isinstance(step, dict) else None
+                    if sub and sub.get('changed'):
+                        QTimer.singleShot(0, lambda: self.show_sync_overlay("Sincronizando datos iniciales…"))
+                        try:
+                            QTimer.singleShot(500, self._start_initial_reconciliation_thread)
+                        except Exception:
+                            pass
+                        break
             except Exception:
                 pass
             # Feedback no bloqueante en la barra de estado
@@ -1808,6 +2377,177 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
     
+    def _start_initial_reconciliation_thread(self):
+        try:
+            import threading
+            t = threading.Thread(target=self._auto_initial_reconciliation, daemon=True)
+            t.start()
+            try:
+                self._initial_recon_thread = t
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _auto_initial_reconciliation(self):
+        """Ejecuta reconciliación inicial bidireccional sin bloquear la UI.
+        - Usa nombres de suscripción/publicación desde config/replication.
+        - Resuelve tablas dinámicamente desde config/sync_tables.json.
+        - Soporta PK compuestas y actualiza filas con updated_at.
+        """
+        try:
+            QTimer.singleShot(0, lambda: self.show_sync_overlay("Reconciliando datos históricos…", detail="Preparando reconciliación local⇄remoto"))
+        except Exception:
+            pass
+        # Local→Remoto para tablas transaccionales
+        try:
+            from pathlib import Path
+            import json
+            from scripts import reconcile_local_remote_once as L2R
+            cfg = L2R.load_config()
+            rep_cfg = (cfg.get('replication') or {})
+            subname = rep_cfg.get('subscription_name') or 'gym_sub'
+            local_params = L2R.build_conn_params('local', cfg)
+            remote_params = L2R.build_conn_params('remote', cfg)
+            local_conn = L2R.connect(local_params)
+            remote_conn = L2R.connect(remote_params)
+            try:
+                L2R.disable_subscription(local_conn, subname)
+            except Exception:
+                pass
+            try:
+                tables_to_process = list(getattr(L2R, 'DEFAULT_TABLES', []))
+                try:
+                    sync_path = Path(__file__).resolve().parent / 'config' / 'sync_tables.json'
+                    if sync_path.exists():
+                        with open(sync_path, 'r', encoding='utf-8') as f:
+                            sync_cfg = json.load(f) or {}
+                        uploads = sync_cfg.get('uploads_local_to_remote') or []
+                        if uploads:
+                            tables_to_process = uploads
+                except Exception:
+                    pass
+                total_inserted = 0
+                total_updated = 0
+                for table in tables_to_process:
+                    try:
+                        pk_cols = L2R.get_pk_columns(local_conn, 'public', table)
+                        # Inserciones: claves presentes en local y faltantes en remoto
+                        missing = L2R.fetch_missing_pks(local_conn, remote_conn, 'public', table, pk_cols)
+                        if missing:
+                            rows = L2R.fetch_rows_by_pk(local_conn, 'public', table, pk_cols, missing)
+                            inserted = L2R.insert_rows_remote(remote_conn, 'public', table, rows, pk_cols, dry_run=False)
+                            total_inserted += int(inserted or 0)
+                        # Actualizaciones: filas existentes con updated_at más reciente en local
+                        updated = L2R.reconcile_updates_remote(local_conn, remote_conn, 'public', table, pk_cols, dry_run=False)
+                        total_updated += int(updated or 0)
+                    except Exception:
+                        pass
+                try:
+                    # Feedback discreto
+                    QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Local→Remoto: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
+                except Exception:
+                    pass
+            finally:
+                try:
+                    L2R.enable_subscription(local_conn, subname)
+                except Exception:
+                    pass
+                try:
+                    local_conn.close()
+                except Exception:
+                    pass
+                try:
+                    remote_conn.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                logging.warning(f"Reconciliación local→remoto falló: {e}")
+            except Exception:
+                pass
+        # Remoto→Local para tablas puntuales excluidas de publicación
+        try:
+            from pathlib import Path
+            import json
+            from scripts import reconcile_remote_to_local_once as R2L
+            cfg = R2L.load_config()
+            rep_cfg = (cfg.get('replication') or {})
+            subname = rep_cfg.get('subscription_name') or 'gym_sub'
+            local_params = R2L.build_conn_params('local', cfg)
+            remote_params = R2L.build_conn_params('remote', cfg)
+            local_conn = R2L.connect(local_params)
+            remote_conn = R2L.connect(remote_params)
+            try:
+                R2L.disable_subscription(local_conn, subname)
+            except Exception:
+                pass
+            try:
+                tables_to_process = list(getattr(R2L, 'DEFAULT_TABLES', []))
+                try:
+                    sync_path = Path(__file__).resolve().parent / 'config' / 'sync_tables.json'
+                    if sync_path.exists():
+                        with open(sync_path, 'r', encoding='utf-8') as f:
+                            sync_cfg = json.load(f) or {}
+                        publishes = sync_cfg.get('publishes_remote_to_local') or []
+                        if publishes:
+                            tables_to_process = publishes
+                except Exception:
+                    pass
+                total_inserted = 0
+                total_updated = 0
+                for table in tables_to_process:
+                    try:
+                        pk_cols = R2L.get_pk_columns(local_conn, 'public', table)
+                        # Inserciones: claves presentes en remoto y faltantes en local
+                        missing = R2L.fetch_missing_pks(remote_conn, local_conn, 'public', table, pk_cols)
+                        if missing:
+                            rows = R2L.fetch_rows_by_pk(remote_conn, 'public', table, pk_cols, missing)
+                            inserted = R2L.insert_rows_local(local_conn, 'public', table, rows, pk_cols, dry_run=False)
+                            total_inserted += int(inserted or 0)
+                        # Actualizaciones: filas existentes con updated_at más reciente en remoto
+                        updated = R2L.reconcile_updates_local(remote_conn, local_conn, 'public', table, pk_cols, dry_run=False)
+                        total_updated += int(updated or 0)
+                    except Exception:
+                        pass
+                try:
+                    QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Remoto→Local: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
+                except Exception:
+                    pass
+            finally:
+                try:
+                    R2L.enable_subscription(local_conn, subname)
+                except Exception:
+                    pass
+                try:
+                    local_conn.close()
+                except Exception:
+                    pass
+                try:
+                    remote_conn.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                logging.warning(f"Reconciliación remoto→local falló: {e}")
+            except Exception:
+                pass
+        # Actualizar UI y lanzar subida inmediata de outbox
+        try:
+            QTimer.singleShot(0, lambda: self.status_bar.showMessage("Reconciliación inicial completada", 7000))
+        except Exception:
+            pass
+        try:
+            svc = getattr(self, 'sync_service', None)
+            if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
+                svc.flush_outbox_once_bg(delay_ms=0)
+        except Exception:
+            pass
+        try:
+            QTimer.singleShot(0, self.hide_sync_overlay)
+        except Exception:
+            pass
+
     def setup_alert_system(self):
         """Configura el sistema de alertas y sus conexiones"""
         try:
@@ -5407,11 +6147,29 @@ def main():
                 # Replicación lógica PostgreSQL: no se inicia ningún proceso externo desde la app
                 # La replicación debe ser administrada por el servidor de base de datos
 
-                # Lanzar arranque diferido sin bloquear el hilo de UI
+                # Lanzar arranque diferido en segundo plano (hilo) para evitar bloqueo del UI
                 try:
-                    QTimer.singleShot(0, window._run_deferred_startup)
+                    from PyQt6.QtCore import QThreadPool, QRunnable
+                    class _DeferredStartupRunnable(QRunnable):
+                        def __init__(self, _window):
+                            super().__init__()
+                            self._window = _window
+                            try:
+                                self.setAutoDelete(True)
+                            except Exception:
+                                pass
+                        def run(self):
+                            try:
+                                self._window._run_deferred_startup()
+                            except Exception as e:
+                                logging.debug(f"Error en deferred startup: {e}")
+                    QThreadPool.globalInstance().start(_DeferredStartupRunnable(window))
                 except Exception:
-                    pass
+                    # Fallback: ejecutar en el hilo principal si no está disponible QThreadPool
+                    try:
+                        QTimer.singleShot(0, window._run_deferred_startup)
+                    except Exception:
+                        pass
 
                 # Integrar monitor de salud de redes en background
                 try:

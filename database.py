@@ -3980,6 +3980,42 @@ class DatabaseManager:
                     cursor.execute("SELECT 1 FROM usuarios WHERE dni = %s", (dni,))
                 return cursor.fetchone() is not None
 
+    def usuario_id_existe(self, usuario_id: int) -> bool:
+        """Verifica si un ID de usuario ya existe en la base de datos"""
+        with self.get_connection_context() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM usuarios WHERE id = %s", (usuario_id,))
+                return cursor.fetchone() is not None
+
+    def obtener_resumen_referencias_usuario(self, usuario_id: int) -> dict:
+        """Obtiene un resumen de conteos de referencias al usuario en tablas relacionadas"""
+        counts = {}
+        with self.get_connection_context() as conn:
+            with conn.cursor() as cursor:
+                queries = [
+                    ("pagos", "SELECT COUNT(*) FROM pagos WHERE usuario_id = %s"),
+                    ("asistencias", "SELECT COUNT(*) FROM asistencias WHERE usuario_id = %s"),
+                    ("rutinas", "SELECT COUNT(*) FROM rutinas WHERE usuario_id = %s"),
+                    ("clase_usuarios", "SELECT COUNT(*) FROM clase_usuarios WHERE usuario_id = %s"),
+                    ("clase_lista_espera", "SELECT COUNT(*) FROM clase_lista_espera WHERE usuario_id = %s"),
+                    ("usuario_notas", "SELECT COUNT(*) FROM usuario_notas WHERE usuario_id = %s"),
+                    ("usuario_etiquetas", "SELECT COUNT(*) FROM usuario_etiquetas WHERE usuario_id = %s"),
+                    ("usuario_estados", "SELECT COUNT(*) FROM usuario_estados WHERE usuario_id = %s"),
+                    ("profesores", "SELECT COUNT(*) FROM profesores WHERE usuario_id = %s"),
+                    ("notificaciones_cupos", "SELECT COUNT(*) FROM notificaciones_cupos WHERE usuario_id = %s"),
+                    ("audit_logs_user", "SELECT COUNT(*) FROM audit_logs WHERE user_id = %s"),
+                    ("checkin_pending", "SELECT COUNT(*) FROM checkin_pending WHERE usuario_id = %s"),
+                    ("whatsapp_messages", "SELECT COUNT(*) FROM whatsapp_messages WHERE user_id = %s"),
+                ]
+                for key, sql in queries:
+                    try:
+                        cursor.execute(sql, (usuario_id,))
+                        row = cursor.fetchone()
+                        counts[key] = row[0] if row else 0
+                    except Exception:
+                        counts[key] = 0
+        return counts
+
     # --- MÉTODOS DE PAGO ---
     
     def obtener_metodos_pago(self, solo_activos: bool = True) -> List[Dict]:
@@ -5573,6 +5609,129 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT 1 FROM clase_usuarios WHERE usuario_id = %s LIMIT 1", (usuario_id,))
                 return cursor.fetchone() is not None
+
+    @database_retry()
+    def cambiar_usuario_id(self, old_id: int, new_id: int) -> None:
+        """Cambia el ID de un usuario de forma segura, actualizando todas las referencias.
+        Estrategia: insertar una fila nueva con el nuevo ID, migrar referencias y eliminar la fila anterior.
+        Se usa un DNI temporal único al crear la nueva fila para evitar colisión de unicidad.
+        """
+        if old_id == new_id:
+            return
+        if new_id is None or int(new_id) <= 0:
+            raise ValueError("El nuevo ID debe ser un entero positivo.")
+
+        with self.get_connection_context() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Validaciones previas
+                cursor.execute("SELECT * FROM usuarios WHERE id = %s", (old_id,))
+                old_row = cursor.fetchone()
+                if not old_row:
+                    raise ValueError("Usuario original no existe.")
+                if (old_row.get('rol') == 'dueño'):
+                    raise PermissionError("El usuario con rol 'dueño' no puede cambiar su ID.")
+
+                cursor.execute("SELECT 1 FROM usuarios WHERE id = %s", (new_id,))
+                if cursor.fetchone():
+                    raise ValueError("El nuevo ID ya está en uso por otro usuario.")
+
+                # Preparar DNI temporal único para evitar colisión de unicidad al insertar la nueva fila
+                orig_dni = old_row.get('dni')
+                try:
+                    cursor.execute("SELECT COALESCE(MAX(CAST(dni AS INTEGER)), 0) FROM usuarios")
+                    max_dni = cursor.fetchone()[0] or 0
+                    tmp_dni = int(max_dni) + 1
+                except Exception:
+                    # Fallback si el CAST falla o la columna no es numérica
+                    tmp_dni = f"{str(orig_dni)}__tmp__{old_id}_{new_id}"
+
+                # Insertar nueva fila con los datos actuales, usando DNI temporal
+                cursor.execute(
+                    """
+                    INSERT INTO usuarios (
+                        id, nombre, dni, telefono, pin, rol, activo, tipo_cuota, notas,
+                        fecha_registro, fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        new_id,
+                        old_row.get('nombre'), tmp_dni, old_row.get('telefono'), old_row.get('pin'),
+                        old_row.get('rol'), old_row.get('activo'), old_row.get('tipo_cuota'), old_row.get('notas'),
+                        old_row.get('fecha_registro'), old_row.get('fecha_proximo_vencimiento'),
+                        old_row.get('cuotas_vencidas'), old_row.get('ultimo_pago')
+                    )
+                )
+
+                # Actualizar referencias en tablas relacionadas
+                updates = [
+                    ("UPDATE pagos SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE asistencias SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE rutinas SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE clase_usuarios SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE clase_lista_espera SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE usuario_notas SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE usuario_etiquetas SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE usuario_estados SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE profesores SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE notificaciones_cupos SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE audit_logs SET user_id = %s WHERE user_id = %s", (new_id, old_id)),
+                    ("UPDATE checkin_pending SET usuario_id = %s WHERE usuario_id = %s", (new_id, old_id)),
+                    ("UPDATE whatsapp_messages SET user_id = %s WHERE user_id = %s", (new_id, old_id)),
+                    # Referencias como autor/asignador/creador
+                    ("UPDATE usuario_notas SET autor_id = %s WHERE autor_id = %s", (new_id, old_id)),
+                    ("UPDATE usuario_etiquetas SET asignado_por = %s WHERE asignado_por = %s", (new_id, old_id)),
+                    ("UPDATE usuario_estados SET creado_por = %s WHERE creado_por = %s", (new_id, old_id)),
+                ]
+                for sql, params in updates:
+                    try:
+                        cursor.execute(sql, params)
+                    except Exception as e:
+                        logging.debug(f"Aviso al actualizar referencias para cambio de ID: {e}")
+
+                # Actualizar arrays de IDs en acciones masivas pendientes
+                try:
+                    cursor.execute(
+                        "UPDATE acciones_masivas_pendientes SET usuario_ids = array_replace(usuario_ids, %s, %s) WHERE %s = ANY(usuario_ids)",
+                        (old_id, new_id, old_id)
+                    )
+                except Exception as e:
+                    logging.debug(f"Aviso al actualizar arrays de acciones masivas: {e}")
+
+                # Eliminar la fila anterior
+                cursor.execute("DELETE FROM usuarios WHERE id = %s", (old_id,))
+
+                # Restaurar el DNI original en la nueva fila (ahora sin colisión)
+                try:
+                    cursor.execute("UPDATE usuarios SET dni = %s WHERE id = %s", (orig_dni, new_id))
+                except Exception as e:
+                    logging.warning(f"No se pudo restaurar DNI original tras cambio de ID: {e}")
+
+                conn.commit()
+
+                # Auditoría
+                try:
+                    if self.audit_logger:
+                        self.audit_logger.log_operation('UPDATE', 'usuarios', new_id, {'id': old_id}, {'id': new_id})
+                except Exception:
+                    pass
+
+                # Limpiar caches y sincronización
+                try:
+                    self.limpiar_cache_usuarios()
+                except Exception:
+                    pass
+                try:
+                    payload = {
+                        "id": new_id,
+                        "dni": orig_dni,
+                        "nombre": old_row.get('nombre'),
+                        "telefono": old_row.get('telefono'),
+                        "tipo_cuota": old_row.get('tipo_cuota'),
+                        "active": bool(old_row.get('activo')),
+                    }
+                    enqueue_operations([op_user_update(payload)])
+                except Exception as e:
+                    logging.debug(f"sync enqueue user.update (cambio ID) falló: {e}")
 
     # --- MÉTODOS PARA GRUPOS DE EJERCICIOS ---
     

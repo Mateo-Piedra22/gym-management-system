@@ -1671,6 +1671,11 @@ class UserTabWidget(QWidget):
             main_parent = self.window()
             dialog = UserDialog(main_parent if isinstance(main_parent, QWidget) else self,
                                 user=self.selected_user, db_manager=self.db_manager)
+            # Snapshot del ID original ANTES de aplicar cambios desde el diálogo
+            try:
+                original_id = int(self.selected_user.id)
+            except Exception:
+                original_id = self.selected_user.id
             if dialog.exec():
                 user_data = dialog.get_user_data()
                 
@@ -1690,11 +1695,47 @@ class UserTabWidget(QWidget):
                 
                 # Verificar DNI único (excluyendo el usuario actual)
                 if (user_data.dni != self.selected_user.dni and 
-                    self.db_manager.dni_existe(user_data.dni, self.selected_user.id)):
+                    self.db_manager.dni_existe(user_data.dni, original_id)):
                     QMessageBox.warning(self, "Error de Validación", "Ya existe otro usuario con este DNI.")
                     return
                 
-                # Actualizar el usuario
+                # Si se modificó el ID, confirmar y migrar referencias antes de actualizar otros campos
+                try:
+                    new_id = int(user_data.id)
+                except Exception:
+                    new_id = user_data.id
+
+                if new_id and original_id and new_id != original_id:
+                    # Resumen de referencias para informar al usuario
+                    ref_summary = {}
+                    try:
+                        ref_summary = self.db_manager.obtener_resumen_referencias_usuario(original_id) or {}
+                    except Exception:
+                        ref_summary = {}
+                    
+                    # Construir mensaje de confirmación
+                    mensaje = (f"Está a punto de cambiar el ID del usuario de {original_id} a {new_id}.\n\n"
+                               "Se actualizarán las referencias en los siguientes módulos:\n")
+                    for k, v in ref_summary.items():
+                        mensaje += f"• {k}: {v}\n"
+                    mensaje += "\n¿Desea continuar?"
+                    
+                    resp = QMessageBox.question(self, "Confirmar cambio de ID", mensaje,
+                                               QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                               QMessageBox.StandardButton.No)
+                    if resp != QMessageBox.StandardButton.Yes:
+                        return
+
+                    # Ejecutar migración de ID
+                    try:
+                        self.db_manager.cambiar_usuario_id(original_id, new_id)
+                        # Mantener consistencia del seleccionado y datos
+                        self.selected_user.id = new_id
+                    except Exception as e:
+                        QMessageBox.critical(self, "Error", f"No se pudo cambiar el ID del usuario: {e}")
+                        return
+
+                # Actualizar el usuario (otros campos)
                 self.db_manager.actualizar_usuario(user_data)
                 QMessageBox.information(self, "Éxito", "Usuario actualizado correctamente.")
                 
