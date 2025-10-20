@@ -818,6 +818,11 @@ class LoginDialog(QDialog):
         # Definir quaternary_bg para evitar NameError en reemplazos
         quaternary_bg = adjust_brightness(tertiary_bg, 0.95 if is_dark_theme else 1.05)
 
+        # Colores adicionales usados por el QSS global
+        warning_color = self.branding_config.get('warning_color', '#EBCB8B')
+        info_color = self.branding_config.get('info_color', '#88C0D0')
+        muted_color = self.branding_config.get('muted_color') or auto_text_on_alt
+
         # Guardar variables clave para reinyectar estilos al mostrarse
         try:
             self._primary_color = primary_color
@@ -1250,7 +1255,8 @@ class LoginDialog(QDialog):
             replacements = {
                 'VAR_BG_PRIMARY': background_color,
                 'VAR_BG_SECONDARY': alt_background_color,
-                'VAR_BG_TERTIARY': tertiary_bg,
+                'VAR_BG_TERTIARY': background_color,
+                'VAR_BG_QUATERNARY': background_color,
                 'VAR_PRIMARY_COLOR': primary_color,
                 'VAR_PRIMARY_HOVER_COLOR': primary_hover,
                 'VAR_SECONDARY_HOVER_COLOR': secondary_hover,
@@ -1259,22 +1265,26 @@ class LoginDialog(QDialog):
                 'VAR_BORDER_PRIMARY': border_color,
                 'VAR_TEXT_PRIMARY': ui_text_color,
                 'VAR_TEXT_SECONDARY': auto_text_on_alt,
-                'VAR_TEXT_TERTIARY': auto_text_on_tertiary,
+                'VAR_TEXT_TERTIARY': auto_text_on_bg,
+                'VAR_TEXT_MUTED': muted_color,
                 'VAR_TEXT_ON_BRAND': auto_text_on_primary,
                 'VAR_ACCENT_SUCCESS': secondary_color,
                 'VAR_ACCENT_DANGER': accent_color,
+                'VAR_ACCENT_WARNING': warning_color,
+                'VAR_ACCENT_INFO': info_color,
+                'VAR_FONT_FAMILY': main_font,
                 '"Segoe UI"': f'"{main_font}"',
                 'Segoe UI': main_font,
                 '#252A35': background_color,
                 '#2E3440': alt_background_color,
-                '#3B4252': tertiary_bg,
-                '#434C5E': quaternary_bg,
+                '#3B4252': background_color,
+                '#434C5E': background_color,
                 '#5E81AC': primary_color,
                 '#81A1C1': primary_hover,
                 '#4C6A94': primary_pressed,
                 '#ECEFF4': auto_text_on_bg,
                 '#D8DEE9': auto_text_on_alt,
-                '#B8C5D1': auto_text_on_tertiary,
+                '#B8C5D1': auto_text_on_bg,
                 '#4C566A': border_color,
             }
             processed_qss = base_qss
@@ -1836,51 +1846,86 @@ class LoginDialog(QDialog):
                         if hasattr(self, 'db_manager') and self.db_manager:
                             try:
                                 local_ok = bool(self.db_manager.actualizar_configuracion('owner_password', new_pwd))
+                                # Refrescar cachés locales inmediatamente para evitar valores antiguos
+                                try:
+                                    if hasattr(self.db_manager, 'prefetch_owner_credentials_async'):
+                                        self.db_manager.prefetch_owner_credentials_async(ttl_seconds=0)
+                                except Exception:
+                                    pass
                             except Exception:
                                 local_ok = False
 
-                        # Intentar actualizar en la base remota (según config.json)
+                        # Intentar actualizar en la base remota vía WebApp; fallback a conexión directa si falla
                         remote_ok = False
                         try:
                             import os, json
-                            import psycopg2
-                            base_dir = os.path.dirname(os.path.dirname(__file__))
-                            cfg_path = os.path.join(base_dir, 'config', 'config.json')
-                            remote = {}
-                            if os.path.exists(cfg_path):
-                                with open(cfg_path, 'r', encoding='utf-8') as f:
-                                    cfg = json.load(f)
-                                    remote = cfg.get('db_remote') or {}
-                            host = remote.get('host'); port = remote.get('port'); dbn = remote.get('database')
-                            user = remote.get('user'); pwd = remote.get('password')
-                            sslmode = remote.get('sslmode') or 'require'
-                            appname = remote.get('application_name') or 'gym_management_system'
-                            timeout = int(remote.get('connect_timeout') or 10)
-                            if host and dbn and user and (pwd is not None):
-                                conn = psycopg2.connect(host=host, port=port, dbname=dbn, user=user, password=pwd, sslmode=sslmode, application_name=appname, connect_timeout=timeout)
-                                cur = conn.cursor()
-                                try:
-                                    cur.execute("""
+                            import requests
+                            from utils import get_webapp_base_url
+                            # Resolver DEV_PASSWORD para autorización del endpoint
+                            dev_pass = None
+                            try:
+                                from managers import DeveloperManager
+                                dev_pass = str(getattr(DeveloperManager, 'DEV_PASSWORD', '') or '').strip()
+                            except Exception:
+                                dev_pass = None
+                            if not dev_pass:
+                                dev_pass = os.getenv('DEV_PASSWORD', '').strip()
+                            base_url = str(get_webapp_base_url() or '').strip()
+                            if base_url:
+                                url = (base_url.rstrip('/') + '/api/admin/owner-password')
+                                resp = requests.post(url, json={'dev_password': dev_pass, 'new_password': new_pwd}, timeout=6)
+                                if resp.ok:
+                                    try:
+                                        data = resp.json()
+                                    except Exception:
+                                        data = {}
+                                    if isinstance(data, dict) and data.get('success') is True:
+                                        remote_ok = True
+                        except Exception:
+                            remote_ok = False
+
+                        # Fallback: intentar actualización directa en DB remota definida en config.json si WebApp no funcionó
+                        if not remote_ok:
+                            try:
+                                import os, json
+                                import psycopg2
+                                base_dir = os.path.dirname(os.path.dirname(__file__))
+                                cfg_path = os.path.join(base_dir, 'config', 'config.json')
+                                remote = {}
+                                if os.path.exists(cfg_path):
+                                    with open(cfg_path, 'r', encoding='utf-8') as f:
+                                        cfg = json.load(f)
+                                        remote = cfg.get('db_remote') or {}
+                                host = remote.get('host'); port = remote.get('port'); dbn = remote.get('database')
+                                user = remote.get('user'); pwd = remote.get('password')
+                                sslmode = remote.get('sslmode') or 'require'
+                                appname = remote.get('application_name') or 'gym_management_system'
+                                timeout = int(remote.get('connect_timeout') or 10)
+                                if host and dbn and user and (pwd is not None):
+                                    conn = psycopg2.connect(host=host, port=port, dbname=dbn, user=user, password=pwd, sslmode=sslmode, application_name=appname, connect_timeout=timeout)
+                                    cur = conn.cursor()
+                                    try:
+                                        cur.execute("""
                         CREATE TABLE IF NOT EXISTS configuracion (
                             clave TEXT PRIMARY KEY,
                             valor TEXT
                         )
                         """)
-                                except Exception:
-                                    pass
-                                cur.execute(
-                    """
-                    INSERT INTO configuracion (clave, valor)
-                    VALUES (%s, %s)
-                    ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
-                    """,
-                    ('owner_password', new_pwd),
-                )
-                                conn.commit()
-                                cur.close(); conn.close()
-                                remote_ok = True
-                        except Exception:
-                            remote_ok = False
+                                    except Exception:
+                                        pass
+                                    cur.execute(
+                        """
+                        INSERT INTO configuracion (clave, valor)
+                        VALUES (%s, %s)
+                        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+                        """,
+                        ('owner_password', new_pwd),
+                    )
+                                    conn.commit()
+                                    cur.close(); conn.close()
+                                    remote_ok = True
+                            except Exception:
+                                remote_ok = False
 
                         if not local_ok:
                             return {'ok': False, 'msg': 'No se pudo actualizar la contraseña en la base local.'}
