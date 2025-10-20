@@ -488,6 +488,21 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
         master_enabled = bool(scfg.get("enabled", False))
 
         scripts_dir = os.path.join(PROJECT_ROOT, "scripts")
+        # Compatibilidad: si sólo existe 'reconcile', mapear a claves nuevas
+        legacy = scfg.get("reconcile") if isinstance(scfg.get("reconcile"), dict) else {}
+        if legacy and not isinstance(scfg.get("reconcile_r2l"), dict) and not isinstance(scfg.get("reconcile_l2r"), dict):
+            try:
+                scfg["reconcile_r2l"] = {
+                    "enabled": bool(legacy.get("enabled", False)),
+                    "interval_minutes": int(legacy.get("interval_minutes", 60)),
+                }
+                scfg["reconcile_l2r"] = {
+                    "enabled": bool(legacy.get("enabled", False)),
+                    "time": "02:00",
+                }
+            except Exception:
+                pass
+
         tasks_def = [
             {
                 "key": "uploader",
@@ -497,11 +512,18 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 "type": "minute",
             },
             {
-                "key": "reconcile",
-                "name": "GymMS_ReconcileLocalRemote",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_reconcile_scheduled.ps1")}"',
-                "default": {"interval_minutes": 5},
+                "key": "reconcile_r2l",
+                "name": "GymMS_ReconcileRemoteToLocal",
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_reconcile_remote_to_local_scheduled.ps1")}"',
+                "default": {"interval_minutes": 60},
                 "type": "minute",
+            },
+            {
+                "key": "reconcile_l2r",
+                "name": "GymMS_ReconcileLocalToRemote",
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_reconcile_scheduled.ps1")}"',
+                "default": {"time": "02:00"},
+                "type": "daily",
             },
             {
                 "key": "cleanup",

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestión • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="{{ logo_url }}" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <style>
+    .layout { display:flex; flex-direction:column; min-height:100vh; }
+    header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); }
+    .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .brand .info { display:flex; align-items:center; gap:8px; }
+    .brand img { width:32px; height:32px; }
+    .nav-actions { display:flex; gap:8px; align-items:center; }
+    .tabs { display:flex; gap:8px; padding: 8px 24px; border-bottom: 1px solid var(--border); }
+    .tab { padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.06); cursor:pointer; }
+    .tab.active { background: var(--card); border:1px solid var(--border); }
+    main { flex:1; padding: 24px; }
+    .panel { display:none; }
+    .panel.active { display:block; }
+    .panel-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom: 12px; }
+    .panel-controls input[type="date"],
+    .panel-controls input[type="text"],
+    .panel-controls select { background: #0b1220; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    .muted { color: var(--muted); }
+    /* Tarjetas y tablas mejoradas */
+    .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .card { padding: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    .card-title { font-size: 12px; color: var(--muted); }
+    .card-value { font-size: 20px; font-weight: 600; margin-top: 6px; }
+    .table-scroll { overflow:auto; border: 1px solid var(--border); border-radius: 12px; }
+    .table-scroll thead th { position: sticky; top: 0; background: rgba(17,24,39,0.9); backdrop-filter: blur(4px); }
+    .table-actions .btn { margin-right: 6px; }
+    /* Modales */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+    .modal { width: 640px; max-width: 95vw; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 30px rgba(0,0,0,0.35); overflow: hidden; }
+    .modal-header { display:flex; align-items:center; justify-content:space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .modal-body { padding: 16px; }
+    .modal-footer { display:flex; gap:8px; padding: 12px 16px; border-top: 1px solid var(--border); justify-content: flex-end; }
+    .modal-backdrop.active { display:flex; }
+    .input-row { display:flex; gap:8px; flex-wrap:wrap; }
+    /* Split panel layout */
+    .split { display:grid; grid-template-columns: minmax(0,1fr) 380px; gap:16px; align-items:start; }
+    .split-side { position: sticky; top: 96px; height: calc(100vh - 140px); overflow: auto; }
+    .block { background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
+    .block-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .block-body { padding:12px; }
+    .side-empty { color: var(--muted); padding: 16px; }
+    .row-selectable tr:hover { background: rgba(255,255,255,.04); cursor: pointer; }
+    .table-compact th, .table-compact td { padding: 8px; }
+    @media (max-width: 960px){ .split { grid-template-columns: 1fr; } .split-side { position: static; height:auto; } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <div class="brand">
+        <div class="info">
+          <img src="{{ logo_url }}" alt="Logo" />
+          <div>
+            <h1 style="margin:0; font-size: 18px;">Gestión • {{ gym_name }}</h1>
+            <p class="muted" style="margin:2px 0 0 0">Operaciones interactivas (separado del Dashboard informativo)</p>
+          </div>
+        </div>
+        <div class="nav-actions">
+          <a class="btn icon-only" href="/logout" title="Cerrar sesión" aria-label="Salir">
+            <img src="/assets/salir.png" alt="Salir" />
+          </a>
+        </div>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="pagos">Pagos</button>
+        <button class="tab" data-tab="usuarios">Usuarios</button>
+      </nav>
+    </header>
+
+    <main>
+      <section id="panel-pagos" class="panel active">
+        <div class="split">
+          <div class="split-main">
+            <div class="panel-controls">
+              <label>Desde</label>
+              <input type="date" id="pagos-start" />
+              <label>Hasta</label>
+              <input type="date" id="pagos-end" />
+              <label>Búsqueda</label>
+              <input type="text" id="pagos-q" placeholder="Nombre / DNI / Método / Concepto" />
+              <select id="pagos-limit">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+              <button class="btn" id="pagos-refresh">Actualizar</button>
+              <button class="btn secondary" id="pagos-filtros-btn">Filtros avanzados</button>
+              <button class="btn" id="pagos-new">Nuevo Pago</button>
+              <button class="btn secondary" id="pagos-export-csv">Exportar CSV</button>
+              <span id="pagos-count" class="muted" style="margin-left:auto"></span>
+            </div>
+            <div class="cards" id="pagos-cards">
+              <div class="card"><div class="card-title">Pagos mostrados</div><div class="card-value" id="pagos-card-count">0</div></div>
+              <div class="card"><div class="card-title">Monto total</div><div class="card-value" id="pagos-card-monto">$0</div></div>
+              <div class="card"><div class="card-title">Pagadores únicos</div><div class="card-value" id="pagos-card-unique">0</div></div>
+              <div class="card"><div class="card-title">Promedio por pago</div><div class="card-value" id="pagos-card-average">$0</div></div>
+            </div>
+            <div class="table-scroll row-selectable">
+              <table id="pagos-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Usuario</th>
+                    <th>DNI</th>
+                    <th>Método</th>
+                    <th>Concepto</th>
+                    <th>Monto</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <aside class="split-side">
+            <div class="block">
+              <div class="block-header">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <h3 style="margin:0; font-size:16px;">Pago seleccionado</h3>
+                  <span id="pago-side-id" class="muted"></span>
+                </div>
+                <button class="btn secondary" id="pagos-clear-selection">Limpiar</button>
+              </div>
+              <div class="block-body">
+                <div id="pago-side-empty" class="side-empty">Selecciona un pago para ver detalles.</div>
+                <div id="pago-side" style="display:none">
+                  <div class="input-row">
+                    <div style="flex:1"><label class="muted">Fecha</label><div id="pago-side-fecha"></div></div>
+                    <div style="flex:1"><label class="muted">Monto</label><div id="pago-side-monto"></div></div>
+                  </div>
+                  <div class="input-row">
+                    <div style="flex:1"><label class="muted">Usuario</label><div id="pago-side-nombre"></div></div>
+                    <div style="flex:1"><label class="muted">DNI</label><div id="pago-side-dni"></div></div>
+                  </div>
+                  <div class="input-row">
+                    <div style="flex:1"><label class="muted">Método</label><div id="pago-side-metodo"></div></div>
+                    <div style="flex:1"><label class="muted">Concepto</label><div id="pago-side-concepto"></div></div>
+                  </div>
+                  <div style="margin-top:12px">
+                    <h4 style="margin:0 0 8px 0; font-size:14px;">Items</h4>
+                    <div class="table-scroll table-compact">
+                      <table id="pago-detalles-table">
+                        <thead><tr><th>Concepto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th></tr></thead>
+                        <tbody></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="block" style="margin-top:12px">
+              <div class="block-header"><h3 style="margin:0; font-size:16px;">Acciones rápidas</h3></div>
+              <div class="block-body">
+                <div class="input-row">
+                  <button class="btn" id="pago-side-ver-usuario">Ver usuario</button>
+                  <button class="btn secondary" id="pago-side-ver-detalle">Ver detalle</button>
+                  <button class="btn" id="pago-side-editar">Editar pago</button>
+                  <button class="btn secondary" id="pago-side-eliminar">Eliminar pago</button>
+                </div>
+              </div>
+            </div>
+            <div class="block" style="margin-top:12px">
+              <div class="block-header"><h3 style="margin:0; font-size:16px;">Notas</h3></div>
+              <div class="block-body"><div id="pago-side-notas" class="muted">—</div></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="panel-usuarios" class="panel">
+        <div class="split">
+          <div class="split-main">
+            <div class="cards" id="usuarios-cards">
+              <div class="card"><div class="card-title">Total usuarios mostrados</div><div class="card-value" id="usuarios-card-count">0</div></div>
+              <div class="card"><div class="card-title">Activos</div><div class="card-value" id="usuarios-card-activos">0</div></div>
+              <div class="card"><div class="card-title">Inactivos</div><div class="card-value" id="usuarios-card-inactivos">0</div></div>
+              <div class="card"><div class="card-title">Profesores</div><div class="card-value" id="usuarios-card-profesores">0</div></div>
+              <div class="card"><div class="card-title">Sin teléfono</div><div class="card-value" id="usuarios-card-sin-telefono">0</div></div>
+              <div class="card"><div class="card-title">Con notas</div><div class="card-value" id="usuarios-card-con-notas">0</div></div>
+            </div>
+            <div class="panel-controls">
+              <label>Búsqueda</label>
+              <input type="text" id="usuarios-q" placeholder="Nombre o DNI" />
+              <select id="usuarios-limit">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+              <button class="btn" id="usuarios-refresh">Actualizar</button>
+              <button class="btn" id="usuarios-new">Nuevo Usuario</button>
+              <button class="btn secondary" id="usuarios-export-csv">Exportar CSV</button>
+              <span id="usuarios-count" class="muted" style="margin-left:auto"></span>
+            </div>
+            <div class="table-scroll row-selectable">
+              <table id="usuarios-table">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>DNI</th>
+                    <th>Teléfono</th>
+                    <th>Rol</th>
+                    <th>Tipo Cuota</th>
+                    <th>Activo</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <aside class="split-side">
+            <div class="block">
+              <div class="block-header">
+                <div style="display:flex; align-items:center; gap:8px">
+                  <h3 style="margin:0; font-size:16px;">Usuario seleccionado</h3>
+                  <span id="usuario-side-id" class="muted"></span>
+                </div>
+                <button class="btn secondary" id="usuarios-clear-selection">Limpiar</button>
+              </div>
+              <div class="block-body">
+                <div id="usuario-side-empty" class="side-empty">Selecciona un usuario para ver sus datos y pagos.</div>
+                <div id="usuario-side" style="display:none">
+                  <div class="cards" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+                    <div class="card"><div class="card-title">Estado</div><div class="card-value" id="usuario-side-estado">—</div></div>
+                    <div class="card"><div class="card-title">Próximo vencimiento</div><div class="card-value" id="usuario-side-vencimiento">—</div></div>
+                    <div class="card"><div class="card-title">Cuotas vencidas</div><div class="card-value" id="usuario-side-cuotas-vencidas">—</div></div>
+                  </div>
+                  <div class="input-row" style="margin-top:8px">
+                    <div style="flex:1"><label class="muted">Nombre</label><div id="usuario-side-nombre"></div></div>
+                    <div style="flex:1"><label class="muted">DNI</label><div id="usuario-side-dni"></div></div>
+                  </div>
+                  <div class="input-row">
+                    <div style="flex:1"><label class="muted">Teléfono</label><div id="usuario-side-telefono"></div></div>
+                    <div style="flex:1"><label class="muted">Rol</label><div id="usuario-side-rol"></div></div>
+                  </div>
+                  <div class="input-row">
+                    <div style="flex:1"><label class="muted">Tipo de cuota</label><div id="usuario-side-tipo-cuota"></div></div>
+                    <div style="flex:1"><label class="muted">Último pago</label><div id="usuario-side-ultimo-pago"></div></div>
+                  </div>
+                  <div style="margin-top:12px">
+                    <h4 style="margin:0 0 8px 0; font-size:14px;">Historial de pagos</h4>
+                    <div class="table-scroll table-compact">
+                      <table id="usuario-historial-table">
+                        <thead><tr><th>Fecha</th><th>Método</th><th>Concepto</th><th>Monto</th></tr></thead>
+                        <tbody></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="block" style="margin-top:12px">
+              <div class="block-header"><h3 style="margin:0; font-size:16px;">Acciones rápidas</h3></div>
+              <div class="block-body">
+                <div class="input-row">
+                  <button class="btn" id="usuario-side-editar">Editar usuario</button>
+                  <button class="btn secondary" id="usuario-side-eliminar">Eliminar</button>
+                  <button class="btn" id="usuario-side-ver-pagos">Ver pagos</button>
+                  <button class="btn secondary" id="usuario-side-toggle-activo">Activar/Inactivar</button>
+                  <button class="btn" id="usuario-side-registrar">Registrar pago</button>
+                </div>
+              </div>
+            </div>
+            <div class="block" style="margin-top:12px">
+              <div class="block-header"><h3 style="margin:0; font-size:16px;">Notas</h3></div>
+              <div class="block-body"><div id="usuario-side-notas" class="muted">—</div></div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal: Filtros avanzados de Pagos -->
+    <div class="modal-backdrop" id="modal-pagos-filtros">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size:16px;">Filtros avanzados</h3>
+          <button class="btn icon-only" id="pagos-filtros-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <div style="flex:1">
+              <label class="muted">Método de pago</label>
+              <select id="pagos-metodo" style="width:100%"></select>
+            </div>
+            <div style="flex:1">
+              <label class="muted">Concepto</label>
+              <select id="pagos-concepto" style="width:100%"></select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="pagos-filtros-aplicar">Aplicar</button>
+          <button class="btn secondary" id="pagos-filtros-cancelar">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Detalle de Pago -->
+    <div class="modal-backdrop" id="modal-pago-detalle">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size:16px;">Detalle de pago</h3>
+          <button class="btn icon-only" id="pago-detalle-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <div style="flex:1"><label class="muted">Fecha</label><div id="pago-detalle-fecha"></div></div>
+            <div style="flex:1"><label class="muted">Usuario</label><div id="pago-detalle-nombre"></div></div>
+          </div>
+          <div class="input-row">
+            <div style="flex:1"><label class="muted">DNI</label><div id="pago-detalle-dni"></div></div>
+            <div style="flex:1"><label class="muted">Monto</label><div id="pago-detalle-monto"></div></div>
+          </div>
+          <div class="input-row">
+            <div style="flex:1"><label class="muted">Método</label><div id="pago-detalle-metodo"></div></div>
+            <div style="flex:1"><label class="muted">Concepto</label><div id="pago-detalle-concepto"></div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary" id="pago-detalle-cerrar">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Usuario (Crear/Editar) -->
+    <div class="modal-backdrop" id="modal-usuario">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size:16px;">Usuario</h3>
+          <button class="btn icon-only" id="usuarios-modal-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <input id="u-nombre" type="text" placeholder="Nombre Completo" style="flex:1" />
+            <input id="u-dni" type="text" placeholder="DNI" style="flex:1" />
+          </div>
+          <div class="input-row">
+            <input id="u-telefono" type="text" placeholder="Teléfono" style="flex:1" />
+            <input id="u-pin" type="text" placeholder="PIN (opcional)" style="flex:1" />
+          </div>
+          <div class="input-row">
+            <select id="u-rol" style="flex:1">
+              <option value="socio" selected>Socio</option>
+              <option value="profesor">Profesor</option>
+            </select>
+            <select id="u-tipo-cuota" style="flex:1">
+              <option value="">Tipo de cuota</option>
+            </select>
+            <label style="display:flex; align-items:center; gap:6px; flex:1">
+              <input id="u-activo" type="checkbox" checked /> Activo
+            </label>
+          </div>
+          <textarea id="u-notas" rows="3" placeholder="Notas" style="width:100%; margin-top:8px;"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="usuarios-save">Guardar</button>
+          <button class="btn secondary" id="usuarios-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Confirmar eliminación de Usuario -->
+    <div class="modal-backdrop" id="modal-usuarios-delete">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size:16px;">Eliminar usuario</h3>
+          <button class="btn icon-only" id="usuarios-delete-close">×</button>
+        </div>
+        <div class="modal-body">
+          <p>¿Estás seguro? Esta acción es permanente.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="usuarios-delete-confirm">Eliminar</button>
+          <button class="btn secondary" id="usuarios-delete-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Confirmar eliminación de Pago -->
+    <div class="modal-backdrop" id="modal-pagos-delete">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 style="margin:0; font-size:16px;">Eliminar pago</h3>
+          <button class="btn icon-only" id="pagos-delete-close">×</button>
+        </div>
+        <div class="modal-body">
+          <p>¿Estás seguro? Esta acción es permanente.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="pagos-delete-confirm">Eliminar</button>
+          <button class="btn secondary" id="pagos-delete-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Pago (Crear/Editar) -->
+    <div class="modal-backdrop" id="modal-pago-form">
+      <div class="modal">
+        <div class="modal-header">
+          <h3 id="pago-form-title" style="margin:0; font-size:16px;">Pago</h3>
+          <button class="btn icon-only" id="pago-form-close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <select id="pago-usuario" style="flex:1">
+              <option value="">Seleccionar usuario</option>
+            </select>
+            <input id="pago-monto" type="number" step="0.01" placeholder="Monto" style="flex:1" />
+          </div>
+          <div class="input-row">
+            <input id="pago-fecha" type="date" style="flex:1" />
+            <input id="pago-mes" type="number" min="1" max="12" placeholder="Mes" style="flex:1" />
+            <input id="pago-año" type="number" min="2000" max="2100" placeholder="Año" style="flex:1" />
+          </div>
+          <div class="input-row">
+            <select id="pago-metodo" style="flex:1">
+              <option value="">Método de pago (opcional)</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="pago-save">Guardar</button>
+          <button class="btn secondary" id="pago-form-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let editingUserId = null;
+    let editingPagoId = null;
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [] };
+
+    function fmtDate(d){
+      if(!d) return '';
+      const dt = new Date(d);
+      if(isNaN(dt.getTime())) return d;
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth()+1).padStart(2,'0');
+      const day = String(dt.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+    function defaultRange(){
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(end.getDate() - 30);
+      return { start: fmtDate(start), end: fmtDate(end) };
+    }
+    function switchTab(tab){
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById(`panel-${tab}`);
+      if(panel) panel.classList.add('active');
+    }
+
+    function openModal(id){ const el = document.getElementById(id); if(el) el.classList.add('active'); }
+    function closeModal(id){ const el = document.getElementById(id); if(el) el.classList.remove('active'); }
+
+    function pagosAplicaFiltros(items){
+      const metodo = (state.pagosFilters.metodo || '').trim().toLowerCase();
+      const concepto = (state.pagosFilters.concepto || '').trim().toLowerCase();
+      if(!metodo && !concepto) return items;
+      return items.filter(row => {
+        const m = String(row.metodo_pago || row.metodo || '').toLowerCase();
+        const c = String(row.concepto_pago || row.concepto || '').toLowerCase();
+        return (!metodo || m === metodo || m.includes(metodo)) && (!concepto || c === concepto || c.includes(concepto));
+      });
+    }
+
+    async function loadPayments(){
+      const start = document.getElementById('pagos-start').value || '';
+      const end = document.getElementById('pagos-end').value || '';
+      const q = document.getElementById('pagos-q').value || '';
+      const limit = parseInt(document.getElementById('pagos-limit').value || '50', 10);
+      const params = new URLSearchParams();
+      if(start) params.append('start', start);
+      if(end) params.append('end', end);
+      if(q) params.append('q', q);
+      params.append('limit', String(limit));
+      params.append('offset', '0');
+      const url = `/api/pagos_detalle?${params.toString()}`;
+      try {
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const data = await res.json();
+        const itemsRaw = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.pagos = itemsRaw;
+        const items = pagosAplicaFiltros(itemsRaw);
+        const tbody = document.querySelector('#pagos-table tbody');
+        tbody.innerHTML = '';
+        items.forEach((row, idx) => {
+          const tr = document.createElement('tr');
+          tr.setAttribute('data-index', String(idx));
+          const fecha = row.fecha_pago || row.fecha || row.fechaPago || null;
+          const nombre = row.usuario_nombre || row.nombre || '';
+          const dni = row.dni || '';
+          const metodo = row.metodo_pago || row.metodo || '';
+          const concepto = row.concepto_pago || row.concepto || '';
+          const monto = row.monto != null ? row.monto : '';
+          tr.innerHTML = `
+            <td>${fecha ? fmtDate(fecha) : ''}</td>
+            <td>${nombre}</td>
+            <td>${dni}</td>
+            <td>${metodo}</td>
+            <td>${concepto}</td>
+            <td>${monto}</td>
+            <td class="table-actions">
+              <button class="btn secondary" data-action="ver" data-index="${idx}">Ver</button>
+              <button class="btn" data-action="editar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Editar</button>
+              <button class="btn secondary" data-action="eliminar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Borrar</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+        const count = (data && typeof data.count === 'number') ? data.count : items.length;
+        document.getElementById('pagos-count').textContent = `${count} pagos`;
+        // Tarjetas
+        const totalMonto = items.reduce((acc, r) => acc + (parseFloat(r.monto || 0) || 0), 0);
+        const uniqueDni = new Set(items.map(r => String(r.dni || '')));
+        document.getElementById('pagos-card-count').textContent = String(items.length);
+        document.getElementById('pagos-card-monto').textContent = `$${totalMonto.toFixed(2)}`;
+        document.getElementById('pagos-card-unique').textContent = String(Array.from(uniqueDni).filter(v => v).length);
+        const avg = items.length ? (totalMonto / items.length) : 0;
+        const avgEl = document.getElementById('pagos-card-average');
+        if(avgEl) avgEl.textContent = `$${avg.toFixed(2)}`;
+      } catch(err){
+        console.error('Error cargando pagos:', err);
+      }
+    }
+
+    async function loadMetodosPago(){
+      try {
+        const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' } });
+        const met = await res.json();
+        const sel = document.getElementById('pagos-metodo');
+        sel.innerHTML = '<option value="">Todos</option>';
+        (Array.isArray(met) ? met : []).forEach(m => {
+          const opt = document.createElement('option');
+          const nombre = m.nombre ?? '';
+          opt.value = String(nombre).toLowerCase();
+          opt.textContent = nombre;
+          sel.appendChild(opt);
+        });
+        // Preselección actual
+        if(state.pagosFilters.metodo){ sel.value = state.pagosFilters.metodo; }
+      } catch(e){ console.warn('No se pudieron cargar métodos de pago:', e); }
+    }
+    async function loadConceptosPago(){
+      try {
+        const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' } });
+        const conc = await res.json();
+        const sel = document.getElementById('pagos-concepto');
+        sel.innerHTML = '<option value="">Todos</option>';
+        (Array.isArray(conc) ? conc : []).forEach(c => {
+          const nombre = c.nombre ?? '';
+          const opt = document.createElement('option');
+          opt.value = String(nombre).toLowerCase();
+          opt.textContent = nombre;
+          sel.appendChild(opt);
+        });
+        if(state.pagosFilters.concepto){ sel.value = state.pagosFilters.concepto; }
+      } catch(e){ console.warn('No se pudieron cargar conceptos:', e); }
+    }
+
+    async function loadTiposCuotaActivos(){
+      try {
+        const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' } });
+        const tipos = await res.json();
+        const sel = document.getElementById('u-tipo-cuota');
+        if(!sel) return;
+        sel.innerHTML = '<option value="">Tipo de cuota</option>';
+        (Array.isArray(tipos) ? tipos : []).forEach(t => {
+          const opt = document.createElement('option');
+          opt.value = t.id ?? t.nombre ?? '';
+          opt.textContent = t.nombre ?? String(t.id ?? '');
+          sel.appendChild(opt);
+        });
+      } catch(e){
+        console.warn('No se pudieron cargar tipos de cuota:', e);
+      }
+    }
+
+    function updateUsuariosCards(rows){
+      const count = (Array.isArray(rows) ? rows.length : 0);
+      const activos = (Array.isArray(rows) ? rows.filter(u => (u.activo === true || u.activo === 'true')).length : 0);
+      const inactivos = (Array.isArray(rows) ? rows.filter(u => !(u.activo === true || u.activo === 'true')).length : 0);
+      const profesores = (Array.isArray(rows) ? rows.filter(u => String(u.rol || '').toLowerCase() === 'profesor').length : 0);
+      const sinTelefono = (Array.isArray(rows) ? rows.filter(u => !(u.telefono && String(u.telefono).trim())).length : 0);
+      const conNotas = (Array.isArray(rows) ? rows.filter(u => !!(u.notas && String(u.notas).trim())).length : 0);
+      const c1 = document.getElementById('usuarios-card-count');
+      const c2 = document.getElementById('usuarios-card-activos');
+      const c3 = document.getElementById('usuarios-card-inactivos');
+      const c4 = document.getElementById('usuarios-card-profesores');
+      const c5 = document.getElementById('usuarios-card-sin-telefono');
+      const c6 = document.getElementById('usuarios-card-con-notas');
+      if(c1) c1.textContent = String(count);
+      if(c2) c2.textContent = String(activos);
+      if(c3) c3.textContent = String(inactivos);
+      if(c4) c4.textContent = String(profesores);
+      if(c5) c5.textContent = String(sinTelefono);
+      if(c6) c6.textContent = String(conNotas);
+    }
+
+    async function loadUsers(){
+      const q = document.getElementById('usuarios-q').value || '';
+      const limit = parseInt(document.getElementById('usuarios-limit').value || '50', 10);
+      const params = new URLSearchParams();
+      if(q) params.append('q', q);
+      params.append('limit', String(limit));
+      params.append('offset', '0');
+      const url = `/api/usuarios?${params.toString()}`;
+      try {
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const rows = await res.json();
+        state.usuarios = Array.isArray(rows) ? rows : [];
+        const tbody = document.querySelector('#usuarios-table tbody');
+        tbody.innerHTML = '';
+        (Array.isArray(rows) ? rows : []).forEach((u, idx) => {
+          const tr = document.createElement('tr');
+          tr.setAttribute('data-index', String(idx));
+          const activo = (u.activo === true || u.activo === 'true');
+          tr.innerHTML = `
+            <td>${u.nombre || ''}</td>
+            <td>${u.dni || ''}</td>
+            <td>${u.telefono || ''}</td>
+            <td>${(u.rol || '').toString().toLowerCase()}</td>
+            <td>${u.tipo_cuota ?? ''}</td>
+            <td>${activo ? 'Sí' : 'No'}</td>
+            <td>
+              <button class="btn secondary" data-action="edit" data-id="${u.id}">Editar</button>
+              <button class="btn secondary" data-action="delete" data-id="${u.id}">Borrar</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+        document.getElementById('usuarios-count').textContent = `${(Array.isArray(rows) ? rows.length : 0)} usuarios`;
+        updateUsuariosCards(rows);
+      } catch(err){
+        console.error('Error cargando usuarios:', err);
+      }
+    }
+
+    function showUserForm(user){
+      editingUserId = user && user.id ? user.id : null;
+      const f = (id) => document.getElementById(id);
+      f('u-nombre').value = (user && user.nombre) || '';
+      f('u-dni').value = (user && user.dni) || '';
+      f('u-telefono').value = (user && user.telefono) || '';
+      f('u-pin').value = (user && user.pin) || '';
+      f('u-rol').value = (user && user.rol) ? String(user.rol).toLowerCase() : 'socio';
+      f('u-activo').checked = user ? !!user.activo : true;
+      f('u-notas').value = (user && user.notas) || '';
+      loadTiposCuotaActivos().then(() => {
+        const sel = f('u-tipo-cuota');
+        const v = user ? (user.tipo_cuota ?? '') : '';
+        if(sel && v !== undefined && v !== null){ sel.value = String(v); }
+      });
+      openModal('modal-usuario');
+    }
+    function hideUserForm(){
+      editingUserId = null;
+      ['u-nombre','u-dni','u-telefono','u-pin','u-notas'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+      const sel = document.getElementById('u-tipo-cuota'); if(sel) sel.value='';
+      const rol = document.getElementById('u-rol'); if(rol) rol.value='socio';
+      const act = document.getElementById('u-activo'); if(act) act.checked=true;
+      closeModal('modal-usuario');
+    }
+
+    async function saveUser(){
+      const f = (id) => document.getElementById(id);
+      const payload = {
+        nombre: f('u-nombre').value.trim(),
+        dni: f('u-dni').value.trim(),
+        telefono: f('u-telefono').value.trim(),
+        pin: f('u-pin').value.trim(),
+        rol: f('u-rol').value,
+        activo: f('u-activo').checked,
+        tipo_cuota: f('u-tipo-cuota').value || null,
+        notas: f('u-notas').value || null,
+      };
+      if(!payload.nombre || !payload.dni){ alert('Nombre y DNI son obligatorios'); return; }
+      try {
+        const url = editingUserId ? `/api/usuarios/${editingUserId}` : '/api/usuarios';
+        const method = editingUserId ? 'PUT' : 'POST';
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
+        if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
+        hideUserForm();
+        await loadUsers();
+      } catch(e){ alert(`No se pudo guardar: ${e.message}`); }
+    }
+
+    async function deleteUser(id){
+      if(!id) return;
+      try {
+        const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
+        await loadUsers();
+      } catch(e){ alert(`No se pudo eliminar: ${e.message}`); }
+    }
+
+    function renderPagoSide(pago, detalles){
+      const fecha = pago.fecha_pago || pago.fecha || pago.fechaPago || '';
+      const nombre = pago.usuario_nombre || pago.nombre || '';
+      const dni = pago.dni || '';
+      const metodo = pago.metodo_pago || pago.metodo || '';
+      const concepto = pago.concepto_pago || pago.concepto || '';
+      const monto = pago.monto != null ? pago.monto : '';
+      document.getElementById('pago-side-fecha').textContent = fecha ? fmtDate(fecha) : '';
+      document.getElementById('pago-side-nombre').textContent = nombre;
+      document.getElementById('pago-side-dni').textContent = dni;
+      document.getElementById('pago-side-metodo').textContent = metodo;
+      document.getElementById('pago-side-concepto').textContent = concepto;
+      document.getElementById('pago-side-monto').textContent = monto;
+      const notasEl = document.getElementById('pago-side-notas');
+      if(notasEl) notasEl.textContent = (pago.notas && String(pago.notas).trim()) ? pago.notas : '—';
+      const tbody = document.querySelector('#pago-detalles-table tbody');
+      if(tbody){
+        tbody.innerHTML = '';
+        (Array.isArray(detalles) ? detalles : []).forEach(d => {
+          const tr = document.createElement('tr');
+          const concepto = d.concepto_nombre || d.concepto || d.descripcion || '';
+          const cantidad = d.cantidad ?? 1;
+          const precio = d.precio_unitario ?? d.precio ?? 0;
+          const subtotal = d.subtotal ?? (cantidad * precio);
+          tr.innerHTML = `<td>${concepto}</td><td>${cantidad}</td><td>${precio}</td><td>${subtotal}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    async function selectPagoByIndex(idx){
+      const row = (state.pagos || [])[idx];
+      if(!row) return;
+      state.selectedPago = row;
+      const id = row.id || row.pago_id || null;
+      document.getElementById('pago-side-empty').style.display = 'none';
+      document.getElementById('pago-side').style.display = 'block';
+      document.getElementById('pago-side-id').textContent = id ? `#${id}` : '';
+      try {
+        if(id){
+          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
+          const data = await res.json();
+          const pago = data.pago || row;
+          const detalles = Array.isArray(data.detalles) ? data.detalles : [];
+          renderPagoSide(pago, detalles);
+        } else {
+          renderPagoSide(row, []);
+        }
+      } catch(e){
+        console.warn('No se pudo cargar detalles del pago:', e);
+        renderPagoSide(row, []);
+      }
+    }
+
+    function clearPagoSelection(){
+      state.selectedPago = null;
+      document.getElementById('pago-side-id').textContent = '';
+      document.getElementById('pago-side').style.display = 'none';
+      document.getElementById('pago-side-empty').style.display = 'block';
+      const tbody = document.querySelector('#pago-detalles-table tbody');
+      if(tbody) tbody.innerHTML = '';
+    }
+
+    function openPagoDetalleModal(){
+      const p = state.selectedPago;
+      if(!p){ alert('Selecciona un pago primero'); return; }
+      const fecha = p.fecha_pago || p.fecha || p.fechaPago || null;
+      document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDate(fecha) : '';
+      document.getElementById('pago-detalle-nombre').textContent = p.usuario_nombre || p.nombre || '';
+      document.getElementById('pago-detalle-dni').textContent = p.dni || '';
+      document.getElementById('pago-detalle-monto').textContent = (p.monto != null ? p.monto : '');
+      document.getElementById('pago-detalle-metodo').textContent = p.metodo_pago || p.metodo || '';
+      document.getElementById('pago-detalle-concepto').textContent = p.concepto_pago || p.concepto || '';
+      openModal('modal-pago-detalle');
+    }
+
+    async function navigateToUsuarioDesdePago(){
+      const pago = state.selectedPago;
+      if(!pago){ alert('Selecciona un pago primero'); return; }
+      const dni = pago.dni ? String(pago.dni).trim() : '';
+      if(!dni){ alert('No se encuentra DNI del pago'); return; }
+      const findByDni = () => (state.usuarios || []).findIndex(u => String(u.dni || '').trim() === dni);
+      let idx = findByDni();
+      switchTab('usuarios');
+      if(idx >= 0){ selectUsuarioByIndex(idx); return; }
+      await loadUsers();
+      idx = findByDni();
+      if(idx >= 0) selectUsuarioByIndex(idx);
+      else alert('No se encontró el usuario del pago en la lista.');
+    }
+
+    function bindPagosEvents(){
+      const tbody = document.querySelector('#pagos-table tbody');
+      tbody.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button');
+        if(btn){
+          const action = btn.getAttribute('data-action');
+          if(action === 'ver'){
+            const idx = parseInt(btn.getAttribute('data-index') || '0', 10);
+            if(isNaN(idx)) return;
+            selectPagoByIndex(idx);
+            return;
+          }
+          if(action === 'editar'){
+            const idx = parseInt(btn.getAttribute('data-index') || '0', 10);
+            if(isNaN(idx)) return;
+            const row = (state.pagos || [])[idx];
+            const id = btn.getAttribute('data-id');
+            if(id){
+              fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
+                .then(r => r.json())
+                .then(data => showPagoForm(data.pago || row))
+                .catch(() => alert('No se pudo cargar el pago'));
+            } else {
+              showPagoForm(row);
+            }
+            return;
+          }
+          if(action === 'eliminar'){
+            const id = btn.getAttribute('data-id');
+            if(!id){ alert('Pago inválido'); return; }
+            state.deletePagoId = parseInt(id, 10);
+            openModal('modal-pagos-delete');
+            return;
+          }
+        }
+        const tr = ev.target.closest('tr');
+        if(!tr) return;
+        const idx = parseInt(tr.getAttribute('data-index') || 'NaN', 10);
+        if(isNaN(idx)) return;
+        selectPagoByIndex(idx);
+      });
+      const filtrosBtn = document.getElementById('pagos-filtros-btn');
+      filtrosBtn.addEventListener('click', async () => {
+        await Promise.all([loadMetodosPago(), loadConceptosPago()]);
+        openModal('modal-pagos-filtros');
+      });
+      document.getElementById('pagos-filtros-close').addEventListener('click', () => closeModal('modal-pagos-filtros'));
+      document.getElementById('pagos-filtros-cancelar').addEventListener('click', () => closeModal('modal-pagos-filtros'));
+      document.getElementById('pagos-filtros-aplicar').addEventListener('click', () => {
+        const metodo = document.getElementById('pagos-metodo').value || '';
+        const concepto = document.getElementById('pagos-concepto').value || '';
+        state.pagosFilters.metodo = metodo;
+        state.pagosFilters.concepto = concepto;
+        closeModal('modal-pagos-filtros');
+        loadPayments();
+      });
+      document.getElementById('pagos-clear-selection').addEventListener('click', clearPagoSelection);
+      const verUsuarioBtn = document.getElementById('pago-side-ver-usuario');
+      if(verUsuarioBtn) verUsuarioBtn.addEventListener('click', navigateToUsuarioDesdePago);
+      const verDetalleBtn = document.getElementById('pago-side-ver-detalle');
+      if(verDetalleBtn) verDetalleBtn.addEventListener('click', openPagoDetalleModal);
+      const exportBtn = document.getElementById('pagos-export-csv');
+      if(exportBtn) exportBtn.addEventListener('click', exportPagosCSV);
+      const editarPagoBtn = document.getElementById('pago-side-editar');
+      if(editarPagoBtn) editarPagoBtn.addEventListener('click', () => {
+        const p = state.selectedPago; if(!p) { alert('Selecciona un pago primero'); return; }
+        const id = p.id || p.pago_id;
+        if(id){
+          fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
+            .then(r => r.json())
+            .then(data => showPagoForm(data.pago || p))
+            .catch(() => alert('No se pudo cargar el pago'));
+        } else {
+          showPagoForm(p);
+        }
+      });
+      const eliminarPagoBtn = document.getElementById('pago-side-eliminar');
+      if(eliminarPagoBtn) eliminarPagoBtn.addEventListener('click', () => {
+        const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { alert('Selecciona un pago válido'); return; }
+        state.deletePagoId = p.id || p.pago_id;
+        openModal('modal-pagos-delete');
+      });
+      const nuevoPagoBtn = document.getElementById('pagos-new');
+      if(nuevoPagoBtn) nuevoPagoBtn.addEventListener('click', () => showPagoForm(null));
+      const registrarPagoQuick = document.getElementById('usuario-side-registrar');
+      if(registrarPagoQuick) registrarPagoQuick.addEventListener('click', () => showPagoForm(null));
+      // Modal pago form controls
+      const pagoClose = document.getElementById('pago-form-close'); if(pagoClose) pagoClose.addEventListener('click', hidePagoForm);
+      const pagoCancel = document.getElementById('pago-form-cancel'); if(pagoCancel) pagoCancel.addEventListener('click', hidePagoForm);
+      const pagoSave = document.getElementById('pago-save'); if(pagoSave) pagoSave.addEventListener('click', savePago);
+      // Modal delete pago controls
+      document.getElementById('pagos-delete-close').addEventListener('click', () => closeModal('modal-pagos-delete'));
+      document.getElementById('pagos-delete-cancel').addEventListener('click', () => closeModal('modal-pagos-delete'));
+      document.getElementById('pagos-delete-confirm').addEventListener('click', deletePago);
+    }
+
+    async function populatePagoUsuarioSelect(selectedId){
+      const sel = document.getElementById('pago-usuario');
+      if(!sel) return;
+      if(!Array.isArray(state.usuarios) || state.usuarios.length === 0){
+        await loadUsers();
+      }
+      const usuarios = Array.isArray(state.usuarios) ? state.usuarios : [];
+      sel.innerHTML = '<option value="">Seleccionar usuario</option>' + usuarios.map(u => `<option value="${u.id}">${u.nombre} (${u.dni || ''})</option>`).join('');
+      const target = selectedId || (state.selectedUsuario && state.selectedUsuario.id) || '';
+      if(target) sel.value = String(target);
+    }
+
+    async function populatePagoMetodoSelect(selectedId){
+      const sel = document.getElementById('pago-metodo'); if(!sel) return;
+      try {
+        const res = await fetch('/api/metodos_pago', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const items = Array.isArray(data) ? data : (Array.isArray(data.metodos) ? data.metodos : []);
+        sel.innerHTML = '<option value="">Método de pago (opcional)</option>' + items.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
+        if(selectedId) sel.value = String(selectedId);
+      } catch(e) {}
+    }
+
+    function resetPagoForm(){
+      const f = document.getElementById('pago-fecha'); if(f) f.value = '';
+      const m = document.getElementById('pago-mes'); if(m) m.value = '';
+      const a = document.getElementById('pago-año'); if(a) a.value = '';
+      const monto = document.getElementById('pago-monto'); if(monto) monto.value = '';
+      const u = document.getElementById('pago-usuario'); if(u) u.value = '';
+      const mp = document.getElementById('pago-metodo'); if(mp) mp.value = '';
+    }
+
+    async function showPagoForm(p){
+      editingPagoId = null;
+      resetPagoForm();
+      const titleEl = document.getElementById('pago-form-title');
+      const now = new Date();
+      await populatePagoUsuarioSelect(p && (p.usuario_id || (p.usuario && p.usuario.id)));
+      await populatePagoMetodoSelect(p && (p.metodo_pago_id || p.metodo_id));
+      if(p && (p.id || p.pago_id)){
+        editingPagoId = p.id || p.pago_id;
+        if(titleEl) titleEl.textContent = `Editar pago #${editingPagoId}`;
+        const montoEl = document.getElementById('pago-monto'); if(montoEl) montoEl.value = (p.monto != null ? p.monto : '');
+        const fechaSrc = p.fecha_pago || p.fecha || p.fechaPago || null;
+        const fechaEl = document.getElementById('pago-fecha'); if(fechaEl) fechaEl.value = fechaSrc ? fmtDate(fechaSrc) : '';
+        const mesEl = document.getElementById('pago-mes'); const añoEl = document.getElementById('pago-año');
+        if(mesEl && añoEl){
+          const dt = fechaSrc ? new Date(fechaSrc) : now;
+          mesEl.value = String(dt.getMonth()+1);
+          añoEl.value = String(dt.getFullYear());
+        }
+        const uSel = document.getElementById('pago-usuario'); if(uSel && (p.usuario_id || (p.usuario && p.usuario.id))) uSel.value = String(p.usuario_id || (p.usuario && p.usuario.id));
+        const mpSel = document.getElementById('pago-metodo'); if(mpSel && (p.metodo_pago_id || p.metodo_id)) mpSel.value = String(p.metodo_pago_id || p.metodo_id);
+      } else {
+        if(titleEl) titleEl.textContent = 'Registrar pago';
+        const mesEl = document.getElementById('pago-mes'); const añoEl = document.getElementById('pago-año');
+        if(mesEl) mesEl.value = String(now.getMonth()+1);
+        if(añoEl) añoEl.value = String(now.getFullYear());
+        const uSel = document.getElementById('pago-usuario'); if(uSel && state.selectedUsuario && state.selectedUsuario.id) uSel.value = String(state.selectedUsuario.id);
+      }
+      openModal('modal-pago-form');
+    }
+
+    function hidePagoForm(){
+      editingPagoId = null;
+      closeModal('modal-pago-form');
+    }
+
+    async function savePago(){
+      const usuarioEl = document.getElementById('pago-usuario');
+      const montoEl = document.getElementById('pago-monto');
+      const fechaEl = document.getElementById('pago-fecha');
+      const mesEl = document.getElementById('pago-mes');
+      const añoEl = document.getElementById('pago-año');
+      const metodoEl = document.getElementById('pago-metodo');
+      const usuario_id = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null;
+      const monto = montoEl && montoEl.value ? Number(montoEl.value) : null;
+      const fecha_str = fechaEl && fechaEl.value ? fechaEl.value : null;
+      let mes = mesEl && mesEl.value ? Number(mesEl.value) : null;
+      let año = añoEl && añoEl.value ? Number(añoEl.value) : null;
+      const metodo_pago_id = metodoEl && metodoEl.value ? Number(metodoEl.value) : null;
+      if(!usuario_id || !monto){ alert('Usuario y monto son obligatorios'); return; }
+      let url = '/api/pagos'; let method = 'POST'; let body = { usuario_id, monto, mes: mes, año: año, metodo_pago_id };
+      if(editingPagoId){
+        url = `/api/pagos/${editingPagoId}`; method = 'PUT'; body = { usuario_id, monto, metodo_pago_id };
+        if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
+        else if(mes != null && año != null){ body['mes'] = mes; body['año'] = año; }
+      } else {
+        if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); body.mes = mes; body.año = año; }
+      }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); alert(err.detail || err.error || 'Error al guardar el pago'); return; }
+        await res.json().catch(()=>null);
+        hidePagoForm();
+        await loadPayments();
+      } catch(e){ alert('Error de red al guardar'); }
+    }
+
+    async function deletePago(){
+      const id = state.deletePagoId; if(!id){ closeModal('modal-pagos-delete'); return; }
+      try{
+        const res = await fetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); alert(err.detail || err.error || 'No se pudo eliminar el pago'); return; }
+        await res.json().catch(()=>null);
+        closeModal('modal-pagos-delete');
+        if(state.selectedPago && (state.selectedPago.id === id || state.selectedPago.pago_id === id)) clearPagoSelection();
+        await loadPayments();
+      } catch(e){ alert('Error de red al eliminar'); }
+    }
+
+    function exportPagosCSV(){
+      const items = Array.isArray(state.pagos) ? state.pagos : [];
+      const headers = ['Fecha','Usuario','DNI','Método','Concepto','Monto'];
+      const rows = items.map(p => [
+        (p.fecha_pago || p.fecha || p.fechaPago) ? fmtDate(p.fecha_pago || p.fecha || p.fechaPago) : '',
+        String(p.usuario_nombre || p.nombre || ''),
+        String(p.dni || ''),
+        String(p.metodo_pago || p.metodo || ''),
+        String(p.concepto_pago || p.concepto || ''),
+        String(p.monto != null ? p.monto : '')
+      ]);
+      const csv = [headers.join(','), ...rows.map(cols => cols.map(v => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+      }).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'pagos.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function renderUsuarioSide(u, historial){
+      const estado = (u.activo === true || u.activo === 'true') ? 'Activo' : 'Inactivo';
+      document.getElementById('usuario-side-estado').textContent = estado;
+      const venc = u.fecha_proximo_vencimiento || u.proximo_vencimiento || null;
+      document.getElementById('usuario-side-vencimiento').textContent = venc ? fmtDate(venc) : '—';
+      document.getElementById('usuario-side-cuotas-vencidas').textContent = (u.cuotas_vencidas != null ? u.cuotas_vencidas : '—');
+      document.getElementById('usuario-side-nombre').textContent = u.nombre || '';
+      document.getElementById('usuario-side-dni').textContent = u.dni || '';
+      document.getElementById('usuario-side-telefono').textContent = u.telefono || '';
+      document.getElementById('usuario-side-rol').textContent = (u.rol || '').toString().toLowerCase();
+      document.getElementById('usuario-side-tipo-cuota').textContent = (u.tipo_cuota ?? '');
+      const up = u.ultimo_pago || u.fecha_ultimo_pago || null;
+      document.getElementById('usuario-side-ultimo-pago').textContent = up ? fmtDate(up) : '—';
+      const notasEl = document.getElementById('usuario-side-notas');
+      if(notasEl) notasEl.textContent = (u.notas && String(u.notas).trim()) ? u.notas : '—';
+      const tbody = document.querySelector('#usuario-historial-table tbody');
+      if(tbody){
+        tbody.innerHTML = '';
+        (Array.isArray(historial) ? historial : []).forEach(p => {
+          const tr = document.createElement('tr');
+          const fecha = p.fecha_pago || p.fecha || p.fechaPago || null;
+          const metodo = p.metodo_pago || p.metodo || '';
+          const concepto = p.concepto_pago || p.concepto || '';
+          const monto = p.monto != null ? p.monto : '';
+          tr.innerHTML = `<td>${fecha ? fmtDate(fecha) : ''}</td><td>${metodo}</td><td>${concepto}</td><td>${monto}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    async function selectUsuarioByIndex(idx){
+      const u = (state.usuarios || [])[idx];
+      if(!u) return;
+      state.selectedUsuario = u;
+      const id = u.id || null;
+      document.getElementById('usuario-side-empty').style.display = 'none';
+      document.getElementById('usuario-side').style.display = 'block';
+      document.getElementById('usuario-side-id').textContent = id ? `#${id}` : '';
+      try {
+        const [detRes, histRes] = await Promise.all([
+          id ? fetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' } }) : Promise.resolve(null),
+          id ? fetch(`/api/usuarios/${id}/pagos?limit=50&offset=0`, { headers: { 'Accept': 'application/json' } }) : Promise.resolve(null),
+        ]);
+        const det = detRes ? await detRes.json() : u;
+        const histJson = histRes ? await histRes.json() : [];
+        const historial = Array.isArray(histJson.items) ? histJson.items : (Array.isArray(histJson) ? histJson : []);
+        state.usuarioHistorial = historial;
+        renderUsuarioSide(det || u, historial);
+      } catch(e){
+        console.warn('No se pudo cargar detalles/historial del usuario:', e);
+        renderUsuarioSide(u, []);
+      }
+    }
+
+    function clearUsuarioSelection(){
+      state.selectedUsuario = null;
+      document.getElementById('usuario-side-id').textContent = '';
+      document.getElementById('usuario-side').style.display = 'none';
+      document.getElementById('usuario-side-empty').style.display = 'block';
+      const tbody = document.querySelector('#usuario-historial-table tbody');
+      if(tbody) tbody.innerHTML = '';
+    }
+
+    function bindUsuariosEvents(){
+      const tbody = document.querySelector('#usuarios-table tbody');
+      tbody.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('button');
+        if(btn){
+          const id = btn.getAttribute('data-id');
+          const action = btn.getAttribute('data-action');
+          if(action === 'edit'){
+            fetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' } })
+              .then(r => r.json())
+              .then(u => showUserForm(u))
+              .catch(() => alert('No se pudo cargar el usuario'));
+          } else if(action === 'delete'){
+            state.deleteUserId = id;
+            openModal('modal-usuarios-delete');
+          }
+          return;
+        }
+        const tr = ev.target.closest('tr');
+        if(!tr) return;
+        const idx = parseInt(tr.getAttribute('data-index') || 'NaN', 10);
+        if(isNaN(idx)) return;
+        selectUsuarioByIndex(idx);
+      });
+      document.getElementById('usuarios-clear-selection').addEventListener('click', clearUsuarioSelection);
+      document.getElementById('usuarios-refresh').addEventListener('click', loadUsers);
+      document.getElementById('usuarios-q').addEventListener('keydown', (e) => { if(e.key === 'Enter') loadUsers(); });
+      document.getElementById('usuarios-new').addEventListener('click', () => showUserForm(null));
+      document.getElementById('usuarios-save').addEventListener('click', saveUser);
+      document.getElementById('usuarios-cancel').addEventListener('click', hideUserForm);
+      document.getElementById('usuarios-modal-close').addEventListener('click', hideUserForm);
+      document.getElementById('usuarios-delete-close').addEventListener('click', () => closeModal('modal-usuarios-delete'));
+      document.getElementById('usuarios-delete-cancel').addEventListener('click', () => closeModal('modal-usuarios-delete'));
+      document.getElementById('usuarios-delete-confirm').addEventListener('click', async () => {
+        const id = state.deleteUserId;
+        state.deleteUserId = null;
+        closeModal('modal-usuarios-delete');
+        await deleteUser(id);
+      });
+      const editarQuick = document.getElementById('usuario-side-editar');
+      if(editarQuick){ editarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(u) showUserForm(u); }); }
+      const eliminarQuick = document.getElementById('usuario-side-eliminar');
+      if(eliminarQuick){ eliminarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(!u || !u.id) return; state.deleteUserId = u.id; openModal('modal-usuarios-delete'); }); }
+      const verPagosQuick = document.getElementById('usuario-side-ver-pagos');
+      if(verPagosQuick) verPagosQuick.addEventListener('click', verPagosDeUsuario);
+      const toggleActivoQuick = document.getElementById('usuario-side-toggle-activo');
+      if(toggleActivoQuick) toggleActivoQuick.addEventListener('click', toggleUsuarioActivo);
+      const exportUsuariosBtn = document.getElementById('usuarios-export-csv');
+      if(exportUsuariosBtn) exportUsuariosBtn.addEventListener('click', exportUsuariosCSV);
+    }
+
+    function verPagosDeUsuario(){
+      const u = state.selectedUsuario;
+      if(!u){ alert('Selecciona un usuario primero'); return; }
+      const dni = String(u.dni || '').trim();
+      switchTab('pagos');
+      const input = document.getElementById('pagos-q');
+      if(input) input.value = dni || (u.nombre || '');
+      state.pagosFilters.metodo = '';
+      state.pagosFilters.concepto = '';
+      loadPayments();
+    }
+
+    function toggleUsuarioActivo(){
+      const u = state.selectedUsuario;
+      if(!u || !u.id){ alert('Selecciona un usuario válido'); return; }
+      const nombre = (document.getElementById('usuario-side-nombre').textContent || '').trim();
+      const dni = (document.getElementById('usuario-side-dni').textContent || '').trim();
+      const telefono = (document.getElementById('usuario-side-telefono').textContent || '').trim();
+      const rol = (document.getElementById('usuario-side-rol').textContent || '').trim().toLowerCase() || 'socio';
+      const tipo_cuota_text = (document.getElementById('usuario-side-tipo-cuota').textContent || '').trim();
+      const tipo_cuota = tipo_cuota_text || null;
+      const notasText = (document.getElementById('usuario-side-notas').textContent || '').trim();
+      const notas = notasText && notasText !== '—' ? notasText : null;
+      if(!nombre || !dni){ alert('Nombre y DNI son obligatorios'); return; }
+      const nuevoActivo = !(u.activo === true || u.activo === 'true');
+      const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo: nuevoActivo, tipo_cuota, notas };
+      fetch(`/api/usuarios/${u.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) })
+        .then(async res => { if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } return res; })
+        .then(async () => { await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); })
+        .catch(e => alert(`No se pudo actualizar estado: ${e.message}`));
+    }
+
+    function exportUsuariosCSV(){
+      const items = Array.isArray(state.usuarios) ? state.usuarios : [];
+      const headers = ['Nombre','DNI','Teléfono','Rol','TipoCuota','Activo'];
+      const rows = items.map(u => [
+        String(u.nombre || '').trim(),
+        String(u.dni || ''),
+        String(u.telefono || ''),
+        String((u.rol || '').toString().toLowerCase()),
+        String(u.tipo_cuota ?? ''),
+        String((u.activo === true || u.activo === 'true') ? 'SI' : 'NO')
+      ]);
+      const csv = [headers.join(','), ...rows.map(cols => cols.map(v => {
+        const s = String(v ?? '');
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+      }).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'usuarios.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+    function init(){
+      document.querySelectorAll('.tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          switchTab(tab);
+          if(tab === 'pagos') loadPayments();
+          if(tab === 'usuarios') loadUsers();
+        });
+      });
+      const { start, end } = defaultRange();
+      const startEl = document.getElementById('pagos-start');
+      const endEl = document.getElementById('pagos-end');
+      if(startEl && !startEl.value) startEl.value = start;
+      if(endEl && !endEl.value) endEl.value = end;
+      document.getElementById('pagos-refresh').addEventListener('click', loadPayments);
+      document.getElementById('pagos-q').addEventListener('keydown', (e) => { if(e.key === 'Enter') loadPayments(); });
+      document.getElementById('pagos-limit').addEventListener('change', loadPayments);
+      bindPagosEvents();
+      bindUsuariosEvents();
+      loadPayments();
+    }
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

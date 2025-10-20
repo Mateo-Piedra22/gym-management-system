@@ -34,6 +34,13 @@ try:
 except Exception:
     DatabaseManager = None  # type: ignore
 
+# Importar dataclasses de modelos para payloads del API
+try:
+    from models import Usuario, Pago  # type: ignore
+except Exception:
+    Usuario = None  # type: ignore
+    Pago = None  # type: ignore
+
 # Importar utilidades del proyecto principal para branding y contraseña de desarrollador
 try:
     from utils import get_gym_name  # type: ignore
@@ -53,6 +60,11 @@ try:
     from managers import DEV_PASSWORD  # type: ignore
 except Exception:
     DEV_PASSWORD = None  # type: ignore
+
+try:
+    from payment_manager import PaymentManager
+except Exception:
+    PaymentManager = None
 
 # Base URL pública (Railway) sin túneles
 try:
@@ -84,6 +96,22 @@ _db: Optional[DatabaseManager] = None
 # Bloqueo para inicialización segura de la instancia global de DB y evitar condiciones de carrera
 _db_lock = threading.RLock()
 _db_initializing = False
+
+# Gestor de pagos (se instancia perezosamente sobre la DB)
+_pm: Optional[PaymentManager] = None
+
+def _get_pm() -> Optional[PaymentManager]:
+    global _pm
+    try:
+        if _pm is not None:
+            return _pm
+        db = _get_db()
+        if db is None or PaymentManager is None:
+            return None
+        _pm = PaymentManager(db)
+        return _pm
+    except Exception:
+        return None
 
 # Ajuste de stdout/stderr para ejecutables sin consola en Windows (runw.exe)
 # Evita fallos de configuración de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
@@ -884,6 +912,12 @@ def require_owner(request: Request):
     return True
 
 
+def require_gestion_access(request: Request):
+    if request.session.get("logged_in") or request.session.get("gestion_profesor_id"):
+        return True
+    raise HTTPException(status_code=401, detail="Acceso restringido a Gestión")
+
+
 def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "127.0.0.1", port: int = 8003, log_level: str = "info") -> None:
     """Arranca el servidor web en un hilo daemon para no bloquear la UI.
 
@@ -1488,6 +1522,348 @@ async def dashboard(request: Request):
         "logo_url": _resolve_logo_url(),
     }
     return templates.TemplateResponse("dashboard.html", ctx)
+
+@app.get("/gestion")
+async def gestion(request: Request):
+    # Redirigir a login de Gestión si no hay sesión activa (dueño o profesor)
+    if not (request.session.get("logged_in") or request.session.get("gestion_profesor_id")):
+        return RedirectResponse(url="/gestion/login", status_code=303)
+    theme_vars = read_theme_vars(static_dir / "style.css")
+    ctx = {
+        "request": request,
+        "theme": theme_vars,
+        "gym_name": get_gym_name("Gimnasio"),
+        "logo_url": _resolve_logo_url(),
+    }
+    return templates.TemplateResponse("gestion.html", ctx)
+
+# --- API Usuarios (CRUD) ---
+@app.get("/api/usuarios")
+async def api_usuarios_list(q: Optional[str] = None, limit: int = 50, offset: int = 0, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/usuarios")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            sql = """
+                SELECT id, nombre, dni, telefono, rol, tipo_cuota, activo, fecha_registro
+                FROM usuarios
+                WHERE TRUE
+            """
+            params: list = []
+            if q:
+                q_like = f"%{q.strip()}%"
+                sql += " AND (LOWER(nombre) LIKE LOWER(%s) OR CAST(dni AS TEXT) LIKE %s OR CAST(telefono AS TEXT) LIKE %s)"
+                params.extend([q_like, q_like, q_like])
+            sql += " ORDER BY nombre ASC LIMIT %s OFFSET %s"
+            params.extend([limit, offset])
+            cur.execute(sql, params)
+            rows = cur.fetchall() or []
+            for r in rows:
+                r["nombre"] = (r.get("nombre") or "").strip()
+                r["rol"] = (r.get("rol") or "").strip().lower()
+            return rows
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/usuarios/{usuario_id}")
+async def api_usuario_get(usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}")
+    if guard:
+        return guard
+    try:
+        u = db.obtener_usuario_por_id(usuario_id)  # type: ignore
+        if not u:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        return {
+            "id": u.id,
+            "nombre": u.nombre,
+            "dni": u.dni,
+            "telefono": u.telefono,
+            "pin": u.pin,
+            "rol": u.rol,
+            "activo": bool(u.activo),
+            "tipo_cuota": u.tipo_cuota,
+            "notas": u.notas,
+            "fecha_registro": u.fecha_registro,
+            "fecha_proximo_vencimiento": u.fecha_proximo_vencimiento,
+            "cuotas_vencidas": u.cuotas_vencidas,
+            "ultimo_pago": u.ultimo_pago,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios")
+async def api_usuario_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        dni = str(payload.get("dni") or "").strip()
+        telefono = str(payload.get("telefono") or "").strip() or None
+        pin = str(payload.get("pin") or "").strip() or None
+        rol = (payload.get("rol") or "socio").strip().lower()
+        activo = bool(payload.get("activo", True))
+        tipo_cuota = payload.get("tipo_cuota")
+        notas = payload.get("notas")
+        if not nombre or not dni:
+            raise HTTPException(status_code=400, detail="'nombre' y 'dni' son obligatorios")
+        if db.dni_existe(dni):  # type: ignore
+            raise HTTPException(status_code=400, detail="DNI ya existe")
+        usuario = Usuario(  # type: ignore
+            id=None,
+            nombre=nombre,
+            dni=dni,
+            telefono=telefono,
+            pin=pin,
+            rol=rol,
+            notas=notas,
+            fecha_registro=datetime.now(timezone.utc).isoformat(),
+            activo=activo,
+            tipo_cuota=tipo_cuota,
+            fecha_proximo_vencimiento=None,
+            cuotas_vencidas=0,
+            ultimo_pago=None,
+        )
+        new_id = db.crear_usuario(usuario)  # type: ignore
+        return {"id": new_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/usuarios/{usuario_id}")
+async def api_usuario_update(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        nombre = (payload.get("nombre") or "").strip()
+        dni = str(payload.get("dni") or "").strip()
+        telefono = str(payload.get("telefono") or "").strip() or None
+        pin = str(payload.get("pin") or "").strip() or None
+        rol = (payload.get("rol") or "socio").strip().lower()
+        activo = bool(payload.get("activo", True))
+        tipo_cuota = payload.get("tipo_cuota")
+        notas = payload.get("notas")
+        if not nombre or not dni:
+            raise HTTPException(status_code=400, detail="'nombre' y 'dni' son obligatorios")
+        if db.dni_existe(dni, usuario_id):  # type: ignore
+            raise HTTPException(status_code=400, detail="DNI ya existe")
+        usuario = Usuario(  # type: ignore
+            id=usuario_id,
+            nombre=nombre,
+            dni=dni,
+            telefono=telefono,
+            pin=pin,
+            rol=rol,
+            notas=notas,
+            fecha_registro=None,
+            activo=activo,
+            tipo_cuota=tipo_cuota,
+            fecha_proximo_vencimiento=None,
+            cuotas_vencidas=None,
+            ultimo_pago=None,
+        )
+        db.actualizar_usuario(usuario)  # type: ignore
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/usuarios/{usuario_id}")
+async def api_usuario_delete(usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}")
+    if guard:
+        return guard
+    try:
+        db.eliminar_usuario(usuario_id)  # type: ignore
+        return {"ok": True}
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- API Metadatos de pago ---
+@app.get("/api/metodos_pago")
+async def api_metodos_pago(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/metodos_pago")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, nombre, activo, color, comision, icono FROM metodos_pago ORDER BY nombre")
+            return cur.fetchall() or []
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/conceptos_pago")
+async def api_conceptos_pago(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/conceptos_pago")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, nombre, descripcion, precio_base, tipo, activo FROM conceptos_pago ORDER BY nombre")
+            return cur.fetchall() or []
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/tipos_cuota_activos")
+async def api_tipos_cuota_activos(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/tipos_cuota_activos")
+    if guard:
+        return guard
+    try:
+        # Preferir SQL directo para robustez
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, nombre, precio, duracion_dias, activo FROM tipos_cuota WHERE activo = true ORDER BY precio ASC, nombre ASC")
+            rows = cur.fetchall() or []
+            for r in rows:
+                r["nombre"] = (r.get("nombre") or "").strip()
+            return rows
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/gestion/login")
+async def gestion_login_get(request: Request):
+    theme_vars = read_theme_vars(static_dir / "style.css")
+    ctx = {
+        "request": request,
+        "theme": theme_vars,
+        "gym_name": get_gym_name("Gimnasio"),
+        "logo_url": _resolve_logo_url(),
+    }
+    return templates.TemplateResponse("gestion_login.html", ctx)
+
+@app.get("/api/profesores_basico")
+async def api_profesores_basico():
+    db = _get_db()
+    if db is None:
+        return []
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT p.id AS profesor_id,
+                       u.id AS usuario_id,
+                       COALESCE(u.nombre,'') AS nombre
+                FROM profesores p
+                JOIN usuarios u ON u.id = p.usuario_id
+                ORDER BY p.id
+                """
+            )
+            res = []
+            for r in cur.fetchall():
+                res.append({
+                    "profesor_id": int(r[0] or 0),
+                    "usuario_id": int(r[1] or 0),
+                    "nombre": r[2] or ""
+                })
+            return res
+    except Exception:
+        try:
+            logging.exception("Error en /api/profesores_basico")
+        except Exception:
+            pass
+        return []
+
+@app.post("/gestion/auth")
+async def gestion_auth(request: Request):
+    try:
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith("application/json"):
+            data = await request.json()
+        else:
+            data = await request.form()
+    except Exception:
+        data = {}
+    usuario_id_raw = data.get("usuario_id")
+    owner_password = str(data.get("owner_password", "")).strip()
+    pin_raw = data.get("pin")
+
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DatabaseManager no disponible"}, status_code=500)
+
+    # Modo Dueño: usuario_id == "__OWNER__" y contraseña
+    if isinstance(usuario_id_raw, str) and usuario_id_raw == "__OWNER__":
+        if not owner_password:
+            return JSONResponse({"success": False, "message": "Ingrese la contraseña"}, status_code=400)
+        if owner_password == _get_password():
+            request.session.clear()
+            request.session["logged_in"] = True
+            request.session["role"] = "dueño"
+            # Dueño también puede entrar a Gestión
+            return RedirectResponse(url="/gestion", status_code=303)
+        return JSONResponse({"success": False, "message": "Credenciales inválidas"}, status_code=401)
+
+    # Modo Profesor: usuario_id numérico y PIN
+    try:
+        usuario_id = int(usuario_id_raw) if usuario_id_raw is not None else None
+    except Exception:
+        usuario_id = None
+    pin = str(pin_raw or "").strip()
+    if not usuario_id or not pin:
+        return JSONResponse({"success": False, "message": "Parámetros inválidos"}, status_code=400)
+
+    ok = False
+    try:
+        ok = bool(db.verificar_pin_usuario(usuario_id, pin))  # type: ignore
+    except Exception:
+        ok = False
+    if not ok:
+        return JSONResponse({"success": False, "message": "PIN inválido"}, status_code=401)
+
+    profesor_id = None
+    try:
+        prof = db.obtener_profesor_por_usuario_id(usuario_id)  # type: ignore
+        if prof and hasattr(prof, 'profesor_id'):
+            profesor_id = getattr(prof, 'profesor_id', None)
+    except Exception:
+        profesor_id = None
+
+    request.session["gestion_profesor_user_id"] = usuario_id
+    if profesor_id:
+        request.session["gestion_profesor_id"] = int(profesor_id)
+    return RedirectResponse(url="/gestion", status_code=303)
 
 
 @app.get("/api/theme")
@@ -2420,6 +2796,308 @@ async def api_payment_status_dist(_=Depends(require_owner)):
 
 
 # --- Tablas detalladas para subpestañas ---
+
+@app.get("/api/pagos_detalle")
+async def api_pagos_detalle(request: Request, _=Depends(require_gestion_access)):
+    """Listado detallado de pagos con filtros por fecha, búsqueda y paginación.
+
+    - Filtros: start (YYYY-MM-DD), end (YYYY-MM-DD), q (nombre/dni/metodo/concepto)
+    - Paginación: limit, offset
+    """
+    db = _get_db()
+    if db is None:
+        return {"count": 0, "items": []}
+    guard = _circuit_guard_json(db, "/api/pagos_detalle")
+    if guard:
+        return guard
+    try:
+        start = request.query_params.get("start")
+        end = request.query_params.get("end")
+        q = request.query_params.get("q")
+        limit_q = request.query_params.get("limit")
+        offset_q = request.query_params.get("offset")
+        try:
+            limit = int(limit_q) if (limit_q and str(limit_q).isdigit()) else 50
+        except Exception:
+            limit = 50
+        try:
+            offset = int(offset_q) if (offset_q and str(offset_q).isdigit()) else 0
+        except Exception:
+            offset = 0
+        # Normalizar vacíos
+        if start and isinstance(start, str) and start.strip() == "":
+            start = None
+        if end and isinstance(end, str) and end.strip() == "":
+            end = None
+
+        rows = db.obtener_pagos_por_fecha(start, end)  # type: ignore
+        items = rows
+        if q and isinstance(q, str) and q.strip() != "":
+            ql = q.lower()
+            def _match(r: Dict[str, Any]) -> bool:
+                try:
+                    nombre = str(r.get("usuario_nombre") or r.get("nombre") or "").lower()
+                    dni = str(r.get("dni") or "").lower()
+                    metodo = str(r.get("metodo_pago") or r.get("metodo") or "").lower()
+                    concepto = str(r.get("concepto_pago") or r.get("concepto") or "").lower()
+                    return (ql in nombre) or (ql in dni) or (ql in metodo) or (ql in concepto)
+                except Exception:
+                    return False
+            items = [r for r in rows if _match(r)]
+        total = len(items)
+        sliced = items[offset:offset+limit]
+        return {"count": total, "items": sliced}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Detalle de pago por ID ---
+@app.get("/api/pagos/{pago_id}")
+async def api_pago_resumen(pago_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT p.*, u.nombre AS usuario_nombre, u.dni, u.id AS usuario_id
+                FROM pagos p
+                JOIN usuarios u ON u.id = p.usuario_id
+                WHERE p.id = %s
+                """,
+                (pago_id,)
+            )
+            pago = cur.fetchone()
+            if not pago:
+                raise HTTPException(status_code=404, detail="Pago no encontrado")
+            cur.execute(
+                """
+                SELECT 
+                    pd.id, pd.pago_id,
+                    COALESCE(cp.nombre, pd.descripcion) AS concepto_nombre,
+                    COALESCE(pd.cantidad, 1) AS cantidad,
+                    COALESCE(pd.precio_unitario, 0) AS precio_unitario,
+                    COALESCE(pd.subtotal, COALESCE(pd.cantidad,1) * COALESCE(pd.precio_unitario,0)) AS subtotal
+                FROM pago_detalles pd
+                LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                WHERE pd.pago_id = %s
+                ORDER BY pd.id
+                """,
+                (pago_id,)
+            )
+            detalles = cur.fetchall() or []
+        total_detalles = sum(float(d.get("subtotal") or 0) for d in detalles)
+        return {"pago": pago, "detalles": detalles, "total_detalles": total_detalles}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Crear/registrar pago (básico) ---
+@app.post("/api/pagos")
+async def api_pagos_create(request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/pagos[POST]")
+    if guard:
+        return guard
+    if pm is None:
+        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    payload = await request.json()
+    try:
+        usuario_id_raw = payload.get("usuario_id")
+        monto_raw = payload.get("monto")
+        mes_raw = payload.get("mes")
+        año_raw = payload.get("año")
+        metodo_pago_id = payload.get("metodo_pago_id")
+
+        if usuario_id_raw is None or monto_raw is None or mes_raw is None or año_raw is None:
+            raise HTTPException(status_code=400, detail="'usuario_id', 'monto', 'mes' y 'año' son obligatorios")
+        try:
+            usuario_id = int(usuario_id_raw)
+            monto = float(monto_raw)
+            mes = int(mes_raw)
+            año = int(año_raw)
+            metodo_pago_id_int = int(metodo_pago_id) if metodo_pago_id is not None else None
+        except Exception:
+            raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
+
+        if not (1 <= mes <= 12):
+            raise HTTPException(status_code=400, detail="'mes' debe estar entre 1 y 12")
+        if monto <= 0:
+            raise HTTPException(status_code=400, detail="'monto' debe ser mayor a 0")
+
+        try:
+            pago_id = pm.registrar_pago(usuario_id, monto, mes, año, metodo_pago_id_int)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+        return {"ok": True, "id": int(pago_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Modificar pago existente ---
+@app.put("/api/pagos/{pago_id}")
+async def api_pagos_update(pago_id: int, request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/pagos/{pago_id}[PUT]")
+    if guard:
+        return guard
+    if pm is None or Pago is None:
+        raise HTTPException(status_code=503, detail="PaymentManager o modelo Pago no disponible")
+    payload = await request.json()
+    try:
+        usuario_id_raw = payload.get("usuario_id")
+        monto_raw = payload.get("monto")
+        fecha_raw = payload.get("fecha_pago")
+        mes_raw = payload.get("mes")
+        año_raw = payload.get("año")
+        metodo_pago_id = payload.get("metodo_pago_id")
+
+        if usuario_id_raw is None or monto_raw is None:
+            raise HTTPException(status_code=400, detail="'usuario_id' y 'monto' son obligatorios")
+        try:
+            usuario_id = int(usuario_id_raw)
+            monto = float(monto_raw)
+            metodo_pago_id_int = int(metodo_pago_id) if metodo_pago_id is not None else None
+        except Exception:
+            raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
+
+        # Resolver fecha_pago
+        fecha_dt = None
+        if fecha_raw is not None:
+            try:
+                if isinstance(fecha_raw, str):
+                    fecha_dt = datetime.fromisoformat(fecha_raw)
+                else:
+                    # Si llega ya como objeto serializado raro, intentar fallback
+                    raise ValueError("fecha_pago debe ser string ISO")
+            except Exception:
+                raise HTTPException(status_code=400, detail="'fecha_pago' inválida, use ISO 8601 (YYYY-MM-DD)")
+        else:
+            if mes_raw is not None and año_raw is not None:
+                try:
+                    mes = int(mes_raw)
+                    año = int(año_raw)
+                    if not (1 <= mes <= 12):
+                        raise HTTPException(status_code=400, detail="'mes' debe estar entre 1 y 12")
+                    fecha_dt = datetime(año, mes, 1)
+                except HTTPException:
+                    raise
+                except Exception:
+                    raise HTTPException(status_code=400, detail="'mes'/'año' inválidos")
+            else:
+                # Intentar recuperar el pago para preservar su fecha
+                try:
+                    existing = pm.obtener_pago(pago_id)
+                    if existing and getattr(existing, 'fecha_pago', None):
+                        fecha_dt = existing.fecha_pago if not isinstance(existing.fecha_pago, str) else datetime.fromisoformat(existing.fecha_pago)
+                    else:
+                        fecha_dt = datetime.now()
+                except Exception:
+                    fecha_dt = datetime.now()
+
+        # Resolver mes/año finales (usados en sync)
+        if mes_raw is not None and año_raw is not None:
+            try:
+                mes = int(mes_raw)
+                año = int(año_raw)
+            except Exception:
+                mes = fecha_dt.month
+                año = fecha_dt.year
+        else:
+            mes = fecha_dt.month
+            año = fecha_dt.year
+
+        if monto <= 0:
+            raise HTTPException(status_code=400, detail="'monto' debe ser mayor a 0")
+
+        pago = Pago(id=int(pago_id), usuario_id=usuario_id, monto=monto, mes=mes, año=año, fecha_pago=fecha_dt, metodo_pago_id=metodo_pago_id_int)
+        try:
+            pm.modificar_pago(pago)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return {"ok": True, "id": int(pago_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Eliminar pago ---
+@app.delete("/api/pagos/{pago_id}")
+async def api_pagos_delete(pago_id: int, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/pagos/{pago_id}[DELETE]")
+    if guard:
+        return guard
+    if pm is None:
+        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    try:
+        pm.eliminar_pago(int(pago_id))
+        return {"ok": True}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Historial de pagos por usuario (gestión) ---
+@app.get("/api/usuarios/{usuario_id}/pagos")
+async def api_usuario_historial(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    try:
+        limit_q = request.query_params.get("limit")
+        offset_q = request.query_params.get("offset")
+        lim = int(limit_q) if (limit_q and str(limit_q).isdigit()) else 50
+        off = int(offset_q) if (offset_q and str(offset_q).isdigit()) else 0
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT 
+                    p.id, p.fecha_pago::date AS fecha, p.monto,
+                    COALESCE(mp.nombre,'') AS metodo, COALESCE(cp.nombre,'') AS concepto
+                FROM pagos p
+                LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                LEFT JOIN conceptos_pago cp ON cp.id = p.concepto_id
+                WHERE p.usuario_id = %s
+                ORDER BY p.fecha_pago DESC
+                LIMIT %s OFFSET %s
+                """,
+                (usuario_id, lim, off)
+            )
+            rows = cur.fetchall() or []
+        return rows
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/usuarios_detalle")
 async def api_usuarios_detalle(_=Depends(require_owner)):

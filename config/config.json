@@ -38,5 +38,28 @@
   },
   "client_base_url": "",
   "sync_upload_token": "gymms_sync_b3d2a9f6c1e5470ab9d83b7e4c59f12a7d8c3e1f5a9b2c4d6e7f8091a2b3c4d5",
-  "webapp_session_secret": "XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY"
+  "webapp_session_secret": "XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY",
+  "scheduled_tasks": {
+    "enabled": true,
+    "uploader": {
+      "enabled": true,
+      "interval_minutes": 3
+    },
+    "reconcile_r2l": {
+      "enabled": true,
+      "interval_minutes": 60
+    },
+    "reconcile_l2r": {
+      "enabled": true,
+      "time": "02:00"
+    },
+    "cleanup": {
+      "enabled": true,
+      "time": "03:15"
+    },
+    "backup": {
+      "enabled": false,
+      "time": "02:30"
+    }
+  }
 }

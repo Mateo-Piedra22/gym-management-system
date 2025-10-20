@@ -15848,9 +15848,18 @@ class DatabaseManager:
                 if fecha_inicio and fecha_fin:
                     # Rango de fechas específico
                     sql = """
-                    SELECT p.*, u.nombre as usuario_nombre, u.dni
+                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
+                           mp.nombre AS metodo_pago,
+                           COALESCE(agg.concepto_pago, '') AS concepto_pago
                     FROM pagos p
                     JOIN usuarios u ON p.usuario_id = u.id
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    LEFT JOIN LATERAL (
+                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
+                        FROM pago_detalles pd
+                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                        WHERE pd.pago_id = p.id
+                    ) AS agg ON TRUE
                     WHERE p.fecha_pago BETWEEN %s AND %s
                     ORDER BY p.fecha_pago DESC
                     """
@@ -15858,9 +15867,18 @@ class DatabaseManager:
                 elif fecha_inicio:
                     # Solo fecha de inicio - filtrar por día específico
                     sql = """
-                    SELECT p.*, u.nombre as usuario_nombre, u.dni
+                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
+                           mp.nombre AS metodo_pago,
+                           COALESCE(agg.concepto_pago, '') AS concepto_pago
                     FROM pagos p
                     JOIN usuarios u ON p.usuario_id = u.id
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    LEFT JOIN LATERAL (
+                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
+                        FROM pago_detalles pd
+                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                        WHERE pd.pago_id = p.id
+                    ) AS agg ON TRUE
                     WHERE DATE(p.fecha_pago) = %s
                     ORDER BY p.fecha_pago DESC
                     """
@@ -15868,9 +15886,18 @@ class DatabaseManager:
                 else:
                     # Si no se proporcionan fechas, obtener todos los pagos
                     sql = """
-                    SELECT p.*, u.nombre as usuario_nombre, u.dni
+                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
+                           mp.nombre AS metodo_pago,
+                           COALESCE(agg.concepto_pago, '') AS concepto_pago
                     FROM pagos p
                     JOIN usuarios u ON p.usuario_id = u.id
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    LEFT JOIN LATERAL (
+                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
+                        FROM pago_detalles pd
+                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                        WHERE pd.pago_id = p.id
+                    ) AS agg ON TRUE
                     ORDER BY p.fecha_pago DESC
                     """
                     cursor.execute(sql)

@@ -208,15 +208,27 @@ class DBConfigDialog(QDialog):
         up_row.addWidget(self.uploader_interval_spin)
         form.addRow("Uploader:", up_row)
 
-        self.reconcile_enable_checkbox = QCheckBox("Reconciliación periódica Local↔Remoto")
-        self.reconcile_interval_spin = QSpinBox()
-        self.reconcile_interval_spin.setRange(1, 60)
-        rec_row = QHBoxLayout()
-        rec_row.addWidget(self.reconcile_enable_checkbox)
-        rec_row.addStretch()
-        rec_row.addWidget(QLabel("Cada (min):"))
-        rec_row.addWidget(self.reconcile_interval_spin)
-        form.addRow("Reconciliar:", rec_row)
+        # Reconciliación Remoto→Local (minutos)
+        self.reconcile_r2l_enable_checkbox = QCheckBox("Reconciliación Remoto→Local")
+        self.reconcile_r2l_interval_spin = QSpinBox()
+        self.reconcile_r2l_interval_spin.setRange(1, 60)
+        rec_r2l_row = QHBoxLayout()
+        rec_r2l_row.addWidget(self.reconcile_r2l_enable_checkbox)
+        rec_r2l_row.addStretch()
+        rec_r2l_row.addWidget(QLabel("Cada (min):"))
+        rec_r2l_row.addWidget(self.reconcile_r2l_interval_spin)
+        form.addRow("Reconciliar R→L:", rec_r2l_row)
+
+        # Reconciliación Local→Remoto (diaria)
+        self.reconcile_l2r_enable_checkbox = QCheckBox("Reconciliación Local→Remoto")
+        self.reconcile_l2r_time_edit = QTimeEdit()
+        self.reconcile_l2r_time_edit.setDisplayFormat("HH:mm")
+        rec_l2r_row = QHBoxLayout()
+        rec_l2r_row.addWidget(self.reconcile_l2r_enable_checkbox)
+        rec_l2r_row.addStretch()
+        rec_l2r_row.addWidget(QLabel("Hora:"))
+        rec_l2r_row.addWidget(self.reconcile_l2r_time_edit)
+        form.addRow("Reconciliar L→R:", rec_l2r_row)
 
         self.cleanup_enable_checkbox = QCheckBox("Limpieza diaria de retención")
         self.cleanup_time_edit = QTimeEdit()
@@ -662,15 +674,33 @@ class DBConfigDialog(QDialog):
         base = scfg.copy() if isinstance(scfg, dict) else {}
         # Maestro
         base.setdefault('enabled', False)
-        # Subtareas con valores por defecto (desactivadas por defecto)
+        # Subtareas con valores por defecto
         uploader = base.get('uploader') if isinstance(base.get('uploader'), dict) else {}
         uploader.setdefault('enabled', False)
         uploader.setdefault('interval_minutes', 3)
         base['uploader'] = uploader
-        reconcile = base.get('reconcile') if isinstance(base.get('reconcile'), dict) else {}
-        reconcile.setdefault('enabled', False)
-        reconcile.setdefault('interval_minutes', 5)
-        base['reconcile'] = reconcile
+        # Legacy reconcile → nuevos campos
+        legacy = base.get('reconcile') if isinstance(base.get('reconcile'), dict) else None
+        r2l = base.get('reconcile_r2l') if isinstance(base.get('reconcile_r2l'), dict) else {}
+        l2r = base.get('reconcile_l2r') if isinstance(base.get('reconcile_l2r'), dict) else {}
+        if legacy and not r2l and not l2r:
+            try:
+                r2l = {
+                    'enabled': bool(legacy.get('enabled', False)),
+                    'interval_minutes': int(legacy.get('interval_minutes', 60)),
+                }
+                l2r = {
+                    'enabled': bool(legacy.get('enabled', False)),
+                    'time': '02:00',
+                }
+            except Exception:
+                pass
+        r2l.setdefault('enabled', False)
+        r2l.setdefault('interval_minutes', 60)
+        base['reconcile_r2l'] = r2l
+        l2r.setdefault('enabled', False)
+        l2r.setdefault('time', '02:00')
+        base['reconcile_l2r'] = l2r
         cleanup = base.get('cleanup') if isinstance(base.get('cleanup'), dict) else {}
         cleanup.setdefault('enabled', False)
         cleanup.setdefault('time', '03:15')
@@ -688,9 +718,17 @@ class DBConfigDialog(QDialog):
             # Uploader
             self.uploader_enable_checkbox.setChecked(bool(scfg['uploader'].get('enabled', True)))
             self.uploader_interval_spin.setValue(int(scfg['uploader'].get('interval_minutes', 3)))
-            # Reconcile
-            self.reconcile_enable_checkbox.setChecked(bool(scfg['reconcile'].get('enabled', True)))
-            self.reconcile_interval_spin.setValue(int(scfg['reconcile'].get('interval_minutes', 5)))
+            # Reconcile R→L
+            r2l = scfg.get('reconcile_r2l', {})
+            self.reconcile_r2l_enable_checkbox.setChecked(bool(r2l.get('enabled', False)))
+            self.reconcile_r2l_interval_spin.setValue(int(r2l.get('interval_minutes', 60)))
+            # Reconcile L→R
+            l2r = scfg.get('reconcile_l2r', {})
+            t_l2r = QTime.fromString(str(l2r.get('time', '02:00')), "HH:mm")
+            if not t_l2r.isValid():
+                t_l2r = QTime(2, 0)
+            self.reconcile_l2r_time_edit.setTime(t_l2r)
+            self.reconcile_l2r_enable_checkbox.setChecked(bool(l2r.get('enabled', False)))
             # Cleanup time
             t_clean = QTime.fromString(str(scfg['cleanup'].get('time', '03:15')), "HH:mm")
             if not t_clean.isValid():
@@ -717,9 +755,13 @@ class DBConfigDialog(QDialog):
                 'enabled': bool(self.uploader_enable_checkbox.isChecked()),
                 'interval_minutes': int(self.uploader_interval_spin.value()),
             },
-            'reconcile': {
-                'enabled': bool(self.reconcile_enable_checkbox.isChecked()),
-                'interval_minutes': int(self.reconcile_interval_spin.value()),
+            'reconcile_r2l': {
+                'enabled': bool(self.reconcile_r2l_enable_checkbox.isChecked()),
+                'interval_minutes': int(self.reconcile_r2l_interval_spin.value()),
+            },
+            'reconcile_l2r': {
+                'enabled': bool(self.reconcile_l2r_enable_checkbox.isChecked()),
+                'time': fmt_time(self.reconcile_l2r_time_edit.time()),
             },
             'cleanup': {
                 'enabled': bool(self.cleanup_enable_checkbox.isChecked()),
@@ -735,7 +777,8 @@ class DBConfigDialog(QDialog):
         try:
             for w in [
                 self.uploader_enable_checkbox, self.uploader_interval_spin,
-                self.reconcile_enable_checkbox, self.reconcile_interval_spin,
+                self.reconcile_r2l_enable_checkbox, self.reconcile_r2l_interval_spin,
+                self.reconcile_l2r_enable_checkbox, self.reconcile_l2r_time_edit,
                 self.cleanup_enable_checkbox, self.cleanup_time_edit,
                 self.backup_enable_checkbox, self.backup_time_edit,
             ]:
