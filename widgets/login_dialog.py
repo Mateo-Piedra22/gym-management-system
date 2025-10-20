@@ -973,19 +973,19 @@ class LoginDialog(QDialog):
             border: 2px solid {alt_background_color};
             border-radius: 8px;
             font-size: 14px;
-            background: {background_color};
+            background-color: {background_color};
             color: {auto_text_on_bg};
             selection-background-color: {primary_color};
         }}
 
         QLineEdit#login_input:focus {{
              border: 2px solid {primary_color};
-             background: {background_color};
+             background-color: {background_color};
          }}
          
          QLineEdit#login_input:hover {{
              border: 2px solid {primary_hover};
-             background: {background_color};
+             background-color: {background_color};
              color: {auto_text_on_bg};
          }}
          
@@ -996,7 +996,7 @@ class LoginDialog(QDialog):
          
          /* Estado deshabilitado */
          QLineEdit#login_input:disabled {{
-             background: {tertiary_bg};
+             background-color: {tertiary_bg};
              color: {auto_text_on_tertiary};
              border: 2px dashed {border_color};
          }}
@@ -1007,7 +1007,7 @@ class LoginDialog(QDialog):
             border: 2px solid {alt_background_color};
             border-radius: 8px;
             font-size: 14px;
-            background: {background_color};
+            background-color: {background_color};
             color: {auto_text_on_bg};
             min-height: 20px;
         }}
@@ -1018,7 +1018,7 @@ class LoginDialog(QDialog):
         
         QComboBox#login_combo:hover {{
             border: 2px solid {primary_hover};
-            background: {background_color};
+            background-color: {background_color};
             color: {auto_text_on_bg};
         }}
         
@@ -1029,13 +1029,13 @@ class LoginDialog(QDialog):
         
         /* Estado deshabilitado */
         QComboBox#login_combo:disabled {{
-            background: {tertiary_bg};
+            background-color: {tertiary_bg};
             color: {auto_text_on_tertiary};
             border: 2px dashed {border_color};
         }}
         
         QComboBox#login_combo QAbstractItemView {{
-            background: {background_color};
+            background-color: {background_color};
             color: {auto_text_on_bg};
             selection-background-color: {primary_color};
             selection-color: {auto_text_on_primary};
@@ -1814,10 +1814,9 @@ class LoginDialog(QDialog):
                 cancel_btn.setEnabled(False)
 
                 def _change_owner_password():
-                    # Obtener contraseña actual y actualizar si coincide
+                    # Obtener contraseña actual y actualizar en ambas bases si coincide
                     try:
-                        # Permitir cambio siempre: la fuente de verdad es la base de datos.
-                        # Si existe una variable de entorno, se usa sólo como seed inicial en el servidor.
+                        # Fuente de verdad: base de datos. DEV_PASSWORD sólo como último respaldo para leer.
                         current = None
                         if hasattr(self, 'db_manager') and self.db_manager:
                             current = self.db_manager.obtener_configuracion('owner_password')
@@ -1831,10 +1830,64 @@ class LoginDialog(QDialog):
                             return {'ok': False, 'msg': 'No se pudo obtener la contraseña actual.'}
                         if old_pwd != current:
                             return {'ok': False, 'msg': 'La contraseña actual no coincide.'}
-                        ok = False
+
+                        # Actualizar en la base local
+                        local_ok = False
                         if hasattr(self, 'db_manager') and self.db_manager:
-                            ok = self.db_manager.actualizar_configuracion('owner_password', new_pwd)
-                        return {'ok': ok}
+                            try:
+                                local_ok = bool(self.db_manager.actualizar_configuracion('owner_password', new_pwd))
+                            except Exception:
+                                local_ok = False
+
+                        # Intentar actualizar en la base remota (según config.json)
+                        remote_ok = False
+                        try:
+                            import os, json
+                            import psycopg2
+                            base_dir = os.path.dirname(os.path.dirname(__file__))
+                            cfg_path = os.path.join(base_dir, 'config', 'config.json')
+                            remote = {}
+                            if os.path.exists(cfg_path):
+                                with open(cfg_path, 'r', encoding='utf-8') as f:
+                                    cfg = json.load(f)
+                                    remote = cfg.get('db_remote') or {}
+                            host = remote.get('host'); port = remote.get('port'); dbn = remote.get('database')
+                            user = remote.get('user'); pwd = remote.get('password')
+                            sslmode = remote.get('sslmode') or 'require'
+                            appname = remote.get('application_name') or 'gym_management_system'
+                            timeout = int(remote.get('connect_timeout') or 10)
+                            if host and dbn and user and (pwd is not None):
+                                conn = psycopg2.connect(host=host, port=port, dbname=dbn, user=user, password=pwd, sslmode=sslmode, application_name=appname, connect_timeout=timeout)
+                                cur = conn.cursor()
+                                try:
+                                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS configuracion (
+                            clave TEXT PRIMARY KEY,
+                            valor TEXT
+                        )
+                        """)
+                                except Exception:
+                                    pass
+                                cur.execute(
+                    """
+                    INSERT INTO configuracion (clave, valor)
+                    VALUES (%s, %s)
+                    ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+                    """,
+                    ('owner_password', new_pwd),
+                )
+                                conn.commit()
+                                cur.close(); conn.close()
+                                remote_ok = True
+                        except Exception:
+                            remote_ok = False
+
+                        if not local_ok:
+                            return {'ok': False, 'msg': 'No se pudo actualizar la contraseña en la base local.'}
+                        if not remote_ok:
+                            return {'ok': False, 'msg': 'Contraseña actualizada en local, pero falló la actualización remota.'}
+
+                        return {'ok': True}
                     except Exception as e:
                         return {'ok': False, 'msg': f'Error interno: {e}'}
 

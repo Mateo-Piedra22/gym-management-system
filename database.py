@@ -15565,7 +15565,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 
                 # Ejecutar VACUUM ANALYZE en las tablas principales
-                tablas = ['usuarios', 'pagos', 'asistencias', 'clases', 'rutinas', 'profesores', 'configuraciones']
+                tablas = ['usuarios', 'pagos', 'asistencias', 'clases', 'rutinas', 'profesores', 'configuracion']
                 
                 for tabla in tablas:
                     try:

@@ -1441,7 +1441,7 @@ async def set_owner_password(request: Request):
                 # Crear tabla/config si fuera necesario (idempotente)
                 try:
                     cur.execute("""
-                        CREATE TABLE IF NOT EXISTS configuraciones (
+                        CREATE TABLE IF NOT EXISTS configuracion (
                             clave TEXT PRIMARY KEY,
                             valor TEXT
                         )
@@ -1450,7 +1450,7 @@ async def set_owner_password(request: Request):
                     pass
                 cur.execute(
                     """
-                    INSERT INTO configuraciones (clave, valor)
+                    INSERT INTO configuracion (clave, valor)
                     VALUES ('owner_password', %s)
                     ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
                     """,

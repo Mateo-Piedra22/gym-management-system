@@ -913,6 +913,9 @@ class DBConfigDialog(QDialog):
             )
             tables = [r[0] for r in (cur.fetchall() or [])]
 
+            # Excluir tablas de configuración para preservar settings críticos (owner_password, branding, numeración)
+            tables = [t for t in tables if t not in ('configuracion', 'configuracion_comprobantes', 'configuraciones')]
+
             truncated = []
             if tables:
                 try:

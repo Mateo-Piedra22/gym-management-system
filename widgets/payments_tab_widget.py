@@ -1038,6 +1038,13 @@ class PaymentsTabWidget(QWidget):
         # Conectar señales
         self.concepts_model.concept_changed.connect(self.calculate_totals)
         
+        # Placeholder no modal cuando no hay conceptos
+        self.concepts_placeholder_label = QLabel("⚠️ No hay conceptos de pago configurados")
+        self.concepts_placeholder_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.concepts_placeholder_label.setProperty("emptyState", "concepts")
+        self.concepts_placeholder_label.setVisible(False)
+
+        layout.addWidget(self.concepts_placeholder_label)
         layout.addWidget(self.concepts_table)
         
         return group
@@ -1360,6 +1367,10 @@ class PaymentsTabWidget(QWidget):
                 for concept in concepts or []:
                     if hasattr(concept, 'precio_base'):
                         self.concepts_model._prices[concept.id] = concept.precio_base
+                # Mostrar tabla o placeholder según disponibilidad
+                has_concepts = bool(concepts)
+                self.concepts_table.setVisible(has_concepts)
+                self.concepts_placeholder_label.setVisible(not has_concepts)
                 return
 
             def _load():
@@ -1372,8 +1383,10 @@ class PaymentsTabWidget(QWidget):
                     for concept in concepts or []:
                         if hasattr(concept, 'precio_base'):
                             self.concepts_model._prices[concept.id] = concept.precio_base
-                    if not concepts:
-                        QMessageBox.information(self, "Información", "⚠️ No hay conceptos de pago configurados")
+                    # Mostrar tabla o placeholder según disponibilidad
+                    has_concepts = bool(concepts)
+                    self.concepts_table.setVisible(has_concepts)
+                    self.concepts_placeholder_label.setVisible(not has_concepts)
                 except Exception as e:
                     QMessageBox.warning(self, "Advertencia", f"Error al aplicar conceptos de pago: {str(e)}")
 
