@@ -807,8 +807,15 @@
 
     function fmtDate(d){
       if(!d) return '';
+      if (typeof d === 'string') {
+        const s = d.trim();
+        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (m) {
+          return `${m[1]}-${m[2]}-${m[3]}`;
+        }
+      }
       const dt = new Date(d);
-      if(isNaN(dt.getTime())) return d;
+      if(isNaN(dt.getTime())) return String(d);
       const y = dt.getFullYear();
       const m = String(dt.getMonth()+1).padStart(2,'0');
       const day = String(dt.getDate()).padStart(2,'0');
