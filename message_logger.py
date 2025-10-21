@@ -64,13 +64,14 @@ class MessageLogger:
                 template_name="manual",
                 phone_number=telefono,
                 message_content=mensaje,
-                status="sent"
+                status="sent",
+                message_id=message_id
             )
         except Exception as e:
             logging.error(f"Error al registrar mensaje enviado: {e}")
             return False
     
-    def registrar_mensaje_recibido(self, telefono: str, mensaje: str, tipo_mensaje: str = "welcome") -> bool:
+    def registrar_mensaje_recibido(self, telefono: str, mensaje: str, tipo_mensaje: str = "welcome", message_id: str = None) -> bool:
         """Registra un mensaje recibido"""
         try:
             user_id = self._obtener_user_id_por_telefono(telefono)
@@ -86,7 +87,8 @@ class MessageLogger:
                 template_name="incoming",
                 phone_number=telefono,
                 message_content=mensaje,
-                status="received"
+                status="received",
+                message_id=message_id
             )
         except Exception as e:
             logging.error(f"Error al registrar mensaje recibido: {e}")
@@ -394,7 +396,7 @@ class MessageLogger:
     def marcar_mensaje_como_leido(self, message_id: str) -> bool:
         """Marca un mensaje como leído"""
         try:
-            return self.db.actualizar_estado_mensaje_whatsapp(message_id, 'leido')
+            return self.db.actualizar_estado_mensaje_whatsapp(message_id, 'read')
         except Exception as e:
             logging.error(f"Error al marcar mensaje como leído: {e}")
             return False
@@ -402,7 +404,7 @@ class MessageLogger:
     def marcar_mensaje_como_entregado(self, message_id: str) -> bool:
         """Marca un mensaje como entregado"""
         try:
-            return self.db.actualizar_estado_mensaje_whatsapp(message_id, 'entregado')
+            return self.db.actualizar_estado_mensaje_whatsapp(message_id, 'delivered')
         except Exception as e:
             logging.error(f"Error al marcar mensaje como entregado: {e}")
             return False

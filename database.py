@@ -17316,8 +17316,9 @@ class DatabaseManager:
                             message_type VARCHAR(50) NOT NULL CHECK (message_type IN ('overdue', 'payment', 'welcome')),
                             template_name VARCHAR(255) NOT NULL,
                             phone_number VARCHAR(20) NOT NULL,
+                            message_id VARCHAR(100),
                             sent_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            status VARCHAR(20) DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'read', 'failed')),
+                            status VARCHAR(20) DEFAULT 'sent' CHECK (status IN ('sent', 'delivered', 'read', 'failed', 'received')),
                             message_content TEXT,
                             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                         )
@@ -17327,6 +17328,30 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_user_id ON whatsapp_messages(user_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_type_date ON whatsapp_messages(message_type, sent_at DESC)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_whatsapp_messages_phone ON whatsapp_messages(phone_number)")
+                    try:
+                        cursor.execute("ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS message_id VARCHAR(100)")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_messages_message_id ON whatsapp_messages(message_id)")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("""
+                            DO $$
+                            BEGIN
+                                IF EXISTS (
+                                    SELECT 1 FROM information_schema.table_constraints
+                                    WHERE table_name = 'whatsapp_messages'
+                                      AND constraint_name = 'whatsapp_messages_status_check'
+                                ) THEN
+                                    ALTER TABLE whatsapp_messages DROP CONSTRAINT whatsapp_messages_status_check;
+                                END IF;
+                            END $$;
+                        """)
+                        cursor.execute("ALTER TABLE whatsapp_messages ADD CONSTRAINT whatsapp_messages_status_check CHECK (status IN ('sent','delivered','read','failed','received'))")
+                    except Exception:
+                        pass
                     
                     # Tabla de plantillas WhatsApp
                     cursor.execute("""
@@ -17392,16 +17417,16 @@ class DatabaseManager:
             raise
     
     def registrar_mensaje_whatsapp(self, user_id: int, message_type: str, template_name: str, 
-                                 phone_number: str, message_content: str = None, status: str = 'sent') -> bool:
+                                 phone_number: str, message_content: str = None, status: str = 'sent', message_id: str = None) -> bool:
         """Registra un mensaje WhatsApp enviado"""
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
                         INSERT INTO whatsapp_messages 
-                        (user_id, message_type, template_name, phone_number, message_content, status)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (user_id, message_type, template_name, phone_number, message_content, status))
+                        (user_id, message_type, template_name, phone_number, message_content, status, message_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (user_id, message_type, template_name, phone_number, message_content, status, message_id))
                     
                     conn.commit()
                     return True
@@ -17770,17 +17795,50 @@ class DatabaseManager:
             return 0
     
     def _obtener_user_id_por_telefono_whatsapp(self, telefono: str) -> Optional[int]:
-        """Obtiene el user_id basado en el número de teléfono"""
+        """Obtiene el user_id basado en número de WhatsApp con normalización avanzada"""
         try:
+            raw = str(telefono or "").strip()
+            import re
+            wa_digits = re.sub(r"\D", "", raw)
+            cands = set()
+            if wa_digits:
+                cands.add(wa_digits)
+                # Manejo frecuente: Argentina (+54) móviles con "9" intercalado y/o cero troncal
+                if wa_digits.startswith("54"):
+                    after = wa_digits[2:]
+                    cands.add(after)  # sin país
+                    if after.startswith("9"):
+                        after_no9 = after[1:]
+                        cands.add(after_no9)  # sin país y sin 9
+                        cands.add("0" + after_no9)  # con cero troncal
+                    else:
+                        cands.add("0" + after)  # con cero troncal
+                # Considerar también 549 -> 54 (sin 9)
+                if wa_digits.startswith("549"):
+                    cands.add(wa_digits.replace("549", "54", 1))
+            if not cands:
+                return None
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT id FROM usuarios WHERE telefono = %s
-                    """, (str(telefono),))
-                    
-                    result = cursor.fetchone()
-                    return result[0] if result else None
-                    
+                    # Comparar contra versión digit-only del teléfono en DB
+                    placeholders = ",".join(["%s"] * len(cands))
+                    sql = f"""
+                        SELECT id
+                        FROM usuarios
+                        WHERE regexp_replace(COALESCE(telefono,''), '\\D', '', 'g') IN ({placeholders})
+                        LIMIT 1
+                    """
+                    cursor.execute(sql, tuple(cands))
+                    row = cursor.fetchone()
+                    if row:
+                        try:
+                            return int(row[0])
+                        except Exception:
+                            return None
+                    # Fallback exacto
+                    cursor.execute("SELECT id FROM usuarios WHERE telefono = %s LIMIT 1", (raw,))
+                    r2 = cursor.fetchone()
+                    return int(r2[0]) if r2 else None
         except Exception as e:
             logging.error(f"Error obteniendo user_id por teléfono: {e}")
             return None
@@ -17825,9 +17883,8 @@ class DatabaseManager:
                     # Manejo de direccion y estado
                     if direccion == 'enviado' and not estado:
                         query += " AND status != 'failed'"
-                    elif direccion == 'recibido':
-                        # Para mensajes recibidos, podríamos agregar lógica específica si es necesario
-                        pass
+                    elif direccion == 'recibido' and not estado:
+                        query += " AND status = 'received'"
                     
                     if estado:
                         if estado == 'fallido':

@@ -8,6 +8,8 @@ Gestiona el envío de mensajes automáticos para el gimnasio
 import os
 import logging
 import asyncio
+import psycopg2.extras
+import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from pywa import WhatsApp
@@ -216,7 +218,8 @@ class WhatsAppManager:
                 self.message_logger.registrar_mensaje_recibido(
                     telefono=message.from_user.wa_id,
                     mensaje=message.text or "[Mensaje multimedia]",
-                    tipo_mensaje="welcome"
+                    tipo_mensaje="welcome",
+                    message_id=getattr(message, 'id', None)
                 )
                 
                 # Procesar respuestas automáticas si están habilitadas
@@ -409,7 +412,8 @@ class WhatsAppManager:
                 self.message_logger.registrar_mensaje_enviado(
                     telefono=usuario.telefono,
                     mensaje=f"Confirmación de pago - {usuario.nombre}",
-                    tipo_mensaje="payment"
+                    tipo_mensaje="payment",
+                    message_id=getattr(response, 'id', None)
                 )
                 
                 logging.info(f"Confirmación de pago enviada exitosamente a {usuario.telefono}")
@@ -1097,6 +1101,190 @@ class WhatsAppManager:
                 logging.info("Servidor webhook detenido")
             except Exception as e:
                 logging.error(f"Error al detener servidor webhook: {e}")
+
+    def _mensaje_audit_ya_registrado(self, message_id: str) -> bool:
+        """Devuelve True si ya existe un registro de mensaje con ese message_id."""
+        try:
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT 1 FROM whatsapp_messages WHERE message_id = %s LIMIT 1", (message_id,))
+                return cur.fetchone() is not None
+        except Exception:
+            return False
+
+    def _componer_confirmacion_waitlist(self, action: str, usuario: Any, clase_info: Optional[Dict[str, Any]], new_values: Optional[str]) -> str:
+        """Crea el texto de confirmación para SI/NO basándose en acción y datos disponibles."""
+        nombre = str(getattr(usuario, 'nombre', None) or 'Alumno')
+        tipo_clase = None
+        fecha = None
+        hora = None
+
+        try:
+            if isinstance(clase_info, dict):
+                # Preferir claves reales de DB: tipo_clase_nombre, clase_nombre, dia_semana, hora_inicio
+                tipo_clase = clase_info.get('tipo_clase_nombre') or clase_info.get('clase_nombre')
+                fecha = clase_info.get('fecha') or clase_info.get('dia_semana')
+                h_in = clase_info.get('hora') or clase_info.get('hora_inicio')
+                try:
+                    hora = (str(h_in)[:5] if h_in is not None else None)
+                except Exception:
+                    hora = str(h_in) if h_in is not None else None
+        except Exception:
+            pass
+
+        try:
+            if new_values and isinstance(new_values, str):
+                data = json.loads(new_values)
+                tipo_clase = tipo_clase or data.get('tipo_clase_nombre') or data.get('clase_nombre') or data.get('tipo_clase')
+                fecha = fecha or data.get('fecha') or data.get('dia_semana')
+                h_in = data.get('hora') or data.get('hora_inicio')
+                try:
+                    hora = hora or (str(h_in)[:5] if h_in is not None else None)
+                except Exception:
+                    hora = hora or (str(h_in) if h_in is not None else None)
+        except Exception:
+            pass
+
+        tipo = str(tipo_clase or 'Clase')
+        fecha_s = str(fecha or 'por confirmar')
+        hora_s = str(hora or 'por confirmar')
+
+        if action == 'auto_promote_waitlist':
+            return f"¡{nombre}! Confirmamos tu promoción desde lista de espera a la clase de {tipo} del {fecha_s} a las {hora_s}. ¡Nos vemos!"
+        elif action == 'decline_waitlist_promotion':
+            return f"¡Gracias {nombre}! Registramos tu NO a la clase de {tipo} del {fecha_s} a las {hora_s}. Tu lugar en espera se mantiene para otra oportunidad."
+        else:
+            return "Actualización de lista de espera registrada."
+
+    def process_pending_sends(self) -> int:
+        """Procesa envíos pendientes basados en auditorías de la webapp (SI/NO lista de espera)."""
+        try:
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    """
+                    SELECT id, user_id, action, table_name, record_id, new_values, timestamp
+                    FROM audit_logs
+                    WHERE action IN ('auto_promote_waitlist','decline_waitlist_promotion')
+                    ORDER BY id DESC
+                    LIMIT 200
+                    """
+                )
+                rows = cur.fetchall()
+        except Exception as e:
+            logging.error(f"Error consultando auditorías: {e}")
+            return 0
+
+        if not rows:
+            return 0
+
+        enviados = 0
+        for row in reversed(rows):
+            audit_id = row.get('id')
+            action = row.get('action')
+            user_id = row.get('user_id')
+            record_id = row.get('record_id')
+            new_values = row.get('new_values')
+
+            message_id = f"audit:{audit_id}"
+            if self._mensaje_audit_ya_registrado(message_id):
+                continue
+
+            try:
+                usuario = self.db.obtener_usuario(user_id)
+            except Exception:
+                usuario = None
+
+            if not usuario or not getattr(usuario, 'telefono', None):
+                logging.warning(f"Auditoría {audit_id}: usuario {user_id} sin teléfono, se omite")
+                try:
+                    self.message_logger.registrar_mensaje_fallido(
+                        telefono=getattr(usuario, 'telefono', '') or '',
+                        mensaje=f"[{action}] Confirmación no enviada: teléfono faltante",
+                        error="telefono_faltante",
+                        tipo_mensaje="waitlist",
+                        message_id=message_id
+                    )
+                except Exception:
+                    pass
+                continue
+
+            if not self._numero_permitido(usuario.telefono):
+                logging.warning(f"Número no permitido por allowlist: {usuario.telefono}")
+                try:
+                    self.message_logger.registrar_mensaje_fallido(
+                        telefono=usuario.telefono,
+                        mensaje=f"[{action}] Omitido por allowlist",
+                        error="allowlist_block",
+                        tipo_mensaje="waitlist",
+                        message_id=message_id
+                    )
+                except Exception:
+                    pass
+                continue
+
+            clase_info = None
+            try:
+                if record_id:
+                    clase_info = self.db.obtener_horario_por_id(int(record_id))
+            except Exception:
+                clase_info = None
+
+            # Realizar promoción desde desktop según auditoría
+            texto = None
+            if action == 'auto_promote_waitlist' and record_id and user_id:
+                try:
+                    enrolled = bool(self.db.inscribir_usuario_en_clase(int(record_id), int(user_id)))
+                except Exception as e:
+                    logging.error(f"Error inscribiendo en auto-promoción audit_id={audit_id}: {e}")
+                    enrolled = False
+                if enrolled:
+                    try:
+                        self.db.quitar_de_lista_espera_completo(int(record_id), int(user_id))
+                    except Exception as e:
+                        logging.error(f"Error quitando de lista de espera audit_id={audit_id}: {e}")
+                    texto = self._componer_confirmacion_waitlist(action, usuario, clase_info, new_values)
+                else:
+                    nombre = str(getattr(usuario, 'nombre', None) or 'Alumno')
+                    tipo = str((clase_info or {}).get('tipo_clase_nombre') or (clase_info or {}).get('clase_nombre') or 'Clase')
+                    fecha_s = str((clase_info or {}).get('fecha') or (clase_info or {}).get('dia_semana') or 'por confirmar')
+                    h_in = (clase_info or {}).get('hora') or (clase_info or {}).get('hora_inicio')
+                    try:
+                        hora_s = str(h_in)[:5] if h_in is not None else 'por confirmar'
+                    except Exception:
+                        hora_s = str(h_in) if h_in is not None else 'por confirmar'
+                    texto = f"¡{nombre}! Confirmaste tu lugar para {tipo} del {fecha_s} a las {hora_s}, pero el cupo no está disponible en este momento. Te mantenemos en lista de espera y te avisaremos ante la próxima disponibilidad."
+            else:
+                texto = self._componer_confirmacion_waitlist(action, usuario, clase_info, new_values)
+
+            if not self.message_logger.puede_enviar_mensaje(usuario.telefono):
+                logging.info(f"Anti-spam bloqueó confirmación para {usuario.telefono}")
+                continue
+
+            try:
+                ok, resp = self._send_message(to=usuario.telefono, text=texto)
+                self.message_logger.registrar_mensaje_enviado(
+                    telefono=usuario.telefono,
+                    mensaje=texto,
+                    tipo_mensaje="waitlist",
+                    message_id=message_id if ok else getattr(resp, 'id', None)
+                )
+                enviados += 1 if ok else 0
+            except Exception as send_err:
+                logging.error(f"Error enviando confirmación de auditoría {audit_id}: {send_err}")
+                try:
+                    self.message_logger.registrar_mensaje_fallido(
+                        telefono=usuario.telefono,
+                        mensaje=texto,
+                        error=str(send_err),
+                        tipo_mensaje="waitlist",
+                        message_id=message_id
+                    )
+                except Exception:
+                    pass
+                continue
+
+        return enviados
     
     def verificar_configuracion(self):
         """Verifica que la configuración de WhatsApp esté completa"""

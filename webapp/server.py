@@ -266,6 +266,266 @@ app = FastAPI(
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
 
+# Webhooks de WhatsApp: verificación (GET) y recepción (POST)
+@app.get("/webhooks/whatsapp")
+async def whatsapp_verify(request: Request):
+    try:
+        mode = request.query_params.get("hub.mode")
+        token = request.query_params.get("hub.verify_token")
+        challenge = request.query_params.get("hub.challenge")
+        expected = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+        if mode == "subscribe" and expected and token == expected and challenge:
+            return Response(content=str(challenge), media_type="text/plain")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"WhatsApp verify error: {e}")
+    raise HTTPException(status_code=403, detail="Invalid verify token")
+
+@app.post("/webhooks/whatsapp")
+async def whatsapp_webhook(request: Request):
+    # Verificación de firma (si se configura WHATSAPP_APP_SECRET)
+    logger = logging.getLogger(__name__)
+    try:
+        raw = await request.body()
+        app_secret = os.getenv("WHATSAPP_APP_SECRET", "")
+        if app_secret:
+            try:
+                import hmac, hashlib
+                sig_header = request.headers.get("X-Hub-Signature-256") or ""
+                expected = "sha256=" + hmac.new(app_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+                if not hmac.compare_digest(expected, sig_header):
+                    raise HTTPException(status_code=403, detail="Invalid signature")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"WhatsApp signature check error: {e}")
+                raise HTTPException(status_code=400, detail="Signature verification error")
+        import json as _json
+        try:
+            payload = _json.loads(raw.decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"WhatsApp webhook read error: {e}")
+        raise HTTPException(status_code=400, detail="Bad Request")
+
+    # DB
+    try:
+        db = _get_db()
+    except Exception:
+        db = None
+
+    # Procesamiento de estados y mensajes
+    try:
+        for entry in (payload.get("entry") or []):
+            for change in (entry.get("changes") or []):
+                value = change.get("value") or {}
+                # Actualizaciones de estado
+                for status in (value.get("statuses") or []):
+                    mid = status.get("id")
+                    st = status.get("status")
+                    if db and mid and st:
+                        try:
+                            db.actualizar_estado_mensaje_whatsapp(mid, st)
+                        except Exception as e:
+                            logger.error(f"Estado WA update failed id={mid} status={st}: {e}")
+                # Mensajes entrantes
+                for msg in (value.get("messages") or []):
+                    mid = msg.get("id")
+                    mtype = msg.get("type")
+                    wa_from = msg.get("from")
+                    ctx_id = None
+                    try:
+                        ctx_id = ((msg.get("context") or {}).get("id"))
+                    except Exception:
+                        ctx_id = None
+
+                    text = None
+                    button_id = None
+                    button_title = None
+                    list_id = None
+                    list_title = None
+                    try:
+                        if mtype == "text":
+                            text = (msg.get("text") or {}).get("body")
+                        elif mtype == "button":
+                            text = (msg.get("button") or {}).get("text")
+                        elif mtype == "interactive":
+                            ir = msg.get("interactive") or {}
+                            br = ir.get("button_reply") or {}
+                            lr = ir.get("list_reply") or {}
+                            button_id = br.get("id")
+                            button_title = br.get("title")
+                            list_id = lr.get("id")
+                            list_title = lr.get("title")
+                            text = button_title or list_title
+                        elif mtype == "image":
+                            text = "[imagen]"
+                        elif mtype == "audio":
+                            text = "[audio]"
+                        elif mtype == "video":
+                            text = "[video]"
+                        elif mtype == "document":
+                            text = "[documento]"
+                    except Exception:
+                        pass
+
+                    # Registrar en DB (mensaje recibido)
+                    if db:
+                        try:
+                            uid = None
+                            try:
+                                uid = db._obtener_user_id_por_telefono_whatsapp(wa_from)
+                            except Exception:
+                                uid = None
+                            db.registrar_mensaje_whatsapp(
+                                user_id=uid,
+                                message_type="welcome",
+                                template_name="incoming",
+                                phone_number=wa_from,
+                                message_content=(text or ""),
+                                status="received",
+                                message_id=mid,
+                            )
+                        except Exception as e:
+                            logger.error(f"WA incoming log failed id={mid}: {e}")
+
+                    # Auto-acciones: promoción/declinación desde lista de espera
+                    try:
+                        import unicodedata as _unic
+                        def _sanitize_text(s: str) -> str:
+                            s = (s or "").strip()
+                            s = "".join(c for c in _unic.normalize("NFD", s) if _unic.category(c) != "Mn")
+                            s = s.lower()
+                            # Quitar signos de puntuación comunes
+                            for ch in [".", ",", ";", "!", "?", "¡", "¿"]:
+                                s = s.replace(ch, "")
+                            return s
+
+                        # Envío de confirmación delegado al desktop; no se envía desde servidor
+
+                        # Señales de SI/NO desde texto o interacción
+                        tid = button_id or list_id or ""
+                        ttitle = button_title or list_title or text or ""
+                        stext = _sanitize_text(ttitle)
+                        yes_signal = stext == "si"
+                        no_signal = stext == "no"
+
+                        # IDs de interacción con clase_horario_id: WAITLIST_PROMOTE:<id> / WAITLIST_DECLINE:<id>
+                        target_clase_id = None
+                        try:
+                            if isinstance(tid, str):
+                                if tid.startswith("WAITLIST_PROMOTE:"):
+                                    target_clase_id = int(tid.split(":", 1)[1])
+                                    yes_signal = True
+                                elif tid.startswith("WAITLIST_DECLINE:"):
+                                    target_clase_id = int(tid.split(":", 1)[1])
+                                    no_signal = True
+                        except Exception:
+                            target_clase_id = None
+
+                        if db and (yes_signal or no_signal):
+                            # Resolver usuario desde teléfono con normalización mejorada
+                            uid = None
+                            try:
+                                uid = db._obtener_user_id_por_telefono_whatsapp(wa_from)
+                            except Exception:
+                                uid = None
+                            if uid:
+                                # Fallback para clase objetivo: primera lista de espera activa del usuario
+                                if target_clase_id is None:
+                                    try:
+                                        with db.get_connection_context() as conn:  # type: ignore
+                                            cur = conn.cursor()
+                                            cur.execute(
+                                                """
+                                                SELECT clase_horario_id
+                                                FROM clase_lista_espera
+                                                WHERE usuario_id = %s AND activo = true
+                                                ORDER BY posicion ASC
+                                                LIMIT 1
+                                                """,
+                                                (int(uid),)
+                                            )
+                                            row = cur.fetchone()
+                                            if row:
+                                                try:
+                                                    target_clase_id = int(row[0])
+                                                except Exception:
+                                                    target_clase_id = None
+                                    except Exception:
+                                        target_clase_id = None
+
+                                # Obtener info de clase para mensajes
+                                clase_info = None
+                                try:
+                                    if target_clase_id:
+                                        clase_info = db.obtener_horario_por_id(int(target_clase_id))  # type: ignore
+                                except Exception:
+                                    clase_info = None
+                                tipo_txt = (clase_info or {}).get("tipo_clase_nombre") or (clase_info or {}).get("clase_nombre") or "la clase"
+                                dia_txt = (clase_info or {}).get("dia_semana") or ""
+                                hora_raw = (clase_info or {}).get("hora_inicio")
+                                try:
+                                    hora_txt = str(hora_raw) if hora_raw is not None else ""
+                                except Exception:
+                                    hora_txt = ""
+                                gym_name = None
+                                try:
+                                    gym_name = get_gym_name("Gimnasio")
+                                except Exception:
+                                    gym_name = "Gimnasio"
+
+                                if target_clase_id:
+                                    if yes_signal:
+                                        # Registrar auditoría de confirmación; desktop realiza inscripción y mensajería
+                                        try:
+                                            ip_addr = (getattr(request, 'client', None).host if getattr(request, 'client', None) else None)
+                                            ua = request.headers.get('user-agent', '')
+                                            sid = getattr(getattr(request, 'session', {}), 'get', lambda *a, **k: None)('session_id')
+                                            db.registrar_audit_log(  # type: ignore
+                                                user_id=int(uid),
+                                                action="auto_promote_waitlist",
+                                                table_name="clase_lista_espera",
+                                                record_id=int(target_clase_id),
+                                                old_values=None,
+                                                new_values=json.dumps({"confirmado": True}),
+                                                ip_address=ip_addr,
+                                                user_agent=ua,
+                                                session_id=sid,
+                                            )
+                                        except Exception as e:
+                                            logger.error(f"WA auto-promote audit log failed uid={uid} clase_id={target_clase_id}: {e}")
+                                        logger.info(f"WA auto-promote: audit registrada usuario_id={uid} clase_horario_id={target_clase_id} from={wa_from} mid={mid}")
+                                    elif no_signal:
+                                        # Declinación explícita: mantener en lista; envío delegado al desktop
+                                        try:
+                                            ip_addr = (getattr(request, 'client', None).host if getattr(request, 'client', None) else None)
+                                            ua = request.headers.get('user-agent', '')
+                                            sid = getattr(getattr(request, 'session', {}), 'get', lambda *a, **k: None)('session_id')
+                                            db.registrar_audit_log(  # type: ignore
+                                                user_id=int(uid),
+                                                action="decline_waitlist_promotion",
+                                                table_name="clase_lista_espera",
+                                                record_id=int(target_clase_id),
+                                                old_values=None,
+                                                new_values=json.dumps({"declinado": True}),
+                                                ip_address=ip_addr,
+                                                user_agent=ua,
+                                                session_id=sid,
+                                            )
+                                        except Exception:
+                                            pass
+                    except Exception:
+                        pass
+        return JSONResponse({"status": "ok"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"WhatsApp webhook processing error: {e}")
+        return JSONResponse({"status": "error"}, status_code=500)
+
 # Middleware de Request ID para trazabilidad en logs
 class RequestIDMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -4165,6 +4425,92 @@ async def api_asistencias_hoy_ids(_=Depends(require_gestion_access)):
                 except Exception:
                     pass
             return out
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/waitlist_events")
+async def api_waitlist_events(request: Request, _=Depends(require_gestion_access)):
+    """Eventos recientes de autopromoción/declinación desde auditoría para toasts UI.
+    Parámetros: since_id (opcional) para traer sólo eventos nuevos.
+    """
+    db = _get_db()
+    if db is None:
+        return {"items": []}
+    guard = _circuit_guard_json(db, "/api/waitlist_events")
+    if guard:
+        return guard
+    try:
+        since_id_raw = request.query_params.get("since_id")
+        since_id = int(since_id_raw) if since_id_raw and since_id_raw.isdigit() else 0
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if since_id > 0:
+                cur.execute(
+                    """
+                    SELECT id, user_id, action, table_name, record_id, new_values, timestamp
+                    FROM audit_logs
+                    WHERE action IN ('auto_promote_waitlist','decline_waitlist_promotion')
+                      AND id > %s
+                    ORDER BY id DESC
+                    LIMIT 100
+                    """,
+                    (since_id,)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT id, user_id, action, table_name, record_id, new_values, timestamp
+                    FROM audit_logs
+                    WHERE action IN ('auto_promote_waitlist','decline_waitlist_promotion')
+                    ORDER BY id DESC
+                    LIMIT 50
+                    """
+                )
+            rows = cur.fetchall() or []
+        items = []
+        for r in rows:
+            try:
+                uid = r.get("user_id")
+                rid = r.get("record_id")
+                action = r.get("action") or ""
+                nombre = None
+                tipo_txt = None
+                dia_txt = None
+                hora_txt = None
+                try:
+                    u = db.obtener_usuario_por_id(int(uid)) if uid is not None else None  # type: ignore
+                    if u:
+                        nombre = u.nombre
+                except Exception:
+                    nombre = None
+                try:
+                    clase_info = db.obtener_horario_por_id(int(rid)) if rid is not None else None  # type: ignore
+                    if clase_info:
+                        tipo_txt = clase_info.get("tipo_clase_nombre") or clase_info.get("clase_nombre") or "la clase"
+                        dia_txt = clase_info.get("dia_semana") or ""
+                        hora_raw = clase_info.get("hora_inicio")
+                        hora_txt = str(hora_raw) if hora_raw is not None else ""
+                except Exception:
+                    pass
+                if action == "auto_promote_waitlist":
+                    msg = f"Autopromoción: {nombre or 'Usuario'} inscrito automáticamente en {tipo_txt or 'la clase'} {('el ' + str(dia_txt)) if dia_txt else ''} {('a las ' + str(hora_txt)) if hora_txt else ''}."
+                    tipo = "success"
+                elif action == "decline_waitlist_promotion":
+                    msg = f"Declinación: {nombre or 'Usuario'} declinó promoción a {tipo_txt or 'la clase'} {('el ' + str(dia_txt)) if dia_txt else ''} {('a las ' + str(hora_txt)) if hora_txt else ''}."
+                    tipo = "info"
+                else:
+                    msg = "Actualización de lista de espera registrada."
+                    tipo = "info"
+                items.append({
+                    "id": r.get("id"),
+                    "action": action,
+                    "message": msg,
+                    "type": tipo,
+                    "timestamp": r.get("timestamp"),
+                })
+            except Exception:
+                pass
+        return {"items": items}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
