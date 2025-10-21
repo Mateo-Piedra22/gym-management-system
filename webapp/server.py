@@ -1859,6 +1859,20 @@ async def api_conceptos_pago(_=Depends(require_gestion_access)):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            # Asegurar que exista el concepto "Cuota Mensual" de tipo variable
+            try:
+                c = conn.cursor()
+                c.execute("SELECT id FROM conceptos_pago WHERE LOWER(nombre) = LOWER(%s) LIMIT 1", ("Cuota Mensual",))
+                exists = c.fetchone()
+                if not exists:
+                    c.execute(
+                        "INSERT INTO conceptos_pago (nombre, descripcion, precio_base, tipo, activo) VALUES (%s, %s, %s, %s, %s)",
+                        ("Cuota Mensual", "Cuota mensual estándar", 0.0, "variable", True)
+                    )
+                    conn.commit()
+            except Exception:
+                # No bloquear el listado si el ensure falla
+                pass
             cur.execute("SELECT id, nombre, descripcion, precio_base, tipo, activo FROM conceptos_pago ORDER BY nombre")
             return cur.fetchall() or []
     except Exception as e:
@@ -2011,6 +2025,20 @@ async def api_conceptos_pago_delete(concepto_id: int, _=Depends(require_gestion_
         return guard
     pm_ready = (pm is not None)
     try:
+        # Bloquear eliminación del concepto predeterminado "Cuota Mensual"
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT nombre FROM conceptos_pago WHERE id = %s", (int(concepto_id),))
+                row = cur.fetchone()
+        except Exception:
+            row = None
+        if not row:
+            raise HTTPException(status_code=404, detail="Concepto de pago no encontrado")
+        nombre_concepto = (row.get("nombre") or "").strip().lower()
+        if nombre_concepto == "cuota mensual":
+            raise HTTPException(status_code=400, detail="No se puede eliminar el concepto 'Cuota Mensual'")
+
         if pm_ready:
             deleted = pm.eliminar_concepto_pago(int(concepto_id))
             if not deleted:
@@ -3478,18 +3506,60 @@ async def api_pagos_create(request: Request, _=Depends(require_gestion_access)):
         mes_raw = payload.get("mes")
         año_raw = payload.get("año")
         metodo_pago_id = payload.get("metodo_pago_id")
+        conceptos_raw = payload.get("conceptos") or []
+        fecha_pago_raw = payload.get("fecha_pago")
 
-        if usuario_id_raw is None or monto_raw is None or mes_raw is None or año_raw is None:
-            raise HTTPException(status_code=400, detail="'usuario_id', 'monto', 'mes' y 'año' son obligatorios")
+        # Validaciones comunes
+        if usuario_id_raw is None:
+            raise HTTPException(status_code=400, detail="'usuario_id' es obligatorio")
         try:
             usuario_id = int(usuario_id_raw)
-            monto = float(monto_raw)
-            mes = int(mes_raw)
-            año = int(año_raw)
             metodo_pago_id_int = int(metodo_pago_id) if metodo_pago_id is not None else None
         except Exception:
             raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
 
+        # Si vienen conceptos, usar flujo avanzado
+        if isinstance(conceptos_raw, list) and len(conceptos_raw) > 0:
+            conceptos: list[dict] = []
+            for c in conceptos_raw:
+                try:
+                    cid = int(c.get("concepto_id"))
+                    cantidad = int(c.get("cantidad") or 1)
+                    precio_unitario = float(c.get("precio_unitario") or 0.0)
+                except Exception:
+                    raise HTTPException(status_code=400, detail="Conceptos inválidos en payload")
+                if cantidad <= 0 or precio_unitario < 0:
+                    raise HTTPException(status_code=400, detail="Cantidad/precio inválidos en conceptos")
+                conceptos.append({"concepto_id": cid, "cantidad": cantidad, "precio_unitario": precio_unitario})
+
+            # Resolver fecha desde fecha_pago o mes/año
+            fecha_dt = None
+            try:
+                if fecha_pago_raw:
+                    fecha_dt = datetime.fromisoformat(str(fecha_pago_raw))
+                elif mes_raw is not None and año_raw is not None:
+                    mes_i = int(mes_raw); año_i = int(año_raw)
+                    fecha_dt = datetime(int(año_i), int(mes_i), 1)
+            except Exception:
+                raise HTTPException(status_code=400, detail="fecha_pago inválida")
+
+            try:
+                pago_id = pm.registrar_pago_avanzado(usuario_id, metodo_pago_id_int, conceptos, fecha_dt)
+            except ValueError as ve:
+                raise HTTPException(status_code=400, detail=str(ve))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+            return {"ok": True, "id": int(pago_id)}
+
+        # Flujo básico si no hay conceptos
+        if monto_raw is None or mes_raw is None or año_raw is None:
+            raise HTTPException(status_code=400, detail="'monto', 'mes' y 'año' son obligatorios cuando no hay 'conceptos'")
+        try:
+            monto = float(monto_raw)
+            mes = int(mes_raw)
+            año = int(año_raw)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
         if not (1 <= mes <= 12):
             raise HTTPException(status_code=400, detail="'mes' debe estar entre 1 y 12")
         if monto <= 0:
@@ -4075,6 +4145,26 @@ async def api_usuario_asistencias(request: Request, _=Depends(require_owner)):
                     "hora": str(r[1]) if r[1] is not None else None,
                 })
         return rows
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/asistencias_hoy_ids")
+async def api_asistencias_hoy_ids(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT usuario_id FROM asistencias WHERE fecha::date = CURRENT_DATE")
+            rows = cur.fetchall() or []
+            out = []
+            for r in rows:
+                try:
+                    out.append(int(r[0]))
+                except Exception:
+                    pass
+            return out
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 

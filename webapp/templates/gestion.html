@@ -45,7 +45,7 @@
   <meta name="color-scheme" content="dark light">
   <style>
     .layout { display:flex; flex-direction:column; min-height:100vh; }
-    header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); }
+    header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); transition: transform 160ms ease; }
     .brand { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .brand .info { display:flex; align-items:center; gap:8px; }
     .brand img { width:32px; height:32px; }
@@ -116,6 +116,7 @@
     .toast.error { border-left-color: #ef4444; }
     /* Tabs hover */
     .tab:hover { background: rgba(255,255,255,.12); }
+    .header--hidden { transform: translateY(-100%); }
 
     /* Zebra stripes y selección */
     .table-scroll tbody tr:nth-child(odd){ background: rgba(255,255,255,.03); }
@@ -139,13 +140,13 @@
 </head>
 <body>
   <div class="layout">
-    <header>
+    <header id="main-header">
       <div class="brand">
         <div class="info">
           <img src="{{ logo_url }}" alt="Logo" />
           <div>
             <h1 style="margin:0; font-size: 18px;">Gestión • {{ gym_name }}</h1>
-            <p class="muted" style="margin:2px 0 0 0">Operaciones interactivas</p>
+            <p class="muted" style="margin:2px 0 0 0">Gestión centralizada</p>
           </div>
         </div>
         <div class="nav-actions">
@@ -295,6 +296,7 @@
                     <th>Rol</th>
                     <th>Tipo Cuota</th>
                     <th>Activo</th>
+                    <th>Hoy</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -600,6 +602,11 @@
           <div class="input-row">
             <select id="pago-metodo" style="flex:1">
               <option value="">Método de pago (opcional)</option>
+            </select>
+          </div>
+          <div class="input-row">
+            <select id="pago-concepto" style="flex:1">
+              <option value="">Concepto</option>
             </select>
           </div>
           <div id="pago-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
@@ -1047,12 +1054,22 @@
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         const rows = await res.json();
         state.usuarios = Array.isArray(rows) ? rows : [];
+        // Obtener set de IDs con asistencia hoy
+        const hoySet = await (async () => {
+          try {
+            const r = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' } });
+            const arr = await r.json();
+            const list = Array.isArray(arr) ? arr : [];
+            return new Set(list.map(x => Number(x)));
+          } catch(e) { return new Set(); }
+        })();
         const tbody = document.querySelector('#usuarios-table tbody');
         tbody.innerHTML = '';
         (Array.isArray(rows) ? rows : []).forEach((u, idx) => {
           const tr = document.createElement('tr');
           tr.setAttribute('data-index', String(idx));
           const activo = (u.activo === true || u.activo === 'true');
+          const asistioHoy = hoySet.has(Number(u.id));
           tr.innerHTML = `
             <td>${u.nombre || ''}</td>
             <td>${u.dni || ''}</td>
@@ -1060,6 +1077,7 @@
             <td>${(u.rol || '').toString().toLowerCase()}</td>
             <td>${u.tipo_cuota ?? ''}</td>
             <td>${activo ? 'Sí' : 'No'}</td>
+            <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Hoy</span>' : '<span class="muted">—</span>'}</td>
             <td>
               <button class="btn secondary" data-action="edit" data-id="${u.id}">Editar</button>
               <button class="btn secondary" data-action="delete" data-id="${u.id}">Borrar</button>
@@ -1320,6 +1338,7 @@
       // Recalcular al cambiar usuario o método de pago
       const uSel = document.getElementById('pago-usuario'); if(uSel) uSel.addEventListener('change', () => recalcPagoTotal());
       const mSel = document.getElementById('pago-metodo'); if(mSel) mSel.addEventListener('change', () => recalcPagoTotal());
+      const cSel = document.getElementById('pago-concepto'); if(cSel) cSel.addEventListener('change', () => recalcPagoTotal());
       // Modal delete pago controls
       document.getElementById('pagos-delete-close').addEventListener('click', () => closeModal('modal-pagos-delete'));
       document.getElementById('pagos-delete-cancel').addEventListener('click', () => closeModal('modal-pagos-delete'));
@@ -1349,6 +1368,24 @@
         sel.innerHTML = '<option value="">Método de pago (opcional)</option>' + items.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
         if(selectedId) sel.value = String(selectedId);
       } catch(e) { console.warn('No se pudieron cargar métodos de pago:', e); }
+    }
+
+    async function populatePagoConceptoSelect(selectedId){
+      const sel = document.getElementById('pago-concepto'); if(!sel) return;
+      try{
+        const res = await fetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.conceptosPago = items;
+        state.conceptosPagoMap = Object.fromEntries(items.map(c => [String(c.id), c]));
+        sel.innerHTML = '<option value="">Concepto</option>' + items.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+        let target = selectedId || '';
+        if(!target){
+          const monthly = items.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual');
+          if(monthly) target = String(monthly.id);
+        }
+        if(target) sel.value = String(target);
+      } catch(e){ console.warn('No se pudieron cargar conceptos de pago:', e); }
     }
 
     // ---- cálculo dinámico de monto según tipo de cuota y comisión ----
@@ -1425,14 +1462,24 @@
         await ensureTiposCuotaCatalogo();
         const usuarioEl = document.getElementById('pago-usuario');
         const metodoEl = document.getElementById('pago-metodo');
+        const conceptoEl = document.getElementById('pago-concepto');
         const montoEl = document.getElementById('pago-monto');
         const uid = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null;
+        const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+        const concepto = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
         let base = 0; let conceptoNombre = 'Cuota Mensual';
+        if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
         if(uid){
           const u = (state.usuarios || []).find(x => Number(x.id) === uid);
           const tipoVal = u ? (u.tipo_cuota ?? null) : null;
           const tipoObj = resolveTipoCuota(tipoVal);
-          base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+          if(concepto && String(concepto.nombre||'').trim().toLowerCase() === 'cuota mensual'){
+            base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+          } else {
+            base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+          }
+        } else {
+          base = concepto ? Number(concepto.precio_base ?? 0) : 0;
         }
         const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
         const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
@@ -1451,6 +1498,7 @@
       const monto = document.getElementById('pago-monto'); if(monto) monto.value = '';
       const u = document.getElementById('pago-usuario'); if(u) u.value = '';
       const mp = document.getElementById('pago-metodo'); if(mp) mp.value = '';
+      const cp = document.getElementById('pago-concepto'); if(cp) cp.value = '';
     }
 
     async function showPagoForm(p){
@@ -1460,6 +1508,7 @@
       const now = new Date();
       await populatePagoUsuarioSelect(p && (p.usuario_id || (p.usuario && p.usuario.id)));
       await populatePagoMetodoSelect(p && (p.metodo_pago_id || p.metodo_id));
+      await populatePagoConceptoSelect(p && p.concepto_id ? p.concepto_id : null);
       if(p && (p.id || p.pago_id)){
         editingPagoId = p.id || p.pago_id;
         if(titleEl) titleEl.textContent = `Editar pago #${editingPagoId}`;
@@ -1504,13 +1553,39 @@
       let año = añoEl && añoEl.value ? Number(añoEl.value) : null;
       const metodo_pago_id = metodoEl && metodoEl.value ? Number(metodoEl.value) : null;
       if(!usuario_id || !monto){ showToast('Usuario y monto son obligatorios', 'warning', 4000); return; }
-      let url = '/api/pagos'; let method = 'POST'; let body = { usuario_id, monto, mes: mes, año: año, metodo_pago_id };
+      let url = '/api/pagos'; let method = 'POST'; let body = {};
+      const conceptoEl = document.getElementById('pago-concepto');
+      const conceptoIdRaw = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+      const conceptoSel = conceptoIdRaw ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoIdRaw] : null) : null;
       if(editingPagoId){
         url = `/api/pagos/${editingPagoId}`; method = 'PUT'; body = { usuario_id, monto, metodo_pago_id };
         if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
         else if(mes != null && año != null){ body['mes'] = mes; body['año'] = año; }
       } else {
-        if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); body.mes = mes; body.año = año; }
+        // Crear pago avanzado con conceptos + fecha/mes-año
+        let concepto_id_final = conceptoSel ? Number(conceptoSel.id) : null;
+        if(!concepto_id_final){
+          const items = Array.isArray(state.conceptosPago) ? state.conceptosPago : [];
+          const monthly = items.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual');
+          if(monthly) concepto_id_final = Number(monthly.id);
+        }
+        // Determinar precio unitario según concepto (variable para cuota mensual)
+        let precio_unitario = 0;
+        const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id);
+        const tipoVal = u ? (u.tipo_cuota ?? null) : null;
+        const tipoObj = resolveTipoCuota(tipoVal);
+        if(conceptoSel && String(conceptoSel.nombre||'').trim().toLowerCase() === 'cuota mensual'){
+          precio_unitario = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+        } else {
+          precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+        }
+        const conceptos = concepto_id_final ? [{ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }] : [];
+        body = { usuario_id, metodo_pago_id, conceptos };
+        if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
+        else {
+          if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); }
+          body['mes'] = mes; body['año'] = año;
+        }
       }
       try{
         const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
@@ -1877,6 +1952,12 @@
         const tr = document.createElement('tr');
         tr.setAttribute('data-id', String(c.id ?? ''));
         const isActivo = (c.activo === true || c.activo === 'true');
+        const isDefaultMonthly = (String(c.nombre || '').trim().toLowerCase() === 'cuota mensual');
+        const actions = `
+            <button class="btn" data-action="edit-concepto" data-id="${c.id ?? ''}">Editar</button>
+            <button class="btn secondary" data-action="toggle-concepto-activo" data-id="${c.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
+            ${isDefaultMonthly ? '' : `<button class="btn secondary" data-action="delete-concepto" data-id="${c.id ?? ''}">Borrar</button>`}
+          `;
         tr.innerHTML = `
           <td>${c.nombre ?? ''}</td>
           <td>${c.precio_base != null ? c.precio_base : ''}</td>
@@ -1884,9 +1965,7 @@
           <td>${isActivo ? 'Sí' : 'No'}</td>
           <td>${c.categoria ?? ''}</td>
           <td class="table-actions">
-            <button class="btn" data-action="edit-concepto" data-id="${c.id ?? ''}">Editar</button>
-            <button class="btn secondary" data-action="toggle-concepto-activo" data-id="${c.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
-            <button class="btn secondary" data-action="delete-concepto" data-id="${c.id ?? ''}">Borrar</button>
+            ${actions}
           </td>`;
         tbody.appendChild(tr);
       });
@@ -1926,7 +2005,14 @@
       }catch(e){ showToast('Error de red al guardar concepto', 'error', 4500); }
     }
     async function deleteConcepto(id){
-      if(!id) return; const conf = confirm('¿Eliminar concepto de pago?'); if(!conf) return;
+      if(!id) return;
+      const c = (state.configConceptos || []).find(x => String(x.id) === String(id));
+      const isDefaultMonthly = c && String(c.nombre || '').trim().toLowerCase() === 'cuota mensual';
+      if(isDefaultMonthly){
+        showToast('No se puede eliminar el concepto "Cuota Mensual"', 'warning', 3500);
+        return;
+      }
+      const conf = confirm('¿Eliminar concepto de pago?'); if(!conf) return;
       try{
         const res = await fetch(`/api/conceptos_pago/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar', 'error', 4500); return; }
@@ -2138,6 +2224,22 @@
       bindPagosEvents();
       bindUsuariosEvents();
       bindConfiguracionEvents();
+      // Auto-ocultar header al hacer scroll
+      const headerEl = document.getElementById('main-header');
+      if(headerEl){
+        let lastY = window.scrollY;
+        let hidden = false;
+        function onScroll(){
+          const y = window.scrollY;
+          if(y > lastY && y > 20){
+            if(!hidden){ headerEl.classList.add('header--hidden'); hidden = true; }
+          } else {
+            if(hidden){ headerEl.classList.remove('header--hidden'); hidden = false; }
+          }
+          lastY = y;
+        }
+        window.addEventListener('scroll', onScroll, { passive: true });
+      }
       loadPayments();
     }
     document.addEventListener('DOMContentLoaded', init);
