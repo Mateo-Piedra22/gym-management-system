@@ -42,7 +42,7 @@
   </style>
   <script src="/static/js/toast.js"></script>
 </head>
-<body data-autenticado="{{ 'true' if autenticado else 'false' }}">
+<body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}"{% endif %}>
   <main class="screen">
     <section class="login-card">
       <div class="brand">
@@ -195,6 +195,23 @@
         if (data.success) {
           // Persistir sesión mínima para reuso futuro
           try { window.localStorage.setItem('checkin_saved_user', JSON.stringify({ dni, telefono: tel, usuario_id: data.usuario_id || null })); } catch {}
+          // Preparar toast post-login según estado de cuota
+          try {
+            const exento = !!(data.exento);
+            if (!exento) {
+              const cv = parseInt(data.cuotas_vencidas || 0, 10);
+              const dr = (data.dias_restantes !== undefined && data.dias_restantes !== null) ? parseInt(data.dias_restantes, 10) : NaN;
+              const fpv = data.fecha_proximo_vencimiento || '';
+              let type = null, msg = null, dur = 6000;
+              if (cv > 0) { type = 'error'; msg = 'Tu cuota está vencida. Regularizá el pago para entrenar.'; dur = 7000; }
+              else if (!isNaN(dr) && dr <= 3) {
+                const dMsg = dr < 0 ? 'vencida' : (dr === 0 ? 'vence hoy' : `vence en ${dr} día${dr===1?'':'s'}`);
+                msg = `Atención: tu cuota ${dMsg}${fpv ? ` (${fpv})` : ''}.`;
+                type = 'warning';
+              }
+              if (msg) { window.sessionStorage.setItem('quotaToast', JSON.stringify({ msg, type, dur })); }
+            }
+          } catch {}
           setTimeout(() => { window.location.href = '/checkin'; }, 600);
         }
       });
@@ -351,6 +368,37 @@
       });
 
       startScanner();
+      // Toast de estado de cuota al cargar
+      try {
+        // Primero, si venimos de login y se guardó en sessionStorage
+        const pending = window.sessionStorage.getItem('quotaToast');
+        if (pending) {
+          const { msg, type, dur } = JSON.parse(pending);
+          showToast(msg, type || 'info', dur || 6000);
+          window.sessionStorage.removeItem('quotaToast');
+        } else {
+          // Si ya estamos autenticados y el template trae datos
+          const body = document.body;
+          const autenticado = body.getAttribute('data-autenticado') === 'true';
+          if (autenticado) {
+            const exento = body.getAttribute('data-exento') === 'true';
+            if (!exento) {
+              const cv = parseInt(body.getAttribute('data-cuotas-vencidas') || '0', 10);
+              const fpv = body.getAttribute('data-fecha-proximo-vencimiento') || '';
+              const drAttr = body.getAttribute('data-dias-restantes');
+              const dr = drAttr === null || drAttr === '' ? NaN : parseInt(drAttr, 10);
+              let type = null, msg = null, dur = 6000;
+              if (cv > 0) { type = 'error'; msg = 'Tu cuota está vencida. Regularizá el pago para entrenar.'; dur = 7000; }
+              else if (!isNaN(dr) && dr <= 3) {
+                const dMsg = dr < 0 ? 'vencida' : (dr === 0 ? 'vence hoy' : `vence en ${dr} día${dr===1?'':'s'}`);
+                msg = `Atención: tu cuota ${dMsg}${fpv ? ` (${fpv})` : ''}.`;
+                type = 'warning';
+              }
+              if (msg) { showToast(msg, type || 'info', dur || 6000); }
+            }
+          }
+        }
+      } catch {}
     }
   </script>
 </body>

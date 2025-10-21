@@ -193,6 +193,7 @@
               <input type="date" id="pagos-end" />
               <label>Búsqueda</label>
               <input type="text" id="pagos-q" placeholder="Nombre / DNI / Método / Concepto" />
+              <select id="pagos-usuario" title="Filtrar por usuario"></select>
               <select id="pagos-limit">
                 <option value="25">25</option>
                 <option value="50" selected>50</option>
@@ -875,6 +876,19 @@
         if(j && j.exists){
           const used = !!j.used; const expired = !!j.expired;
           if(status){ status.textContent = used ? '¡Asistencia registrada!' : (expired ? 'Token expirado' : 'Esperando confirmación…'); }
+          if(used){
+            // Refrescar la tabla de usuarios y mantener la selección actual
+            const u = state.selectedUsuario;
+            (async () => {
+              try {
+                await loadUsers();
+                if (u && u.id) {
+                  const idx = (state.usuarios || []).findIndex(x => x.id === u.id);
+                  if (idx >= 0) selectUsuarioByIndex(idx);
+                }
+              } catch(_) {}
+            })();
+          }
           if(used || expired){ stopQRTimers(); setTimeout(() => closeQRModal(), 1200); }
         } else {
           if(status) status.textContent = 'Token inválido o inexistente';
@@ -1122,6 +1136,7 @@
         });
         document.getElementById('usuarios-count').textContent = `${(Array.isArray(rows) ? rows.length : 0)} usuarios`;
         updateUsuariosCards(rows);
+        try { populatePagosUsuarioSelector(); } catch {}
       } catch(err){
         console.error('Error cargando usuarios:', err);
       }
@@ -1390,6 +1405,20 @@
       sel.innerHTML = '<option value="">Seleccionar usuario</option>' + usuarios.map(u => `<option value="${u.id}">${u.nombre} (${u.dni || ''})</option>`).join('');
       const target = selectedId || (state.selectedUsuario && state.selectedUsuario.id) || '';
       if(target) sel.value = String(target);
+    }
+
+    async function populatePagosUsuarioSelector(selectedId){
+      const sel = document.getElementById('pagos-usuario');
+      if(!sel) return;
+      try {
+        if(!Array.isArray(state.usuarios) || state.usuarios.length === 0){
+          await loadUsers();
+        }
+        const usuarios = Array.isArray(state.usuarios) ? state.usuarios : [];
+        sel.innerHTML = '<option value="">Usuario (opcional)</option>' + usuarios.map(u => `<option value="${u.id}">${u.nombre} (${u.dni || ''})</option>`).join('');
+        const target = selectedId || (state.selectedUsuario && state.selectedUsuario.id) || '';
+        if(target) sel.value = String(target);
+      } catch(e) {}
     }
 
     async function populatePagoMetodoSelect(selectedId){
@@ -1818,6 +1847,9 @@
       if(!u){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       const dni = String(u.dni || '').trim();
       switchTab('pagos');
+      try { populatePagosUsuarioSelector(); } catch {}
+      const sel = document.getElementById('pagos-usuario');
+      if(sel) sel.value = String(u.id);
       const input = document.getElementById('pagos-q');
       if(input) input.value = dni || (u.nombre || '');
       state.pagosFilters.metodo = '';
@@ -2256,6 +2288,20 @@
       document.getElementById('pagos-refresh').addEventListener('click', loadPayments);
       document.getElementById('pagos-q').addEventListener('keydown', (e) => { if(e.key === 'Enter') loadPayments(); });
       document.getElementById('pagos-limit').addEventListener('change', loadPayments);
+      const selPU = document.getElementById('pagos-usuario');
+      if(selPU){
+        selPU.addEventListener('change', () => {
+          const val = selPU.value || '';
+          const u = (state.usuarios || []).find(x => String(x.id) === String(val));
+          const input = document.getElementById('pagos-q');
+          if(u && input){
+            input.value = String(u.dni || '') || (u.nombre || '');
+          } else if(input){
+            input.value = '';
+          }
+          loadPayments();
+        });
+      }
       bindPagosEvents();
       bindUsuariosEvents();
       bindConfiguracionEvents();

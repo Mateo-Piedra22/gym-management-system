@@ -22,6 +22,13 @@ import psutil
 import psycopg2
 import psycopg2.extras
 import time
+# Asegurar que el directorio raíz del proyecto esté en sys.path para imports (models, payment_manager, database)
+try:
+    _proj_root = Path(__file__).resolve().parent.parent
+    if str(_proj_root) not in sys.path:
+        sys.path.insert(0, str(_proj_root))
+except Exception:
+    pass
 # HTTP client para probes (con fallback si no está disponible)
 try:
     import requests  # type: ignore
@@ -610,6 +617,11 @@ except Exception:
         app.mount("/assets", StaticFiles(directory=str(_resolve_existing_dir("webapp", "assets"))), name="assets")
     except Exception:
         pass
+# Exponer siempre los assets de webapp bajo una ruta dedicada
+try:
+    app.mount("/webapp-assets", StaticFiles(directory=str(_resolve_existing_dir("webapp", "assets"))), name="webapp-assets")
+except Exception:
+    pass
 
 # --- Utilidad legacy de sincronización eliminada ---
 # Nota: La replicación lógica de PostgreSQL reemplaza el sistema de sync vía HTTP.
@@ -2850,7 +2862,15 @@ async def checkin_page(request: Request):
                     cur = conn.cursor()
                     cur.execute(
                         """
-                        SELECT id, COALESCE(nombre,'') AS nombre, COALESCE(dni,'') AS dni, COALESCE(telefono,'') AS telefono
+                        SELECT id,
+                               COALESCE(nombre,'') AS nombre,
+                               COALESCE(dni,'') AS dni,
+                               COALESCE(telefono,'') AS telefono,
+                               COALESCE(tipo_cuota,'') AS tipo_cuota,
+                               fecha_proximo_vencimiento,
+                               COALESCE(cuotas_vencidas, 0) AS cuotas_vencidas,
+                               ultimo_pago,
+                               LOWER(COALESCE(rol, 'socio')) AS rol
                         FROM usuarios WHERE id = %s LIMIT 1
                         """,
                         (user_id,)
@@ -2862,13 +2882,31 @@ async def checkin_page(request: Request):
                         nombre = str(row[1] or "")
                         dni = str(row[2] or "")
                         telefono = str(row[3] or "")
+                        tipo_cuota = str(row[4] or "")
+                        fpv = row[5]
+                        cuotas_vencidas = int(row[6] or 0)
+                        ultimo_pago = row[7]
+                        rol = (row[8] or "socio").lower()
+                        exento = rol in ("profesor","owner","dueño","dueno")
                         digits = _re.sub(r"\D+", "", telefono)
                         masked = ("*" * max(len(digits) - 4, 4)) + (digits[-4:] if len(digits) >= 4 else digits)
+                        try:
+                            from datetime import date as _date
+                            fpv_date = fpv.date() if hasattr(fpv, 'date') else fpv
+                            dias_restantes = (fpv_date - _date.today()).days if fpv_date else None
+                        except Exception:
+                            dias_restantes = None
                         socio_info = {
                             "id": user_id_db,
                             "nombre": nombre,
                             "dni": dni,
                             "telefono_mask": masked,
+                            "tipo_cuota": tipo_cuota,
+                            "fecha_proximo_vencimiento": (fpv.date().isoformat() if hasattr(fpv, 'date') else (fpv.isoformat() if fpv else None)),
+                            "cuotas_vencidas": cuotas_vencidas,
+                            "ultimo_pago": (ultimo_pago.date().isoformat() if hasattr(ultimo_pago, 'date') else (ultimo_pago.isoformat() if ultimo_pago else None)),
+                            "dias_restantes": dias_restantes,
+                            "exento": exento,
                         }
         except Exception:
             pass
@@ -2977,7 +3015,59 @@ async def checkin_auth(request: Request):
                 logging.info(f"/checkin/auth: autenticado usuario_id={user_id} rid={rid}")
             except Exception:
                 pass
-            return JSONResponse({"success": True, "message": "Autenticado", "usuario_id": user_id})
+            # Obtener estado de cuotas para notificar en el cliente
+            cuotas_vencidas = 0
+            fecha_proximo_vencimiento_iso = None
+            ultimo_pago_iso = None
+            tipo_cuota = None
+            exento = False
+            dias_restantes = None
+            try:
+                cur.execute(
+                    """
+                    SELECT COALESCE(cuotas_vencidas, 0),
+                           fecha_proximo_vencimiento,
+                           ultimo_pago,
+                           COALESCE(tipo_cuota, ''),
+                           LOWER(COALESCE(rol, 'socio'))
+                    FROM usuarios WHERE id = %s
+                    """,
+                    (user_id,)
+                )
+                r2 = cur.fetchone()
+                if r2:
+                    cuotas_vencidas = int(r2[0] or 0)
+                    fpv = r2[1]
+                    up = r2[2]
+                    tipo_cuota = str(r2[3] or '')
+                    rol = str(r2[4] or 'socio').lower()
+                    exento = rol in ('profesor', 'owner', 'dueño', 'dueno')
+                    try:
+                        from datetime import date as _date
+                        fpv_date = fpv.date() if hasattr(fpv, 'date') else fpv
+                        if fpv_date:
+                            dias_restantes = (fpv_date - _date.today()).days
+                        fecha_proximo_vencimiento_iso = fpv_date.isoformat() if fpv_date else None
+                    except Exception:
+                        fecha_proximo_vencimiento_iso = fpv.isoformat() if fpv else None
+                        dias_restantes = None
+                    try:
+                        ultimo_pago_iso = (up.date().isoformat() if hasattr(up, 'date') else (up.isoformat() if up else None))
+                    except Exception:
+                        ultimo_pago_iso = None
+            except Exception:
+                pass
+            return JSONResponse({
+                "success": True,
+                "message": "Autenticado",
+                "usuario_id": user_id,
+                "cuotas_vencidas": cuotas_vencidas,
+                "fecha_proximo_vencimiento": fecha_proximo_vencimiento_iso,
+                "dias_restantes": dias_restantes,
+                "ultimo_pago": ultimo_pago_iso,
+                "tipo_cuota": tipo_cuota,
+                "exento": exento
+            })
     except Exception as e:
         try:
             logging.exception(f"Error en /checkin/auth rid={rid}")

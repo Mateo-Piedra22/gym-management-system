@@ -9,7 +9,7 @@
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <meta name="color-scheme" content="dark light">
   <style>
-    .screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--bg); }
     .selector-wrapper { width: 100%; max-width: 720px; }
     .card { padding: 20px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.25); }
     .brand { display:flex; align-items:center; gap:12px; margin-bottom: 16px; }
@@ -18,13 +18,23 @@
     .brand .muted { margin: 2px 0 0 0; line-height: 1.3; }
     .grid { display:grid; grid-template-columns: repeat(2, minmax(260px, 340px)); gap:12px; }
     @media (max-width: 720px){ .grid { grid-template-columns: 1fr; } }
-    .option-card { padding: 20px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 6px 16px rgba(0,0,0,.18); transition: transform 120ms ease, box-shadow 120ms ease; }
+    .option-card { padding: 20px; border-radius: 12px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 6px 16px rgba(0,0,0,.18); transition: transform 120ms ease, box-shadow 120ms ease; position: relative; cursor: pointer; }
     .option-card:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(0,0,0,.24); }
+    .option-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .option-title { font-weight:600; font-size: 18px; }
-    .option-icon { width: 28px; height: 28px; border-radius: 8px; display:inline-flex; align-items:center; justify-content:center; background: rgba(255,255,255,.06); margin-right:8px; }
+    .option-icon { width: 28px; height: 28px; border-radius: 8px; display:inline-flex; align-items:center; justify-content:center; background: rgba(255,255,255,.06); margin-right:8px; overflow: hidden; }
+    .option-icon img { width: 22px; height: 22px; border-radius: 6px; }
+    .role-chip { display:inline-block; font-size:12px; color: var(--text); background: rgba(255,255,255,.06); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-left: 8px; }
     .desc { color: var(--muted); margin-top: 6px; }
     .actions { margin-top: 12px; display:flex; gap: 8px; }
     a.btn { text-decoration: none; display:inline-block; }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .btn.tertiary { background: var(--accent); }
+    .btn.checkin-cta { font-weight: 600; }
+    @media (max-width: 480px) { .btn.checkin-cta { padding: 14px 18px; font-size: 16px; width: auto; } }
+    @media (prefers-reduced-motion: reduce) { .option-card:hover { transform: none; box-shadow: 0 6px 16px rgba(0,0,0,.18); } }
+    footer .links { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; }
+    footer .links a { color: var(--text); text-decoration: none; }
   </style>
 </head>
 <body>
@@ -32,46 +42,80 @@
     <section class="selector-wrapper">
       <div class="card" style="margin-bottom:16px;">
         <div class="brand">
-          <img src="{{ logo_url }}" alt="Logo" />
+          <img src="{{ logo_url }}" alt="Logo del gimnasio" />
           <div>
-            <h1>{{ gym_name }}</h1>
-            <p class="muted">Acceso exclusivo del dueño</p>
+            <h1 id="brand-title">{{ gym_name }}</h1>
+            <p class="muted" aria-describedby="brand-title">Portal de acceso para clientes, dueño y profesores.</p>
           </div>
         </div>
         <div class="grid">
-          <div class="option-card">
+          <div class="option-card" data-href="/login" aria-labelledby="opt-dashboard-title" aria-describedby="opt-dashboard-desc">
             <div>
-              <span class="option-icon">📊</span>
-              <span class="option-title">Dashboard del dueño</span>
+              <span class="option-icon"><img src="/assets/dashboard.png" alt="" /></span>
+              <span id="opt-dashboard-title" class="option-title">Dashboard</span>
+              <span class="role-chip" aria-label="Rol sugerido">Dueño</span>
             </div>
-            <p class="desc">Ingresá al panel con KPIs, reportes y control del sistema.</p>
+            <p id="opt-dashboard-desc" class="desc">Ingresá al panel con KPIs, reportes y control del sistema.</p>
             <div class="actions">
               <a class="btn secondary" href="/login" aria-label="Ir al login del dueño">Ir al login</a>
             </div>
           </div>
-          <div class="option-card">
+          <div class="option-card" data-href="/checkin" aria-labelledby="opt-checkin-title" aria-describedby="opt-checkin-desc">
             <div>
-              <span class="option-icon">✅</span>
-              <span class="option-title">Check-in de socios</span>
+              <span class="option-icon"><img src="/assets/checkin.png" alt="" /></span>
+              <span id="opt-checkin-title" class="option-title">Check-in</span>
+              <span class="role-chip" aria-label="Rol sugerido">Socio</span>
             </div>
-            <p class="desc">Validá tu asistencia escaneando un QR o ingresando el token.</p>
+            <p id="opt-checkin-desc" class="desc">Validá tu asistencia escaneando un QR o ingresando el token.</p>
             <div class="actions">
-              <a class="btn" href="/checkin" aria-label="Ir al check-in">Ir al check-in</a>
+              <a class="btn checkin-cta" href="/checkin" aria-label="Ir al check-in">Ir al check-in</a>
             </div>
           </div>
-          <div class="option-card">
+          <div class="option-card" data-href="/gestion/login" aria-labelledby="opt-gestion-title" aria-describedby="opt-gestion-desc">
             <div>
-              <span class="option-icon">🧰</span>
-              <span class="option-title">Gestión</span>
+              <span class="option-icon"><img src="/assets/gestion.png" alt="" /></span>
+              <span id="opt-gestion-title" class="option-title">Gestión</span>
+              <span class="role-chip" aria-label="Rol sugerido">Staff/Profesor</span>
             </div>
-            <p class="desc">Administra usuarios y pagos desde la web.</p>
+            <p id="opt-gestion-desc" class="desc">Administra usuarios y pagos desde la web.</p>
             <div class="actions">
-              <a class="btn" href="/gestion/login" aria-label="Ir al login de Gestión">Ir a Gestión</a>
+              <a class="btn tertiary" href="/gestion/login" aria-label="Ir al login de Gestión">Ir a Gestión</a>
             </div>
           </div>
         </div>
       </div>
+      <footer class="card" aria-label="Accesos rápidos" style="text-align:center;">
+        <div class="links">
+          <a href="/checkin">Check-in</a>
+          <span class="muted">•</span>
+          <a href="/gestion/login">Gestión</a>
+          <span class="muted">•</span>
+          <a href="/login">Dashboard</a>
+        </div>
+      </footer>
     </section>
   </main>
+  <script>
+    // Hacer toda la tarjeta clicable y accesible con teclado
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.option-card[data-href]').forEach(card => {
+        const href = card.getAttribute('data-href');
+        if (!href) return;
+        card.addEventListener('click', (e) => {
+          // Si el click fue en un enlace interno, no duplicar navegación
+          if (e.target && e.target.closest('a')) return;
+          window.location.href = href;
+        });
+        card.setAttribute('role', 'link');
+        card.setAttribute('tabindex', '0');
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            window.location.href = href;
+          }
+        });
+      });
+    });
+  </script>
 </body>
 </html>
