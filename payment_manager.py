@@ -4,7 +4,36 @@ from typing import List, Optional, Dict, Any
 import logging
 import psycopg2.extras
 from models import Pago, Usuario, MetodoPago, ConceptoPago, PagoDetalle
-from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
+# Importar sistema de alertas con fallback si PyQt6 no está disponible (entornos como Railway)
+try:
+    from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
+except Exception:
+    import logging as _logging
+    from enum import Enum as _Enum
+    class AlertLevel(_Enum):
+        INFO = "info"
+        WARNING = "warning"
+        CRITICAL = "critical"
+        ERROR = "error"
+    class AlertCategory(_Enum):
+        SYSTEM = "system"
+        DATABASE = "database"
+        MAINTENANCE = "maintenance"
+        SECURITY = "security"
+        PERFORMANCE = "performance"
+        BACKUP = "backup"
+        MEMBERSHIP = "membership"
+        PAYMENT = "payment"
+    class _StubAlertManager:
+        def generate_alert(self, level, category, title: str, message: str, source: str = None):
+            try:
+                lvl = getattr(level, 'value', str(level))
+                cat = getattr(category, 'value', str(category))
+                _logging.info(f"[ALERT:{lvl}/{cat}] {title} - {message} (source={source})")
+            except Exception:
+                pass
+            return None
+    alert_manager = _StubAlertManager()
 from database import DatabaseManager, database_retry
 
 # Integración de sincronización: importar cliente de sync si está disponible
