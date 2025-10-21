@@ -1621,7 +1621,7 @@ async def api_usuario_create(request: Request, _=Depends(require_gestion_access)
         return guard
     payload = await request.json()
     try:
-        nombre = (payload.get("nombre") or "").strip()
+        nombre = ((payload.get("nombre") or "").strip()).upper()
         dni = str(payload.get("dni") or "").strip()
         telefono = str(payload.get("telefono") or "").strip() or None
         pin = str(payload.get("pin") or "").strip() or None
@@ -1667,7 +1667,7 @@ async def api_usuario_update(usuario_id: int, request: Request, _=Depends(requir
     try:
         if not db.usuario_id_existe(usuario_id):  # type: ignore
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        nombre = (payload.get("nombre") or "").strip()
+        nombre = ((payload.get("nombre") or "").strip()).upper()
         dni = str(payload.get("dni") or "").strip()
         telefono = str(payload.get("telefono") or "").strip() or None
         pin = str(payload.get("pin") or "").strip() or None
@@ -2889,6 +2889,43 @@ async def api_asistencias_registrar(request: Request, _=Depends(require_gestion_
         except Exception:
             pass
         return JSONResponse({"success": True, "message": str(e)}, status_code=200)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/asistencias/eliminar")
+async def api_asistencias_eliminar(request: Request, _=Depends(require_gestion_access)):
+    rid = getattr(getattr(request,'state',object()), 'request_id', '-')
+    db = _get_db()
+    if db is None:
+        db = _force_db_init()
+        if db is None:
+            raise HTTPException(status_code=500, detail="DB no disponible")
+    payload = await request.json()
+    usuario_id = int(payload.get("usuario_id") or 0)
+    fecha_str = str(payload.get("fecha") or "").strip()
+    if not usuario_id:
+        raise HTTPException(status_code=400, detail="usuario_id es requerido")
+    from datetime import date
+    fecha = None
+    try:
+        if fecha_str:
+            parts = fecha_str.split("-")
+            if len(parts) == 3:
+                fecha = date(int(parts[0]), int(parts[1]), int(parts[2]))
+        else:
+            fecha = date.today()
+    except Exception:
+        fecha = None
+    try:
+        db.eliminar_asistencia(usuario_id, fecha)  # type: ignore
+        try:
+            logging.info(f"/api/asistencias/eliminar: usuario_id={usuario_id} fecha={fecha} rid={rid}")
+        except Exception:
+            pass
+        return JSONResponse({"success": True}, status_code=200)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
