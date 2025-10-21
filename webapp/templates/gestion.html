@@ -316,7 +316,7 @@
                     <th>Rol</th>
                     <th>Tipo Cuota</th>
                     <th>Activo</th>
-                    <th>Hoy</th>
+                    <th>Asistencia</th>
                     <th>Acciones</th>
                   </tr>
                 </thead>
@@ -876,6 +876,11 @@
     }
     function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; closeModal('modal-qr-toast'); }
     async function emitirQRCheckin(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
+      const set = state.asistenciasHoySet;
+      if(set && set.has(Number(u.id))){
+        showToast('El usuario ya asistió hoy. No se emite QR.', 'info', 3500);
+        return;
+      }
       const expires_minutes = 5;
       try{
         const res = await fetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) });
@@ -1083,6 +1088,7 @@
             return new Set(list.map(x => Number(x)));
           } catch(e) { return new Set(); }
         })();
+        state.asistenciasHoySet = hoySet;
         const tbody = document.querySelector('#usuarios-table tbody');
         tbody.innerHTML = '';
         (Array.isArray(rows) ? rows : []).forEach((u, idx) => {
@@ -1090,14 +1096,16 @@
           tr.setAttribute('data-index', String(idx));
           const activo = (u.activo === true || u.activo === 'true');
           const asistioHoy = hoySet.has(Number(u.id));
+          const tipoObj = resolveTipoCuota(u.tipo_cuota ?? (u.tipo_cuota_nombre || u.tipo || ''));
+          const tipoNombre = tipoObj ? (tipoObj.nombre || '') : (u.tipo_cuota_nombre || u.tipo_cuota || '');
           tr.innerHTML = `
             <td>${u.nombre || ''}</td>
             <td>${u.dni || ''}</td>
             <td>${u.telefono || ''}</td>
             <td>${(u.rol || '').toString().toLowerCase()}</td>
-            <td>${u.tipo_cuota ?? ''}</td>
+            <td>${tipoNombre}</td>
             <td>${activo ? 'Sí' : 'No'}</td>
-            <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Hoy</span>' : '<span class="muted">—</span>'}</td>
+            <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Asistió</span>' : '<span style="padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;">No asistió</span>'}</td>
             <td>
               <button class="btn secondary" data-action="edit" data-id="${u.id}">Editar</button>
               <button class="btn secondary" data-action="delete" data-id="${u.id}">Borrar</button>
@@ -2260,6 +2268,16 @@
         }
         window.addEventListener('scroll', onScroll, { passive: true });
       }
+      // Precarga datos base para una UX fluida
+      Promise.allSettled([
+        loadConceptosPago(),
+        loadMetodosPago(),
+        loadTiposCuotaActivos(),
+        ensureTiposCuotaCatalogo(),
+      ]).catch(()=>{});
+      // Cargar primer listado de Usuarios
+      loadUsers();
+      // Cargar pagos por defecto (últimos 30 días)
       loadPayments();
     }
     document.addEventListener('DOMContentLoaded', init);
