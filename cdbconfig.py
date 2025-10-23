@@ -1055,31 +1055,252 @@ class DBConfigDialog(QDialog):
             local_params = self._get_profile_params('local')
             remote_params = self._get_profile_params('remoto')
 
+            def _secure_owner_on(params: dict) -> dict:
+                conn = None
+                try:
+                    conn = psycopg2.connect(
+                        host=params.get('host'),
+                        port=int(params.get('port') or 5432),
+                        dbname=params.get('database'),
+                        user=params.get('user'),
+                        password=params.get('password'),
+                        sslmode=params.get('sslmode') or 'prefer',
+                        application_name=params.get('application_name', 'gym_management_system'),
+                        connect_timeout=int(params.get('connect_timeout') or 10),
+                    )
+                    conn.autocommit = False
+                    cur = conn.cursor()
+
+                    # 1) Soltar triggers/funciones defensivas si existen para permitir inserción
+                    try:
+                        cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd()")
+                    except Exception:
+                        pass
+                    try:
+                        cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete()")
+                    except Exception:
+                        pass
+
+                    # 2) Asegurar tabla usuarios existe
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS usuarios (
+                            id SERIAL PRIMARY KEY,
+                            nombre VARCHAR(255) NOT NULL,
+                            dni VARCHAR(20) UNIQUE,
+                            telefono VARCHAR(50) NOT NULL,
+                            pin VARCHAR(10) DEFAULT '1234',
+                            rol VARCHAR(50) DEFAULT 'socio' NOT NULL,
+                            notas TEXT,
+                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            activo BOOLEAN DEFAULT TRUE,
+                            tipo_cuota VARCHAR(100) DEFAULT 'estandar',
+                            ultimo_pago DATE,
+                            fecha_proximo_vencimiento DATE,
+                            cuotas_vencidas INTEGER DEFAULT 0
+                        )
+                        """
+                    )
+
+                    # 3) Insertar Dueño si no existe (antes de reinstalar protecciones)
+                    cur.execute("SELECT 1 FROM usuarios WHERE rol = 'dueño'")
+                    has_owner = bool(cur.fetchone())
+                    if not has_owner:
+                        cur.execute(
+                            """INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                            ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
+                        )
+
+                    # 4) Reinstalar RLS y políticas bloqueando filas 'dueño'
+                    cur.execute(
+                        """
+                        ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
+                        ALTER TABLE usuarios FORCE ROW LEVEL SECURITY;
+
+                        DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios;
+                        DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios;
+                        DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios;
+                        DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios;
+
+                        CREATE POLICY usuarios_block_owner_select ON usuarios
+                            FOR SELECT
+                            USING (rol IS DISTINCT FROM 'dueño');
+
+                        CREATE POLICY usuarios_block_owner_update ON usuarios
+                            FOR UPDATE
+                            USING (rol IS DISTINCT FROM 'dueño')
+                            WITH CHECK (rol IS DISTINCT FROM 'dueño');
+
+                        CREATE POLICY usuarios_block_owner_delete ON usuarios
+                            FOR DELETE
+                            USING (rol IS DISTINCT FROM 'dueño');
+
+                        CREATE POLICY usuarios_block_owner_insert ON usuarios
+                            FOR INSERT
+                            WITH CHECK (rol IS DISTINCT FROM 'dueño');
+                        """
+                    )
+
+                    # 5) Crear funciones y triggers defensivos
+                    cur.execute(
+                        """
+                        CREATE FUNCTION usuarios_bloquear_dueno_ins_upd() RETURNS trigger AS $$
+                        BEGIN
+                            IF NEW.rol = 'dueño' THEN
+                                RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" son inafectables';
+                            END IF;
+                            RETURN NEW;
+                        END;
+                        $$ LANGUAGE plpgsql;
+
+                        CREATE FUNCTION usuarios_bloquear_dueno_delete() RETURNS trigger AS $$
+                        BEGIN
+                            IF OLD.rol = 'dueño' THEN
+                                RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" no pueden eliminarse';
+                            END IF;
+                            RETURN OLD;
+                        END;
+                        $$ LANGUAGE plpgsql;
+
+                        CREATE TRIGGER trg_usuarios_bloquear_ins_upd_dueno
+                        BEFORE INSERT OR UPDATE ON usuarios
+                        FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_ins_upd();
+
+                        CREATE TRIGGER trg_usuarios_bloquear_del_dueno
+                        BEFORE DELETE ON usuarios
+                        FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
+                        """
+                    )
+
+                    # 6) Asegurar columna updated_at, índice y trigger de actualización
+                    cur.execute(
+                        """
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'usuarios' AND column_name = 'updated_at'
+                        """
+                    )
+                    missing_updated = cur.fetchone() is None
+                    if missing_updated:
+                        cur.execute("ALTER TABLE usuarios ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()")
+                        cur.execute("UPDATE usuarios SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_updated_at ON usuarios(updated_at)")
+                    cur.execute(
+                        """
+                        CREATE OR REPLACE FUNCTION usuarios_set_updated_at() RETURNS trigger AS $$
+                        BEGIN
+                            NEW.updated_at = NOW();
+                            RETURN NEW;
+                        END;
+                        $$ LANGUAGE plpgsql;
+                        """
+                    )
+                    cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_set_updated_at ON usuarios")
+                    cur.execute(
+                        """
+                        CREATE TRIGGER trg_usuarios_set_updated_at
+                        BEFORE UPDATE ON usuarios
+                        FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
+                        """
+                    )
+
+                    # 7) Asegurar tabla configuracion y sembrar owner_password si existe en entorno
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS configuracion (
+                            id SERIAL PRIMARY KEY,
+                            clave VARCHAR(255) UNIQUE NOT NULL,
+                            valor TEXT NOT NULL,
+                            tipo VARCHAR(50) DEFAULT 'string',
+                            descripcion TEXT
+                        )
+                        """
+                    )
+                    env_pwd = (os.getenv('WEBAPP_OWNER_PASSWORD', '') or os.getenv('OWNER_PASSWORD', '')).strip()
+                    if env_pwd:
+                        cur.execute(
+                            """
+                            INSERT INTO configuracion (clave, valor, tipo, descripcion)
+                            VALUES (%s, %s, 'string', 'Contraseña de acceso del dueño')
+                            ON CONFLICT (clave) DO NOTHING
+                            """,
+                            ('owner_password', env_pwd)
+                        )
+
+                    # Validación básica: existencia de Dueño y triggers/políticas
+                    cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol = 'dueño'")
+                    owner_count = int((cur.fetchone() or [0])[0])
+                    cur.execute("SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='usuarios'")
+                    pols = {r[0] for r in (cur.fetchall() or [])}
+                    cur.execute("SELECT tgname FROM pg_trigger WHERE tgrelid = 'usuarios'::regclass")
+                    trigs = {r[0] for r in (cur.fetchall() or [])}
+
+                    conn.commit()
+                    return {
+                        "ok": True,
+                        "owner_count": owner_count,
+                        "policies": sorted(list(pols)),
+                        "triggers": sorted(list(trigs)),
+                    }
+                except Exception as e:
+                    try:
+                        if conn:
+                            conn.rollback()
+                    except Exception:
+                        pass
+                    return {"ok": False, "error": str(e)}
+                finally:
+                    try:
+                        if conn:
+                            conn.close()
+                    except Exception:
+                        pass
+
             results = []
             # Local
             try:
                 rloc = self._truncate_public_tables(local_params)
-                results.append(("LOCAL", rloc))
+                if rloc.get('ok'):
+                    rloc_secure = _secure_owner_on(local_params)
+                else:
+                    rloc_secure = {"ok": False, "error": rloc.get('error') or 'No se pudo truncar'}
+                results.append(("LOCAL", rloc, rloc_secure))
             except Exception as e:
-                results.append(("LOCAL", {"ok": False, "error": str(e)}))
+                results.append(("LOCAL", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
 
             # Remoto si hay host informado
             try:
                 if str(remote_params.get('host', '')).strip():
                     rrem = self._truncate_public_tables(remote_params)
-                    results.append(("REMOTO", rrem))
+                    if rrem.get('ok'):
+                        rrem_secure = _secure_owner_on(remote_params)
+                    else:
+                        rrem_secure = {"ok": False, "error": rrem.get('error') or 'No se pudo truncar'}
+                    results.append(("REMOTO", rrem, rrem_secure))
                 else:
-                    results.append(("REMOTO", {"ok": False, "error": "No configurado"}))
+                    results.append(("REMOTO", {"ok": False, "error": "No configurado"}, {"ok": False, "error": "No configurado"}))
             except Exception as e:
-                results.append(("REMOTO", {"ok": False, "error": str(e)}))
+                results.append(("REMOTO", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
 
             # Mostrar resumen
             lines = []
-            for name, res in results:
-                if res.get('ok'):
-                    lines.append(f"[{name}] OK: {len(res.get('truncated', []))} tablas truncadas; {len(res.get('restarted_sequences', []))} secuencias reiniciadas")
+            for name, trunc_res, sec_res in results:
+                if trunc_res.get('ok'):
+                    lines.append(f"[{name}] TRUNCATE OK: {len(trunc_res.get('truncated', []))} tablas; {len(trunc_res.get('restarted_sequences', []))} secuencias")
                 else:
-                    lines.append(f"[{name}] FALLÓ: {res.get('error')}")
+                    lines.append(f"[{name}] TRUNCATE FALLÓ: {trunc_res.get('error')}")
+                if sec_res.get('ok'):
+                    lines.append(f"[{name}] Dueño asegurado (conteo={sec_res.get('owner_count', '?')})")
+                else:
+                    lines.append(f"[{name}] Asegurar Dueño FALLÓ: {sec_res.get('error')}")
             QMessageBox.information(self, "Limpieza completada", "\n".join(lines))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo en limpieza: {e}")

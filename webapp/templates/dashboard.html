@@ -156,7 +156,7 @@
         </div>
         <div class="brand-actions">
           <button class="btn secondary" id="export">Exportar CSV</button>
-          <form method="post" action="/logout">
+          <form method="post" action="/dashboard/logout">
             <button class="btn" type="submit">Cerrar sesión</button>
           </form>
         </div>
@@ -1153,7 +1153,8 @@ async function loadAdvanced() {
           );
           const fechaText = fecha ? String(fecha).slice(0,10) : '';
           const inicioText = extractTime(inicioRaw);
-          const finText = extractTime(finRaw);
+          const finText0 = extractTime(finRaw);
+          const finText = (inicioText && finText0 && finText0 < inicioText) ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
           const horasText = (horasVal !== undefined && horasVal !== null) ? String(horasVal) : '—';
           tr.innerHTML = `
             <td>${fechaText}</td>
@@ -1205,7 +1206,7 @@ async function loadAdvanced() {
             horasExt = res2.horas_extras ?? horasExt;
           } catch(_){ /* ignorar */ }
         }
-        el.textContent = `Sesiones: ${sesiones} · Trabajadas: ${horasTrab}h · Proyectadas: ${horasProj}h · Extras: ${horasExt}h`;
+        el.textContent = `Sesiones: ${sesiones} · Trabajadas: ${horasTrab}h · Proyectadas: ${horasProj}h · Extras: ${Math.max(0, Number(horasExt)||0)}h`;
       } catch(e) { console.error('Error cargando resumen de profesor', e); }
     }
     function openProfesorModal(prof){

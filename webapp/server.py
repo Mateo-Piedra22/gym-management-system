@@ -43,12 +43,13 @@ except Exception:
 
 # Importar dataclasses de modelos para payloads del API
 try:
-    from models import Usuario, Pago, MetodoPago, ConceptoPago  # type: ignore
+    from models import Usuario, Pago, MetodoPago, ConceptoPago, Ejercicio  # type: ignore
 except Exception:
     Usuario = None  # type: ignore
     Pago = None  # type: ignore
     MetodoPago = None  # type: ignore
     ConceptoPago = None  # type: ignore
+    Ejercicio = None  # type: ignore
 
 # Importar utilidades del proyecto principal para branding y contraseña de desarrollador
 try:
@@ -1686,15 +1687,42 @@ async def do_login(request: Request):
 
 @app.post("/logout")
 async def do_logout(request: Request, _=Depends(require_owner)):
-    # Limpiar sesión y redirigir al login para evitar quedarse en una página JSON
+    # No finalizar automáticamente sesiones de trabajo del profesor en logout POST
     request.session.clear()
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/gestion/login", status_code=303)
 
 @app.get("/logout")
 async def logout_get(request: Request):
-    # Soporta enlaces directos GET al logout y redirige al login
+    # No finalizar automáticamente sesiones de trabajo del profesor en logout GET
     request.session.clear()
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(url="/gestion/login", status_code=303)
+
+# Rutas de logout específicas por sección
+@app.post("/dashboard/logout")
+async def dashboard_logout_post(request: Request, _=Depends(require_owner)):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+@app.get("/dashboard/logout")
+async def dashboard_logout_get(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+@app.get("/gestion/logout")
+async def gestion_logout_get(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/gestion/login", status_code=303)
+
+@app.get("/checkin/logout")
+async def checkin_logout_get(request: Request):
+    # Solo limpiar sesión de checkin, si existe
+    try:
+        request.session.pop("checkin_user_id", None)
+    except Exception:
+        pass
+    # Limpiar todo por seguridad
+    request.session.clear()
+    return RedirectResponse(url="/checkin", status_code=303)
 
 # --- Endpoint admin para actualizar la contraseña del dueño ---
 @app.post("/api/admin/owner-password")
@@ -1790,6 +1818,271 @@ async def set_owner_password(request: Request):
         return JSONResponse({"success": False, "message": str(e)}, status_code=500)
 
 
+@app.post("/api/admin/renumerar_usuarios")
+async def api_admin_renumerar_usuarios(request: Request, _=Depends(require_owner)):
+    """
+    Renumera de forma segura los IDs de usuarios empezando desde "start_id".
+    Actualiza referencias en todas las tablas relacionadas.
+    Acceso: dueño (sesión web de Gestión).
+    """
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/admin/renumerar_usuarios")
+    if guard:
+        return guard
+    # Leer payload
+    try:
+        content_type = (request.headers.get("content-type", "") or "").strip()
+        if content_type.startswith("application/json"):
+            payload = await request.json()
+        else:
+            try:
+                payload = await request.form()
+            except Exception:
+                payload = {}
+    except Exception:
+        payload = {}
+    # Validar parámetros
+    try:
+        start_id_raw = payload.get("start_id", 1)
+        try:
+            start_id = int(start_id_raw)
+        except Exception:
+            start_id = 1
+        if start_id < 1:
+            return JSONResponse({"success": False, "message": "start_id inválido"}, status_code=400)
+        res = db.renumerar_usuario_ids(start_id)  # type: ignore
+        if isinstance(res, dict):
+            return JSONResponse(res, status_code=200)
+        return JSONResponse({"success": True, "result": res}, status_code=200)
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            logging.exception("Error en /api/admin/renumerar_usuarios")
+        except Exception:
+            pass
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/api/admin/secure_owner")
+async def api_admin_secure_owner(request: Request, _=Depends(require_owner)):
+    """
+    Asegura la existencia del usuario Dueño y su protección:
+    - Crea el usuario con rol 'dueño' si no existe
+    - Fuerza que el Dueño tenga ID=1 (migrando referencias del ocupante previo)
+    - Restaura políticas RLS y triggers defensivos
+    - Sembrado inicial de 'owner_password' en configuracion si falta
+    Acceso: dueño (sesión web de Gestión).
+    """
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/admin/secure_owner")
+    if guard:
+        return guard
+    try:
+        import os
+        changes = []
+        owner_id = None
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            # Desactivar triggers y RLS temporalmente
+            try:
+                cur.execute("SET LOCAL session_replication_role = 'replica'")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE usuarios NO FORCE ROW LEVEL SECURITY")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE usuarios DISABLE ROW LEVEL SECURITY")
+            except Exception:
+                pass
+            # Asegurar existencia del Dueño
+            cur.execute("SELECT id FROM usuarios WHERE rol = 'dueño' LIMIT 1")
+            row = cur.fetchone()
+            if row is None:
+                # Preferir ID=1 si está libre
+                cur.execute("SELECT 1 FROM usuarios WHERE id = 1")
+                id1_exists = cur.fetchone() is not None
+                target_id = 1
+                if id1_exists:
+                    cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM usuarios")
+                    target_id = int((cur.fetchone() or [1])[0] or 1)
+                cur.execute(
+                    """
+                    INSERT INTO usuarios (id, nombre, dni, telefono, pin, rol, activo, tipo_cuota)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (target_id, "DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar"),
+                )
+                owner_id = target_id
+                changes.append({"created_owner_id": target_id})
+            else:
+                try:
+                    owner_id = int(row[0])
+                except Exception:
+                    owner_id = row[0]
+            # Forzar ID=1 para el Dueño
+            if owner_id != 1:
+                cur.execute("SELECT 1 FROM usuarios WHERE id = 1")
+                id1_exists = cur.fetchone() is not None
+                if id1_exists:
+                    # Migrar ocupante del ID=1 a un ID libre y actualizar referencias
+                    cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM usuarios")
+                    new_id_for_old1 = int((cur.fetchone() or [2])[0] or 2)
+                    updates = [
+                        ("UPDATE pagos SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE asistencias SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE rutinas SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE clase_usuarios SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE clase_lista_espera SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_notas SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_etiquetas SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_estados SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE profesores SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE notificaciones_cupos SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE audit_logs SET user_id = %s WHERE user_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE checkin_pending SET usuario_id = %s WHERE usuario_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE whatsapp_messages SET user_id = %s WHERE user_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_notas SET autor_id = %s WHERE autor_id = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_etiquetas SET asignado_por = %s WHERE asignado_por = %s", (new_id_for_old1, 1)),
+                        ("UPDATE usuario_estados SET creado_por = %s WHERE creado_por = %s", (new_id_for_old1, 1)),
+                    ]
+                    for sql, params in updates:
+                        try:
+                            cur.execute(sql, params)
+                        except Exception:
+                            pass
+                    try:
+                        cur.execute(
+                            "UPDATE acciones_masivas_pendientes SET usuario_ids = array_replace(usuario_ids, %s, %s) WHERE %s = ANY(usuario_ids)",
+                            (1, new_id_for_old1, 1),
+                        )
+                    except Exception:
+                        pass
+                    cur.execute("UPDATE usuarios SET id = %s WHERE id = %s AND rol <> 'dueño'", (new_id_for_old1, 1))
+                    changes.append({"moved_user": {"from": 1, "to": new_id_for_old1}})
+                cur.execute("UPDATE usuarios SET id = 1 WHERE id = %s AND rol = 'dueño'", (owner_id,))
+                changes.append({"owner_id_changed": {"from": owner_id, "to": 1}})
+                owner_id = 1
+            # Sembrar/asegurar owner_password en configuracion
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS configuracion (
+                        clave TEXT PRIMARY KEY,
+                        valor TEXT
+                    )
+                    """
+                )
+                env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
+                if not env_pwd:
+                    try:
+                        from managers import DeveloperManager  # type: ignore
+                        env_pwd = str(getattr(DeveloperManager, "DEV_PASSWORD", "") or "").strip()
+                    except Exception:
+                        env_pwd = ""
+                if not env_pwd:
+                    env_pwd = "2203"
+                cur.execute(
+                    """
+                    INSERT INTO configuracion (clave, valor)
+                    VALUES ('owner_password', %s)
+                    ON CONFLICT (clave) DO NOTHING
+                    """,
+                    (env_pwd,),
+                )
+            except Exception:
+                pass
+            # Restaurar RLS y triggers defensivos
+            try:
+                cur.execute(
+                    """
+                    ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
+                    ALTER TABLE usuarios FORCE ROW LEVEL SECURITY;
+
+                    DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios;
+                    DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios;
+                    DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios;
+                    DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios;
+
+                    CREATE POLICY usuarios_block_owner_select ON usuarios
+                        FOR SELECT
+                        USING (rol IS DISTINCT FROM 'dueño');
+
+                    CREATE POLICY usuarios_block_owner_update ON usuarios
+                        FOR UPDATE
+                        USING (rol IS DISTINCT FROM 'dueño')
+                        WITH CHECK (rol IS DISTINCT FROM 'dueño');
+
+                    CREATE POLICY usuarios_block_owner_delete ON usuarios
+                        FOR DELETE
+                        USING (rol IS DISTINCT FROM 'dueño');
+
+                    CREATE POLICY usuarios_block_owner_insert ON usuarios
+                        FOR INSERT
+                        WITH CHECK (rol IS DISTINCT FROM 'dueño');
+
+                    DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios;
+                    DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios;
+                    DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd();
+                    DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete();
+
+                    CREATE FUNCTION usuarios_bloquear_dueno_ins_upd() RETURNS trigger AS $$
+                    BEGIN
+                        IF NEW.rol = 'dueño' THEN
+                            RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" son inafectables';
+                        END IF;
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+
+                    CREATE FUNCTION usuarios_bloquear_dueno_delete() RETURNS trigger AS $$
+                    BEGIN
+                        IF OLD.rol = 'dueño' THEN
+                            RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" no pueden eliminarse';
+                        END IF;
+                        RETURN OLD;
+                    END;
+                    $$ LANGUAGE plpgsql;
+
+                    CREATE TRIGGER trg_usuarios_bloquear_ins_upd_dueno
+                    BEFORE INSERT OR UPDATE ON usuarios
+                    FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_ins_upd();
+
+                    CREATE TRIGGER trg_usuarios_bloquear_del_dueno
+                    BEFORE DELETE ON usuarios
+                    FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
+                    """
+                )
+            except Exception:
+                pass
+            try:
+                cur.execute("SET LOCAL session_replication_role = 'origin'")
+            except Exception:
+                pass
+            conn.commit()
+        # Refrescar cachés si existen
+        try:
+            if hasattr(db, 'prefetch_owner_credentials_async'):
+                db.prefetch_owner_credentials_async(ttl_seconds=0)  # type: ignore
+        except Exception:
+            pass
+        return JSONResponse({"success": True, "owner_id": owner_id or 1, "changes": changes}, status_code=200)
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            logging.exception("Error en /api/admin/secure_owner")
+        except Exception:
+            pass
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 @app.get("/dashboard")
 async def dashboard(request: Request):
     # Redirigir a login si no hay sesión activa
@@ -1863,12 +2156,20 @@ async def api_usuario_get(usuario_id: int, _=Depends(require_gestion_access)):
         u = db.obtener_usuario_por_id(usuario_id)  # type: ignore
         if not u:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        # Aplicar visibilidad de PIN: profesor no ve PIN de otro profesor
+        pin_value = getattr(u, "pin", None)
+        try:
+            prof_uid = request.session.get("gestion_profesor_user_id")
+            if prof_uid and str(getattr(u, "rol", "")).strip().lower() == "profesor" and int(usuario_id) != int(prof_uid):
+                pin_value = None
+        except Exception:
+            pass
         return {
             "id": u.id,
             "nombre": u.nombre,
             "dni": u.dni,
             "telefono": u.telefono,
-            "pin": u.pin,
+            "pin": pin_value,
             "rol": u.rol,
             "activo": bool(u.activo),
             "tipo_cuota": u.tipo_cuota,
@@ -1897,6 +2198,14 @@ async def api_usuario_create(request: Request, _=Depends(require_gestion_access)
         dni = str(payload.get("dni") or "").strip()
         telefono = str(payload.get("telefono") or "").strip() or None
         pin = str(payload.get("pin") or "").strip() or None
+        # Aplicar regla: profesor no puede modificar PIN de otro profesor
+        try:
+            orig = db.obtener_usuario_por_id(usuario_id)  # type: ignore
+            session_prof_uid = request.session.get("gestion_profesor_user_id")
+            if session_prof_uid and orig and str(getattr(orig, "rol", "")).strip().lower() == "profesor" and int(usuario_id) != int(session_prof_uid):
+                pin = getattr(orig, "pin", None)
+        except Exception:
+            pass
         rol = (payload.get("rol") or "socio").strip().lower()
         activo = bool(payload.get("activo", True))
         tipo_cuota = payload.get("tipo_cuota")
@@ -1967,7 +2276,33 @@ async def api_usuario_update(usuario_id: int, request: Request, _=Depends(requir
             ultimo_pago=None,
         )
         db.actualizar_usuario(usuario)  # type: ignore
-        return {"ok": True}
+        # Manejar cambio de ID si el dueño lo solicita
+        try:
+            new_id_raw = payload.get("new_id")
+        except Exception:
+            new_id_raw = None
+        new_id_val = None
+        try:
+            new_id_val = int(new_id_raw) if new_id_raw is not None else None
+        except Exception:
+            new_id_val = None
+        if new_id_val is not None and int(new_id_val) != int(usuario_id):
+            is_owner = bool(request.session.get("logged_in")) and str(request.session.get("role") or "").strip().lower() == "dueño"
+            if not is_owner:
+                raise HTTPException(status_code=403, detail="Solo el dueño puede cambiar el ID de usuario")
+            if int(new_id_val) <= 0:
+                raise HTTPException(status_code=400, detail="El nuevo ID debe ser un entero positivo")
+            try:
+                db.cambiar_usuario_id(int(usuario_id), int(new_id_val))  # type: ignore
+                usuario_id = int(new_id_val)
+            except PermissionError as e:
+                raise HTTPException(status_code=403, detail=str(e))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                # Responder genéricamente si ocurre otro error
+                raise HTTPException(status_code=500, detail=str(e))
+        return {"ok": True, "id": usuario_id}
     except HTTPException:
         raise
     except Exception as e:
@@ -1986,6 +2321,229 @@ async def api_usuario_delete(usuario_id: int, _=Depends(require_gestion_access))
         return {"ok": True}
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- API Etiquetas de usuario ---
+@app.get("/api/usuarios/{usuario_id}/etiquetas")
+async def api_usuario_etiquetas_get(usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/etiquetas")
+    if guard:
+        return guard
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        etiquetas = db.obtener_etiquetas_usuario(usuario_id)  # type: ignore
+        items = []
+        for e in etiquetas:
+            try:
+                items.append({
+                    "id": getattr(e, "id", None),
+                    "nombre": getattr(e, "nombre", None),
+                    "color": getattr(e, "color", None),
+                    "descripcion": getattr(e, "descripcion", None),
+                    "activo": getattr(e, "activo", True),
+                })
+            except Exception:
+                items.append(e)
+        return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/etiquetas")
+async def api_usuario_etiquetas_add(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/etiquetas")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        etiqueta_id = payload.get("etiqueta_id")
+        nombre = (payload.get("nombre") or "").strip()
+        asignado_por = None
+        try:
+            asignado_por = int(request.session.get("user_id")) if request.session.get("user_id") else None
+        except Exception:
+            asignado_por = None
+        if etiqueta_id is None and not nombre:
+            raise HTTPException(status_code=400, detail="Se requiere 'etiqueta_id' o 'nombre'")
+        if etiqueta_id is None and nombre:
+            try:
+                et = db.obtener_o_crear_etiqueta(nombre)  # type: ignore
+                etiqueta_id = getattr(et, "id", None)
+            except Exception:
+                etiqueta_id = None
+        if etiqueta_id is None:
+            raise HTTPException(status_code=400, detail="Etiqueta inválida")
+        ok = db.asignar_etiqueta_usuario(usuario_id, int(etiqueta_id), asignado_por)  # type: ignore
+        return {"ok": bool(ok)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/usuarios/{usuario_id}/etiquetas/{etiqueta_id}")
+async def api_usuario_etiquetas_remove(usuario_id: int, etiqueta_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/etiquetas/{etiqueta_id}")
+    if guard:
+        return guard
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        ok = db.desasignar_etiqueta_usuario(usuario_id, etiqueta_id)  # type: ignore
+        return {"ok": bool(ok)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- API Estados de usuario ---
+@app.get("/api/usuarios/{usuario_id}/estados")
+async def api_usuario_estados_get(usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/estados")
+    if guard:
+        return guard
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        estados = db.obtener_estados_usuario(usuario_id, solo_activos=True)  # type: ignore
+        items = []
+        for est in estados:
+            try:
+                items.append({
+                    "id": getattr(est, "id", None),
+                    "usuario_id": getattr(est, "usuario_id", None),
+                    "estado": getattr(est, "estado", None),
+                    "descripcion": getattr(est, "descripcion", None),
+                    "fecha_inicio": getattr(est, "fecha_inicio", None),
+                    "fecha_vencimiento": getattr(est, "fecha_vencimiento", None),
+                    "activo": getattr(est, "activo", True),
+                    "creado_por": getattr(est, "creado_por", None),
+                })
+            except Exception:
+                items.append(est)
+        return {"items": items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/estados")
+async def api_usuario_estados_add(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/estados")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        nombre = (payload.get("estado") or payload.get("nombre") or "").strip()
+        descripcion = (payload.get("descripcion") or "").strip() or None
+        fecha_vencimiento = payload.get("fecha_vencimiento") or payload.get("fecha_fin")
+        creado_por = None
+        try:
+            creado_por = int(request.session.get("user_id")) if request.session.get("user_id") else None
+        except Exception:
+            creado_por = None
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'estado' es obligatorio")
+        try:
+            from models import UsuarioEstado
+            estado = UsuarioEstado(usuario_id=usuario_id, estado=nombre, descripcion=descripcion, fecha_vencimiento=fecha_vencimiento, creado_por=creado_por)  # type: ignore
+        except Exception:
+            estado = type("E", (), {"usuario_id": usuario_id, "estado": nombre, "descripcion": descripcion, "fecha_vencimiento": fecha_vencimiento, "creado_por": creado_por})()
+        eid = db.crear_estado_usuario(estado)  # type: ignore
+        return {"ok": True, "id": int(eid)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/usuarios/{usuario_id}/estados/{estado_id}")
+async def api_usuario_estados_update(usuario_id: int, estado_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/estados/{estado_id}")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        nombre = (payload.get("estado") or payload.get("nombre") or "").strip()
+        descripcion = (payload.get("descripcion") or "").strip() or None
+        fecha_vencimiento = payload.get("fecha_vencimiento") or payload.get("fecha_fin")
+        activo = bool(payload.get("activo", True))
+        usuario_modificador = None
+        try:
+            usuario_modificador = int(request.session.get("user_id")) if request.session.get("user_id") else None
+        except Exception:
+            usuario_modificador = None
+        try:
+            from models import UsuarioEstado
+            estado = UsuarioEstado(id=estado_id, usuario_id=usuario_id, estado=nombre, descripcion=descripcion, fecha_vencimiento=fecha_vencimiento, activo=activo)  # type: ignore
+        except Exception:
+            estado = type("E", (), {"id": estado_id, "usuario_id": usuario_id, "estado": nombre, "descripcion": descripcion, "fecha_vencimiento": fecha_vencimiento, "activo": activo})()
+        ok = db.actualizar_estado_usuario(estado, usuario_modificador=usuario_modificador)  # type: ignore
+        return {"ok": bool(ok)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/usuarios/{usuario_id}/estados/{estado_id}")
+async def api_usuario_estados_delete(usuario_id: int, estado_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/estados/{estado_id}")
+    if guard:
+        return guard
+    try:
+        if not db.usuario_id_existe(usuario_id):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        usuario_modificador = None
+        try:
+            usuario_modificador = int(request.session.get("user_id")) if request.session.get("user_id") else None
+        except Exception:
+            usuario_modificador = None
+        ok = db.eliminar_estado_usuario(int(estado_id), usuario_modificador=usuario_modificador)  # type: ignore
+        return {"ok": bool(ok)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/estados/plantillas")
+async def api_estados_plantillas(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return {"items": []}
+    guard = _circuit_guard_json(db, "/api/estados/plantillas")
+    if guard:
+        return guard
+    try:
+        items = db.obtener_plantillas_estados()  # type: ignore
+        return {"items": items}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -2113,6 +2671,111 @@ async def api_metodos_pago_delete(metodo_id: int, _=Depends(require_gestion_acce
                 return {"ok": True}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- API Ejercicios ---
+@app.get("/api/ejercicios")
+async def api_ejercicios_get(filtro: str = "", objetivo: str = "", grupo_muscular: str = "", _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/ejercicios")
+    if guard:
+        return guard
+    try:
+        ejercicios = db.obtener_ejercicios(filtro=filtro or "", objetivo=objetivo or "", grupo_muscular=grupo_muscular or "")  # type: ignore
+        return [
+            {
+                "id": int(e.id) if e.id is not None else None,
+                "nombre": e.nombre,
+                "grupo_muscular": e.grupo_muscular,
+                "descripcion": e.descripcion,
+                "objetivo": getattr(e, "objetivo", "general"),
+            }
+            for e in ejercicios
+        ]
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/ejercicios")
+async def api_ejercicios_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/ejercicios[POST]")
+    if guard:
+        return guard
+    if Ejercicio is None:
+        raise HTTPException(status_code=503, detail="Modelo Ejercicio no disponible")
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        grupo_muscular = payload.get("grupo_muscular")
+        descripcion = payload.get("descripcion")
+        objetivo = (payload.get("objetivo") or "general").strip() or "general"
+        ejercicio = Ejercicio(nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo)  # type: ignore
+        new_id = db.crear_ejercicio(ejercicio)  # type: ignore
+        return {"ok": True, "id": int(new_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/ejercicios/{ejercicio_id}")
+async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/ejercicios/{ejercicio_id}[PUT]")
+    if guard:
+        return guard
+    if Ejercicio is None:
+        raise HTTPException(status_code=503, detail="Modelo Ejercicio no disponible")
+    payload = await request.json()
+    try:
+        # Obtener existente para soportar actualización parcial
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT * FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+        nombre = (payload.get("nombre") or existing.get("nombre") or "").strip() or (existing.get("nombre") or "")
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        grupo_muscular = payload.get("grupo_muscular") if ("grupo_muscular" in payload) else existing.get("grupo_muscular")
+        descripcion = payload.get("descripcion") if ("descripcion" in payload) else existing.get("descripcion")
+        objetivo = (payload.get("objetivo") or existing.get("objetivo") or "general").strip() or (existing.get("objetivo") or "general")
+        ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo)  # type: ignore
+        db.actualizar_ejercicio(ejercicio)  # type: ignore
+        return {"ok": True, "id": int(ejercicio_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/ejercicios/{ejercicio_id}")
+async def api_ejercicios_delete(ejercicio_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/ejercicios/{ejercicio_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        db.eliminar_ejercicio(int(ejercicio_id))  # type: ignore
+        return {"ok": True}
     except HTTPException:
         raise
     except Exception as e:
@@ -2607,16 +3270,39 @@ async def gestion_auth(request: Request):
         return RedirectResponse(url="/gestion/login?error=PIN%20inv%C3%A1lido", status_code=303)
 
     profesor_id = None
+    prof = None
     try:
         prof = db.obtener_profesor_por_usuario_id(usuario_id)  # type: ignore
-        if prof and hasattr(prof, 'profesor_id'):
+    except Exception:
+        prof = None
+    # Derivar rol del usuario para crear perfil si falta
+    user_role = None
+    try:
+        u = db.obtener_usuario_por_id(usuario_id)  # type: ignore
+        if u is not None:
+            user_role = getattr(u, 'rol', None) or (u.get('rol') if isinstance(u, dict) else None)
+    except Exception:
+        user_role = None
+    try:
+        # Obtener profesor_id si existe
+        if prof:
             profesor_id = getattr(prof, 'profesor_id', None)
+            if profesor_id is None and isinstance(prof, dict):
+                profesor_id = prof.get('profesor_id')
+        # Crear perfil automáticamente si el usuario es profesor y no tiene perfil
+        if (profesor_id is None) and (user_role == 'profesor'):
+            profesor_id = db.crear_profesor(usuario_id)  # type: ignore
     except Exception:
         profesor_id = None
 
     request.session["gestion_profesor_user_id"] = usuario_id
     if profesor_id:
         request.session["gestion_profesor_id"] = int(profesor_id)
+        try:
+            # Auto-inicio de sesión de trabajo (idempotente)
+            db.iniciar_sesion_trabajo_profesor(int(profesor_id), 'Trabajo')  # type: ignore
+        except Exception:
+            pass
     return RedirectResponse(url="/gestion", status_code=303)
 
 
@@ -4375,11 +5061,34 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
                     return str(d) if d is not None else ""
             def _fmt_time(t):
                 try:
-                    sstr = str(t) if t is not None else ""
-                    return sstr[:5] if len(sstr) >= 5 else sstr
+                    if t is None:
+                        return ""
+                    # Manejar objetos datetime/time directamente
+                    hh = getattr(t, "hour", None)
+                    mm = getattr(t, "minute", None)
+                    if hh is not None and mm is not None:
+                        return f"{int(hh):02d}:{int(mm):02d}"
+                    s = str(t)
+                    # Intentar extraer HH:MM de cadenas comunes
+                    for sep in ("T", " "):
+                        if sep in s:
+                            tail = s.split(sep, 1)[1]
+                            if len(tail) >= 5 and tail[0:2].isdigit() and tail[2] == ":" and tail[3:5].isdigit():
+                                return tail[:5]
+                    if len(s) >= 5 and s[0:2].isdigit() and s[2] == ":" and s[3:5].isdigit():
+                        return s[:5]
+                    # Último intento: fromisoformat
+                    try:
+                        from datetime import datetime as _dt
+                        dt = _dt.fromisoformat(s.replace('Z', '+00:00'))
+                        return f"{dt.hour:02d}:{dt.minute:02d}"
+                    except Exception:
+                        pass
+                    return ""
                 except Exception:
                     return ""
             out.append({
+                "id": s.get("id"),
                 "fecha": _fmt_date(s.get("fecha")),
                 "inicio": _fmt_time(s.get("hora_inicio")),
                 "fin": _fmt_time(fin_val),
@@ -4393,6 +5102,562 @@ async def api_profesor_sesiones(request: Request, _=Depends(require_owner)):
         return []
 
 # Ruta duplicada /api/profesor_resumen eliminada para evitar respuestas inconsistentes
+
+@app.put("/api/profesor_sesion/{sesion_id}")
+async def api_profesor_sesion_update(sesion_id: int, request: Request, _=Depends(require_gestion_access)):
+    """
+    Edita una sesión de trabajo del profesor por ID.
+
+    Body JSON admite: { fecha?, inicio?, fin?, tipo?, minutos? }
+    """
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_update")
+    if guard:
+        return guard
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        # Normalizar campos
+        fecha = body.get("fecha")
+        inicio = body.get("inicio")  # HH:MM
+        fin = body.get("fin")        # HH:MM
+        tipo = body.get("tipo")
+        minutos_raw = body.get("minutos")
+        minutos_int = None
+        if minutos_raw is not None:
+            try:
+                minutos_int = int(minutos_raw)
+                if minutos_int < 0:
+                    minutos_int = 0
+            except Exception:
+                minutos_int = None
+
+        # Validaciones mínimas
+        if fecha is not None and not isinstance(fecha, str):
+            fecha = None
+        if inicio is not None and not isinstance(inicio, str):
+            inicio = None
+        if fin is not None and not isinstance(fin, str):
+            fin = None
+        if tipo is not None and not isinstance(tipo, str):
+            tipo = None
+
+        # Ejecutar actualización en DB
+        try:
+            result = db.actualizar_profesor_sesion(  # type: ignore
+                sesion_id,
+                fecha=fecha,
+                hora_inicio=inicio,
+                hora_fin=fin,
+                tipo_actividad=tipo,
+                minutos_totales=minutos_int,
+            )
+        except Exception as e:
+            logging.exception("Error en actualizar_profesor_sesion")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        if not result or not result.get("success"):
+            msg = (result or {}).get("error") or "No se pudo actualizar la sesión"
+            status = 400
+            if msg == "Sesión no encontrada":
+                status = 404
+            elif msg == "ID de sesión inválido":
+                status = 400
+            elif msg == "Sin cambios para aplicar":
+                status = 400
+            return JSONResponse(status_code=status, content={"detail": msg})
+
+        # Serializar campos de fecha/hora para una respuesta JSON segura
+        updated_raw = result.get("updated")
+        def _fmt_date(d):
+            try:
+                return str(d)[:10] if d is not None else None
+            except Exception:
+                return str(d) if d is not None else None
+        def _fmt_time(t):
+            try:
+                sstr = str(t) if t is not None else None
+                if sstr is None:
+                    return None
+                return sstr[:5] if len(sstr) >= 5 else sstr
+            except Exception:
+                return None
+        # Convertir RealDictRow u otros mapeos a dict estándar
+        raw_dict = None
+        try:
+            if updated_raw is not None:
+                raw_dict = dict(updated_raw)
+        except Exception:
+            raw_dict = updated_raw if isinstance(updated_raw, dict) else None
+        updated_safe = None
+        if isinstance(raw_dict, dict):
+            updated_safe = {
+                "id": int(raw_dict.get("id")) if raw_dict.get("id") is not None else None,
+                "profesor_id": int(raw_dict.get("profesor_id")) if raw_dict.get("profesor_id") is not None else None,
+                "fecha": _fmt_date(raw_dict.get("fecha")),
+                "hora_inicio": _fmt_time(raw_dict.get("hora_inicio")),
+                "hora_fin": _fmt_time(raw_dict.get("hora_fin")),
+                "minutos_totales": int(raw_dict.get("minutos_totales") or 0),
+                "horas_totales": float(raw_dict.get("horas_totales") or 0.0),
+                "tipo_actividad": raw_dict.get("tipo_actividad") or None,
+            }
+
+        return JSONResponse(status_code=200, content={"success": True, "updated": updated_safe})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error en /api/profesor_sesion/{sesion_id} PUT")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/profesor_sesion/{sesion_id}")
+async def api_profesor_sesion_delete(sesion_id: int, _=Depends(require_gestion_access)):
+    """
+    Elimina una sesión de trabajo del profesor por ID.
+    """
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_delete")
+    if guard:
+        return guard
+    try:
+        res = db.eliminar_profesor_sesion(sesion_id)  # type: ignore
+        if not res or not res.get("success"):
+            msg = (res or {}).get("error") or "No se pudo eliminar la sesión"
+            status = 400
+            if msg == "Sesión no encontrada":
+                status = 404
+            elif msg == "ID de sesión inválido":
+                status = 400
+            return JSONResponse(status_code=status, content={"detail": msg})
+        return JSONResponse(status_code=200, content={"success": True, "deleted_id": res.get("deleted_id")})
+    except Exception as e:
+        logging.exception("Error en /api/profesor_sesion/{sesion_id} DELETE")
+        raise HTTPException(status_code=500, detail=str(e))
+        return {"success": False, "error": str(e)}
+
+# --- CRUD Horarios de profesores ---
+@app.get("/api/profesor_horarios")
+async def api_profesor_horarios(request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/profesor_horarios")
+    if guard:
+        return guard
+    try:
+        pid = request.query_params.get("profesor_id")
+        if not pid:
+            return []
+        try:
+            profesor_id = int(pid)
+        except Exception:
+            return []
+        try:
+            items = db.obtener_horarios_disponibilidad_profesor(profesor_id)  # type: ignore
+        except Exception:
+            items = []
+        def _fmt_time(t):
+            try:
+                if t is None:
+                    return ""
+                hh = getattr(t, "hour", None)
+                mm = getattr(t, "minute", None)
+                if hh is not None and mm is not None:
+                    return f"{int(hh):02d}:{int(mm):02d}"
+                s = str(t)
+                for sep in ("T", " "):
+                    if sep in s:
+                        tail = s.split(sep, 1)[1]
+                        if len(tail) >= 5 and tail[0:2].isdigit() and tail[2] == ":" and tail[3:5].isdigit():
+                            return tail[:5]
+                if len(s) >= 5 and s[0:2].isdigit() and s[2] == ":" and s[3:5].isdigit():
+                    return s[:5]
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(s.replace('Z', '+00:00'))
+                    return f"{dt.hour:02d}:{dt.minute:02d}"
+                except Exception:
+                    pass
+                return ""
+            except Exception:
+                return ""
+        out = []
+        for h in (items or []):
+            out.append({
+                "id": h.get("id"),
+                "dia": h.get("dia_semana"),
+                "inicio": _fmt_time(h.get("hora_inicio")),
+                "fin": _fmt_time(h.get("hora_fin")),
+                "disponible": bool(h.get("disponible", True)),
+            })
+        return out
+    except Exception as e:
+        logging.exception("Error en /api/profesor_horarios [GET]")
+        return []
+
+@app.post("/api/profesor_horarios")
+async def api_profesor_horarios_create(request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "no_db"}, status_code=500)
+    guard = _circuit_guard_json(db, "/api/profesor_horarios[POST]")
+    if guard:
+        return guard
+    try:
+        data = await request.json()
+        profesor_id = data.get("profesor_id")
+        dia = data.get("dia")
+        inicio = data.get("inicio")
+        fin = data.get("fin")
+        disponible = data.get("disponible")
+        if profesor_id is None or dia is None or inicio is None or fin is None:
+            return JSONResponse({"error": "missing_fields"}, status_code=400)
+        try:
+            profesor_id = int(profesor_id)
+        except Exception:
+            return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
+        disponible_val = bool(disponible) if disponible is not None else True
+        try:
+            created = db.crear_horario_profesor(profesor_id, str(dia), str(inicio), str(fin), disponible_val)  # type: ignore
+        except Exception as e:
+            logging.exception("Error crear horario profesor")
+            return JSONResponse({"error": str(e)}, status_code=500)
+        return {"ok": True, "horario": created}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/profesor_horarios/{horario_id}")
+async def api_profesor_horarios_update(horario_id: int, request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "no_db"}, status_code=500)
+    guard = _circuit_guard_json(db, "/api/profesor_horarios[PUT]")
+    if guard:
+        return guard
+    try:
+        data = await request.json()
+        dia = data.get("dia")
+        inicio = data.get("inicio")
+        fin = data.get("fin")
+        disponible = data.get("disponible")
+        if dia is None or inicio is None or fin is None:
+            return JSONResponse({"error": "missing_fields"}, status_code=400)
+        disponible_val = bool(disponible) if disponible is not None else True
+        try:
+            updated = db.actualizar_horario_profesor(horario_id, str(dia), str(inicio), str(fin), disponible_val)  # type: ignore
+        except Exception as e:
+            logging.exception("Error actualizar horario profesor")
+            return JSONResponse({"error": str(e)}, status_code=500)
+        return {"ok": bool(updated), "horario": updated}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/profesor_horarios/{horario_id}")
+async def api_profesor_horarios_delete(horario_id: int, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "no_db"}, status_code=500)
+    guard = _circuit_guard_json(db, "/api/profesor_horarios[DELETE]")
+    if guard:
+        return guard
+    try:
+        try:
+            deleted = db.eliminar_horario_profesor(horario_id)  # type: ignore
+        except Exception as e:
+            logging.exception("Error eliminar horario profesor")
+            return JSONResponse({"error": str(e)}, status_code=500)
+        return {"ok": bool(deleted)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Sesiones de trabajo de profesores ---
+@app.post("/api/profesor_sesion_inicio")
+async def api_profesor_sesion_inicio(request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "no_db"}, status_code=500)
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_inicio")
+    if guard:
+        return guard
+    try:
+        data = await request.json()
+        profesor_id = data.get("profesor_id")
+        tipo = data.get("tipo") or data.get("tipo_actividad") or "Trabajo"
+        if profesor_id is None:
+            return JSONResponse({"error": "missing_fields"}, status_code=400)
+        try:
+            profesor_id = int(profesor_id)
+        except Exception:
+            return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
+        try:
+            res = db.iniciar_sesion_trabajo_profesor(profesor_id, str(tipo))  # type: ignore
+        except Exception as e:
+            logging.exception("Error iniciar sesión trabajo profesor")
+            return JSONResponse({"error": str(e)}, status_code=500)
+        # Serialización segura de la sesión y consistencia de campos
+        def _fmt_date(d):
+            try:
+                return str(d)[:10] if d is not None else None
+            except Exception:
+                return None
+        def _fmt_time(t):
+            try:
+                if t is None:
+                    return None
+                hh = getattr(t, "hour", None)
+                mm = getattr(t, "minute", None)
+                if hh is not None and mm is not None:
+                    return f"{int(hh):02d}:{int(mm):02d}"
+                s = str(t)
+                for sep in ("T", " "):
+                    if sep in s:
+                        tail = s.split(sep, 1)[1]
+                        if len(tail) >= 5 and tail[0:2].isdigit() and tail[2] == ":" and tail[3:5].isdigit():
+                            return tail[:5]
+                if len(s) >= 5 and s[0:2].isdigit() and s[2] == ":" and s[3:5].isdigit():
+                    return s[:5]
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(s.replace('Z', '+00:00'))
+                    return f"{dt.hour:02d}:{dt.minute:02d}"
+                except Exception:
+                    pass
+                return None
+            except Exception:
+                return None
+        datos = None
+        try:
+            datos = res.get("datos") if isinstance(res, dict) else None
+        except Exception:
+            datos = None
+        raw = None
+        if datos is not None:
+            try:
+                raw = dict(datos)
+            except Exception:
+                raw = datos if isinstance(datos, dict) else None
+        sesion_safe = None
+        if isinstance(raw, dict):
+            minutos = int(raw.get("minutos_totales") or 0)
+            horas = round(minutos / 60.0, 2)
+            sesion_safe = {
+                "id": int(raw.get("id") or 0),
+                "profesor_id": int(raw.get("profesor_id") or 0),
+                "fecha": _fmt_date(raw.get("fecha")),
+                "hora_inicio": _fmt_time(raw.get("hora_inicio")),
+                "hora_fin": _fmt_time(raw.get("hora_fin")),
+                "minutos_totales": minutos,
+                "horas_totales": horas,
+                "tipo_actividad": raw.get("tipo_actividad") or str(tipo),
+            }
+        success_val = bool((res or {}).get("success")) if isinstance(res, dict) else True
+        mensaje = (res or {}).get("mensaje") if isinstance(res, dict) else None
+        return JSONResponse(status_code=200, content={"success": success_val, "mensaje": mensaje, "sesion": sesion_safe})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/profesor_sesion_fin")
+async def api_profesor_sesion_fin(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "no_db"}, status_code=500)
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_fin")
+    if guard:
+        return guard
+    try:
+        data = {}
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        profesor_id = data.get("profesor_id") or request.session.get("gestion_profesor_id")
+        if profesor_id is None:
+            return JSONResponse({"error": "missing_fields"}, status_code=400)
+        try:
+            profesor_id = int(profesor_id)
+        except Exception:
+            return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
+        try:
+            res = db.finalizar_sesion_trabajo_profesor(profesor_id)  # type: ignore
+        except Exception as e:
+            logging.exception("Error finalizar sesión trabajo profesor")
+            return JSONResponse({"error": str(e)}, status_code=500)
+        # Serialización segura de la sesión cerrada
+        def _fmt_date(d):
+            try:
+                return str(d)[:10] if d is not None else None
+            except Exception:
+                return None
+        def _fmt_time(t):
+            try:
+                if t is None:
+                    return None
+                hh = getattr(t, "hour", None)
+                mm = getattr(t, "minute", None)
+                if hh is not None and mm is not None:
+                    return f"{int(hh):02d}:{int(mm):02d}"
+                s = str(t)
+                for sep in ("T", " "):
+                    if sep in s:
+                        tail = s.split(sep, 1)[1]
+                        if len(tail) >= 5 and tail[0:2].isdigit() and tail[2] == ":" and tail[3:5].isdigit():
+                            return tail[:5]
+                if len(s) >= 5 and s[0:2].isdigit() and s[2] == ":" and s[3:5].isdigit():
+                    return s[:5]
+                try:
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(s.replace('Z', '+00:00'))
+                    return f"{dt.hour:02d}:{dt.minute:02d}"
+                except Exception:
+                    pass
+                return None
+            except Exception:
+                return None
+        datos = None
+        try:
+            datos = res.get("datos") if isinstance(res, dict) else None
+        except Exception:
+            datos = None
+        raw = None
+        if datos is not None:
+            try:
+                raw = dict(datos)
+            except Exception:
+                raw = datos if isinstance(datos, dict) else None
+        sesion_safe = None
+        minutos = 0
+        horas = 0.0
+        if isinstance(raw, dict):
+            minutos = int(raw.get("minutos_totales") or 0)
+            horas = round(minutos / 60.0, 2)
+            sesion_safe = {
+                "id": int(raw.get("id") or 0),
+                "profesor_id": int(raw.get("profesor_id") or 0),
+                "fecha": _fmt_date(raw.get("fecha")),
+                "hora_inicio": _fmt_time(raw.get("hora_inicio")),
+                "hora_fin": _fmt_time(raw.get("hora_fin")),
+                "minutos_totales": minutos,
+                "horas_totales": horas,
+                "tipo_actividad": raw.get("tipo_actividad") or "Trabajo",
+            }
+        success_val = bool((res or {}).get("success")) if isinstance(res, dict) else True
+        mensaje = (res or {}).get("mensaje") if isinstance(res, dict) else None
+        return JSONResponse(status_code=200, content={"success": success_val, "mensaje": mensaje, "sesion": sesion_safe, "minutos": minutos, "horas": horas})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/profesor_sesion_activa")
+async def api_profesor_sesion_activa(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return {"activa": False}
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_activa")
+    if guard:
+        return guard
+    try:
+        pid = request.query_params.get("profesor_id")
+        if not pid:
+            return {"activa": False}
+        try:
+            profesor_id = int(pid)
+        except Exception:
+            return JSONResponse({"activa": False}, status_code=200)
+        try:
+            ses = db.obtener_sesion_activa_profesor(profesor_id)  # type: ignore
+        except Exception:
+            ses = None
+        activa = False
+        tipo = None
+        sesion_raw = None
+        if isinstance(ses, dict):
+            try:
+                activa = bool(ses.get("tiene_sesion_activa"))
+            except Exception:
+                activa = False
+            sesion_raw = ses.get("sesion_activa") or None
+        def _fmt_date(d):
+            try:
+                return str(d)[:10] if d is not None else None
+            except Exception:
+                return None
+        def _fmt_time(t):
+            try:
+                if t is None:
+                    return None
+                hh = getattr(t, "hour", None)
+                mm = getattr(t, "minute", None)
+                if hh is not None and mm is not None:
+                    return f"{int(hh):02d}:{int(mm):02d}"
+                s = str(t)
+                for sep in ("T", " "):
+                    if sep in s:
+                        tail = s.split(sep, 1)[1]
+                        if len(tail) >= 5 and tail[0:2].isdigit() and tail[2] == ":" and tail[3:5].isdigit():
+                            return tail[:5]
+                if len(s) >= 5 and s[0:2].isdigit() and s[2] == ":" and s[3:5].isdigit():
+                    return s[:5]
+                return None
+            except Exception:
+                return None
+        sesion_safe = None
+        if isinstance(sesion_raw, dict):
+            tipo = sesion_raw.get("tipo_actividad")
+            minutos = int(sesion_raw.get("minutos_totales") or 0)
+            horas = round(minutos / 60.0, 2)
+            sesion_safe = {
+                "id": int(sesion_raw.get("id") or 0),
+                "profesor_id": int(sesion_raw.get("profesor_id") or 0),
+                "fecha": _fmt_date(sesion_raw.get("fecha")),
+                "hora_inicio": _fmt_time(sesion_raw.get("hora_inicio")),
+                "hora_fin": _fmt_time(sesion_raw.get("hora_fin")),
+                "minutos_totales": minutos,
+                "horas_totales": horas,
+                "tipo_actividad": tipo,
+            }
+        return JSONResponse({"activa": activa, "tipo_actividad": tipo, "sesion": sesion_safe}, status_code=200)
+    except Exception as e:
+        logging.exception("Error en /api/profesor_sesion_activa")
+        return JSONResponse({"activa": False}, status_code=200)
+
+@app.get("/api/profesor_sesion_duracion")
+async def api_profesor_sesion_duracion(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return {"minutos": 0}
+    guard = _circuit_guard_json(db, "/api/profesor_sesion_duracion")
+    if guard:
+        return guard
+    try:
+        pid = request.query_params.get("profesor_id")
+        if not pid:
+            return {"minutos": 0}
+        try:
+            profesor_id = int(pid)
+        except Exception:
+            return {"minutos": 0}
+        try:
+            dur = db.obtener_duracion_sesion_actual_profesor(profesor_id)  # type: ignore
+        except Exception:
+            dur = None
+        minutos = 0
+        if isinstance(dur, dict):
+            try:
+                minutos = int(dur.get("minutos_transcurridos") or 0)
+            except Exception:
+                minutos = 0
+        elif isinstance(dur, (int, float)):
+            minutos = int(dur)
+        return JSONResponse({"minutos": minutos}, status_code=200)
+    except Exception as e:
+        logging.exception("Error en /api/profesor_sesion_duracion")
+        return JSONResponse({"minutos": 0}, status_code=200)
 
 @app.get("/api/usuario_pagos")
 async def api_usuario_pagos(request: Request, _=Depends(require_owner)):
@@ -4955,12 +6220,13 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
     })
 @app.get("/api/profesor_resumen")
 async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
-    """Resumen de horas trabajadas, proyectadas y extras para un profesor.
+    """Resumen de horas trabajadas, proyectadas y extras (fuera de horario) para un profesor.
 
     - Trabajadas: suma de `minutos_totales` de sesiones cerradas en el rango.
     - Proyectadas: suma de minutos desde `horarios_profesores` (disponibilidades activas)
       por cada día del rango, contando ocurrencias por día de semana. No depende de clases.
-    - Extras: trabajadas - proyectadas.
+    - Extras: horas fuera del horario establecido (cálculo en database.py).
+    - Balance: trabajadas - proyectadas (se devuelve como minutos_balance/horas_balance).
     """
     db = _get_db()
     if db is None:
@@ -5053,14 +6319,30 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
         except Exception:
             min_proyectados = 0
 
+        # 3) Horas extras fuera de horario: usar cálculo existente en database.py
+        horas_extras_fuera = 0.0
+        try:
+            if hasattr(db, 'obtener_horas_extras_profesor'):
+                res_ex = db.obtener_horas_extras_profesor(  # type: ignore
+                    profesor_id,
+                    start_date,
+                    end_date
+                )
+                if isinstance(res_ex, dict) and res_ex.get('success'):
+                    horas_extras_fuera = float(res_ex.get('total_horas_extras', 0) or 0.0)
+        except Exception:
+            horas_extras_fuera = 0.0
+
         return {
             "total_sesiones": total_sesiones,
             "minutos_trabajados": min_trabajados,
             "horas_trabajadas": round(min_trabajados / 60.0, 2),
             "minutos_proyectados": int(min_proyectados),
             "horas_proyectadas": round(min_proyectados / 60.0, 2),
-            "minutos_extras": int(min_trabajados - min_proyectados),
-            "horas_extras": round((min_trabajados - min_proyectados) / 60.0, 2),
+            "minutos_extras": int(round(horas_extras_fuera * 60)),  # extras fuera de horario (min)
+            "horas_extras": round(horas_extras_fuera, 2),           # extras fuera de horario (h)
+            "minutos_balance": int(min_trabajados - min_proyectados),
+            "horas_balance": round((min_trabajados - min_proyectados) / 60.0, 2),
         }
     except Exception as e:
         import traceback
@@ -5074,3 +6356,236 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
             "minutos_extras": 0,
             "horas_extras": 0.0,
         }
+
+@app.get("/api/profesores/{profesor_id}")
+async def api_profesor_get(profesor_id: int, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "DB no disponible"}, status_code=500)
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            # Descubrir columnas disponibles en la tabla 'profesores' de forma segura
+            try:
+                cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='profesores'")
+                cols = {row.get("column_name") for row in (cur.fetchall() or [])}
+            except Exception:
+                cols = set()
+            selects = [
+                "p.id AS id",
+                "p.usuario_id AS usuario_id",
+                "COALESCE(u.nombre,'') AS usuario_nombre",
+                "COALESCE(u.telefono,'') AS usuario_telefono",
+                "COALESCE(u.notas,'') AS usuario_notas",
+            ]
+            if "sueldo" in cols:
+                selects.append("p.sueldo AS sueldo")
+            elif "salario" in cols:
+                selects.append("p.salario AS salario")
+            if "notas" in cols:
+                selects.append("p.notas AS notas")
+            if "tipo" in cols:
+                selects.append("p.tipo AS tipo")
+            if "especialidades" in cols:
+                selects.append("p.especialidades AS especialidades")
+            if "certificaciones" in cols:
+                selects.append("p.certificaciones AS certificaciones")
+            if "experiencia_años" in cols:
+                selects.append("p.experiencia_años AS experiencia_años")
+            if "tarifa_por_hora" in cols:
+                selects.append("p.tarifa_por_hora AS tarifa_por_hora")
+            if "fecha_contratacion" in cols:
+                selects.append("p.fecha_contratacion AS fecha_contratacion")
+            if "biografia" in cols:
+                selects.append("p.biografia AS biografia")
+            if "telefono_emergencia" in cols:
+                selects.append("p.telefono_emergencia AS telefono_emergencia")
+            sql = f"SELECT {', '.join(selects)} FROM profesores p LEFT JOIN usuarios u ON u.id = p.usuario_id WHERE p.id = %s"
+            cur.execute(sql, (profesor_id,))
+            row = cur.fetchone()
+            if not row:
+                return JSONResponse({"error": "not_found"}, status_code=404)
+            sueldo_val = None
+            try:
+                if "sueldo" in row and row["sueldo"] is not None:
+                    sueldo_val = float(row["sueldo"])  # type: ignore
+                elif "salario" in row and row["salario"] is not None:
+                    sueldo_val = float(row["salario"])  # type: ignore
+            except Exception:
+                sueldo_val = row.get("sueldo") or row.get("salario") or None
+            tarifa_val = None
+            try:
+                if "tarifa_por_hora" in row and row["tarifa_por_hora"] is not None:
+                    tarifa_val = float(row["tarifa_por_hora"])  # type: ignore
+            except Exception:
+                tarifa_val = row.get("tarifa_por_hora") or None
+            experiencia_val = None
+            try:
+                if "experiencia_años" in row and row["experiencia_años"] is not None:
+                    experiencia_val = int(row["experiencia_años"])  # type: ignore
+            except Exception:
+                experiencia_val = row.get("experiencia_años") or None
+            return {
+                "profesor_id": int(row.get("id") or profesor_id),
+                "usuario_id": int(row.get("usuario_id") or 0),
+                "usuario_nombre": row.get("usuario_nombre") or "",
+                "usuario_telefono": row.get("usuario_telefono") or "",
+                "usuario_notas": row.get("usuario_notas"),
+                "sueldo": sueldo_val,
+                "notas": row.get("notas"),
+                "tipo": row.get("tipo"),
+                "especialidades": row.get("especialidades"),
+                "certificaciones": row.get("certificaciones"),
+                "experiencia_años": experiencia_val,
+                "tarifa_por_hora": tarifa_val,
+                "fecha_contratacion": row.get("fecha_contratacion"),
+                "biografia": row.get("biografia"),
+                "telefono_emergencia": row.get("telefono_emergencia"),
+            }
+    except Exception as e:
+        logging.exception("Error en /api/profesores/{id}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/profesores/{profesor_id}")
+async def api_profesor_update(profesor_id: int, request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"error": "DB no disponible"}, status_code=500)
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        usuario_id = payload.get("usuario_id")
+        sueldo = payload.get("sueldo")
+        salario = payload.get("salario")
+        notas = payload.get("notas")
+        tipo = payload.get("tipo") or payload.get("especialidad")
+        especialidades = payload.get("especialidades")
+        certificaciones = payload.get("certificaciones")
+        experiencia = payload.get("experiencia_años", payload.get("experiencia"))
+        tarifa = payload.get("tarifa_por_hora", payload.get("tarifa"))
+        fecha_contratacion = payload.get("fecha_contratacion")
+        biografia = payload.get("biografia")
+        telefono_emergencia = payload.get("telefono_emergencia")
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            # Descubrir columnas disponibles en 'profesores'
+            try:
+                cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur2.execute("SELECT column_name FROM information_schema.columns WHERE table_name='profesores'")
+                cols = {r.get("column_name") for r in (cur2.fetchall() or [])}
+            except Exception:
+                cols = set()
+            sets = []
+            params = []
+            pass
+            # Determinar columna de sueldo/salario según exista
+            if (sueldo is not None or salario is not None) and ("sueldo" in cols or "salario" in cols):
+                val = sueldo if sueldo is not None else salario
+                try:
+                    val_num = float(val) if val is not None else None
+                except Exception:
+                    val_num = None
+                if "sueldo" in cols:
+                    sets.append("sueldo = %s")
+                    params.append(val_num)
+                elif "salario" in cols:
+                    sets.append("salario = %s")
+                    params.append(val_num)
+            if "notas" in cols and notas is not None:
+                sets.append("notas = %s")
+                params.append(str(notas))
+            # Nuevos campos
+            if "tipo" in cols and tipo is not None:
+                sets.append("tipo = %s")
+                params.append(str(tipo))
+            if "especialidades" in cols and especialidades is not None:
+                sets.append("especialidades = %s")
+                params.append(str(especialidades))
+            if "certificaciones" in cols and certificaciones is not None:
+                sets.append("certificaciones = %s")
+                params.append(str(certificaciones))
+            if "experiencia_años" in cols and experiencia is not None:
+                try:
+                    exp_num = int(experiencia)
+                except Exception:
+                    exp_num = 0
+                sets.append("experiencia_años = %s")
+                params.append(exp_num)
+            if "tarifa_por_hora" in cols and tarifa is not None:
+                try:
+                    tarifa_num = float(tarifa)
+                except Exception:
+                    tarifa_num = 0.0
+                sets.append("tarifa_por_hora = %s")
+                params.append(tarifa_num)
+            if "fecha_contratacion" in cols and fecha_contratacion is not None:
+                sets.append("fecha_contratacion = %s")
+                params.append(str(fecha_contratacion))
+            if "biografia" in cols and biografia is not None:
+                sets.append("biografia = %s")
+                params.append(str(biografia))
+            if "telefono_emergencia" in cols and telefono_emergencia is not None:
+                sets.append("telefono_emergencia = %s")
+                params.append(str(telefono_emergencia))
+            if not sets:
+                # Si no hay columnas de 'profesores' para actualizar, intentar guardar 'notas' en 'usuarios'
+                updated = False
+                try:
+                    if notas is not None and "notas" not in cols:
+                        uid = None
+                        try:
+                            uid = int(usuario_id) if usuario_id is not None else None
+                        except Exception:
+                            uid = None
+                        if uid is None:
+                            try:
+                                cur2 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur2.execute("SELECT usuario_id FROM profesores WHERE id = %s", (int(profesor_id),))
+                                row2 = cur2.fetchone() or {}
+                                uid = int(row2.get("usuario_id")) if row2.get("usuario_id") is not None else None
+                            except Exception:
+                                uid = None
+                        if uid:
+                            cur.execute("UPDATE usuarios SET notas = %s WHERE id = %s", (str(notas), int(uid)))
+                            try:
+                                conn.commit()
+                            except Exception:
+                                pass
+                            updated = True
+                except Exception:
+                    updated = False
+                return {"success": updated, "updated": 1 if updated else 0}
+            sql = f"UPDATE profesores SET {', '.join(sets)} WHERE id = %s"
+            params.append(int(profesor_id))
+            cur.execute(sql, tuple(params))
+            # Fallback: si 'notas' no pertenece a 'profesores', guardar en 'usuarios'
+            try:
+                if notas is not None and "notas" not in cols:
+                    uid2 = None
+                    try:
+                        uid2 = int(usuario_id) if usuario_id is not None else None
+                    except Exception:
+                        uid2 = None
+                    if uid2 is None:
+                        try:
+                            cur3 = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur3.execute("SELECT usuario_id FROM profesores WHERE id = %s", (int(profesor_id),))
+                            row3 = cur3.fetchone() or {}
+                            uid2 = int(row3.get("usuario_id")) if row3.get("usuario_id") is not None else None
+                        except Exception:
+                            uid2 = None
+                    if uid2:
+                        cur.execute("UPDATE usuarios SET notas = %s WHERE id = %s", (str(notas), int(uid2)))
+                conn.commit()
+            except Exception:
+                pass
+        # Devolver registro actualizado
+        try:
+            return await api_profesor_get(profesor_id)  # type: ignore
+        except Exception:
+            return {"success": True}
+    except Exception as e:
+        logging.exception("Error en PUT /api/profesores/{id}")
+        return JSONResponse({"error": str(e)}, status_code=500)

@@ -1206,6 +1206,231 @@ class DatabaseManager:
         )
         return func_name.startswith(prefixes)
 
+    def actualizar_profesor_sesion(
+        self,
+        sesion_id: int,
+        *,
+        fecha: Optional[str] = None,
+        hora_inicio: Optional[str] = None,
+        hora_fin: Optional[str] = None,
+        tipo_actividad: Optional[str] = None,
+        minutos_totales: Optional[int] = None,
+        timeout_ms: int = 1500,
+    ) -> Dict[str, Any]:
+        """
+        Actualiza una sesión de trabajo del profesor en 'profesor_horas_trabajadas'.
+
+        Campos editables:
+        - fecha (YYYY-MM-DD)
+        - hora_inicio (HH:MM o timestamp)
+        - hora_fin (HH:MM o timestamp)
+        - tipo_actividad
+
+        Normaliza hora_inicio y hora_fin cuando vienen como "HH:MM" combinándolos con la fecha.
+        Maneja sesiones que cruzan medianoche (fin < inicio).
+
+        Recalcula automáticamente minutos/horas vía triggers de la tabla.
+        Retorna { success: bool, updated: dict | None, error?: str }
+        """
+        try:
+            if not sesion_id or sesion_id <= 0:
+                return {"success": False, "error": "ID de sesión inválido"}
+
+            from datetime import datetime, date, time, timedelta
+            import re
+
+            with self.get_connection_context() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                # Timeouts razonables
+                try:
+                    cursor.execute("SET LOCAL statement_timeout = %s", (f"{int(timeout_ms)}ms",))
+                    cursor.execute("SET LOCAL lock_timeout = '1000ms'")
+                    cursor.execute("SET LOCAL idle_in_transaction_session_timeout = '2s'")
+                except Exception:
+                    pass
+
+                # Leer valores actuales para tener fecha base
+                cursor.execute(
+                    """
+                    SELECT fecha::date AS fecha, hora_inicio, hora_fin
+                    FROM profesor_horas_trabajadas
+                    WHERE id = %s
+                    """,
+                    (sesion_id,)
+                )
+                current = cursor.fetchone()
+                if not current:
+                    return {"success": False, "error": "Sesión no encontrada"}
+
+                # Fecha base: la nueva (si viene) o la actual
+                def _parse_date_safe(ds: Optional[str], fallback: date) -> date:
+                    if not ds:
+                        return fallback
+                    try:
+                        return datetime.strptime(ds, "%Y-%m-%d").date()
+                    except Exception:
+                        try:
+                            return datetime.fromisoformat(ds).date()
+                        except Exception:
+                            return fallback
+
+                base_date: date = _parse_date_safe(fecha, current.get("fecha"))
+
+                def _parse_time_to_ts(val: Optional[str], d: date) -> Optional[datetime]:
+                    if not val:
+                        return None
+                    s = str(val).strip()
+                    m = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$", s)
+                    if m:
+                        hh = int(m.group(1)); mm = int(m.group(2)); ss = int(m.group(3)) if m.group(3) else 0
+                        return datetime.combine(d, time(hh, mm, ss))
+                    # Intentar parseos completos
+                    try:
+                        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+                    except Exception:
+                        pass
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                        try:
+                            return datetime.strptime(s, fmt)
+                        except Exception:
+                            continue
+                    return None
+
+                ts_inicio_new = _parse_time_to_ts(hora_inicio, base_date)
+                ts_fin_new = _parse_time_to_ts(hora_fin, base_date)
+
+                sets = []
+                params: list = []
+
+                if fecha is not None:
+                    sets.append("fecha = %s")
+                    params.append(base_date)
+
+                if ts_inicio_new is not None:
+                    sets.append("hora_inicio = %s")
+                    params.append(ts_inicio_new)
+
+                if ts_fin_new is not None:
+                    # Ajuste para sesiones que cruzan medianoche
+                    try:
+                        ref_inicio = ts_inicio_new if ts_inicio_new is not None else current.get("hora_inicio")
+                        if isinstance(ref_inicio, datetime) and ts_fin_new < ref_inicio:
+                            ts_fin_new = ts_fin_new + timedelta(days=1)
+                    except Exception:
+                        pass
+                    sets.append("hora_fin = %s")
+                    params.append(ts_fin_new)
+
+                if tipo_actividad is not None:
+                    sets.append("tipo_actividad = %s")
+                    params.append(tipo_actividad)
+
+                # Calcular/override minutos_totales si corresponde
+                minutos_set_val = None
+                if minutos_totales is not None:
+                    try:
+                        minutos_set_val = int(minutos_totales)
+                        if minutos_set_val < 0:
+                            minutos_set_val = 0
+                    except Exception:
+                        minutos_set_val = None
+                elif (hora_inicio is not None) or (hora_fin is not None):
+                    # Recalcular si vienen cambios de inicio/fin
+                    def _to_dt(x, d: date) -> Optional[datetime]:
+                        if x is None:
+                            return None
+                        if isinstance(x, datetime):
+                            return x
+                        if isinstance(x, time):
+                            try:
+                                return datetime.combine(d, x)
+                            except Exception:
+                                return None
+                        try:
+                            return datetime.fromisoformat(str(x).replace('Z', '+00:00'))
+                        except Exception:
+                            return None
+                    start_dt = _to_dt(ts_inicio_new if ts_inicio_new is not None else current.get("hora_inicio"), base_date)
+                    end_dt = _to_dt(ts_fin_new if ts_fin_new is not None else current.get("hora_fin"), base_date)
+                    if start_dt and end_dt:
+                        if end_dt < start_dt:
+                            end_dt = end_dt + timedelta(days=1)
+                        try:
+                            minutos_set_val = max(0, int((end_dt - start_dt).total_seconds() // 60))
+                        except Exception:
+                            minutos_set_val = None
+
+                if minutos_set_val is not None:
+                    sets.append("minutos_totales = %s")
+                    params.append(minutos_set_val)
+                    sets.append("horas_totales = %s")
+                    try:
+                        params.append(round(minutos_set_val / 60.0, 2))
+                    except Exception:
+                        params.append(float(minutos_set_val) / 60.0)
+
+                if not sets:
+                    return {"success": False, "error": "Sin cambios para aplicar"}
+
+                q = f"UPDATE profesor_horas_trabajadas SET {', '.join(sets)} WHERE id = %s RETURNING id"
+                cursor.execute(q, tuple(params + [sesion_id]))
+                rid = cursor.fetchone()
+                if not rid:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    return {"success": False, "error": "Sesión no encontrada"}
+
+                cursor.execute(
+                    """
+                    SELECT id, profesor_id, fecha, hora_inicio, hora_fin,
+                           minutos_totales, horas_totales, tipo_actividad
+                    FROM profesor_horas_trabajadas
+                    WHERE id = %s
+                    """,
+                    (sesion_id,)
+                )
+                updated = cursor.fetchone()
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                return {"success": True, "updated": dict(updated) if updated else None}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def eliminar_profesor_sesion(self, sesion_id: int) -> Dict[str, Any]:
+        """
+        Elimina una sesión de trabajo de 'profesor_horas_trabajadas' por ID.
+        """
+        try:
+            if not sesion_id or sesion_id <= 0:
+                return {"success": False, "error": "ID de sesión inválido"}
+            with self.get_connection_context() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cursor.execute(
+                    "DELETE FROM profesor_horas_trabajadas WHERE id = %s RETURNING id",
+                    (sesion_id,)
+                )
+                row = cursor.fetchone()
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                if row:
+                    return {"success": True, "deleted_id": sesion_id}
+                else:
+                    return {"success": False, "error": "Sesión no encontrada"}
+        except Exception as e:
+            try:
+                with self.get_connection_context() as conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            return {"success": False, "error": str(e)}
+
     def obtener_minutos_proyectados_profesor_rango(self, profesor_id: int, fecha_inicio: str, fecha_fin: str) -> Dict[str, Any]:
         """
         Calcula los minutos proyectados para un profesor en un rango arbitrario [fecha_inicio, fecha_fin]
@@ -1257,20 +1482,47 @@ class DatabaseManager:
 
                     if not disponible:
                         continue
-                    try:
-                        hi = _dt.datetime.strptime(str(hora_inicio), "%H:%M").time()
-                        hf = _dt.datetime.strptime(str(hora_fin), "%H:%M").time()
-                    except Exception:
-                        # Ignorar filas corruptas
+                    def _parse_time(_val):
+                        s = str(_val)
+                        for fmt in ("%H:%M", "%H:%M:%S"):
+                            try:
+                                return _dt.datetime.strptime(s, fmt).time()
+                            except Exception:
+                                pass
+                        try:
+                            return _dt.time.fromisoformat(s)  # Python 3.7+ compatible
+                        except Exception:
+                            return None
+                    hi = _parse_time(hora_inicio)
+                    hf = _parse_time(hora_fin)
+                    if hi is None or hf is None:
                         continue
-                    dur = (hf.hour * 60 + hf.minute) - (hi.hour * 60 + hi.minute)
+                    # Calcular duración en minutos con manejo de casos fin < inicio
+                    start_secs = hi.hour * 3600 + hi.minute * 60 + hi.second
+                    end_secs = hf.hour * 3600 + hf.minute * 60 + hf.second
+                    diff_secs = end_secs - start_secs
+                    if diff_secs <= 0:
+                        # Intento de corregir entradas comunes en formato 12h (p.ej. '01:00' usado como 13:00)
+                        if end_secs < 12 * 3600:
+                            end_secs_alt = end_secs + 12 * 3600
+                            if end_secs_alt > start_secs:
+                                diff_secs = end_secs_alt - start_secs
+                            else:
+                                # Atraviesa medianoche: contar como mismo día (aprox.)
+                                diff_secs = (24 * 3600 - start_secs) + end_secs
+                        else:
+                            # Atraviesa medianoche
+                            diff_secs = (24 * 3600 - start_secs) + end_secs
+                    dur = diff_secs // 60
                     # dia_semana puede venir como texto (Lunes..Domingo) o entero (0..6)
                     if isinstance(dia_semana, str):
+                        import unicodedata as _ud
+                        s = ''.join(c for c in _ud.normalize('NFKD', str(dia_semana).strip()) if not _ud.combining(c)).lower()
                         mapa = {
-                            'Lunes': 0, 'Martes': 1, 'Miércoles': 2, 'Jueves': 3,
-                            'Viernes': 4, 'Sábado': 5, 'Domingo': 6
+                            'lunes': 0, 'martes': 1, 'miercoles': 2, 'jueves': 3,
+                            'viernes': 4, 'sabado': 5, 'domingo': 6
                         }
-                        dia_idx = mapa.get(dia_semana, -1)
+                        dia_idx = mapa.get(s, -1)
                     else:
                         try:
                             dia_idx = int(dia_semana)
@@ -1280,6 +1532,7 @@ class DatabaseManager:
                     if dur > 0 and 0 <= dia_idx <= 6:
                         minutos_por_dia[dia_idx] += dur
 
+                # Fallback eliminado: solo se usan disponibilidades activas de horarios_profesores
                 # Contar ocurrencias de cada día de la semana en el rango
                 ocurrencias_por_dia = {i: 0 for i in range(7)}
                 cur = start_date
@@ -5732,6 +5985,77 @@ class DatabaseManager:
                     enqueue_operations([op_user_update(payload)])
                 except Exception as e:
                     logging.debug(f"sync enqueue user.update (cambio ID) falló: {e}")
+
+    @database_retry()
+    def renumerar_usuario_ids(self, start_id: int = 1) -> dict:
+        """Renumera IDs de usuarios de forma segura y secuencial.
+        - Mantiene sin cambios los usuarios con rol "dueño".
+        - Usa `cambiar_usuario_id` para actualizar referencias en cascada.
+        - Comienza desde `start_id` (>=1) y rellena huecos, evitando IDs reservados.
+        """
+        cambios = []
+        skipped_owner_ids = set()
+        with self.get_connection_context() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute("SELECT id, rol FROM usuarios ORDER BY id ASC")
+                rows = cursor.fetchall() or []
+                owner_ids = {int(r['id']) for r in rows if str(r.get('rol') or '').strip().lower() == 'dueño'}
+                skipped_owner_ids = owner_ids.copy()
+                try:
+                    next_id = int(start_id)
+                except Exception:
+                    next_id = 1
+                if next_id <= 0:
+                    next_id = 1
+                for r in rows:
+                    old_id = int(r['id'])
+                    rol = str(r.get('rol') or '').strip().lower()
+                    # Saltar IDs reservados (dueños)
+                    while next_id in owner_ids:
+                        next_id += 1
+                    if rol == 'dueño':
+                        # Mantener el ID del dueño y avanzar target si coincide
+                        if next_id == old_id:
+                            next_id += 1
+                        continue
+                    # Si ya está en posición, avanzar
+                    if old_id == next_id:
+                        next_id += 1
+                        continue
+                    # Verificar disponibilidad del target (defensivo)
+                    cursor.execute("SELECT 1 FROM usuarios WHERE id = %s", (next_id,))
+                    exists = cursor.fetchone() is not None
+                    if exists:
+                        # Buscar siguiente libre evitando IDs de dueños
+                        probe = next_id
+                        while True:
+                            probe += 1
+                            if probe in owner_ids:
+                                continue
+                            cursor.execute("SELECT 1 FROM usuarios WHERE id = %s", (probe,))
+                            if cursor.fetchone() is None:
+                                next_id = probe
+                                break
+                    # Cambiar ID usando rutina segura (maneja referencias y auditoría)
+                    try:
+                        self.cambiar_usuario_id(old_id, next_id)
+                        cambios.append({"from": old_id, "to": next_id})
+                        next_id += 1
+                    except PermissionError as e:
+                        cambios.append({"from": old_id, "to": None, "error": str(e)})
+                    except Exception as e:
+                        cambios.append({"from": old_id, "to": None, "error": str(e)})
+        # Limpiar caches
+        try:
+            self.limpiar_cache_usuarios()
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "cambios": cambios,
+            "dueños_reservados": sorted(list(skipped_owner_ids)),
+            "nota": "Los IDs de dueños no se modificaron y pueden dejar huecos."
+        }
 
     # --- MÉTODOS PARA GRUPOS DE EJERCICIOS ---
     
@@ -12147,17 +12471,34 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
-            # Calcular horas totales y minutos totales
-            duracion = hora_fin - hora_inicio
-            horas_totales = duracion.total_seconds() / 3600
-            minutos_totales = duracion.total_seconds() / 60
+            # Calcular horas totales y minutos totales, tolerando cruce de medianoche
+            try:
+                from datetime import timedelta
+                inicio = hora_inicio
+                fin = hora_fin
+                duracion = fin - inicio
+                if duracion.total_seconds() < 0:
+                    # Si fin quedó antes que inicio (posible sesión que cruzó medianoche), ajustar fin +1 día
+                    fin = fin + timedelta(days=1)
+                    duracion = fin - inicio
+            except Exception:
+                duracion = hora_fin - hora_inicio
+                try:
+                    if duracion.total_seconds() < 0:
+                        from datetime import timedelta
+                        duracion = timedelta(seconds=0)
+                except Exception:
+                    pass
+
+            horas_totales = round(duracion.total_seconds() / 3600.0, 4)
+            minutos_totales = int(duracion.total_seconds() // 60)
             
             sql = """
             INSERT INTO profesor_horas_trabajadas 
             (profesor_id, fecha, hora_inicio, hora_fin, horas_totales, minutos_totales, tipo_actividad, clase_id, notas)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             """
-            cursor.execute(sql, (profesor_id, fecha, hora_inicio, hora_fin, horas_totales, minutos_totales,
+            cursor.execute(sql, (profesor_id, fecha, hora_inicio, fin, horas_totales, minutos_totales,
                                tipo_actividad, clase_id, notas))
             result = cursor.fetchone()
             registro_id = result['id'] if result and 'id' in result else None
@@ -12504,17 +12845,28 @@ class DatabaseManager:
                     logging.info(f"Sesión activa encontrada en BD | id={sesion_activa['id']}")
                     # Registrar auditoría de reuso/idempotencia
                     try:
-                        self.registrar_audit_log(
-                            user_id=profesor_id,
-                            action='sesion_reusada',
-                            table_name='profesor_horas_trabajadas',
-                            record_id=sesion_activa['id'],
-                            old_values=None,
-                            new_values=json.dumps({'tipo_actividad': sesion_activa.get('tipo_actividad')}),
-                            ip_address=None,
-                            user_agent='desktop-app',
-                            session_id=str(sesion_activa['id'])
-                        )
+                        uid = None
+                        try:
+                            with self.get_connection_context() as conn2:
+                                cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur2.execute("SELECT usuario_id FROM profesores WHERE id = %s", (profesor_id,))
+                                r2 = cur2.fetchone()
+                                if r2:
+                                    uid = r2['usuario_id'] if isinstance(r2, dict) else (r2[0] if len(r2) > 0 else None)
+                        except Exception:
+                            uid = None
+                        if uid is not None:
+                            self.registrar_audit_log(
+                                user_id=int(uid),
+                                action='sesion_reusada',
+                                table_name='profesor_horas_trabajadas',
+                                record_id=sesion_activa['id'],
+                                old_values=None,
+                                new_values=json.dumps({'tipo_actividad': sesion_activa.get('tipo_actividad')}),
+                                ip_address=None,
+                                user_agent='desktop-app',
+                                session_id=str(sesion_activa['id'])
+                            )
                     except Exception as _e:
                         logging.debug(f"No se pudo registrar audit de reuso: {_e}")
 
@@ -12542,17 +12894,28 @@ class DatabaseManager:
 
                 # Auditoría creación de sesión
                 try:
-                    self.registrar_audit_log(
-                        user_id=profesor_id,
-                        action='sesion_iniciada',
-                        table_name='profesor_horas_trabajadas',
-                        record_id=nueva_sesion['id'],
-                        old_values=None,
-                        new_values=json.dumps({'tipo_actividad': tipo_actividad}),
-                        ip_address=None,
-                        user_agent='desktop-app',
-                        session_id=str(nueva_sesion['id'])
-                    )
+                    uid = None
+                    try:
+                        with self.get_connection_context() as conn2:
+                            cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur2.execute("SELECT usuario_id FROM profesores WHERE id = %s", (profesor_id,))
+                            r2 = cur2.fetchone()
+                            if r2:
+                                uid = r2['usuario_id'] if isinstance(r2, dict) else (r2[0] if len(r2) > 0 else None)
+                    except Exception:
+                        uid = None
+                    if uid is not None:
+                        self.registrar_audit_log(
+                            user_id=int(uid),
+                            action='sesion_iniciada',
+                            table_name='profesor_horas_trabajadas',
+                            record_id=nueva_sesion['id'],
+                            old_values=None,
+                            new_values=json.dumps({'tipo_actividad': tipo_actividad}),
+                            ip_address=None,
+                            user_agent='desktop-app',
+                            session_id=str(nueva_sesion['id'])
+                        )
                 except Exception as _e:
                     logging.debug(f"No se pudo registrar audit de inicio: {_e}")
 
@@ -12607,102 +12970,54 @@ class DatabaseManager:
                 if duracion_minutos_db < 1:
                     duracion_minutos_db = 1  # mínimo 1 minuto
 
-                # Recalcular y posible asociación de clase
+                # Finalizar sesión sin asociarla a clases; asegurar tipo_actividad por defecto
                 with self.get_connection_context() as conn:
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                    
-                    # Recalcular duración desde hora_inicio real en BD y asociar clase si corresponde
-                    cursor.execute("""
-                        SELECT id, fecha, hora_inicio, clase_id, tipo_actividad 
-                        FROM profesor_horas_trabajadas 
-                        WHERE id = %s
-                    """, (sesion_db['id'],))
-                    fila_sesion = cursor.fetchone()
-
-                    hora_inicio_bd = fila_sesion['hora_inicio'] if fila_sesion and fila_sesion.get('hora_inicio') else inicio_db
-
-                    # Intentar asociar a la clase asignada con mayor solape en ese día
-                    clase_id_asignada = None
-                    try:
-                        cursor.execute("""
-                            SELECT ch.clase_id, ch.hora_inicio, ch.hora_fin, ch.dia_semana
-                            FROM clases_horarios ch
-                            JOIN profesor_clase_asignaciones pca ON ch.id = pca.clase_horario_id
-                            WHERE pca.profesor_id = %s AND pca.activa = TRUE AND ch.activo = TRUE
-                        """, (profesor_id,))
-                        posibles = cursor.fetchall()
-                        if posibles and fila_sesion and fila_sesion.get('fecha'):
-                            nombre_a_num = {
-                                'Domingo': 0, 'Lunes': 1, 'Martes': 2, 'Miércoles': 3,
-                                'Miercoles': 3, 'Jueves': 4, 'Viernes': 5, 'Sábado': 6, 'Sabado': 6
-                            }
-                            # datetime.weekday(): Lunes=0..Domingo=6 -> convertir a DOW Postgres (Domingo=0)
-                            dia_num_sesion = (fila_sesion['fecha'].weekday() + 1) if fila_sesion['fecha'].weekday() < 6 else 0
-                            from datetime import datetime as _dt
-                            mejor_solape = 0
-                            mejor_clase = None
-                            for ph in posibles:
-                                dia_val = ph['dia_semana']
-                                dia_num = dia_val if isinstance(dia_val, int) else nombre_a_num.get(dia_val, None)
-                                if dia_num is None or dia_num != dia_num_sesion:
-                                    continue
-                                inicio_inter = max(hora_inicio_bd, ph['hora_inicio'])
-                                fin_inter = min(fin, ph['hora_fin'])
-                                if inicio_inter < fin_inter:
-                                    solape = (_dt.combine(_dt.min, fin_inter) - _dt.combine(_dt.min, inicio_inter)).total_seconds()
-                                    if solape > mejor_solape:
-                                        mejor_solape = solape
-                                        mejor_clase = ph['clase_id']
-                            if mejor_clase:
-                                clase_id_asignada = mejor_clase
-                    except Exception as _e:
-                        logging.warning(f"No se pudo asociar clase a la sesión {sesion_db['id']}: {_e}")
-
-                    if clase_id_asignada is not None and (not fila_sesion.get('clase_id')):
-                        sql = """
-                        UPDATE profesor_horas_trabajadas 
-                        SET hora_fin = %s, 
-                            minutos_totales = %s,
-                            clase_id = %s,
-                            tipo_actividad = COALESCE(tipo_actividad, 'Trabajo')
-                        WHERE id = %s
-                        RETURNING *
-                        """
-                        cursor.execute(sql, (fin, round(duracion_minutos_db), clase_id_asignada, sesion_db['id']))
-                    else:
-                        sql = """
-                        UPDATE profesor_horas_trabajadas 
-                        SET hora_fin = %s, 
-                            minutos_totales = %s
-                        WHERE id = %s
-                        RETURNING *
-                        """
-                        cursor.execute(sql, (fin, round(duracion_minutos_db), sesion_db['id']))
+                    sql = """
+                    UPDATE profesor_horas_trabajadas 
+                    SET hora_fin = %s, 
+                        minutos_totales = %s,
+                        tipo_actividad = COALESCE(tipo_actividad, 'Trabajo')
+                    WHERE id = %s
+                    RETURNING *
+                    """
+                    cursor.execute(sql, (fin, round(duracion_minutos_db), sesion_db['id']))
                     sesion_finalizada = cursor.fetchone()
                     conn.commit()
 
-                    # Reemplazar variables de impresión para usar la duración recalculada
-                    duracion_minutos = duracion_minutos_db
-                    
-                    if sesion_finalizada:
-                        # Intentar limpiar cualquier estado local residual
-                        try:
-                            with self._sesiones_lock:
-                                if profesor_id in self._sesiones_locales:
-                                    del self._sesiones_locales[profesor_id]
-                        except Exception:
-                            pass
-                        
-                        # Mostrar información de finalización
-                        horas = int(duracion_minutos // 60)
-                        minutos = int(duracion_minutos % 60)
-                        
-                        logging.info(f"Sesión finalizada exitosamente | id={sesion_db['id']} | duracion={horas}h {minutos}m ({duracion_minutos:.2f} minutos)")
+                # Reemplazar variables de impresión para usar la duración recalculada
+                duracion_minutos = duracion_minutos_db
 
-                        # Auditoría finalización de sesión
+                if sesion_finalizada:
+                    # Intentar limpiar cualquier estado local residual
+                    try:
+                        with self._sesiones_lock:
+                            if profesor_id in self._sesiones_locales:
+                                del self._sesiones_locales[profesor_id]
+                    except Exception:
+                        pass
+
+                    # Mostrar información de finalización
+                    horas = int(duracion_minutos // 60)
+                    minutos = int(duracion_minutos % 60)
+
+                    logging.info(f"Sesión finalizada exitosamente | id={sesion_db['id']} | duracion={horas}h {minutos}m ({duracion_minutos:.2f} minutos)")
+
+                    # Auditoría finalización de sesión
+                    try:
+                        uid = None
                         try:
+                            with self.get_connection_context() as conn2:
+                                cur2 = conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur2.execute("SELECT usuario_id FROM profesores WHERE id = %s", (profesor_id,))
+                                r2 = cur2.fetchone()
+                                if r2:
+                                    uid = r2['usuario_id'] if isinstance(r2, dict) else (r2[0] if len(r2) > 0 else None)
+                        except Exception:
+                            uid = None
+                        if uid is not None:
                             self.registrar_audit_log(
-                                user_id=profesor_id,
+                                user_id=int(uid),
                                 action='sesion_finalizada',
                                 table_name='profesor_horas_trabajadas',
                                 record_id=sesion_db['id'],
@@ -12712,12 +13027,15 @@ class DatabaseManager:
                                 user_agent='desktop-app',
                                 session_id=str(sesion_db['id'])
                             )
-                        except Exception as _e:
-                            logging.debug(f"No se pudo registrar audit de finalización: {_e}")
-                        
-                        # Obtener estadísticas mensuales
-                        try:
-                            cursor.execute("""
+                    except Exception as _e:
+                        logging.debug(f"No se pudo registrar audit de finalización: {_e}")
+
+                    # Obtener estadísticas mensuales
+                    try:
+                        with self.get_connection_context() as conn3:
+                            cur3 = conn3.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur3.execute(
+                                """
                                 SELECT 
                                     COALESCE(SUM(minutos_totales), 0) as total_minutos_mes,
                                     COUNT(*) as dias_trabajados
@@ -12726,34 +13044,33 @@ class DatabaseManager:
                                 AND EXTRACT(MONTH FROM fecha) = EXTRACT(MONTH FROM CURRENT_DATE)
                                 AND EXTRACT(YEAR FROM fecha) = EXTRACT(YEAR FROM CURRENT_DATE)
                                 AND hora_fin IS NOT NULL
-                            """, (profesor_id,))
-                            
-                            resultado_mes = cursor.fetchone()
+                                """,
+                                (profesor_id,)
+                            )
+                            resultado_mes = cur3.fetchone()
                             if resultado_mes:
                                 total_minutos_mes = float(resultado_mes['total_minutos_mes'])
                                 dias_trabajados = resultado_mes['dias_trabajados']
                                 horas_mes = int(total_minutos_mes // 60)
                                 minutos_mes = int(total_minutos_mes % 60)
-                                
+
                                 logging.info(f"Estadísticas mensuales | horas_mes={horas_mes}h {minutos_mes}m | dias_trabajados={dias_trabajados}")
-                                
                                 logging.info(f"Sesión finalizada - Profesor {profesor_id}: {horas}h {minutos}m. Mes: {horas_mes}h {minutos_mes}m en {dias_trabajados} días")
-                        except Exception as e:
-                            logging.error(f"Error obteniendo estadísticas mensuales profesor {profesor_id}: {e}")
-                        
-                        
-                        return {
-                            'success': True,
-                            'mensaje': 'Sesión finalizada correctamente (BD)',
-                            'datos': dict(sesion_finalizada)
-                        }
-                    else:
-                        logging.error("Error al actualizar sesión en DB")
-                        return {
-                            'success': False,
-                            'mensaje': 'Error al actualizar sesión en base de datos',
-                            'datos': None
-                        }
+                    except Exception as e:
+                        logging.error(f"Error obteniendo estadísticas mensuales profesor {profesor_id}: {e}")
+
+                    return {
+                        'success': True,
+                        'mensaje': 'Sesión finalizada correctamente (BD)',
+                        'datos': dict(sesion_finalizada)
+                    }
+                else:
+                    logging.error("Error al actualizar sesión en DB")
+                    return {
+                        'success': False,
+                        'mensaje': 'Error al actualizar sesión en base de datos',
+                        'datos': None
+                    }
         except Exception as e:
             logging.error(f"Error finalizando sesión profesor {profesor_id}: {e}")
             return {

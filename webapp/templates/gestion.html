@@ -53,9 +53,40 @@
     /* Logout más compacto */
     .nav-actions .btn.icon-only { padding: 4px; }
     .nav-actions img { width: 20px; height: 20px; }
-    .tabs { display:flex; flex-wrap: wrap; gap:8px; padding: 8px 24px; border-bottom: 1px solid var(--border); max-width: 100%; }
-    .tab { padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,.06); cursor:pointer; }
-    .tab.active { background: var(--card); border:1px solid var(--border); }
+    .tabs { display:flex; align-items:center; gap: 4px; padding: 6px 24px; border-bottom: 1px solid var(--border); overflow-x:auto; -webkit-overflow-scrolling: touch; }
+    .tab { appearance:none; background: transparent; border: none; color: var(--muted); padding: 10px 14px; border-radius: 10px 10px 0 0; cursor:pointer; font-weight: 600; position: relative; transition: color .15s ease, background .15s ease; }
+    .tab:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+    .tab.active { color: var(--text); }
+    .tab.active::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 2px; }
+
+    /* Subtabs - segmented control */
+    .subtabs { display:flex; gap:6px; padding:6px; border-radius: 12px; border:1px solid var(--border); background: rgba(17,24,39,0.6); }
+    .subtabs .btn.tertiary { background: transparent; color: var(--muted); border: none; padding: 8px 10px; border-radius: 10px; transition: background .15s ease, color .15s ease, box-shadow .15s ease; }
+    .subtabs .btn.tertiary:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .subtabs .btn.tertiary.active { background: rgba(37,99,235,0.15); color: var(--text); box-shadow: inset 0 0 0 1px var(--primary); }
+
+    /* Chips */
+    .chips { display:flex; gap:6px; flex-wrap:wrap; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); transition: background .15s ease, border-color .15s ease; }
+    .chip-remove { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0; }
+    .chip-remove:hover { color: var(--accent); }
+
+     .chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.25); }
+     .chips .chip[data-suggest] { cursor: pointer; }
+     .chips .chip[data-suggest]:hover { background: rgba(37,99,235,0.18); border-color: rgba(37,99,235,0.35); }
+
+    /* States list */
+    .state-item { display:flex; align-items:center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; transition: background .15s ease, border-color .15s ease; }
+    .state-item .left { display:flex; align-items:center; gap:8px; }
+    .state-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+    .state-name { font-weight: 600; }
+    .state-meta { color: var(--muted); margin-left: 6px; font-size: 12px; }
+    .state-item.expired { opacity: 0.75; }
+    .state-item:hover { background: rgba(255,255,255,0.03); border-color: var(--border); }
+    .counter { font-size: 12px; color: var(--muted); }
+    .empty-hint { color: var(--muted); font-size: 13px; }
+    .hl { background: rgba(37,99,235,0.25); border-radius: 4px; padding: 0 2px; }
+    .btn.small { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
     main { flex: 1; padding: 16px 24px; width: 100%; max-width: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; }
     .panel { display:none; }
     .panel.active { display:block; }
@@ -94,7 +125,7 @@
     /* Split panel layout */
     .split { display:grid; grid-template-columns: minmax(0,1fr) 380px; gap:16px; align-items:start; }
     .split-main { min-width: 0; }
-    .split-side { position: sticky; top: 96px; height: calc(100dvh - 140px); overflow: auto; }
+    .split-side { position: sticky; top: 96px; height: auto; overflow: visible; }
     .block { background: var(--card); border: 1px solid var(--border); border-radius: 12px; max-width: 100%; }
     .block-header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
     .block-body { padding:12px; }
@@ -170,14 +201,22 @@
           </div>
         </div>
         <div class="nav-actions">
-          <a class="btn icon-only" href="/logout" title="Cerrar sesión" aria-label="Salir">
+          <span id="login-current" class="muted" style="margin-right:12px"
+                data-role="{{ 'dueño' if request.session.get('logged_in') else ('profesor' if request.session.get('gestion_profesor_id') else '') }}"
+                data-prof-id="{{ request.session.get('gestion_profesor_id') or '' }}"
+                data-prof-uid="{{ request.session.get('gestion_profesor_user_id') or '' }}">Sesión: —</span>
+          <a class="btn icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir">
             <img src="/assets/salir.png" alt="Salir" />
           </a>
         </div>
       </div>
       <nav class="tabs">
         <button class="tab active" data-tab="usuarios">Usuarios</button>
+        {% if request.session.get('logged_in') %}
+        <button class="tab" data-tab="profesores" id="tab-btn-profesores">Profesores</button>
+        {% endif %}
         <button class="tab" data-tab="pagos">Pagos</button>
+        <button class="tab" data-tab="ejercicios">Ejercicios</button>
         <button class="tab" data-tab="configuracion">Configuración</button>
       </nav>
     </header>
@@ -283,7 +322,97 @@
         </div>
       </section>
 
-      <section id="panel-usuarios" class="panel active">
+      <section id="panel-ejercicios" class="panel">
+  <div class="split">
+    <div class="split-main">
+      <div class="panel-controls">
+        <label for="ejercicios-q">Búsqueda</label>
+        <input type="text" id="ejercicios-q" placeholder="Nombre o descripción" />
+        <label for="ejercicios-objetivo">Objetivo</label>
+        <select id="ejercicios-objetivo">
+          <option value="Todos">Todos</option>
+          <option value="general" selected>General</option>
+          <option value="fuerza">Fuerza</option>
+          <option value="hipertrofia">Hipertrofia</option>
+          <option value="resistencia">Resistencia</option>
+          <option value="cardio">Cardio</option>
+          <option value="flexibilidad">Flexibilidad</option>
+        </select>
+        <label for="ejercicios-grupo">Grupo</label>
+        <select id="ejercicios-grupo">
+          <option value="Todos">Todos</option>
+          <option value="Pecho">Pecho</option>
+          <option value="Espalda">Espalda</option>
+          <option value="Hombros">Hombros</option>
+          <option value="Brazos">Brazos</option>
+          <option value="Piernas">Piernas</option>
+          <option value="Glúteos">Glúteos</option>
+          <option value="Core">Core</option>
+          <option value="Full Body">Full Body</option>
+        </select>
+        <button class="btn" id="ejercicios-refresh">Actualizar</button>
+        <button class="btn" id="ejercicios-new">Nuevo Ejercicio</button>
+        <span id="ejercicios-count" class="muted" style="margin-left:auto"></span>
+      </div>
+      <div class="table-scroll row-selectable">
+        <table id="ejercicios-table">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Grupo muscular</th>
+              <th>Objetivo</th>
+              <th>Descripción</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <aside class="split-side">
+      <div class="block">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Resumen del ejercicio</h3></div>
+        <div class="block-body">
+          <div><strong>Nombre:</strong> <span id="ejercicio-side-nombre">—</span></div>
+          <div><strong>Objetivo:</strong> <span id="ejercicio-side-objetivo">—</span></div>
+          <div><strong>Grupo:</strong> <span id="ejercicio-side-grupo">—</span></div>
+          <div><strong>Descripción:</strong>
+            <div id="ejercicio-side-descripcion" class="muted">—</div>
+          </div>
+          <div style="margin-top:8px">
+            <button class="btn secondary" id="ejercicio-side-edit" disabled>Editar</button>
+            <button class="btn" id="ejercicio-side-delete" disabled>Eliminar</button>
+          </div>
+        </div>
+      </div>
+      <div class="block">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Consejos de ejecución</h3></div>
+        <div class="block-body">
+          <ul id="ejercicio-side-tips" style="padding-left:18px; margin:0"><li class="muted">Selecciona un ejercicio para ver consejos</li></ul>
+        </div>
+      </div>
+      <div class="block">
+        <div class="block-header">
+          <h3 style="margin:0; font-size:16px;">Equipamiento sugerido</h3>
+          <div class="panel-controls" style="margin-left:auto">
+            <button class="btn small" id="ejercicio-side-edit-extras" disabled>Editar extras</button>
+          </div>
+        </div>
+        <div class="block-body">
+          <ul id="ejercicio-side-equipos" style="padding-left:18px; margin:0"><li class="muted">—</li></ul>
+        </div>
+      </div>
+      <div class="block">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Variantes útiles</h3></div>
+        <div class="block-body">
+          <ul id="ejercicio-side-variantes" style="padding-left:18px; margin:0"><li class="muted">—</li></ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="panel-usuarios" class="panel active">
         <div class="split">
           <div class="split-main">
             <div class="cards" id="usuarios-cards">
@@ -383,13 +512,247 @@
               </div>
             </div>
             <div class="block" style="margin-top:12px">
-              <div class="block-header"><h3 style="margin:0; font-size:16px;">Notas</h3></div>
-              <div class="block-body"><div id="usuario-side-notas" class="muted">—</div></div>
+              <div class="block-header"><h3 style="margin:0; font-size:16px;">Notas, Etiquetas y Estados</h3></div>
+              <div class="block-body">
+                <div id="usuario-tabs" class="subtabs" style="display:flex; gap:8px; margin-bottom:8px;">
+                  <button class="btn tertiary active" data-tab="notas">Notas</button>
+                  <button class="btn tertiary" data-tab="etiquetas">Etiquetas</button>
+                  <button class="btn tertiary" data-tab="estados">Estados</button>
+                </div>
+                <div id="usuario-tab-notas" class="tab-panel">
+                  <label class="muted">Notas</label>
+                  <textarea id="usuario-notas-textarea" rows="5" style="width:100%" aria-label="Notas del usuario" placeholder="Apunta comentarios, lesiones, preferencias, objetivos, etc."></textarea>
+                  <div class="input-row" style="margin-top:6px; align-items:center; justify-content: space-between;">
+                    <span id="usuario-notas-counter" class="counter">0 caracteres</span>
+                    <div style="display:flex; gap:8px; align-items:center">
+                      <span id="usuario-notas-status" class="muted" role="status" aria-live="polite"></span>
+                      <button class="btn" id="usuario-notas-save">Guardar notas</button>
+                    </div>
+                  </div>
+                </div>
+                <div id="usuario-tab-etiquetas" class="tab-panel" style="display:none">
+                  <div class="input-row">
+                    <input id="usuario-etiqueta-input" type="text" placeholder="Nombre de etiqueta" style="flex:2" aria-label="Nombre de etiqueta">
+                    <button class="btn" id="usuario-etiqueta-add">Añadir etiqueta</button>
+                  </div>
+                  <div class="input-row" style="margin-top:6px">
+                    <input id="usuario-etiqueta-filter" type="text" placeholder="Filtrar etiquetas" style="flex:1" aria-label="Filtrar etiquetas">
+                    <button id="usuario-etiqueta-filter-clear" class="btn secondary sm" title="Limpiar filtro">Limpiar</button>
+                  </div>
+                  <div id="usuario-etiqueta-suggests" class="chips" style="margin-top:6px; display:none"></div>
+                  <div id="usuario-etiquetas-list" class="chips" style="margin-top:8px"></div>
+                  <div id="usuario-etiquetas-empty" class="empty-hint" role="status" aria-live="polite" style="display:none;margin-top:8px">Sin etiquetas</div>
+                </div>
+                <div id="usuario-tab-estados" class="tab-panel" style="display:none">
+                  <div class="input-row">
+                    <select id="usuario-estado-template" style="flex:1" aria-label="Plantilla de estado"></select>
+                    <input id="usuario-estado-descripcion" type="text" placeholder="Descripción" style="flex:2" aria-label="Descripción del estado">
+                    <input id="usuario-estado-vencimiento" type="date" style="flex:1" aria-label="Fecha de vencimiento">
+                    <button class="btn" id="usuario-estado-add">Añadir estado</button>
+                  </div>
+                  <div class="input-row" style="margin-top:6px; align-items:center">
+                    <input id="usuario-estados-filter" type="text" placeholder="Filtrar estados" style="flex:2" aria-label="Filtrar estados">
+                    <button id="usuario-estados-filter-clear" class="btn secondary sm" title="Limpiar filtro">Limpiar</button>
+                    <label style="display:flex; align-items:center; gap:6px"><input id="usuario-estados-show-expired" type="checkbox" checked>Mostrar vencidos</label>
+                  </div>
+                  <div id="usuario-estados-list" style="margin-top:8px"></div>
+                  <div id="usuario-estados-empty" class="empty-hint" role="status" aria-live="polite" style="display:none;margin-top:8px">Sin estados</div>
+                </div>
+              </div>
             </div>
           </aside>
         </div>
       </section>
-      <section id="panel-configuracion" class="panel">
+      <section id="panel-profesores" class="panel">
+  <div class="split">
+    <div class="split-main">
+      <div class="panel-controls">
+        <select id="profesor-select" title="Seleccionar profesor" style="min-width:220px"></select>
+        <button class="btn" id="prof-refresh">Actualizar</button>
+        <span id="prof-sesion-estado" class="muted" style="margin-left:auto">Sesión: —</span>
+      </div>
+      <div class="subtabs" id="prof-subtabs" style="margin:8px 0">
+        <button class="btn tertiary active" data-subtab="resumen">Resumen</button>
+        <button class="btn tertiary" data-subtab="horarios">Horarios</button>
+        <button class="btn tertiary" data-subtab="sesiones">Sesiones</button>
+      </div>
+      <div id="prof-tab-resumen" style="display:block">
+        <div class="block">
+          <div class="block-header">
+            <h3>Datos del profesor</h3>
+            <div class="panel-controls" style="margin-left:auto; gap:8px">
+              <button class="btn" id="prof-datos-save">Guardar</button>
+            </div>
+          </div>
+          <div class="block-body">
+            <div class="input-row">
+              <input id="prof-dato-nombre" type="text" placeholder="Nombre" style="flex:2" />
+              <input id="prof-dato-dni" type="text" placeholder="DNI" style="flex:1" />
+              <input id="prof-dato-telefono" type="text" placeholder="Teléfono" style="flex:1" />
+            </div>
+            <div class="input-row" style="margin-top:8px; align-items:center">
+              <input id="prof-dato-pin" type="text" placeholder="PIN" style="flex:1" />
+              <label style="display:flex; align-items:center; gap:6px"><input id="prof-dato-activo" type="checkbox" />Activo</label>
+              <span class="muted" id="prof-dato-rol-label" style="margin-left:auto">Rol: Profesor</span>
+            </div>
+          </div>
+        </div>
+        <div class="block">
+          <div class="block-header">
+            <h3>Resumen del mes actual</h3>
+          </div>
+          <div class="block-body">
+            <div class="cards">
+              <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-m-horas-trabajadas">0</div></div>
+              <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-m-horas-proyectadas">0</div></div>
+              <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-m-horas-extra">0</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="block" style="margin-top:12px">
+          <div class="block-header">
+            <h3>Resumen semanal</h3>
+            <div class="panel-controls" style="margin-left:auto; gap:8px">
+              <label>Semana <input type="date" id="prof-week-date" /></label>
+              <label>Inicio
+                <select id="prof-week-start"><option value="mon" selected>Lunes</option><option value="sun">Domingo</option></select>
+              </label>
+              <span class="muted" id="prof-week-range">—</span>
+            </div>
+          </div>
+          <div class="block-body">
+            <div class="cards">
+              <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-w-horas-trabajadas">0</div></div>
+              <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-w-horas-proyectadas">0</div></div>
+              <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-w-horas-extra">0</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="prof-tab-horarios" style="display:none">
+      <div class="block">
+        <div class="block-header">
+          <h3>Horarios de disponibilidad</h3>
+          <div class="panel-controls" style="margin-left:auto; gap:8px">
+            <select id="horario-dia" title="Día">
+              <option value="Lunes">Lunes</option>
+              <option value="Martes">Martes</option>
+              <option value="Miércoles">Miércoles</option>
+              <option value="Jueves">Jueves</option>
+              <option value="Viernes">Viernes</option>
+              <option value="Sábado">Sábado</option>
+              <option value="Domingo">Domingo</option>
+            </select>
+            <input type="time" id="horario-inicio" title="Inicio" />
+            <input type="time" id="horario-fin" title="Fin" />
+            <label style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="horario-disponible" checked />Disponible</label>
+            <button class="btn" id="horario-add">Añadir</button>
+            <button class="btn secondary" id="horario-cancel" style="display:none">Cancelar edición</button>
+            <span id="horarios-count" class="muted"></span>
+          </div>
+        </div>
+        <div class="block-body">
+          <div class="table-scroll table-compact">
+            <table id="prof-horarios-table">
+              <thead>
+                <tr>
+                  <th>Día</th>
+                  <th>Inicio</th>
+                  <th>Fin</th>
+                  <th>Disponible</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div id="prof-tab-sesiones" style="display:none">
+        <div class="block">
+          <div class="block-header">
+            <h3>Sesiones trabajadas</h3>
+            <div class="panel-controls" style="margin-left:auto; gap:8px">
+              <label>Inicio <input type="date" id="prof-ses-start" /></label>
+              <label>Fin <input type="date" id="prof-ses-end" /></label>
+              <button class="btn secondary" id="prof-ses-week">Semana actual</button>
+              <button class="btn secondary" id="prof-ses-month">Mes actual</button>
+              <button class="btn" id="prof-ses-refresh">Actualizar</button>
+            </div>
+          </div>
+          <div class="block-body">
+            <div class="table-scroll">
+              <table id="prof-sesiones-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Inicio</th>
+                    <th>Fin</th>
+                    <th>Minutos</th>
+                    <th>Horas</th>
+                    <th>Tipo</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="split-side" id="prof-config-side">
+      <div class="block">
+        <div class="block-header">
+          <h3 style="margin:0; font-size:16px;">Configuración del profesor</h3>
+          <div class="panel-controls" style="margin-left:auto; gap:8px">
+            <button class="btn" id="prof-config-save">Guardar</button>
+          </div>
+        </div>
+        <div class="block-body">
+          <div class="input-row">
+            <label for="prof-config-usuario" style="display:block; margin-bottom:4px; color:var(--muted);">Usuario vinculado</label>
+            <input id="prof-config-usuario" title="Usuario vinculado" style="width:100%" type="text" readonly disabled />
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <label for="prof-config-salario" id="prof-config-salario-label" style="display:block; margin-bottom:4px; color:var(--muted);">Monto (ARS)</label>
+            <div class="currency-input" style="display:flex; align-items:center; gap:8px">
+              <span class="prefix" style="color:var(--muted); font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:10px;">ARS</span>
+              <input type="number" id="prof-config-salario" placeholder="Monto en ARS" step="0.01" min="0" inputmode="decimal" />
+              <select id="prof-monto-tipo" title="Tipo de monto" style="margin-left:auto">
+                <option value="mensual">Mensual</option>
+                <option value="hora">Por hora</option>
+              </select>
+            </div>
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <label for="prof-config-notas" style="display:block; margin-bottom:4px; color:var(--muted);">Notas</label>
+            <textarea id="prof-config-notas" placeholder="Notas" rows="4" style="width:100%"></textarea>
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <label for="prof-config-especialidad" style="display:block; margin-bottom:4px; color:var(--muted);">Especialidad</label>
+            <input type="text" id="prof-config-especialidad" placeholder="Ej. Musculación" />
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <label for="prof-config-experiencia" style="display:block; margin-bottom:4px; color:var(--muted);">Experiencia (años)</label>
+            <input type="number" id="prof-config-experiencia" placeholder="Ej. 3" step="1" min="0" />
+          </div>
+          <!-- Tarifa por hora eliminada: unificado con Monto (ARS) -->
+          <div class="input-row" style="margin-top:8px">
+            <label for="prof-config-certificaciones" style="display:block; margin-bottom:4px; color:var(--muted);">Certificaciones</label>
+            <textarea id="prof-config-certificaciones" placeholder="Certificaciones" rows="3" style="width:100%"></textarea>
+          </div>
+          <div style="margin-top:12px; font-size:12px; color:var(--muted); line-height:1.4">
+            <strong>Inicio y fin de sesión:</strong> Inicia y termina sesiones desde Gestión. Si la hora de fin es anterior a la de inicio, se considera que cruzó medianoche y se mostrará "(+1d)". La duración se calcula ajustando el fin al día siguiente.
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="panel-configuracion" class="panel">
         <div class="split">
           <div class="split-main">
             <div class="block">
@@ -471,11 +834,83 @@
               </div>
             </div>
 
+            <div class="block" style="margin-top:16px">
+              <div class="block-header">
+                <h3 style="margin:0; font-size:16px;">Mantenimiento</h3>
+                <div class="panel-controls" style="margin-left:auto">
+                  <input id="config-renum-start" type="number" min="1" step="1" value="2" placeholder="ID inicial (ej. 2)" style="width:160px" aria-label="ID inicial" />
+                  <button class="btn secondary" id="config-renum-run">Renumerar IDs</button>
+                  <button class="btn secondary" id="config-secure-owner">Asegurar Dueño</button>
+                </div>
+              </div>
+              <div class="block-body">
+                <p class="muted">Acción avanzada: renumera todos los IDs de usuarios consecutivamente desde el ID inicial. Solo dueño. Actualiza referencias en pagos, asistencias, rutinas, clases, notificaciones, etc. Operación irreversible; se recomienda respaldo previo.</p>
+                <p class="muted">Acción avanzada: asegura la existencia del Dueño en ID 1, crea si falta y restablece protecciones (RLS y triggers). Solo dueño.</p>
+              </div>
+            </div>
+
+    <!-- Modal: Confirmar Asegurar Dueño -->
+    <div class="modal-backdrop" id="modal-secure-owner-confirm" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-secure-owner-title">
+        <div class="modal-header">
+          <h3 id="modal-secure-owner-title" style="margin:0; font-size:16px;">Confirmar Asegurar Dueño</h3>
+          <button class="btn icon-only" id="secure-owner-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted">Esta acción:</p>
+          <ul class="muted">
+            <li>Garantiza que el Dueño exista con ID 1.</li>
+            <li>Restablece RLS y triggers de protección del Dueño.</li>
+            <li>No afecta otros usuarios ni configuraciones.</li>
+          </ul>
+          <p class="muted">Requiere sesión de Dueño.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="secure-owner-confirm">Asegurar</button>
+          <button class="btn secondary" id="secure-owner-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
           </div>
         </div>
       </section>
 
     </main>
+
+    <!-- Modal: Finalizar sesión antes de salir -->
+    <div class="modal-backdrop" id="modal-sesion-fin" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-fin-title">
+        <div class="modal-header">
+          <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Finalizar sesión antes de salir</h3>
+          <button class="btn icon-only" id="sesion-fin-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted">¿Deseas finalizar tu sesión de trabajo antes de salir?</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="sesion-fin-confirm">Finalizar y salir</button>
+          <button class="btn secondary" id="sesion-fin-cancel">Salir sin finalizar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Eliminar sesión -->
+    <div class="modal-backdrop" id="modal-sesion-delete" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-delete-title">
+        <div class="modal-header">
+          <h3 id="modal-sesion-delete-title" style="margin:0; font-size:16px;">Eliminar sesión</h3>
+          <button class="btn icon-only" id="sesion-delete-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted">¿Deseas eliminar esta sesión? Esta acción no se puede deshacer.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn danger" id="sesion-delete-confirm">Eliminar</button>
+          <button class="btn secondary" id="sesion-delete-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Modal: Filtros avanzados de Pagos -->
     <div class="modal-backdrop" id="modal-pagos-filtros" aria-hidden="true">
@@ -539,26 +974,58 @@
         </div>
         <div class="modal-body">
           <div class="input-row">
-            <input id="u-nombre" type="text" placeholder="Nombre Completo" style="flex:1" />
-            <input id="u-dni" type="text" placeholder="DNI" style="flex:1" />
+            <div style="flex:1">
+              <label class="muted" for="u-id">ID de usuario</label>
+              <input id="u-id" type="number" placeholder="ID (solo dueño)" style="width:100%" min="1" step="1" aria-label="ID de usuario" />
+            </div>
           </div>
           <div class="input-row">
-            <input id="u-telefono" type="text" placeholder="Teléfono" style="flex:1" />
-            <input id="u-pin" type="text" placeholder="PIN (opcional)" style="flex:1" />
+            <div style="flex:1">
+              <label class="muted" for="u-nombre">Nombre completo</label>
+              <input id="u-nombre" type="text" placeholder="Ej. Juan Pérez" style="width:100%" aria-label="Nombre completo" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="u-dni">DNI</label>
+              <input id="u-dni" type="text" placeholder="Ej. 12345678" style="width:100%" aria-label="DNI" />
+            </div>
           </div>
           <div class="input-row">
-            <select id="u-rol" style="flex:1">
-              <option value="socio" selected>Socio</option>
-              <option value="profesor">Profesor</option>
-            </select>
-            <select id="u-tipo-cuota" style="flex:1">
-              <option value="">Tipo de cuota</option>
-            </select>
-            <label style="display:flex; align-items:center; gap:6px; flex:1">
-              <input id="u-activo" type="checkbox" checked /> Activo
-            </label>
+            <div style="flex:1">
+              <label class="muted" for="u-telefono">Teléfono</label>
+              <input id="u-telefono" type="text" placeholder="Ej. +54 9 11 1234-5678" style="width:100%" aria-label="Teléfono" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="u-pin">PIN de acceso</label>
+              <input id="u-pin" type="text" placeholder="Opcional" style="width:100%" aria-label="PIN de acceso" />
+            </div>
           </div>
-          <textarea id="u-notas" rows="3" placeholder="Notas" style="width:100%; margin-top:8px;"></textarea>
+          <div class="input-row">
+            <div style="flex:1">
+              <label class="muted" for="u-rol">Rol</label>
+              <select id="u-rol" style="width:100%" aria-label="Rol">
+                <option value="socio" selected>Socio</option>
+                <option value="profesor">Profesor</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="u-tipo-cuota">Tipo de cuota</label>
+              <select id="u-tipo-cuota" style="width:100%" aria-label="Tipo de cuota">
+                <option value="">Seleccionar tipo de cuota</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="u-activo">Estado</label>
+              <label style="display:flex; align-items:center; gap:6px">
+                <input id="u-activo" type="checkbox" checked aria-label="Activo" /> Activo
+              </label>
+            </div>
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <div style="flex:1">
+              <label class="muted" for="u-notas">Notas</label>
+              <textarea id="u-notas" rows="3" placeholder="Observaciones, preferencias y restricciones" style="width:100%" aria-label="Notas"></textarea>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" id="usuarios-save">Guardar</button>
@@ -580,6 +1047,25 @@
         <div class="modal-footer">
           <button class="btn" id="usuarios-delete-confirm">Eliminar</button>
           <button class="btn secondary" id="usuarios-delete-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Confirmar renumeración de IDs -->
+    <div class="modal-backdrop" id="modal-renum-confirm" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-renum-confirm-title">
+        <div class="modal-header">
+          <h3 id="modal-renum-confirm-title" style="margin:0; font-size:16px;">Renumerar IDs de usuarios</h3>
+          <button class="btn icon-only" id="renum-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p>Esta operación es irreversible y actualizará todas las referencias.</p>
+          <p>Inicio: <strong id="renum-start-display">—</strong></p>
+          <p class="muted">El ID 1 está reservado para el Dueño y no será modificado.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="renum-confirm">Renumerar</button>
+          <button class="btn secondary" id="renum-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -610,25 +1096,46 @@
         </div>
         <div class="modal-body">
           <div class="input-row">
-            <select id="pago-usuario" style="flex:1">
-              <option value="">Seleccionar usuario</option>
-            </select>
-            <input id="pago-monto" type="number" step="0.01" placeholder="Monto (auto)" style="flex:1" readonly />
+            <div style="flex:1">
+              <label class="muted" for="pago-usuario">Usuario</label>
+              <select id="pago-usuario" style="width:100%" aria-label="Usuario">
+                <option value="">Seleccionar usuario</option>
+              </select>
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="pago-monto">Monto</label>
+              <input id="pago-monto" type="number" step="0.01" placeholder="Calculado automáticamente" style="width:100%" readonly aria-label="Monto" />
+            </div>
           </div>
           <div class="input-row">
-            <input id="pago-fecha" type="date" style="flex:1" />
-            <input id="pago-mes" type="number" min="1" max="12" placeholder="Mes" style="flex:1" />
-            <input id="pago-año" type="number" min="2000" max="2100" placeholder="Año" style="flex:1" />
+            <div style="flex:1">
+              <label class="muted" for="pago-fecha">Fecha del pago</label>
+              <input id="pago-fecha" type="date" style="width:100%" aria-label="Fecha del pago" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="pago-mes">Mes</label>
+              <input id="pago-mes" type="number" min="1" max="12" placeholder="Ej. 7" style="width:100%" aria-label="Mes del período" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="pago-año">Año</label>
+              <input id="pago-año" type="number" min="2000" max="2100" placeholder="Ej. 2025" style="width:100%" aria-label="Año del período" />
+            </div>
           </div>
           <div class="input-row">
-            <select id="pago-metodo" style="flex:1">
-              <option value="">Método de pago (opcional)</option>
-            </select>
+            <div style="flex:1">
+              <label class="muted" for="pago-metodo">Método de pago</label>
+              <select id="pago-metodo" style="width:100%" aria-label="Método de pago">
+                <option value="">Seleccionar (opcional)</option>
+              </select>
+            </div>
           </div>
           <div class="input-row">
-            <select id="pago-concepto" style="flex:1">
-              <option value="">Concepto</option>
-            </select>
+            <div style="flex:1">
+              <label class="muted" for="pago-concepto">Concepto</label>
+              <select id="pago-concepto" style="width:100%" aria-label="Concepto">
+                <option value="">Seleccionar concepto</option>
+              </select>
+            </div>
           </div>
           <div id="pago-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
             <div><strong>Concepto:</strong> <span id="pago-resumen-concepto">Cuota Mensual</span></div>
@@ -644,6 +1151,56 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Modal: Sesión (Editar) -->
+  <div class="modal-backdrop" id="modal-sesion-form" style="display:none" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sesion-form-title">
+      <div class="modal-header">
+        <h3 id="sesion-form-title" style="margin:0; font-size:16px;">Editar sesión</h3>
+        <button class="btn icon-only" id="sesion-form-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="sesion-fecha">Fecha</label>
+            <input id="sesion-fecha" type="date" style="width:100%" aria-label="Fecha" />
+          </div>
+          <div style="flex:1">
+            <label class="muted" for="sesion-inicio">Inicio</label>
+            <input id="sesion-inicio" type="time" style="width:100%" aria-label="Inicio" />
+          </div>
+          <div style="flex:1">
+            <label class="muted" for="sesion-fin">Fin</label>
+            <input id="sesion-fin" type="time" style="width:100%" aria-label="Fin" />
+          </div>
+        </div>
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="sesion-tipo">Tipo</label>
+            <input id="sesion-tipo" type="text" placeholder="Ej. trabajo" style="width:100%" aria-label="Tipo" />
+          </div>
+        </div>
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="sesion-minutos">Minutos</label>
+            <input id="sesion-minutos" type="number" min="0" step="1" placeholder="Ej. 60" style="width:100%" aria-label="Minutos trabajados" disabled />
+          </div>
+          <div style="flex:1; display:flex; align-items:center;">
+            <label class="muted" for="sesion-auto" style="margin-right:8px;">Cálculo automático</label>
+            <input id="sesion-auto" type="checkbox" checked aria-label="Calcular minutos automáticamente" />
+          </div>
+        </div>
+        <div id="sesion-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
+          <div><strong>Minutos calculados:</strong> <span id="sesion-resumen-min">—</span></div>
+          <div><strong>Horas:</strong> <span id="sesion-resumen-horas">—</span></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="sesion-save">Guardar</button>
+        <button class="btn secondary" id="sesion-form-cancel">Cancelar</button>
+      </div>
+    </div>
   </div>
 
   <!-- Modal: Tipo de Cuota (Crear/Editar) -->
@@ -777,7 +1334,90 @@
     </div>
   </div>
 
-  <!-- Modal: QR Check-in Toast -->
+  <!-- Modales: Ejercicios -->
+<div class="modal-backdrop" id="modal-ejercicio-form" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-title">
+    <div class="modal-header">
+      <h3 id="modal-ejercicio-title" style="margin:0; font-size:16px;">Ejercicio</h3>
+      <button class="modal-close" id="close-modal-ejercicio" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label for="ejercicio-nombre">Nombre</label>
+          <input id="ejercicio-nombre" type="text" placeholder="Ej. Press banca" />
+        </div>
+        <div class="form-row">
+          <label for="ejercicio-grupo">Grupo muscular</label>
+          <input id="ejercicio-grupo" type="text" placeholder="Pecho, Espalda, etc." />
+        </div>
+        <div class="form-row">
+          <label for="ejercicio-objetivo">Objetivo</label>
+          <select id="ejercicio-objetivo">
+            <option value="general">General</option>
+            <option value="fuerza">Fuerza</option>
+            <option value="hipertrofia">Hipertrofia</option>
+            <option value="resistencia">Resistencia</option>
+            <option value="cardio">Cardio</option>
+            <option value="flexibilidad">Flexibilidad</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="ejercicio-descripcion">Descripción</label>
+          <textarea id="ejercicio-descripcion" placeholder="Instrucciones, técnica y variantes"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="save-ejercicio">Guardar</button>
+      <button class="btn" id="cancel-ejercicio">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-ejercicio-delete" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-del-title">
+    <div class="modal-header">
+      <h3 id="modal-ejercicio-del-title" style="margin:0; font-size:16px;">Eliminar ejercicio</h3>
+      <button class="modal-close" id="ejercicio-delete-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p>¿Seguro que deseas eliminar este ejercicio?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="ejercicio-delete-confirm">Eliminar</button>
+      <button class="btn" id="ejercicio-delete-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Ejercicio Extras (Equipamiento y Variantes) -->
+<div class="modal-backdrop" id="modal-ejercicio-extras" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-extras-title">
+    <div class="modal-header">
+      <h3 id="modal-ejercicio-extras-title" style="margin:0; font-size:16px;">Editar equipamiento y variantes</h3>
+      <button class="modal-close" id="close-modal-extras" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label for="extras-equipamiento">Equipamiento sugerido</label>
+          <textarea id="extras-equipamiento" placeholder="Un ítem por línea o separados por ;"></textarea>
+        </div>
+        <div class="form-row">
+          <label for="extras-variantes">Variantes útiles</label>
+          <textarea id="extras-variantes" placeholder="Un ítem por línea o separados por ;"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="save-extras">Guardar</button>
+      <button class="btn" id="cancel-extras">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: QR Check-in Toast -->
   <div class="modal-backdrop" id="modal-qr-toast" style="display:none" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title">
       <div class="modal-header">
@@ -804,7 +1444,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {} };
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {} };
 
     function fmtDate(d){
       if(!d) return '';
@@ -1151,6 +1791,38 @@
       // Prefijo por defecto si no hay teléfono
       if(!user || !user.telefono){ const telEl = f('u-telefono'); if(telEl && !telEl.value) telEl.value = '+54'; }
       f('u-pin').value = (user && user.pin) || '';
+      // Aplicar restricción: un profesor no puede ver/editar el PIN de otro profesor
+      try {
+        const loginEl = document.getElementById('login-current');
+        const sessionRole = (loginEl && loginEl.getAttribute('data-role') || '').trim();
+        const sessionProfUid = (loginEl && loginEl.getAttribute('data-prof-uid') || '').trim();
+        const isProfSession = (sessionRole === 'profesor') && !!sessionProfUid;
+        const isEditingProfessor = user && String(user.rol || '').toLowerCase() === 'profesor';
+        const isOtherProfessor = !!(isProfSession && isEditingProfessor && String(user.id || '') !== String(sessionProfUid));
+        const pinEl = f('u-pin');
+        if(pinEl){
+          pinEl.disabled = false;
+          pinEl.placeholder = '';
+          if(isOtherProfessor){
+            pinEl.value = '';
+            pinEl.disabled = true;
+            pinEl.placeholder = 'PIN oculto (no editable)';
+          }
+        }
+        // ID editable solo para dueño y no para usuario con rol 'dueño'
+        const idEl = f('u-id');
+        if(idEl){
+          idEl.value = (user && user.id != null) ? String(user.id) : '';
+          const isOwnerSession = (sessionRole === 'dueño');
+          const isEditingOwner = user && String(user.rol || '').toLowerCase() === 'dueño';
+          idEl.disabled = true;
+          idEl.placeholder = 'ID (no editable)';
+          if(isOwnerSession && user && !isEditingOwner){
+            idEl.disabled = false;
+            idEl.placeholder = 'Nuevo ID (entero positivo)';
+          }
+        }
+      } catch(e) {}
       f('u-rol').value = (user && user.rol) ? String(user.rol).toLowerCase() : 'socio';
       f('u-activo').checked = user ? !!user.activo : true;
       f('u-notas').value = (user && user.notas) || '';
@@ -1163,7 +1835,7 @@
     }
     function hideUserForm(){
       editingUserId = null;
-      ['u-nombre','u-dni','u-telefono','u-pin','u-notas'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+      ['u-id','u-nombre','u-dni','u-telefono','u-pin','u-notas'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
       const sel = document.getElementById('u-tipo-cuota'); if(sel) sel.value='';
       const rol = document.getElementById('u-rol'); if(rol) rol.value='socio';
       const act = document.getElementById('u-activo'); if(act) act.checked=true;
@@ -1172,16 +1844,31 @@
 
     async function saveUser(){
       const f = (id) => document.getElementById(id);
+      const pinEl = f('u-pin');
       const payload = {
         nombre: f('u-nombre').value.trim().toUpperCase(),
         dni: f('u-dni').value.trim(),
         telefono: f('u-telefono').value.trim(),
-        pin: f('u-pin').value.trim(),
+        pin: pinEl && !pinEl.disabled ? pinEl.value.trim() : undefined,
         rol: f('u-rol').value,
         activo: f('u-activo').checked,
         tipo_cuota: f('u-tipo-cuota').value || null,
         notas: f('u-notas').value || null,
       };
+      // Si el dueño cambió el ID, enviar new_id
+      try {
+        const idEl = f('u-id');
+        const loginEl = document.getElementById('login-current');
+        const sessionRole = (loginEl && loginEl.getAttribute('data-role') || '').trim();
+        const isOwnerSession = (sessionRole === 'dueño');
+        if(editingUserId && idEl && !idEl.disabled && isOwnerSession){
+          const newIdVal = Number(idEl.value || '');
+          if(Number.isFinite(newIdVal) && newIdVal > 0 && newIdVal !== Number(editingUserId)){
+            payload.new_id = newIdVal;
+          }
+        }
+      } catch(_) {}
+      if(pinEl && pinEl.disabled){ delete payload.pin; }
       if(!payload.nombre || !payload.dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
       try {
         const url = editingUserId ? `/api/usuarios/${editingUserId}` : '/api/usuarios';
@@ -1708,11 +2395,12 @@
       document.getElementById('usuario-side-dni').textContent = u.dni || '';
       document.getElementById('usuario-side-telefono').textContent = u.telefono || '';
       document.getElementById('usuario-side-rol').textContent = (u.rol || '').toString().toLowerCase();
-      document.getElementById('usuario-side-tipo-cuota').textContent = (u.tipo_cuota ?? '');
+      const tipoObj = resolveTipoCuota(u.tipo_cuota);
+      document.getElementById('usuario-side-tipo-cuota').textContent = tipoObj ? (tipoObj.nombre ?? String(tipoObj.id ?? '')) : (u.tipo_cuota ?? '');
       const up = u.ultimo_pago || u.fecha_ultimo_pago || null;
       document.getElementById('usuario-side-ultimo-pago').textContent = up ? fmtDate(up) : '—';
-      const notasEl = document.getElementById('usuario-side-notas');
-      if(notasEl) notasEl.textContent = (u.notas && String(u.notas).trim()) ? u.notas : '—';
+      const notasTextarea = document.getElementById('usuario-notas-textarea');
+      if(notasTextarea) notasTextarea.value = (u.notas && String(u.notas).trim()) ? String(u.notas) : '';
       const tbody = document.querySelector('#usuario-historial-table tbody');
       if(tbody){
         tbody.innerHTML = '';
@@ -1748,7 +2436,11 @@
         const histJson = histRes ? await histRes.json() : [];
         const historial = Array.isArray(histJson.items) ? histJson.items : (Array.isArray(histJson) ? histJson : []);
         state.usuarioHistorial = historial;
+        // Asegurar tipos de cuota cargados para resolver nombre
+        if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){ await loadTiposCuotaActivos(); }
+        try { await ensureTiposCuotaCatalogo(); } catch {}
         renderUsuarioSide(det || u, historial);
+        if(id){ try { await loadUsuarioEtiquetas(id); await loadUsuarioEstados(id); } catch(_){} }
         let recent = '—';
         let hasHoy = false;
         if(id){
@@ -1840,6 +2532,113 @@
       if(qrCloseBtn) qrCloseBtn.addEventListener('click', closeQRModal);
       const qrCloseFooter = document.getElementById('qr-close-footer');
       if(qrCloseFooter) qrCloseFooter.addEventListener('click', closeQRModal);
+      // Subpestañas y acciones de usuario
+      const tabs = document.querySelectorAll('#usuario-tabs button');
+      tabs.forEach(btn => btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-tab');
+        document.querySelectorAll('#usuario-tabs button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('#usuario-tab-notas, #usuario-tab-etiquetas, #usuario-tab-estados').forEach(panel => {
+          panel.style.display = panel.id === `usuario-tab-${tab}` ? 'block' : 'none';
+        });
+        if(tab === 'notas'){ document.getElementById('usuario-notas-textarea')?.focus(); }
+        if(tab === 'etiquetas'){ document.getElementById('usuario-etiqueta-input')?.focus(); }
+        if(tab === 'estados'){ document.getElementById('usuario-estado-template')?.focus(); }
+      }));
+      document.addEventListener('keydown', (ev) => {
+        if((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'f'){
+          ev.preventDefault();
+          const active = document.querySelector('#usuario-tabs button.active')?.getAttribute('data-tab');
+          if(active === 'etiquetas'){ document.getElementById('usuario-etiqueta-filter')?.focus(); }
+          else if(active === 'estados'){ document.getElementById('usuario-estados-filter')?.focus(); }
+          else { document.getElementById('usuario-notas-textarea')?.focus(); }
+        }
+      });
+      const notasSave = document.getElementById('usuario-notas-save');
+      if(notasSave){ notasSave.addEventListener('click', saveUsuarioNotas); }
+      const notasTextarea = document.getElementById('usuario-notas-textarea');
+      const notasCounter = document.getElementById('usuario-notas-counter');
+      const notasStatus = document.getElementById('usuario-notas-status');
+      if(notasTextarea){
+        const updateCounter = () => { if(notasCounter) notasCounter.textContent = `${notasTextarea.value.length} caracteres`; };
+        updateCounter();
+        let notasSaveTimer = null;
+        notasTextarea.addEventListener('input', () => {
+          updateCounter();
+          if(notasStatus) notasStatus.textContent = 'Editado';
+          if(notasSaveTimer) clearTimeout(notasSaveTimer);
+          notasSaveTimer = setTimeout(() => { try { saveUsuarioNotas(); } catch(_){} }, 1200);
+        });
+        notasTextarea.addEventListener('keydown', (ev) => {
+          if((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's'){
+            ev.preventDefault();
+            if(notasSaveTimer) clearTimeout(notasSaveTimer);
+            saveUsuarioNotas();
+          }
+        });
+      }
+      const etiquetaAdd = document.getElementById('usuario-etiqueta-add');
+      if(etiquetaAdd){ etiquetaAdd.addEventListener('click', addUsuarioEtiqueta); }
+      const etiquetaInput = document.getElementById('usuario-etiqueta-input');
+      const etiquetaFilter = document.getElementById('usuario-etiqueta-filter');
+      const etiquetaSuggests = document.getElementById('usuario-etiqueta-suggests');
+      if(etiquetaInput){
+        etiquetaInput.addEventListener('keydown', (ev) => { if(ev.key === 'Enter'){ ev.preventDefault(); addUsuarioEtiqueta(); } });
+        etiquetaInput.addEventListener('input', () => { renderEtiquetaSuggests(etiquetaInput.value); });
+      }
+      if(etiquetaFilter){
+        etiquetaFilter.addEventListener('input', renderUsuarioEtiquetas);
+        etiquetaFilter.addEventListener('keydown', (ev) => { if(ev.key==='Escape'){ ev.preventDefault(); etiquetaFilter.value=''; renderUsuarioEtiquetas(); } });
+      }
+      const etiquetaFilterClear = document.getElementById('usuario-etiqueta-filter-clear');
+      if(etiquetaFilterClear){ etiquetaFilterClear.addEventListener('click', () => { if(etiquetaFilter) etiquetaFilter.value=''; renderUsuarioEtiquetas(); }); }
+      if(etiquetaSuggests){
+        etiquetaSuggests.addEventListener('click', (ev) => {
+          const chip = ev.target.closest('.chip[data-suggest]');
+          if(!chip) return;
+          const name = chip.getAttribute('data-suggest');
+          const inp = document.getElementById('usuario-etiqueta-input');
+          if(inp) inp.value = name;
+          addUsuarioEtiqueta();
+        });
+      }
+      const etiquetasList = document.getElementById('usuario-etiquetas-list');
+      if(etiquetasList){
+        etiquetasList.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button[data-action="remove"]');
+          if(!btn) return;
+          const eid = parseInt(btn.getAttribute('data-id')||'NaN',10);
+          const u = state.selectedUsuario; if(!u || !u.id || isNaN(eid)) return;
+          if(!confirm('¿Quitar etiqueta?')) return;
+          removeUsuarioEtiqueta(u.id, eid);
+        });
+      }
+      const estadoAdd = document.getElementById('usuario-estado-add');
+      if(estadoAdd){ estadoAdd.addEventListener('click', addUsuarioEstado); }
+      const estadoDesc = document.getElementById('usuario-estado-descripcion');
+      const estadoVenc = document.getElementById('usuario-estado-vencimiento');
+      if(estadoDesc){ estadoDesc.addEventListener('keydown', (ev) => { if(ev.key==='Enter'){ ev.preventDefault(); addUsuarioEstado(); } }); }
+      if(estadoVenc){ estadoVenc.addEventListener('keydown', (ev) => { if(ev.key==='Enter'){ ev.preventDefault(); addUsuarioEstado(); } }); }
+      const estadosList = document.getElementById('usuario-estados-list');
+      if(estadosList){
+        estadosList.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button[data-action="remove"]');
+          if(!btn) return;
+          const sid = parseInt(btn.getAttribute('data-id')||'NaN',10);
+          const u = state.selectedUsuario; if(!u || !u.id || isNaN(sid)) return;
+          if(!confirm('¿Eliminar estado?')) return;
+          deleteUsuarioEstado(u.id, sid);
+        });
+      }
+      const estadosFilter = document.getElementById('usuario-estados-filter');
+      const estadosExpiredToggle = document.getElementById('usuario-estados-show-expired');
+      if(estadosFilter){
+        estadosFilter.addEventListener('input', renderUsuarioEstados);
+        estadosFilter.addEventListener('keydown', (ev) => { if(ev.key==='Escape'){ ev.preventDefault(); estadosFilter.value=''; renderUsuarioEstados(); } });
+      }
+      const estadosFilterClear = document.getElementById('usuario-estados-filter-clear');
+      if(estadosFilterClear){ estadosFilterClear.addEventListener('click', () => { if(estadosFilter) estadosFilter.value=''; renderUsuarioEstados(); }); }
+      if(estadosExpiredToggle){ estadosExpiredToggle.addEventListener('change', renderUsuarioEstados); }
     }
 
     function verPagosDeUsuario(){
@@ -1866,8 +2665,8 @@
       const rol = (document.getElementById('usuario-side-rol').textContent || '').trim().toLowerCase() || 'socio';
       const tipo_cuota_text = (document.getElementById('usuario-side-tipo-cuota').textContent || '').trim();
       const tipo_cuota = tipo_cuota_text || null;
-      const notasText = (document.getElementById('usuario-side-notas').textContent || '').trim();
-      const notas = notasText && notasText !== '—' ? notasText : null;
+      const notasText = (document.getElementById('usuario-notas-textarea')?.value || '').trim();
+      const notas = notasText ? notasText : null;
       if(!nombre || !dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
       const nuevoActivo = !(u.activo === true || u.activo === 'true');
       const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo: nuevoActivo, tipo_cuota, notas };
@@ -1902,6 +2701,193 @@
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
+
+    // --- Subpestañas Usuarios: Notas, Etiquetas y Estados ---
+    async function loadUsuarioEtiquetas(usuario_id){
+      const cont = document.getElementById('usuario-etiquetas-list');
+      const empty = document.getElementById('usuario-etiquetas-empty');
+      if(cont) cont.innerHTML = '';
+      try{
+        const res = await fetch(`/api/usuarios/${usuario_id}/etiquetas`, { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.usuarioEtiquetas = items;
+        const names = items.map(e => String(e.nombre || '').trim()).filter(Boolean);
+        state.tagsSuggest = Array.from(new Set([...(state.tagsSuggest || []), ...names]));
+        renderUsuarioEtiquetas();
+        if(empty) empty.style.display = items.length ? 'none' : 'block';
+      }catch(e){ /* silencioso */ }
+    }
+    function renderUsuarioEtiquetas(){
+      const cont = document.getElementById('usuario-etiquetas-list'); if(!cont) return;
+      const qRaw = (document.getElementById('usuario-etiqueta-filter')?.value || '').trim();
+      const q = qRaw.toLowerCase();
+      const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+      const hl = (text, q) => {
+        if(!q) return esc(text);
+        const idx = text.toLowerCase().indexOf(q.toLowerCase());
+        if(idx === -1) return esc(text);
+        const before = esc(text.slice(0, idx));
+        const match = esc(text.slice(idx, idx + q.length));
+        const after = esc(text.slice(idx + q.length));
+        return `${before}<span class="hl">${match}</span>${after}`;
+      };
+      cont.innerHTML = '';
+      (state.usuarioEtiquetas || []).forEach(e => {
+        const name = String(e.nombre || '').trim();
+        if(q && !name.toLowerCase().includes(q)) return;
+        const span = document.createElement('span');
+        span.className = 'chip';
+        if(e.color) span.style.backgroundColor = e.color;
+        const nameHTML = hl(name, qRaw);
+        span.innerHTML = `${nameHTML}<button class="chip-remove" data-action="remove" data-id="${e.id}" title="Quitar">×</button>`;
+        cont.appendChild(span);
+      });
+    }
+    function renderEtiquetaSuggests(prefix){
+      const cont = document.getElementById('usuario-etiqueta-suggests'); if(!cont) return;
+      const list = (state.tagsSuggest || []).filter(n => n && (!prefix || n.toLowerCase().startsWith(prefix.toLowerCase())));
+      cont.innerHTML = list.slice(0,8).map(n => `<span class="chip" data-suggest="${n}">${n}</span>`).join('');
+      cont.style.display = list.length ? 'flex' : 'none';
+    }
+    async function removeUsuarioEtiqueta(usuario_id, etiqueta_id){
+      try{
+        const res = await fetch(`/api/usuarios/${usuario_id}/etiquetas/${etiqueta_id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo quitar la etiqueta', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        await loadUsuarioEtiquetas(usuario_id);
+      }catch(e){ showToast('Error de red al quitar etiqueta', 'error', 4500); }
+    }
+    async function addUsuarioEtiqueta(){
+      const u = state.selectedUsuario;
+      if(!u || !u.id){ showToast('Selecciona un usuario válido', 'warning', 3500); return; }
+      const nombre = (document.getElementById('usuario-etiqueta-input').value || '').trim();
+      if(!nombre){ showToast('Ingrese el nombre de la etiqueta', 'warning', 3000); return; }
+      try{
+        const res = await fetch(`/api/usuarios/${u.id}/etiquetas`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ nombre }) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo añadir la etiqueta', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        document.getElementById('usuario-etiqueta-input').value = '';
+        await loadUsuarioEtiquetas(u.id);
+      }catch(e){ showToast('Error de red al añadir etiqueta', 'error', 4500); }
+    }
+
+    async function loadEstadoPlantillas(){
+      const sel = document.getElementById('usuario-estado-template');
+      if(!sel) return;
+      try{
+        const res = await fetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.estadoPlantillas = items;
+        state.estadoPlantillasMap = {};
+        items.forEach(p => { if(p && p.nombre) state.estadoPlantillasMap[p.nombre] = p; });
+        sel.innerHTML = '<option value="">Seleccione estado…</option>' + items.map(p => `<option value="${p.nombre}">${p.nombre}</option>`).join('');
+      }catch(e){ sel.innerHTML = '<option value="">Seleccione estado…</option>'; }
+    }
+    async function loadUsuarioEstados(usuario_id){
+      const cont = document.getElementById('usuario-estados-list');
+      const empty = document.getElementById('usuario-estados-empty');
+      if(cont) cont.innerHTML = '';
+      try{
+        const res = await fetch(`/api/usuarios/${usuario_id}/estados`, { headers:{ 'Accept':'application/json' } });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        state.usuarioEstados = items;
+        renderUsuarioEstados();
+        if(empty) empty.style.display = items.length ? 'none' : 'block';
+      }catch(e){ /* silencioso */ }
+    }
+    function renderUsuarioEstados(){
+      const cont = document.getElementById('usuario-estados-list'); if(!cont) return;
+      const qRaw = (document.getElementById('usuario-estados-filter')?.value || '').trim();
+      const q = qRaw.toLowerCase();
+      const showExpired = !!(document.getElementById('usuario-estados-show-expired')?.checked);
+      const esc = (s) => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+      const hl = (text, q) => {
+        if(!q) return esc(text);
+        const idx = text.toLowerCase().indexOf(q.toLowerCase());
+        if(idx === -1) return esc(text);
+        const before = esc(text.slice(0, idx));
+        const match = esc(text.slice(idx, idx + q.length));
+        const after = esc(text.slice(idx + q.length));
+        return `${before}<span class="hl">${match}</span>${after}`;
+      };
+      cont.innerHTML = '';
+      (state.usuarioEstados || []).forEach(s => {
+        const nombre = String(s.estado || s.nombre || '').trim();
+        const desc = String(s.descripcion || '').trim();
+        const match = !q || nombre.toLowerCase().includes(q) || desc.toLowerCase().includes(q);
+        let expired = false; let meta = '';
+        if(s.fecha_vencimiento){
+          try{
+            const dt = new Date(s.fecha_vencimiento);
+            const today = new Date();
+            dt.setHours(0,0,0,0); today.setHours(0,0,0,0);
+            const diffDays = Math.floor((dt - today)/86400000);
+            if(diffDays < 0){ expired = true; meta = `Vencido hace ${Math.abs(diffDays)}d`; }
+            else if(diffDays === 0){ meta = 'Vence hoy'; }
+            else { meta = `Vence en ${diffDays}d`; }
+          }catch{}
+        }
+        if(!match || (!showExpired && expired)) return;
+        const div = document.createElement('div');
+        div.className = 'state-item' + (expired ? ' expired' : '');
+        const venc = s.fecha_vencimiento ? fmtDate(s.fecha_vencimiento) : '';
+        const tpl = state.estadoPlantillasMap ? state.estadoPlantillasMap[nombre] : null;
+        const color = tpl && tpl.color ? tpl.color : '';
+        const nombreHTML = hl(nombre, qRaw);
+        const descHTML = desc ? hl(desc, qRaw) : '';
+        div.innerHTML = `<div class="left"><span class="state-dot" style="${color ? `background:${color}` : ''}"></span><span class="state-name">${nombreHTML}</span>${desc ? ` — <span class="state-desc">${descHTML}</span>`:''}${venc ? ` — <span class="state-date">${venc}</span>`:''}${meta ? ` <span class="state-meta">(${meta})</span>`:''}</div> <button class="btn small secondary" data-action="remove" data-id="${s.id}">Eliminar</button>`;
+        cont.appendChild(div);
+      });
+    }
+    async function deleteUsuarioEstado(usuario_id, estado_id){
+      try{
+        const res = await fetch(`/api/usuarios/${usuario_id}/estados/${estado_id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar el estado', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        await loadUsuarioEstados(usuario_id);
+      }catch(e){ showToast('Error de red al eliminar estado', 'error', 4500); }
+    }
+    async function addUsuarioEstado(){
+      const u = state.selectedUsuario;
+      if(!u || !u.id){ showToast('Selecciona un usuario válido', 'warning', 3500); return; }
+      const nombre = (document.getElementById('usuario-estado-template').value || '').trim();
+      const descripcion = (document.getElementById('usuario-estado-descripcion').value || '').trim();
+      const venc = (document.getElementById('usuario-estado-vencimiento').value || '').trim();
+      if(!nombre){ showToast('Seleccione un estado', 'warning', 3000); return; }
+      const body = { estado: nombre, descripcion: descripcion || null, fecha_vencimiento: venc || null };
+      try{
+        const res = await fetch(`/api/usuarios/${u.id}/estados`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo añadir el estado', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        document.getElementById('usuario-estado-descripcion').value = '';
+        document.getElementById('usuario-estado-vencimiento').value = '';
+        await loadUsuarioEstados(u.id);
+      }catch(e){ showToast('Error de red al añadir estado', 'error', 4500); }
+    }
+    function saveUsuarioNotas(){
+      const u = state.selectedUsuario;
+      if(!u || !u.id){ showToast('Selecciona un usuario válido', 'warning', 3500); return; }
+      const nombre = (document.getElementById('usuario-side-nombre').textContent || '').trim().toUpperCase();
+      const dni = (document.getElementById('usuario-side-dni').textContent || '').trim();
+      const telefono = (document.getElementById('usuario-side-telefono').textContent || '').trim();
+      const rol = (document.getElementById('usuario-side-rol').textContent || '').trim().toLowerCase() || 'socio';
+      const tipo_cuota_text = (document.getElementById('usuario-side-tipo-cuota').textContent || '').trim();
+      const tipo_cuota = tipo_cuota_text || null;
+      const notasText = (document.getElementById('usuario-notas-textarea')?.value || '').trim();
+      const notas = notasText ? notasText : null;
+      const activo = (u.activo === true || u.activo === 'true');
+      if(!nombre || !dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
+      const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo, tipo_cuota, notas };
+      const st = document.getElementById('usuario-notas-status'); if(st) st.textContent = 'Guardando…';
+      fetch(`/api/usuarios/${u.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) })
+        .then(async res => { if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } return res; })
+        .then(async () => { await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); showToast('Notas guardadas', 'success', 2500); const st2 = document.getElementById('usuario-notas-status'); if(st2) st2.textContent = 'Guardado'; })
+        .catch(e => { showToast(`No se pudo guardar notas: ${e.message}`, 'error', 4500); const st2 = document.getElementById('usuario-notas-status'); if(st2) st2.textContent = 'Error'; });
+    }
+
     // ===== Configuración: Tipos de cuota, Conceptos y Métodos =====
     async function loadTiposCuotaAdmin(){
       try{
@@ -2268,6 +3254,391 @@
       const btnSaveMet = document.getElementById('save-metodo'); if(btnSaveMet) btnSaveMet.addEventListener('click', saveMetodo);
       const btnCancelMet = document.getElementById('cancel-metodo'); if(btnCancelMet) btnCancelMet.addEventListener('click', hideMetodoForm);
       const btnCloseMet = document.getElementById('close-modal-metodo'); if(btnCloseMet) btnCloseMet.addEventListener('click', hideMetodoForm);
+
+      const btnRenum = document.getElementById('config-renum-run');
+      if(btnRenum) btnRenum.addEventListener('click', () => {
+        const startEl = document.getElementById('config-renum-start');
+        const startVal = parseInt(((startEl && startEl.value) || '1'), 10);
+        if(!Number.isFinite(startVal) || startVal < 1){ showToast('ID inicial inválido', 'warning', 3000); return; }
+        if(startVal === 1){ showToast('El ID 1 está reservado para Dueño. Usa 2 o mayor.', 'warning', 4000); return; }
+        state.renumStartId = startVal;
+        const disp = document.getElementById('renum-start-display'); if(disp) disp.textContent = String(startVal);
+        openModal('modal-renum-confirm');
+      });
+      const renumClose = document.getElementById('renum-close'); if(renumClose) renumClose.addEventListener('click', () => closeModal('modal-renum-confirm'));
+      const renumCancel = document.getElementById('renum-cancel'); if(renumCancel) renumCancel.addEventListener('click', () => closeModal('modal-renum-confirm'));
+      const renumConfirm = document.getElementById('renum-confirm'); if(renumConfirm) renumConfirm.addEventListener('click', async () => {
+        const btn = document.getElementById('renum-confirm'); const trigger = document.getElementById('config-renum-run');
+        if(btn) btn.disabled = true; if(trigger) trigger.disabled = true;
+        try{
+          const startVal = Number(state.renumStartId || 0);
+          const res = await fetch('/api/admin/renumerar_usuarios', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ start_id: startVal }) });
+          if(res.status === 401){ showToast('Acceso restringido a dueño. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+          const data = await res.json().catch(() => ({}));
+          if(!res.ok || data.success === false){ showToast(data.detail || data.error || data.message || 'No se pudo renumerar IDs', 'error', 5000); return; }
+          showToast('Renumeración completada', 'success', 3500);
+          closeModal('modal-renum-confirm');
+          try{ if(typeof loadUsers === 'function'){ await loadUsers(); } }catch(e){}
+        }catch(e){ showToast('Error de red al renumerar', 'error', 4500); }
+        finally{ if(btn) btn.disabled = false; if(trigger) trigger.disabled = false; }
+      });
+      const btnSecureOwner = document.getElementById('config-secure-owner');
+      if(btnSecureOwner) btnSecureOwner.addEventListener('click', () => {
+        openModal('modal-secure-owner-confirm');
+      });
+      const soClose = document.getElementById('secure-owner-close'); if(soClose) soClose.addEventListener('click', () => closeModal('modal-secure-owner-confirm'));
+      const soCancel = document.getElementById('secure-owner-cancel'); if(soCancel) soCancel.addEventListener('click', () => closeModal('modal-secure-owner-confirm'));
+      const soConfirm = document.getElementById('secure-owner-confirm'); if(soConfirm) soConfirm.addEventListener('click', async () => {
+        const trigger = document.getElementById('config-secure-owner');
+        const btn = document.getElementById('secure-owner-confirm');
+        if(trigger) trigger.disabled = true; if(btn) btn.disabled = true;
+        try{
+          const res = await fetch('/api/admin/secure_owner', { method:'POST', headers:{ 'Accept':'application/json' } });
+          if(res.status === 401){ showToast('Acceso restringido a dueño. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+          const data = await res.json().catch(() => ({}));
+          if(!res.ok || data.success === false){ showToast(data.detail || data.error || data.message || 'No se pudo asegurar al Dueño', 'error', 5000); return; }
+          showToast('Dueño asegurado', 'success', 3500);
+          closeModal('modal-secure-owner-confirm');
+          try{ if(typeof loadUsers === 'function'){ await loadUsers(); } }catch(e){}
+        }catch(e){ showToast('Error de red al asegurar Dueño', 'error', 4500); }
+        finally{ if(trigger) trigger.disabled = false; if(btn) btn.disabled = false; }
+      });
+    }
+
+    // ===== Ejercicios: funciones =====
+    function loadEjercicios(){
+      const q = (document.getElementById('ejercicios-q') || {}).value || '';
+      const objetivo = (document.getElementById('ejercicios-objetivo') || {}).value || '';
+      const grupo = (document.getElementById('ejercicios-grupo') || {}).value || '';
+      const params = new URLSearchParams();
+      if(q) params.append('filtro', q);
+      if(objetivo && objetivo !== 'Todos') params.append('objetivo', objetivo);
+      if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
+      const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
+      fetch(url, { headers: { 'Accept': 'application/json' } })
+        .then(async (r) => {
+          if(!r.ok){
+            if(r.status === 401){
+              showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500);
+              try{ window.location.href = '/gestion/login'; }catch(e){}
+              return [];
+            }
+            const d = await r.json().catch(() => ({}));
+            showToast(d.detail || 'No se pudieron cargar ejercicios', 'error', 4500);
+            return [];
+          }
+          return r.json().catch(() => []);
+        })
+        .then(items => { 
+          state.ejercicios = Array.isArray(items) ? items : []; 
+          updateEjerciciosTable(); 
+          const sel = state.selectedEjercicio ? (state.ejercicios || []).find(x => String(x.id) === String(state.selectedEjercicio.id)) : null;
+          updateEjercicioSidePanel(sel || null);
+        })
+        .catch(() => showToast('No se pudieron cargar ejercicios', 'error', 4500));
+    }
+
+    function updateEjerciciosTable(){
+      const tbody = document.querySelector('#ejercicios-table tbody');
+      if(!tbody) return;
+      tbody.innerHTML = '';
+      const items = Array.isArray(state.ejercicios) ? state.ejercicios : [];
+      items.forEach((e, idx) => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-index', String(idx));
+        tr.setAttribute('data-id', String(e.id || ''));
+        tr.innerHTML = `
+          <td>${e.nombre || ''}</td>
+          <td>${e.grupo_muscular || ''}</td>
+          <td>${e.objetivo || ''}</td>
+          <td>${e.descripcion || ''}</td>
+          <td>
+            <button class="btn secondary" data-action="edit" data-index="${idx}" data-id="${e.id}">Editar</button>
+            <button class="btn" data-action="delete" data-id="${e.id}">Eliminar</button>
+          </td>`;
+        tr.addEventListener('click', (ev) => {
+          const isBtn = !!ev.target.closest('button');
+          if(isBtn) return;
+          state.selectedEjercicio = e;
+          updateEjercicioSidePanel(e);
+        });
+        tbody.appendChild(tr);
+      });
+      const countEl = document.getElementById('ejercicios-count'); if(countEl) countEl.textContent = `${items.length} ejercicios`;
+    }
+
+    function bindEjerciciosEvents(){
+      const btnRefresh = document.getElementById('ejercicios-refresh'); if(btnRefresh) btnRefresh.addEventListener('click', loadEjercicios);
+      const qInput = document.getElementById('ejercicios-q'); if(qInput) qInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') loadEjercicios(); });
+      const objSel = document.getElementById('ejercicios-objetivo'); if(objSel) objSel.addEventListener('change', loadEjercicios);
+      const grpSel = document.getElementById('ejercicios-grupo'); if(grpSel) grpSel.addEventListener('change', loadEjercicios);
+      const btnNew = document.getElementById('ejercicios-new'); if(btnNew) btnNew.addEventListener('click', () => showEjercicioForm(null));
+
+      const tbody = document.querySelector('#ejercicios-table tbody');
+      if(tbody){
+        tbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const action = btn.getAttribute('data-action');
+          if(action === 'edit'){
+            const idx = parseInt(btn.getAttribute('data-index') || '0', 10);
+            const row = (state.ejercicios || [])[idx];
+            showEjercicioForm(row || null);
+          } else if(action === 'delete'){
+            const id = btn.getAttribute('data-id');
+            deleteEjercicio(id);
+          }
+        });
+      }
+
+      const btnSave = document.getElementById('save-ejercicio'); if(btnSave) btnSave.addEventListener('click', saveEjercicio);
+      const btnCancel = document.getElementById('cancel-ejercicio'); if(btnCancel) btnCancel.addEventListener('click', hideEjercicioForm);
+      const btnClose = document.getElementById('close-modal-ejercicio'); if(btnClose) btnClose.addEventListener('click', hideEjercicioForm);
+
+      const delCancel = document.getElementById('ejercicio-delete-cancel'); if(delCancel) delCancel.addEventListener('click', () => closeModal('modal-ejercicio-delete'));
+      const delConfirm = document.getElementById('ejercicio-delete-confirm'); if(delConfirm) delConfirm.addEventListener('click', confirmDeleteEjercicio);
+      const delClose = document.getElementById('ejercicio-delete-close'); if(delClose) delClose.addEventListener('click', () => closeModal('modal-ejercicio-delete'));
+
+      // Extras modal bindings
+      const btnEditExtras = document.getElementById('ejercicio-side-edit-extras'); if(btnEditExtras) btnEditExtras.addEventListener('click', () => { if(state.selectedEjercicio) openExtrasModal(state.selectedEjercicio); });
+      const btnSaveExtras = document.getElementById('save-extras'); if(btnSaveExtras) btnSaveExtras.addEventListener('click', saveExtras);
+      const btnCancelExtras = document.getElementById('cancel-extras'); if(btnCancelExtras) btnCancelExtras.addEventListener('click', hideExtrasModal);
+      const btnCloseExtras = document.getElementById('close-modal-extras'); if(btnCloseExtras) btnCloseExtras.addEventListener('click', hideExtrasModal);
+    }
+
+    function showEjercicioForm(e){
+      state.editingEjercicioId = e && e.id ? Number(e.id) : null;
+      openModal('modal-ejercicio-form');
+      const nombreEl = document.getElementById('ejercicio-nombre'); if(nombreEl) nombreEl.value = e && e.nombre ? String(e.nombre) : '';
+      const grupoEl = document.getElementById('ejercicio-grupo'); if(grupoEl) grupoEl.value = e && e.grupo_muscular ? String(e.grupo_muscular) : '';
+      const objEl = document.getElementById('ejercicio-objetivo'); if(objEl) objEl.value = e && e.objetivo ? String(e.objetivo) : 'general';
+      const descEl = document.getElementById('ejercicio-descripcion'); if(descEl) descEl.value = e && e.descripcion ? String(e.descripcion) : '';
+    }
+    function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); }
+
+    async function saveEjercicio(){
+      const nombre = (document.getElementById('ejercicio-nombre') || {}).value || '';
+      const grupo_muscular = (document.getElementById('ejercicio-grupo') || {}).value || '';
+      const objetivo = (document.getElementById('ejercicio-objetivo') || {}).value || 'general';
+      const descripcion = (document.getElementById('ejercicio-descripcion') || {}).value || '';
+      if(!nombre.trim()){ showToast('El nombre es obligatorio', 'warning', 3000); return; }
+      const body = { nombre, grupo_muscular, objetivo, descripcion };
+      let url = '/api/ejercicios'; let method = 'POST';
+      if(state.editingEjercicioId){ url = `/api/ejercicios/${state.editingEjercicioId}`; method = 'PUT'; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar', 'error', 4500); return; }
+        closeModal('modal-ejercicio-form');
+        showToast('Ejercicio guardado', 'success', 2500);
+        await loadEjercicios();
+      }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
+    }
+
+    function deleteEjercicio(id){
+      if(!id){ showToast('Ejercicio no encontrado', 'warning', 3000); return; }
+      state.deleteEjercicioId = Number(id);
+      openModal('modal-ejercicio-delete');
+    }
+    async function confirmDeleteEjercicio(){
+      const id = state.deleteEjercicioId; if(!id) return;
+      try{
+        const res = await fetch(`/api/ejercicios/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ showToast(data.detail || data.error || 'No se pudo eliminar', 'error', 4500); return; }
+        closeModal('modal-ejercicio-delete');
+        showToast('Ejercicio eliminado', 'success', 2500);
+        await loadEjercicios();
+      }catch(e){ showToast('Error de red al eliminar', 'error', 4500); }
+    }
+
+    // ===== Ejercicios: extras (equipamiento y variantes) =====
+    function parseExtrasFromDescripcion(text){
+      const lines = String(text || '').split(/\r?\n/);
+      const equipamiento = []; const variantes = []; const base = [];
+      for(const l of lines){
+        const s = String(l).trim();
+        if(/^Equipamiento:/i.test(s)){
+          const rest = s.replace(/^Equipamiento:/i, '').trim();
+          const items = rest.split(/[;,]/).map(x => x.trim()).filter(Boolean);
+          equipamiento.push(...items);
+        } else if(/^Variantes:/i.test(s)){
+          const rest = s.replace(/^Variantes:/i, '').trim();
+          const items = rest.split(/[;,]/).map(x => x.trim()).filter(Boolean);
+          variantes.push(...items);
+        } else {
+          base.push(l);
+        }
+      }
+      return { baseDescripcion: base.join('\n').trim(), equipamiento, variantes };
+    }
+    function composeDescripcionWithExtras(base, equip, vars){
+      const parts = [String(base || '').trim()];
+      const eq = Array.isArray(equip) ? equip.filter(Boolean) : [];
+      const va = Array.isArray(vars) ? vars.filter(Boolean) : [];
+      if(eq.length) parts.push('Equipamiento: ' + eq.join('; '));
+      if(va.length) parts.push('Variantes: ' + va.join('; '));
+      return parts.filter(Boolean).join('\n\n').trim();
+    }
+    function openExtrasModal(e){
+      if(!e){ showToast('Selecciona un ejercicio', 'warning', 3000); return; }
+      const extras = parseExtrasFromDescripcion(e.descripcion || '');
+      const eqEl = document.getElementById('extras-equipamiento'); if(eqEl) eqEl.value = (extras.equipamiento || []).join('\n');
+      const varEl = document.getElementById('extras-variantes'); if(varEl) varEl.value = (extras.variantes || []).join('\n');
+      openModal('modal-ejercicio-extras');
+    }
+    function hideExtrasModal(){ closeModal('modal-ejercicio-extras'); }
+    async function saveExtras(){
+      const e = state.selectedEjercicio; if(!e){ showToast('Selecciona un ejercicio', 'warning', 3000); return; }
+      const eqRaw = (document.getElementById('extras-equipamiento') || {}).value || '';
+      const varRaw = (document.getElementById('extras-variantes') || {}).value || '';
+      const equipos = eqRaw.split(/\r?\n|;/).map(x => x.trim()).filter(Boolean);
+      const variantes = varRaw.split(/\r?\n|;/).map(x => x.trim()).filter(Boolean);
+      const parsed = parseExtrasFromDescripcion(e.descripcion || '');
+      const descripcion = composeDescripcionWithExtras(parsed.baseDescripcion || '', equipos, variantes);
+      const body = { nombre: e.nombre || '', grupo_muscular: e.grupo_muscular || '', objetivo: e.objetivo || 'general', descripcion };
+      try{
+        const res = await fetch(`/api/ejercicios/${e.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(_e){} return; }
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar extras', 'error', 4500); return; }
+        hideExtrasModal();
+        showToast('Extras actualizados', 'success', 2500);
+        await loadEjercicios();
+      }catch(_){ showToast('Error de red al guardar extras', 'error', 4500); }
+    }
+
+    function updateEjercicioSidePanel(e){
+      const nombreEl = document.getElementById('ejercicio-side-nombre');
+      const objEl = document.getElementById('ejercicio-side-objetivo');
+      const grpEl = document.getElementById('ejercicio-side-grupo');
+      const descEl = document.getElementById('ejercicio-side-descripcion');
+      const tipsEl = document.getElementById('ejercicio-side-tips');
+      const eqEl = document.getElementById('ejercicio-side-equipos');
+      const varEl = document.getElementById('ejercicio-side-variantes');
+      const btnEdit = document.getElementById('ejercicio-side-edit');
+      const btnDel = document.getElementById('ejercicio-side-delete');
+      const none = '—';
+      if(!nombreEl) return;
+      if(e){
+        nombreEl.textContent = e.nombre || none;
+        objEl.textContent = e.objetivo || none;
+        grpEl.textContent = e.grupo_muscular || none;
+        descEl.textContent = e.descripcion || none;
+        tipsEl.innerHTML = renderList(ejercicioTips(e.objetivo, e.grupo_muscular));
+        const extras = parseExtrasFromDescripcion(e.descripcion || '');
+        const equiposList = (extras.equipamiento && extras.equipamiento.length) ? extras.equipamiento : ejercicioEquipos(e.grupo_muscular);
+        const variantesList = (extras.variantes && extras.variantes.length) ? extras.variantes : ejercicioVariantes(e.grupo_muscular);
+        eqEl.innerHTML = renderList(equiposList);
+        varEl.innerHTML = renderList(variantesList);
+        if(btnEdit) btnEdit.disabled = false;
+        if(btnDel) btnDel.disabled = false;
+        if(btnEdit) btnEdit.onclick = () => showEjercicioForm(e);
+        if(btnDel) btnDel.onclick = () => deleteEjercicio(e.id);
+        const btnXtra = document.getElementById('ejercicio-side-edit-extras');
+        if(btnXtra){ btnXtra.disabled = false; btnXtra.onclick = () => openExtrasModal(e); }
+      } else {
+        nombreEl.textContent = none;
+        objEl.textContent = none;
+        grpEl.textContent = none;
+        descEl.textContent = none;
+        tipsEl.innerHTML = '<li class="muted">Selecciona un ejercicio para ver consejos</li>';
+        eqEl.innerHTML = '<li class="muted">—</li>';
+        varEl.innerHTML = '<li class="muted">—</li>';
+        if(btnEdit) btnEdit.disabled = true;
+        if(btnDel) btnDel.disabled = true;
+        if(btnEdit) btnEdit.onclick = null;
+        if(btnDel) btnDel.onclick = null;
+        const btnXtra = document.getElementById('ejercicio-side-edit-extras');
+        if(btnXtra){ btnXtra.disabled = true; btnXtra.onclick = null; }
+      }
+    }
+    function renderList(items){ const arr = Array.isArray(items) ? items : []; if(arr.length===0){ return '<li class="muted">—</li>'; } return arr.map(x => `<li>${x}</li>`).join(''); }
+    function ejercicioTips(objetivo, grupo){
+      const tips = {
+        general: ['Calentamiento previo 5–10 min', 'Controla la técnica y rango de movimiento'],
+        fuerza: ['Prioriza multiarticulares', 'Descansos largos 2–3 min entre series'],
+        hipertrofia: ['Tempo controlado', 'Series de 8–12 reps', 'Progresión semanal del volumen'],
+        resistencia: ['Circuitos con pausas cortas', 'Mantén respiración constante'],
+        cardio: ['Intensidad moderada y sostenida', 'Hidratación en sesiones largas'],
+        flexibilidad: ['No rebotes', 'Exhala en la fase de extensión']
+      };
+      const base = tips[String(objetivo || 'general')] || tips.general;
+      const extra = {
+        Piernas: ['En sentadillas, mantén columna neutra', 'Alinea rodillas con punta de pies'],
+        Espalda: ['Retracción escapular antes de traccionar'],
+        Pecho: ['Codos a ~45° en press', 'No hiperextiendas en banca'],
+        Hombros: ['Evita elevación excesiva en laterales'],
+        Brazos: ['No balancees en curls; usa control'],
+        Core: ['Activa abdomen, evita hiperextensión lumbar'],
+        'Full Body': ['Ordena del más demandante al más técnico']
+      }[String(grupo || '')] || [];
+      return base.concat(extra);
+    }
+    function ejercicioEquipos(grupo){
+      const map = {
+        Piernas: ['Barra', 'Mancuernas', 'Máquina prensa', 'Banda elástica'],
+        Espalda: ['Polea', 'Barra', 'Mancuernas'],
+        Pecho: ['Banco', 'Barra', 'Mancuernas'],
+        Hombros: ['Mancuernas', 'Polea', 'Barra'],
+        Brazos: ['Mancuernas', 'Polea'],
+        Core: ['Esterilla', 'Rueda abdominal'],
+        'Full Body': ['Barra', 'Mancuernas', 'Kettlebell']
+      };
+      return map[String(grupo || '')] || ['—'];
+    }
+    function ejercicioVariantes(grupo){
+      const map = {
+        Piernas: ['Sentadilla frontal', 'Zancadas', 'Prensa inclinada'],
+        Espalda: ['Remo con barra', 'Dominadas supinas'],
+        Pecho: ['Press inclinado', 'Fondos en paralelas'],
+        Hombros: ['Press militar', 'Elevaciones frontales'],
+        Brazos: ['Curl martillo', 'Extensiones sobre cabeza'],
+        Core: ['Plancha lateral', 'Dead bug'],
+        'Full Body': ['Thrusters', 'Complexes con barra']
+      };
+      return map[String(grupo || '')] || [];
+    }
+
+    function renderLoginInfo(){
+      const el = document.getElementById('login-current');
+      if(!el) return;
+      const role = (el.getAttribute('data-role') || '').trim();
+      if(role === 'dueño'){
+        const base = 'Sesión: Dueño';
+        el.textContent = base;
+        el.setAttribute('data-base', base);
+        const topEstadoEl = document.getElementById('prof-sesion-estado');
+        if(topEstadoEl) topEstadoEl.style.display = 'none';
+        return;
+      }
+      const pidRaw = el.getAttribute('data-prof-id') || '';
+      const uidRaw = el.getAttribute('data-prof-uid') || '';
+      const pid = pidRaw ? Number(pidRaw) : null;
+      const uid = uidRaw ? Number(uidRaw) : null;
+      const baseDefault = 'Sesión: Profesor';
+      const topEstadoEl = document.getElementById('prof-sesion-estado');
+      if(topEstadoEl) topEstadoEl.style.display = '';
+      if(pid || uid){
+        fetch('/api/profesores_basico', { headers: { 'Accept': 'application/json' } })
+          .then(r => r.ok ? r.json() : [])
+          .then(list => {
+            const arr = Array.isArray(list) ? list : [];
+            const profByPid = pid ? arr.find(x => String(x.profesor_id) === String(pid)) : null;
+            const profByUid = (!profByPid && uid) ? arr.find(x => String(x.usuario_id) === String(uid)) : null;
+            const prof = profByPid || profByUid;
+            let base = baseDefault;
+            if(prof && prof.nombre){ base = baseDefault + ' • ' + prof.nombre; }
+            el.textContent = base;
+            el.setAttribute('data-base', base);
+            if(prof && prof.profesor_id){ el.setAttribute('data-prof-id', String(prof.profesor_id)); }
+          })
+          .catch(() => { el.textContent = baseDefault; el.setAttribute('data-base', baseDefault); });
+      } else {
+        el.textContent = baseDefault;
+        el.setAttribute('data-base', baseDefault);
+      }
     }
 
     function init(){
@@ -2277,6 +3648,8 @@
           switchTab(tab);
           if(tab === 'pagos') loadPayments();
           if(tab === 'usuarios') loadUsers();
+          if(tab === 'profesores') loadProfesoresPanel();
+          if(tab === 'ejercicios') loadEjercicios();
           if(tab === 'configuracion') loadConfigData();
         });
       });
@@ -2305,6 +3678,15 @@
       bindPagosEvents();
       bindUsuariosEvents();
       bindConfiguracionEvents();
+      bindEjerciciosEvents();
+      bindProfesoresEvents();
+      renderLoginInfo();
+      refreshTopBarSesion();
+      const roleEl = document.getElementById('login-current');
+      const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+      const btnProf = document.getElementById('tab-btn-profesores');
+      if(btnProf && role !== 'dueño'){ btnProf.style.display = 'none'; }
+      loadEstadoPlantillas();
       // Auto-ocultar header al hacer scroll
       const headerEl = document.getElementById('main-header');
       if(headerEl){
@@ -2333,7 +3715,934 @@
       // Cargar pagos por defecto (últimos 30 días)
       loadPayments();
     }
-    document.addEventListener('DOMContentLoaded', init);
+    // ==== Profesores: estado y funciones ====
+  function ensureProfesoresState(){
+    if(!window.state) window.state = {};
+    if(!state.profesores) state.profesores = { list: [], horarios: [], sesiones: [], horarioEditId: null, sesionEditId: null, activeSubtab: 'resumen', sesionTimerId: null, currentUsuario: null };
+  }
+  function bindProfesoresEvents(){
+    const btnRefresh = document.getElementById('prof-refresh');
+    const selProf = document.getElementById('profesor-select');
+    const btnAdd = document.getElementById('horario-add');
+    const btnCancel = document.getElementById('horario-cancel');
+    const btnStart = document.getElementById('sesion-iniciar');
+    const btnEnd = document.getElementById('sesion-finalizar');
+    const btnSesRefresh = document.getElementById('prof-ses-refresh');
+    const btnSesWeek = document.getElementById('prof-ses-week');
+    const btnSesMonth = document.getElementById('prof-ses-month');
+    const sesStartEl = document.getElementById('prof-ses-start');
+    const sesEndEl = document.getElementById('prof-ses-end');
+    const weekDate = document.getElementById('prof-week-date');
+    const weekStart = document.getElementById('prof-week-start');
+    if(!document.getElementById('panel-profesores')) return;
+    if(btnRefresh) btnRefresh.onclick = () => loadProfesoresBasico(true);
+    if(selProf) selProf.onchange = () => { ensureProfesoresState(); state.profesores.horarioEditId = null; resetHorarioForm(); loadProfesorDatos(); loadProfesorHorarios(); loadProfesorConfig(); refreshSesion(); if(state.profesores.activeSubtab==='resumen') loadProfesorResumen(); if(state.profesores.activeSubtab==='sesiones') loadProfesorSesiones(); };
+    if(btnAdd) btnAdd.onclick = addOrUpdateHorario;
+    if(btnCancel) btnCancel.onclick = () => { ensureProfesoresState(); state.profesores.horarioEditId = null; resetHorarioForm(); };
+    if(btnStart) btnStart.onclick = startSesion;
+    if(btnEnd) btnEnd.onclick = endSesion;
+    if(btnSesRefresh) btnSesRefresh.onclick = loadProfesorSesiones;
+    if(btnSesWeek) btnSesWeek.onclick = () => { const base = toISODate(new Date()); const mode = (document.getElementById('prof-week-start')?.value || 'mon'); const r = getWeekRange(base, mode); if(sesStartEl) sesStartEl.value = r.start; if(sesEndEl) sesEndEl.value = r.end; loadProfesorSesiones(); };
+    if(btnSesMonth) btnSesMonth.onclick = () => { const r = getMonthRange(); if(sesStartEl) sesStartEl.value = r.start; if(sesEndEl) sesEndEl.value = r.end; loadProfesorSesiones(); };
+    const btnDatosSave = document.getElementById('prof-datos-save');
+    if(btnDatosSave) btnDatosSave.onclick = saveProfesorDatos;
+    const btnConfigSave = document.getElementById('prof-config-save');
+    if(btnConfigSave) btnConfigSave.onclick = saveProfesorConfig;
+    if(weekDate) weekDate.onchange = loadProfesorResumen;
+    if(weekStart) weekStart.onchange = loadProfesorResumen;
+    if(document.getElementById('prof-subtabs')) bindProfesoresSubtabsEvents();
+    // Inicializar semana con hoy
+    const today = new Date();
+    if(weekDate && !weekDate.value) weekDate.value = toISODate(today);
+    // Eventos modal edición de sesión
+    const sesSave = document.getElementById('sesion-save');
+    const sesCancel = document.getElementById('sesion-form-cancel');
+    const sesClose = document.getElementById('sesion-form-close');
+    const sesFecha = document.getElementById('sesion-fecha');
+    const sesInicio = document.getElementById('sesion-inicio');
+    const sesFin = document.getElementById('sesion-fin');
+    const sesMin = document.getElementById('sesion-minutos');
+    const sesAuto = document.getElementById('sesion-auto');
+
+    function calcMinutesFromInputs(){
+      const dateStr = sesFecha?.value || toISODate(new Date());
+      const iVal = sesInicio?.value || '';
+      const fVal = sesFin?.value || '';
+      if(!dateStr || !iVal || !fVal) return null;
+      try{
+        const sDate = new Date(`${dateStr}T${String(iVal).padStart(5,'0')}:00`);
+        let eDate = new Date(`${dateStr}T${String(fVal).padStart(5,'0')}:00`);
+        if(eDate < sDate){ eDate = new Date(eDate.getTime() + 24*60*60*1000); }
+        const minutes = Math.max(0, Math.round((eDate - sDate) / 60000));
+        return minutes;
+      }catch(_){ return null; }
+    }
+    function updateSesionResumen(){
+      const resMinEl = document.getElementById('sesion-resumen-min');
+      const resHrsEl = document.getElementById('sesion-resumen-horas');
+      const autoOn = !!(sesAuto && sesAuto.checked);
+      const calc = calcMinutesFromInputs();
+      if(autoOn && sesMin){ sesMin.value = calc != null ? String(calc) : ''; }
+      if(resMinEl) resMinEl.textContent = calc != null ? String(calc) : '—';
+      if(resHrsEl) resHrsEl.textContent = calc != null ? (calc/60).toFixed(2) : '—';
+    }
+
+    if(sesSave) sesSave.onclick = saveSesionEdit;
+    if(sesCancel) sesCancel.onclick = () => { ensureProfesoresState(); state.profesores.sesionEditId = null; closeModal('modal-sesion-form'); };
+    if(sesClose) sesClose.onclick = () => { ensureProfesoresState(); state.profesores.sesionEditId = null; closeModal('modal-sesion-form'); };
+
+    if(sesAuto) sesAuto.onchange = () => { const on = sesAuto.checked; if(sesMin) sesMin.disabled = on; updateSesionResumen(); };
+    if(sesFecha) sesFecha.onchange = updateSesionResumen;
+    if(sesInicio) sesInicio.oninput = updateSesionResumen;
+    if(sesFin) sesFin.oninput = updateSesionResumen;
+    if(sesMin) sesMin.oninput = () => { const resHrsEl = document.getElementById('sesion-resumen-horas'); const v = Number(sesMin.value); if(!isFinite(v)) { if(resHrsEl) resHrsEl.textContent = '—'; return; } if(resHrsEl) resHrsEl.textContent = (Math.max(0, Math.round(v))/60).toFixed(2); };
+  }
+  function loadProfesoresPanel(){
+    ensureProfesoresState();
+    bindProfesoresEvents();
+    loadProfesoresBasico();
+  }
+  function loadProfesoresBasico(){
+    ensureProfesoresState();
+    fetch('/api/profesores_basico')
+      .then(r => r.json())
+      .then(list => {
+        state.profesores.list = Array.isArray(list) ? list : [];
+        const sel = document.getElementById('profesor-select');
+        if(!sel) return;
+        const prev = sel.value;
+        sel.innerHTML = state.profesores.list.map(p => `<option value="${p.profesor_id}">${p.nombre || ('Profesor ' + p.profesor_id)}</option>`).join('');
+        const hasPrev = state.profesores.list.some(p => String(p.profesor_id) === String(prev));
+        if(hasPrev) sel.value = prev;
+        if(!sel.value && state.profesores.list.length) sel.value = String(state.profesores.list[0].profesor_id);
+        loadProfesorDatos();
+        loadProfesorHorarios();
+        loadProfesorConfig();
+        refreshSesion();
+        loadProfesorResumen();
+      })
+      .catch(_ => {
+        if (typeof showToast === 'function') showToast('Error cargando profesores', 'error');
+      });
+  }
+  function loadProfesorHorarios(){
+    ensureProfesoresState();
+    const sel = document.getElementById('profesor-select');
+    if(!sel || !sel.value) return;
+    const pid = sel.value;
+    fetch(`/api/profesor_horarios?profesor_id=${encodeURIComponent(pid)}`)
+      .then(r => r.json())
+      .then(list => {
+        state.profesores.horarios = Array.isArray(list) ? list : [];
+        renderHorariosTable();
+      })
+      .catch(_ => {
+        if (typeof showToast === 'function') showToast('Error cargando horarios', 'error');
+      });
+  }
+  function renderHorariosTable(){
+    const tbody = document.querySelector('#prof-horarios-table tbody');
+    const count = document.getElementById('horarios-count');
+    if(!tbody) return;
+    const rows = (state.profesores.horarios || []).map(h => {
+      const disponibleTxt = h.disponible ? 'Sí' : 'No';
+      const id = h.id ?? h.horario_id ?? '';
+      const dia = h.dia ?? h.dia_semana ?? '';
+      const inicio = (h.inicio || h.hora_inicio || '').toString().slice(0,5);
+      const fin = (h.fin || h.hora_fin || '').toString().slice(0,5);
+      return `<tr data-id="${id}">
+        <td>${dia}</td>
+        <td>${inicio}</td>
+        <td>${fin}</td>
+        <td>${disponibleTxt}</td>
+        <td>
+          <button class="btn tiny" data-action="edit">Editar</button>
+          <button class="btn tiny danger" data-action="delete">Eliminar</button>
+        </td>
+      </tr>`;
+    }).join('');
+    tbody.innerHTML = rows;
+    if(count) count.textContent = `${state.profesores.horarios.length} registros`;
+    tbody.querySelectorAll('button[data-action="edit"]').forEach(btn => {
+      btn.onclick = ev => {
+        const tr = ev.target.closest('tr');
+        const id = tr?.getAttribute('data-id');
+        if(!id) return;
+        handleEditHorario(id);
+      };
+    });
+    tbody.querySelectorAll('button[data-action="delete"]').forEach(btn => {
+      btn.onclick = ev => {
+        const tr = ev.target.closest('tr');
+        const id = tr?.getAttribute('data-id');
+        if(!id) return;
+        handleDeleteHorario(id);
+      };
+    });
+  }
+  function resetHorarioForm(){
+    const addBtn = document.getElementById('horario-add');
+    const cancelBtn = document.getElementById('horario-cancel');
+    const diaSel = document.getElementById('horario-dia');
+    const inicio = document.getElementById('horario-inicio');
+    const fin = document.getElementById('horario-fin');
+    const disp = document.getElementById('horario-disponible');
+    if(addBtn) addBtn.textContent = 'Añadir';
+    if(cancelBtn) cancelBtn.style.display = 'none';
+    if(diaSel) diaSel.value = 'Lunes';
+    if(inicio) inicio.value = '';
+    if(fin) fin.value = '';
+    if(disp) disp.checked = true;
+  }
+  function handleEditHorario(id){
+    const h = (state.profesores.horarios || []).find(x => (String(x.id ?? x.horario_id) === String(id)));
+    if(!h) return;
+    state.profesores.horarioEditId = String(id);
+    const addBtn = document.getElementById('horario-add');
+    const cancelBtn = document.getElementById('horario-cancel');
+    const diaSel = document.getElementById('horario-dia');
+    const inicio = document.getElementById('horario-inicio');
+    const fin = document.getElementById('horario-fin');
+    const disp = document.getElementById('horario-disponible');
+    if(addBtn) addBtn.textContent = 'Guardar';
+    if(cancelBtn) cancelBtn.style.display = 'inline-block';
+    if(diaSel) diaSel.value = h.dia ?? h.dia_semana ?? 'Lunes';
+    if(inicio) inicio.value = (h.inicio || h.hora_inicio || '').toString().slice(0,5);
+    if(fin) fin.value = (h.fin || h.hora_fin || '').toString().slice(0,5);
+    if(disp) disp.checked = !!h.disponible;
+  }
+  function openSesionEdit(id){
+    ensureProfesoresState();
+    state.profesores.sesionEditId = String(id);
+    const ses = (state.profesores.sesiones || []).find(x => String(x.id ?? x.sesion_id ?? x.id_sesion ?? x.SesionID) === String(id));
+    if(!ses){ if (typeof showToast === 'function') showToast('No se encontró la sesión', 'error'); return; }
+    const fecha = String(ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '').slice(0,10);
+    const inicioRaw = (ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+    const finRaw = (ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+    const tipoVal = (ses.tipo ?? ses.tipo_actividad ?? ses.Tipo ?? ses.actividad ?? '');
+    const fEl = document.getElementById('sesion-fecha');
+    const iEl = document.getElementById('sesion-inicio');
+    const finEl = document.getElementById('sesion-fin');
+    const tEl = document.getElementById('sesion-tipo');
+    const minEl = document.getElementById('sesion-minutos');
+    const autoEl = document.getElementById('sesion-auto');
+    if(fEl) fEl.value = fecha || '';
+    if(iEl) iEl.value = extractTime(inicioRaw).replace('—','');
+    if(finEl) finEl.value = extractTime(finRaw).replace('—','');
+    if(tEl) tEl.value = String(tipoVal || '');
+    if(minEl) minEl.value = String(ses.minutos ?? ses.minutos_totales ?? '');
+    if(autoEl){ autoEl.checked = true; if(minEl) minEl.disabled = true; }
+    try{ if(iEl) iEl.dispatchEvent(new Event('input')); }catch(_){}
+    openModal('modal-sesion-form');
+  }
+  async function saveSesionEdit(){
+    try{
+      ensureProfesoresState();
+      const id = state.profesores.sesionEditId;
+      if(!id){ if (typeof showToast === 'function') showToast('No hay sesión seleccionada', 'error'); return; }
+      const fEl = document.getElementById('sesion-fecha');
+      const iEl = document.getElementById('sesion-inicio');
+      const finEl = document.getElementById('sesion-fin');
+      const tEl = document.getElementById('sesion-tipo');
+      const minEl = document.getElementById('sesion-minutos');
+      const autoEl = document.getElementById('sesion-auto');
+      let minutosPayload = null;
+      if(autoEl && autoEl.checked){
+        minutosPayload = null;
+      } else {
+        const mv = minEl ? Number(minEl.value) : null;
+        minutosPayload = (mv != null && isFinite(mv)) ? Math.max(0, Math.round(mv)) : null;
+      }
+      const payload = {
+        fecha: fEl ? fEl.value : null,
+        inicio: iEl ? iEl.value : null,
+        fin: finEl ? finEl.value : null,
+        tipo: tEl ? String(tEl.value || '').trim() : null,
+        minutos: minutosPayload
+      };
+      const r = await fetch(`/api/profesor_sesion/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){
+        if (typeof showToast === 'function') showToast(data?.detail || data?.error || 'No se pudo actualizar la sesión', 'error');
+        return;
+      }
+      if (typeof showToast === 'function') showToast('Sesión actualizada correctamente', 'success');
+      closeModal('modal-sesion-form');
+      state.profesores.sesionEditId = null;
+      await loadProfesorSesiones();
+    }catch(e){ if (typeof showToast === 'function') showToast('Error de red al actualizar sesión', 'error'); }
+  }
+
+  function addOrUpdateHorario(){
+    const sel = document.getElementById('profesor-select');
+    const diaSel = document.getElementById('horario-dia');
+    const inicio = document.getElementById('horario-inicio');
+    const fin = document.getElementById('horario-fin');
+    const disp = document.getElementById('horario-disponible');
+    const pid = sel?.value;
+    if(!pid || !diaSel || !inicio || !fin || !disp) return;
+    const payload = {
+      profesor_id: Number(pid),
+      dia: diaSel.value,
+      inicio: inicio.value,
+      fin: fin.value,
+      disponible: !!disp.checked
+    };
+    const editId = state.profesores.horarioEditId;
+    const url = editId ? `/api/profesor_horarios/${encodeURIComponent(editId)}` : '/api/profesor_horarios';
+    const opts = {
+      method: editId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    };
+    fetch(url, opts)
+      .then(r => r.json())
+      .then(_ => {
+        if (typeof showToast === 'function') showToast(editId ? 'Horario actualizado' : 'Horario creado', 'success');
+        state.profesores.horarioEditId = null;
+        resetHorarioForm();
+        loadProfesorHorarios();
+      })
+      .catch(_ => {
+        if (typeof showToast === 'function') showToast('Error guardando horario', 'error');
+      });
+  }
+  function handleDeleteHorario(id){
+    const sel = document.getElementById('profesor-select');
+    const pid = sel?.value;
+    if(!pid) return;
+    const ok = confirm('¿Eliminar horario?');
+    if(!ok) return;
+    fetch(`/api/profesor_horarios/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(r => r.json())
+      .then(_ => {
+        if (typeof showToast === 'function') showToast('Horario eliminado', 'success');
+        loadProfesorHorarios();
+      })
+      .catch(_ => {
+        if (typeof showToast === 'function') showToast('Error eliminando horario', 'error');
+      });
+  }
+
+  let pendingDeleteSesionId = null;
+  function openDeleteSesionModal(id){
+    pendingDeleteSesionId = id;
+    // Usar utilidades de modales consistentes
+    try { openModal('modal-sesion-delete'); } catch(_) {
+      const mb = document.getElementById('modal-sesion-delete');
+      if(mb){ mb.classList.add('active'); mb.style.display = 'flex'; mb.setAttribute('aria-hidden','false'); }
+    }
+  }
+  function closeDeleteSesionModal(){
+    // Usar utilidades de modales consistentes
+    try { closeModal('modal-sesion-delete'); } catch(_) {
+      const mb = document.getElementById('modal-sesion-delete');
+      if(mb){ mb.classList.remove('active'); mb.style.display = 'none'; mb.setAttribute('aria-hidden','true'); }
+    }
+    pendingDeleteSesionId = null;
+  }
+  function handleDeleteSesion(id){
+    // Fallback: abrir el modal en lugar de confirm() nativo.
+    openDeleteSesionModal(id);
+  }
+  // Eventos del modal de eliminación de sesión
+  (function(){
+    const btnClose = document.getElementById('sesion-delete-close');
+    const btnCancel = document.getElementById('sesion-delete-cancel');
+    const btnConfirm = document.getElementById('sesion-delete-confirm');
+    if(btnClose) btnClose.onclick = closeDeleteSesionModal;
+    if(btnCancel) btnCancel.onclick = closeDeleteSesionModal;
+    if(btnConfirm) btnConfirm.onclick = () => {
+      const id = pendingDeleteSesionId;
+      if(!id){ closeDeleteSesionModal(); return; }
+      const sel = document.getElementById('profesor-select');
+      const pid = sel?.value;
+      if(!pid){ closeDeleteSesionModal(); return; }
+      fetch(`/api/profesor_sesion/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { 'Accept':'application/json' } })
+        .then(async r => {
+          const data = await r.json().catch(() => ({}));
+          if(!r.ok){
+            if (typeof showToast === 'function') showToast(data?.detail || data?.error || 'No se pudo eliminar la sesión', 'error');
+            return;
+          }
+          if (typeof showToast === 'function') showToast('Sesión eliminada correctamente', 'success');
+          closeDeleteSesionModal();
+          loadProfesorSesiones();
+        })
+        .catch(_ => {
+          if (typeof showToast === 'function') showToast('Error de red al eliminar sesión', 'error');
+        });
+    };
+  })();
+
+  // ====== Profesores: Datos (usuario vinculado) ======
+  function getSelectedProfesorUsuarioId(){
+    ensureProfesoresState();
+    const sel = document.getElementById('profesor-select');
+    const pid = sel?.value;
+    const prof = (state.profesores.list || []).find(p => String(p.profesor_id) === String(pid));
+    return prof ? prof.usuario_id : null;
+  }
+  async function loadProfesorDatos(){
+    try{
+      ensureProfesoresState();
+      const uid = getSelectedProfesorUsuarioId();
+      const nomEl = document.getElementById('prof-dato-nombre');
+      const dniEl = document.getElementById('prof-dato-dni');
+      const telEl = document.getElementById('prof-dato-telefono');
+      const pinEl = document.getElementById('prof-dato-pin');
+      const actEl = document.getElementById('prof-dato-activo');
+      const rolLabel = document.getElementById('prof-dato-rol-label');
+      if(!uid || !nomEl || !dniEl || !telEl || !pinEl || !actEl) return;
+      const r = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, { headers: { 'Accept':'application/json' } });
+      if(!r.ok){ if (typeof showToast === 'function') showToast('No se pudo cargar datos del profesor', 'error'); return; }
+      const data = await r.json().catch(()=> ({}));
+      state.profesores.currentUsuario = data || null;
+      nomEl.value = String(data?.nombre || '');
+      dniEl.value = String(data?.dni || '');
+      telEl.value = String(data?.telefono || '');
+      pinEl.value = String(data?.pin || '');
+      actEl.checked = !!data?.activo;
+      if(rolLabel) rolLabel.textContent = `Rol: ${String(data?.rol || 'profesor').charAt(0).toUpperCase() + String(data?.rol || 'profesor').slice(1)}`;
+    }catch(e){ console.error('Error cargando datos profesor', e); }
+  }
+  async function saveProfesorDatos(){
+    try{
+      ensureProfesoresState();
+      const uid = getSelectedProfesorUsuarioId();
+      if(!uid){ if (typeof showToast === 'function') showToast('Seleccione un profesor', 'error'); return; }
+      const nomEl = document.getElementById('prof-dato-nombre');
+      const dniEl = document.getElementById('prof-dato-dni');
+      const telEl = document.getElementById('prof-dato-telefono');
+      const pinEl = document.getElementById('prof-dato-pin');
+      const actEl = document.getElementById('prof-dato-activo');
+      if(!nomEl || !dniEl || !telEl || !pinEl || !actEl) return;
+      const current = state.profesores.currentUsuario || {};
+      const payload = {
+        nombre: String(nomEl.value || '').trim().toUpperCase(),
+        dni: String(dniEl.value || '').trim(),
+        telefono: String(telEl.value || '').trim(),
+        pin: String(pinEl.value || '').trim(),
+        activo: !!actEl.checked,
+        rol: 'profesor',
+        tipo_cuota: current.tipo_cuota ?? null,
+        notas: current.notas ?? null
+      };
+      if(!payload.nombre || !payload.dni){
+        if (typeof showToast === 'function') showToast('Nombre y DNI son obligatorios', 'error');
+        return;
+      }
+      const r = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){
+        if (typeof showToast === 'function') showToast(data?.detail || data?.error || 'No se pudo guardar', 'error');
+        return;
+      }
+      if (typeof showToast === 'function') showToast('Datos del profesor guardados', 'success');
+      await loadProfesorDatos();
+      await loadProfesoresBasico();
+    }catch(e){ if (typeof showToast === 'function') showToast('Error de red al guardar', 'error'); }
+  }
+
+  // ====== Profesores: Configuración lateral (usuario, salario, notas) ======
+  async function loadUsuariosOptions(selectedId){
+    try{
+      const sel = document.getElementById('prof-config-usuario');
+      if(!sel) return;
+      sel.innerHTML = '<option value="">—</option>';
+      const r = await fetch('/api/usuarios?limit=300');
+      const list = await r.json().catch(()=> []);
+      if(Array.isArray(list)){
+        for(const u of list){
+          const opt = document.createElement('option');
+          opt.value = String(u.usuario_id);
+          opt.textContent = (u.nombre && String(u.nombre).trim() !== '') ? `${String(u.nombre)}${u.dni? ' ('+u.dni+')':''}` : `Usuario ${u.usuario_id}`;
+          sel.appendChild(opt);
+        }
+      }
+      if(selectedId){ sel.value = String(selectedId); }
+    }catch(_){ /* silencioso */ }
+  }
+  async function loadProfesorConfig(){
+    try{
+      const selProf = document.getElementById('profesor-select');
+      const pid = selProf?.value;
+      if(!pid) return;
+      const r = await fetch(`/api/profesores/${encodeURIComponent(pid)}`);
+      const d = await r.json().catch(()=> ({}));
+      const usuarioEl = document.getElementById('prof-config-usuario');
+      if(usuarioEl){
+        const uid = d?.usuario_id ?? null;
+        const uname = d?.usuario_nombre || '';
+        const display = uid ? ((uname && uname.trim() !== '') ? `${uname} (ID ${uid})` : `Usuario ${uid}`) : '—';
+        usuarioEl.value = display;
+        usuarioEl.setAttribute('data-uid', uid ? String(uid) : '');
+      }
+      const salLabelEl = document.getElementById('prof-config-salario-label');
+      const salInput = document.getElementById('prof-config-salario');
+      const notasEl = document.getElementById('prof-config-notas');
+      if(salLabelEl){
+        let key = null;
+        if(Object.prototype.hasOwnProperty.call(d, 'sueldo')){ key = 'sueldo'; }
+        else if(Object.prototype.hasOwnProperty.call(d, 'salario')){ key = 'salario'; }
+        else { key = 'sueldo'; }
+        salLabelEl.textContent = 'Monto (ARS)';
+        salLabelEl.setAttribute('data-key', String(key));
+      }
+      if(salInput){
+        let val = null;
+        if(Object.prototype.hasOwnProperty.call(d, 'tarifa_por_hora') && d.tarifa_por_hora != null){ val = d.tarifa_por_hora; }
+        else if(Object.prototype.hasOwnProperty.call(d, 'sueldo')){ val = d.sueldo; }
+        else if(Object.prototype.hasOwnProperty.call(d, 'salario')){ val = d.salario; }
+        try {
+          const num = (val !== null && val !== undefined) ? Number(String(val).replace(',', '.')) : null;
+          salInput.value = (num !== null && Number.isFinite(num)) ? num.toFixed(2) : ((val !== null && val !== undefined) ? String(val) : '');
+        } catch(_) {
+          salInput.value = (val !== null && val !== undefined) ? String(val) : '';
+        }
+        const tipoMontoEl = document.getElementById('prof-monto-tipo');
+        if(tipoMontoEl){
+          const hasHora = Object.prototype.hasOwnProperty.call(d, 'tarifa_por_hora') && d.tarifa_por_hora != null;
+          tipoMontoEl.value = hasHora ? 'hora' : 'mensual';
+        }
+      }
+      if(notasEl){ notasEl.value = String(d?.notas || d?.usuario_notas || ''); }
+      const espEl = document.getElementById('prof-config-especialidad');
+      const expEl = document.getElementById('prof-config-experiencia');
+      const certEl = document.getElementById('prof-config-certificaciones');
+      if(espEl) espEl.value = String(d?.tipo || '');
+      if(expEl) expEl.value = (d?.experiencia_años != null) ? String(d.experiencia_años) : '';
+      if(certEl) certEl.value = String(d?.certificaciones || '');
+    }catch(_){ /* silencioso */ }
+  }
+  async function saveProfesorConfig(){
+    try{
+      const selProf = document.getElementById('profesor-select');
+      const pid = selProf?.value;
+      if(!pid){ if (typeof showToast === 'function') showToast('Seleccione un profesor', 'error'); return; }
+      const salLabelEl = document.getElementById('prof-config-salario-label');
+      const salInput = document.getElementById('prof-config-salario');
+      const notasEl = document.getElementById('prof-config-notas');
+      const espEl = document.getElementById('prof-config-especialidad');
+      const expEl = document.getElementById('prof-config-experiencia');
+      const certEl = document.getElementById('prof-config-certificaciones');
+      const payload = {};
+      const key = salLabelEl ? (salLabelEl.getAttribute('data-key') || 'sueldo') : 'sueldo';
+      const salVal = salInput ? String(salInput.value || '').trim() : '';
+      const expVal = expEl ? String(expEl.value || '').trim() : '';
+
+      const errors = [];
+      const salNum = salVal !== '' ? Number(salVal.replace(',', '.')) : null;
+      if(salVal !== '' && (!Number.isFinite(salNum) || salNum < 0)) errors.push('El monto debe ser un número ≥ 0');
+      const expNum = expVal !== '' ? Number(expVal) : null;
+      if(expVal !== '' && (!Number.isFinite(expNum) || expNum < 0 || Math.floor(expNum) !== expNum)) errors.push('Experiencia (años) debe ser un entero ≥ 0');
+      if(errors.length){ if (typeof showToast === 'function') showToast(errors[0], 'error'); else alert(errors[0]); return; }
+
+      const tipoMontoEl = document.getElementById('prof-monto-tipo');
+      const tipoMonto = tipoMontoEl ? String(tipoMontoEl.value || 'mensual') : 'mensual';
+      if(tipoMonto === 'hora'){
+        payload['tarifa_por_hora'] = salVal !== '' ? salNum : null;
+        payload['sueldo'] = null;
+      } else {
+        payload['sueldo'] = salVal !== '' ? salNum : null;
+        payload['tarifa_por_hora'] = null;
+      }
+      payload['notas'] = notasEl ? String(notasEl.value || '') : '';
+      payload['tipo'] = espEl ? String(espEl.value || '').trim() : '';
+      payload['experiencia_años'] = expVal !== '' ? expNum : null;
+      payload['certificaciones'] = certEl ? String(certEl.value || '') : '';
+      const usuarioEl = document.getElementById('prof-config-usuario');
+      const usuarioId = usuarioEl ? Number(usuarioEl.getAttribute('data-uid') || '') || null : null;
+      payload['usuario_id'] = usuarioId;
+
+      const r = await fetch(`/api/profesores/${encodeURIComponent(pid)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type':'application/json', 'Accept':'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await r.json().catch(()=> ({}));
+      if(!r.ok){ if (typeof showToast === 'function') showToast(data?.detail || data?.error || 'No se pudo guardar', 'error'); return; }
+      if (typeof showToast === 'function') showToast('Configuración del profesor guardada', 'success');
+      await loadProfesoresBasico();
+      await loadProfesorDatos();
+    }catch(_){ if (typeof showToast === 'function') showToast('Error al guardar configuración', 'error'); }
+  }
+
+  // ====== Profesores: Helpers y cargadores de Resumen/Sesiones ======
+  function toISODate(d){ return fmtDate(d); }
+  function extractTime(val){
+    if(val === null || val === undefined) return '—';
+    const s = String(val);
+    const m = s.match(/(\d{2}:\d{2})/);
+    if(m) return m[1];
+    try {
+      const dt = new Date(s);
+      if(!isNaN(dt.getTime())){
+        const hh = String(dt.getHours()).padStart(2,'0');
+        const mm = String(dt.getMinutes()).padStart(2,'0');
+        return `${hh}:${mm}`;
+      }
+    } catch(_){}
+    return s.slice(0,5);
+  }
+  function getWeekRange(baseDate, startOn){
+    const d = new Date(baseDate);
+    if(isNaN(d.getTime())) return null;
+    const v = String(startOn || 'mon').toLowerCase();
+    const startMonday = (v === 'mon' || v === 'lunes' || v === 'monday');
+    const day = d.getDay(); // 0=Domingo, 1=Lunes, ...
+    const diff = startMonday ? (day === 0 ? -6 : (1 - day)) : -day;
+    const start = new Date(d);
+    start.setDate(d.getDate() + diff);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 6);
+    return { start: fmtDate(start), end: fmtDate(end), label: `${fmtDate(start)} — ${fmtDate(end)}` };
+  }
+  function getMonthRange(date){
+    const d = date ? new Date(date) : new Date();
+    const start = new Date(d.getFullYear(), d.getMonth(), 1);
+    const end = new Date(d.getFullYear(), d.getMonth()+1, 0);
+    return { start: fmtDate(start), end: fmtDate(end) };
+  }
+  function updateResumenCards(prefix, res){
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if(el){
+        const n = Number(val);
+        el.textContent = Number.isFinite(n) ? (Math.round(n*100)/100).toFixed(2) : '0.00';
+      }
+    };
+    const hTrab = res?.horas_trabajadas ?? 0;
+    const hProj = res?.horas_proyectadas ?? 0;
+    const hExt = res?.horas_extras ?? 0;
+    const hExtDisplay = Math.max(0, Number(hExt) || 0);
+    set(`${prefix}-horas-trabajadas`, hTrab);
+    set(`${prefix}-horas-proyectadas`, hProj);
+    set(`${prefix}-horas-extra`, hExtDisplay);
+  }
+  async function loadProfesorResumen(){
+    try {
+      ensureProfesoresState();
+      const sel = document.getElementById('profesor-select');
+      const pid = sel?.value;
+      if(!pid) return;
+      // Mensual: mes actual
+      const { start: ms, end: me } = getMonthRange();
+      try {
+        const qsM = new URLSearchParams({ profesor_id: String(pid), start: ms, end: me });
+        const rM = await fetch('/api/profesor_resumen?' + qsM.toString());
+        const resM = await rM.json().catch(() => ({}));
+        updateResumenCards('prof-m', resM || {});
+      } catch(_) { updateResumenCards('prof-m', {}); }
+      // Semanal: basado en fecha y comienzo de semana
+      const weekDate = document.getElementById('prof-week-date');
+      const weekStart = document.getElementById('prof-week-start');
+      const base = weekDate?.value || toISODate(new Date());
+      const mode = (weekStart?.value || 'mon');
+      const range = getWeekRange(base, mode);
+      const rangeEl = document.getElementById('prof-week-range');
+      if(rangeEl && range) rangeEl.textContent = range.label; else if(rangeEl) rangeEl.textContent = '—';
+      if(range){
+        try {
+          const qsW = new URLSearchParams({ profesor_id: String(pid), start: range.start, end: range.end });
+          const rW = await fetch('/api/profesor_resumen?' + qsW.toString());
+          const resW = await rW.json().catch(() => ({}));
+          updateResumenCards('prof-w', resW || {});
+        } catch(_) { updateResumenCards('prof-w', {}); }
+      } else {
+        updateResumenCards('prof-w', {});
+      }
+    } catch(e){ console.error('Error cargando resumen profesor', e); }
+  }
+  async function loadProfesorSesiones(){
+    try {
+      const sel = document.getElementById('profesor-select');
+      const pid = sel?.value;
+      if(!pid) return;
+      const s = document.getElementById('prof-ses-start')?.value || null;
+      const e = document.getElementById('prof-ses-end')?.value || null;
+      const qs = new URLSearchParams();
+      qs.set('profesor_id', String(pid));
+      if(s) qs.set('start', s);
+      if(e) qs.set('end', e);
+      const tbody = document.querySelector('#prof-sesiones-table tbody');
+      if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Cargando…</td></tr>`;
+      const r = await fetch('/api/profesor_sesiones?' + qs.toString());
+      if(!r.ok){
+        let msg = `Error ${r.status}`;
+        try { const err = await r.json(); msg = err?.detail || err?.error || msg; } catch(_){ }
+        if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">${msg}</td></tr>`;
+        return;
+      }
+      const data = await r.json();
+      const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      if(arr.length === 0){
+        if(s || e){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos en el rango</td></tr>`; return; }
+        try {
+          const qs2 = new URLSearchParams(); qs2.set('profesor_id', String(pid));
+          const r2 = await fetch('/api/profesor_sesiones?' + qs2.toString());
+          if(!r2.ok){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
+          const data2 = await r2.json();
+          const arr2 = Array.isArray(data2) ? data2 : (Array.isArray(data2?.items) ? data2.items : []);
+          if(arr2.length === 0){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
+          arr.push(...arr2);
+        } catch(_){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
+      }
+      if(tbody) tbody.innerHTML = '';
+      ensureProfesoresState();
+      state.profesores.sesiones = arr;
+      arr.forEach(ses => {
+        const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
+        const inicioRaw = (ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+        const finRaw = (ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+        const minutosVal = (ses.minutos ?? ses.minutos_totales ?? ses.Minutos ?? ses.duracion_min ?? ses.duracion ?? ses.mins ?? ses.minutos_trabajados ?? ses.minutes ?? 0);
+        const horasVal = (ses.horas ?? ses.horas_totales ?? ses.Horas ?? ses.horas_trabajadas ?? ses.duracion_horas ?? ses.duration_hours ?? null);
+        const tipoVal = (ses.tipo ?? ses.tipo_actividad ?? ses.Tipo ?? ses.actividad ?? ses.category ?? '');
+        const tr = document.createElement('tr');
+        const inicioText = extractTime(inicioRaw);
+        const finText0 = extractTime(finRaw);
+        const finText = (inicioText && finText0 && finText0 < inicioText) ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
+        const idVal = (ses.id ?? ses.sesion_id ?? ses.id_sesion ?? ses.SesionID ?? '');
+        tr.innerHTML = `
+          <td>${String(fecha).slice(0,10)}</td>
+          <td>${inicioText}</td>
+          <td>${finText}</td>
+          <td>${Number(minutosVal ?? 0)}</td>
+          <td>${(horasVal!==undefined && horasVal!==null)?Number(horasVal).toFixed(2):'—'}</td>
+          <td>${tipoVal || ''}</td>
+          <td>
+            <button class="btn tiny" data-action="edit-sesion" data-id="${idVal}">Editar</button>
+            <button class="btn tiny danger" data-action="delete-sesion" data-id="${idVal}">Eliminar</button>
+          </td>
+        `;
+        tbody?.appendChild(tr);
+        const b = tr.querySelector('button[data-action="edit-sesion"]');
+        if(b){ b.onclick = () => { const sid = b.getAttribute('data-id') || ''; if(sid) openSesionEdit(sid); }; }
+        const bd = tr.querySelector('button[data-action="delete-sesion"]');
+        if(bd){ bd.onclick = () => { const sid = bd.getAttribute('data-id') || ''; if(sid) openDeleteSesionModal(sid); }; }
+      });
+    } catch(e){ console.error('Error cargando sesiones profesor', e); }
+  }
+  function bindProfesoresSubtabsEvents(){
+    const cont = document.getElementById('prof-subtabs');
+    const contR = document.getElementById('prof-tab-resumen');
+    const contH = document.getElementById('prof-tab-horarios');
+    const contS = document.getElementById('prof-tab-sesiones');
+    const buttons = cont ? Array.from(cont.querySelectorAll('button[data-subtab]')) : [];
+    function setActive(which){
+      ensureProfesoresState();
+      state.profesores.activeSubtab = which;
+      buttons.forEach(b => { if(b){ b.classList.toggle('active', b.getAttribute('data-subtab') === which); } });
+      if(contR) contR.style.display = which==='resumen' ? '' : 'none';
+      if(contH) contH.style.display = which==='horarios' ? '' : 'none';
+      if(contS) contS.style.display = which==='sesiones' ? '' : 'none';
+      const sel = document.getElementById('profesor-select'); const pid = sel?.value;
+      if(!pid) return;
+      if(which==='resumen') loadProfesorResumen();
+      else if(which==='sesiones') loadProfesorSesiones();
+    }
+    buttons.forEach(b => { b.onclick = () => setActive(b.getAttribute('data-subtab') || 'resumen'); });
+    ensureProfesoresState();
+    const initial = state.profesores.activeSubtab || 'resumen';
+    setActive(initial);
+  }
+  function updateTopBarDurationText(text){
+    const el = document.getElementById('login-current');
+    if(!el) return;
+    const base = el.getAttribute('data-base') || el.textContent || '';
+    el.textContent = text ? (base + ' • ' + text) : base;
+  }
+  function setupSesionTimer(active){
+    ensureProfesoresState();
+    const roleEl = document.getElementById('login-current');
+    const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+    if(state.profesores.sesionTimerId){ clearInterval(state.profesores.sesionTimerId); state.profesores.sesionTimerId = null; }
+    if(active && role !== 'dueño'){
+      state.profesores.sesionTimerId = setInterval(() => { try{ refreshSesionDuration(true); }catch(_){} }, 60000);
+    }
+  }
+  // Refresca la sesión del profesor de login para la barra superior
+  function refreshTopBarSesion(){
+    try{
+      const roleEl = document.getElementById('login-current');
+      const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+      const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
+      if(role !== 'profesor' || !loginProfId){
+        setupSesionTimer(false);
+        updateTopBarDurationText('');
+        return;
+      }
+      fetch(`/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}`)
+        .then(r => r.json())
+        .then(d => {
+          const active = !!d?.activa;
+          setupSesionTimer(active);
+          refreshSesionDuration(active);
+        })
+        .catch(_ => { setupSesionTimer(false); updateTopBarDurationText(''); });
+    }catch(_){ /* silencioso */ }
+  }
+  function refreshSesion(){
+    const estadoSpan = document.getElementById('sesion-estado');
+    const topEstado = document.getElementById('prof-sesion-estado');
+    const sel = document.getElementById('profesor-select');
+    const pid = sel?.value;
+    if(!pid){
+      if(estadoSpan) estadoSpan.textContent = '—';
+      if(topEstado) topEstado.textContent = 'Sesión: —';
+      setupSesionTimer(false);
+      updateTopBarDurationText('');
+      return;
+    }
+    fetch(`/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(pid)}`)
+      .then(r => r.json())
+      .then(d => {
+        const active = !!d?.activa;
+        const tipo = d?.tipo_actividad || 'Trabajo';
+        const texto = active ? `Activa (${tipo})` : 'Inactiva';
+        if(estadoSpan) estadoSpan.textContent = texto;
+        if(topEstado) topEstado.textContent = `Sesión: ${texto}`;
+        setupSesionTimer(active);
+        refreshSesionDuration(active);
+      })
+      .catch(_ => {
+        if(estadoSpan) estadoSpan.textContent = '—';
+        if(topEstado) topEstado.textContent = 'Sesión: —';
+        setupSesionTimer(false);
+        updateTopBarDurationText('');
+      });
+  }
+  function refreshSesionDuration(onlyIfActive){
+    const durSpan = document.getElementById('sesion-duracion');
+    const sel = document.getElementById('profesor-select');
+    const pidSel = sel?.value;
+    const roleEl = document.getElementById('login-current');
+    const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
+    const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+    const pid = pidSel || loginProfId;
+    if(onlyIfActive === false || !pid){
+      if(durSpan) durSpan.textContent = '—';
+      updateTopBarDurationText('');
+      return;
+    }
+    fetch(`/api/profesor_sesion_duracion?profesor_id=${encodeURIComponent(pid)}`)
+      .then(r => r.json())
+      .then(d => {
+        const min = Number(d?.minutos || 0);
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        const str = `${h}h ${m}m`;
+        if(durSpan) durSpan.textContent = pidSel ? str : '—';
+        if(role === 'profesor' && loginProfId && String(loginProfId) === String(pid)){
+          updateTopBarDurationText(str);
+        } else {
+          updateTopBarDurationText('');
+        }
+      })
+      .catch(_ => {
+        if(durSpan) durSpan.textContent = '—';
+        updateTopBarDurationText('');
+      });
+  }
+  function startSesion(){
+    try{
+      const sel = document.getElementById('profesor-select');
+      const pid = sel?.value;
+      if(!pid){ if (typeof showToast==='function') showToast('Seleccione un profesor', 'warning'); return; }
+      fetch('/api/profesor_sesion_inicio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profesor_id: pid, tipo: 'Trabajo' })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if(d && d.success !== false && !d.error){
+          if (typeof showToast==='function') showToast('Sesión iniciada', 'success');
+          refreshSesion();
+        } else {
+          if (typeof showToast==='function') showToast('No se pudo iniciar la sesión', 'error');
+        }
+      })
+      .catch(_ => { if (typeof showToast==='function') showToast('Error iniciando la sesión', 'error'); });
+    }catch(_){}
+  }
+  function endSesion(){
+    try{
+      const sel = document.getElementById('profesor-select');
+      const pid = sel?.value;
+      if(!pid){ if (typeof showToast==='function') showToast('Seleccione un profesor', 'warning'); return; }
+      fetch('/api/profesor_sesion_fin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profesor_id: pid })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if(d && d.success){
+          if (typeof showToast==='function') showToast('Sesión finalizada', 'success');
+        } else {
+          if (typeof showToast==='function') showToast('No se pudo finalizar la sesión', 'error');
+        }
+        refreshSesion();
+      })
+      .catch(_ => { if (typeof showToast==='function') showToast('Error finalizando la sesión', 'error'); });
+    }catch(_){}
+  }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      init();
+      try {
+        const logoutLink = document.querySelector('a[href="/gestion/logout"]');
+        if (logoutLink) {
+          logoutLink.addEventListener('click', (e) => {
+            try {
+              const roleEl = document.getElementById('login-current');
+              const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+              const profId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
+              if(role === 'profesor' && profId){
+                e.preventDefault();
+                openModal('modal-sesion-fin');
+              }
+            } catch(_){}
+          });
+        }
+        const closeBtn = document.getElementById('sesion-fin-close');
+        const cancelBtn = document.getElementById('sesion-fin-cancel');
+        const confirmBtn = document.getElementById('sesion-fin-confirm');
+        if (closeBtn) closeBtn.onclick = () => { closeModal('modal-sesion-fin'); };
+        if (cancelBtn) cancelBtn.onclick = () => { closeModal('modal-sesion-fin'); };
+        if (confirmBtn) confirmBtn.onclick = async () => {
+          try {
+            confirmBtn.disabled = true;
+            const r = await fetch('/api/profesor_sesion_fin', { method: 'POST', headers: { 'Accept': 'application/json' } });
+            let ok = r.ok;
+            let j = null;
+            try { j = await r.json(); } catch(_){}
+            if(ok && j && j.success){
+              if(typeof showToast==='function') showToast('Sesión finalizada', 'success');
+              closeModal('modal-sesion-fin');
+              window.location.href = '/gestion/logout';
+            } else {
+              if(typeof showToast==='function') showToast(j?.detail || j?.error || 'No se pudo finalizar la sesión', 'warning');
+              // No redirigir si falla
+            }
+          } catch(_){
+            if(typeof showToast==='function') showToast('Error finalizando la sesión', 'error');
+            // No redirigir si falla
+          } finally {
+            confirmBtn.disabled = false;
+          }
+        };
+      } catch(e){ console.error('Error configurando salida con finalización', e); }
+    });
   </script>
 </body>
 </html>
