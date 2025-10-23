@@ -44,8 +44,14 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji'; background: var(--bg); color: var(--text); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-.btn { background: var(--primary); color: white; border: none; padding: 10px 16px; border-radius: 10px; cursor: pointer; }
+.btn { background: var(--primary); color: white; border: none; padding: 10px 16px; border-radius: 10px; cursor: pointer; transition: background-color .15s ease, box-shadow .15s ease, transform .02s ease, filter .15s ease; }
+.btn:hover { filter: brightness(1.05); }
+.btn:active { filter: brightness(0.93); transform: translateY(1px); }
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(43,138,62,.45); }
 .btn.secondary { background: var(--secondary); }
+.btn.secondary:hover { filter: brightness(1.05); }
+.btn.secondary:active { filter: brightness(0.93); transform: translateY(1px); }
+.btn.secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(30,58,138,.45); }
 .muted { color: var(--muted); }
 /* Enlace de volver al inicio (icono + texto) */
 .back-link {
