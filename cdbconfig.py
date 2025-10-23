@@ -578,13 +578,18 @@ class DBConfigDialog(QDialog):
         if 'password' in db_cfg:
             existing_cfg['password'] = db_cfg['password']
 
+        # Persistir configuración de tareas programadas desde la UI
+        try:
+            existing_cfg['scheduled_tasks'] = self._collect_tasks_cfg()
+        except Exception:
+            pass
+
         merged_cfg = existing_cfg
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(merged_cfg, f, ensure_ascii=False, indent=2)
 
         # Guardar contraseña en almacén seguro (Windows Credential Manager)
         if keyring is None:
-            # Si no hay keyring, ya quedó guardada en config.json; no fallar la operación
             return
         try:
             accounts = []

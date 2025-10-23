@@ -99,7 +99,21 @@ def perform_quick_backup() -> Tuple[int, str]:
     ]
 
     try:
-        proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        # En Windows, ejecutar pg_dump sin crear ventana de consola
+        if os.name == 'nt':
+            try:
+                proc = subprocess.run(
+                    args,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    env=env,
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                )
+            except Exception:
+                proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
+        else:
+            proc = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         if proc.returncode == 0:
             return 0, str(out_path)
         else:

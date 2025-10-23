@@ -44,13 +44,19 @@ def is_command_available(cmd: str) -> bool:
 
 def run_cmd_capture(args: list, timeout: Optional[int] = 20) -> Tuple[int, str, str]:
     try:
-        proc = subprocess.run(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout,
-            text=True,
-        )
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "timeout": timeout,
+            "text": True,
+        }
+        # En Windows, ejecutar sin crear ventana de consola.
+        if os.name == 'nt':
+            try:
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            except Exception:
+                pass
+        proc = subprocess.run(args, **kwargs)
         return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
     except Exception as e:
         return 1, "", str(e)
