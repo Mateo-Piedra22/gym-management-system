@@ -8,9 +8,25 @@ from typing import Optional, Dict
 
 def _which(cmd: str) -> Optional[str]:
     try:
-        return shutil.which(cmd)
+        p = shutil.which(cmd)
+        if p:
+            return p
     except Exception:
-        return None
+        p = None
+    # Fallback explícito en Windows para binarios instalados fuera del PATH
+    if os.name == 'nt':
+        exe = cmd if cmd.lower().endswith('.exe') else f"{cmd}.exe"
+        candidates = [
+            os.path.join("C:\\Program Files\\Tailscale", exe),
+            os.path.join("C:\\Program Files\\WireGuard", exe),
+        ]
+        for c in candidates:
+            try:
+                if os.path.exists(c):
+                    return c
+            except Exception:
+                pass
+    return None
 
 
 def _run(args: list, timeout: int = 60) -> Dict[str, str | int | bool]:
@@ -52,11 +68,13 @@ def _install_tailscale() -> Dict[str, str | int | bool]:
 
 
 def _tailscale_up(authkey: str, hostname: Optional[str] = None, accept_routes: bool = True, accept_dns: bool = True, advertise_tags: Optional[list] = None, control_url: Optional[str] = None) -> Dict[str, str | int | bool]:
-    if not _which("tailscale"):
+    ts = _which("tailscale")
+    if not ts:
         inst = _install_tailscale()
         if not inst.get("ok"):
             return inst
-    cmd = ["tailscale", "up", f"--authkey={authkey}"]
+        ts = _which("tailscale") or "tailscale"
+    cmd = [ts, "up", f"--authkey={authkey}"]
     if hostname:
         cmd.append(f"--hostname={hostname}")
     if accept_routes:
@@ -74,9 +92,10 @@ def _tailscale_up(authkey: str, hostname: Optional[str] = None, accept_routes: b
 
 
 def _tailscale_ip_v4() -> Optional[str]:
-    if not _which("tailscale"):
+    ts = _which("tailscale")
+    if not ts:
         return None
-    r = _run(["tailscale", "ip", "-4"], timeout=10)
+    r = _run([ts, "ip", "-4"], timeout=10)
     if not r.get("ok"):
         return None
     # Puede devolver múltiples líneas; tomamos la primera 100.x.x.x
@@ -87,10 +106,11 @@ def _tailscale_ip_v4() -> Optional[str]:
     return None
 
 
-# --- WIREGUARD (opcional) ---
+# --- WIREGUARD ---
 
 def _install_wireguard() -> Dict[str, str | int | bool]:
-    if _which("wireguard") or _which("wg"):
+    wg = _which("wireguard.exe") or _which("wireguard")
+    if wg:
         return {"ok": True, "message": "wireguard ya presente"}
     if not _which("winget"):
         return {"ok": False, "message": "winget no disponible para instalar wireguard"}
@@ -100,7 +120,8 @@ def _install_wireguard() -> Dict[str, str | int | bool]:
     ]
     r = _run(args, timeout=1200)
     r["message"] = r.get("out") or r.get("err")
-    if not (_which("wireguard") or _which("wg")):
+    # Verificar post-instalación
+    if not (_which("wireguard.exe") or _which("wireguard")):
         return {"ok": False, "message": f"wireguard no detectado tras instalación: {r.get('message','')}"}
     return {"ok": True, "message": r.get("message", "")}
 
@@ -119,12 +140,74 @@ def _wireguard_up_from_config(config_path: str) -> Dict[str, str | int | bool]:
     r["message"] = r.get("out") or r.get("err")
     return r
 
+# Completar placeholders de gymms.conf si existen y hay variables de entorno
+
+def _wireguard_fill_placeholders_if_possible(conf_path: str) -> bool:
+    try:
+        if not os.path.exists(conf_path):
+            return False
+        with open(conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        need_pub = "<SERVER_PUBLIC_KEY>" in content
+        need_ep = "<SERVER_ENDPOINT>" in content
+        if not (need_pub or need_ep):
+            return False
+        pub = os.getenv("WG_SERVER_PUBLIC", "").strip()
+        ep = os.getenv("WG_ENDPOINT", "").strip()
+        if need_pub and not pub:
+            return False
+        if need_ep and not ep:
+            return False
+        new_content = content.replace("<SERVER_PUBLIC_KEY>", pub).replace("<SERVER_ENDPOINT>", ep)
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return True
+    except Exception:
+        return False
+
+# Intentar deducir IP local del túnel WireGuard
+
+def _wireguard_local_ip(conf_path: Optional[str]) -> Optional[str]:
+    # 1) Intentar parsear Address del archivo de configuración
+    try:
+        if conf_path and os.path.exists(conf_path):
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    t = line.strip()
+                    if t.lower().startswith("address") and "=" in t:
+                        val = t.split("=", 1)[1].strip()
+                        # Ej: 10.10.10.2/32 -> tomar IP
+                        ip = val.split("/", 1)[0].strip()
+                        if ip:
+                            return ip
+    except Exception:
+        pass
+    # 2) Fallback: ipconfig /all y buscar IPv4 en rango privado típico (10.x.x.x)
+    try:
+        r = _run(["ipconfig", "/all"], timeout=10)
+        if r.get("ok"):
+            for ln in (r.get("out") or "").splitlines():
+                s = ln.strip()
+                if ("IPv4" in s or "Dirección IPv4" in s) and "10." in s:
+                    # Ej: "Dirección IPv4 . . . . . . . . . . . . . : 10.10.10.2(Preferido)"
+                    num = s.split(":", 1)[1].strip()
+                    # Limpiar sufijos
+                    for suf in ["(Preferido)", "(Preferred)"]:
+                        if num.endswith(suf):
+                            num = num[: -len(suf)].strip()
+                    # Quitar máscara si presente
+                    num = num.split("(", 1)[0].strip()
+                    return num
+    except Exception:
+        pass
+    return None
+
 
 # --- API pública ---
 
 def ensure_vpn_connectivity(cfg: dict, device_id: str) -> Dict[str, object]:
     """
-    Garantiza conectividad VPN según cfg['vpn'].
+    Garantiza conectividad VPN según cfg['vpn']. 
     - provider: 'tailscale' (recomendado) o 'wireguard'
     - Para tailscale: requiere TAILSCALE_AUTHKEY (env o cfg['vpn']['tailscale_auth_key']).
     Devuelve: { ok, provider, joined, ip, message }
@@ -187,16 +270,24 @@ def ensure_vpn_connectivity(cfg: dict, device_id: str) -> Dict[str, object]:
             except Exception as e:
                 res["message"] = f"No se pudo materializar config WireGuard: {e}"
                 return res
-        inst = _install_wireguard()
-        if not inst.get("ok"):
-            res.update({"ok": False, "message": inst.get("message")})
-            return res
+        # Intentar completar placeholders si aplica
+        try:
+            _wireguard_fill_placeholders_if_possible(conf_path)
+        except Exception:
+            pass
+        # Levantar servicio/túnel desde config
         up = _wireguard_up_from_config(conf_path)
         if not up.get("ok"):
             res.update({"ok": False, "message": up.get("message")})
             return res
-        # No hay forma simple genérica de obtener IP desde CLI aquí; dejamos OK
-        res.update({"ok": True, "joined": True, "ip": None, "message": "wireguard up OK"})
+        # Deducir IP local del túnel
+        ip = _wireguard_local_ip(conf_path)
+        if ip:
+            try:
+                os.environ["WIREGUARD_IPV4"] = ip
+            except Exception:
+                pass
+        res.update({"ok": True, "joined": True, "ip": ip, "message": "wireguard up OK"})
         return res
 
     else:

@@ -1,0 +1,10 @@
+{
+  "remote": {
+    "dsn": "postgresql://postgres:uDEvhRmVlvaiyRWPPRuSPfVKavIKwmLm@shuttle.proxy.rlwy.net:45685/railway",
+    "application_name": "gym_management_system"
+  },
+  "vpn": {
+    "provider": "wireguard",
+    "wireguard_config_path": "C:\\Users\\mateo\\OneDrive\\Escritorio\\GYM MANAGEMENT SYSTEM\\gym-management-system\\config\\vpn\\gymms.conf"
+  }
+}

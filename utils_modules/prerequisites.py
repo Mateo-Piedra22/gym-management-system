@@ -1047,8 +1047,8 @@ def ensure_postgres_network_access(cfg: dict) -> dict:
     data_dir = _find_pg_data_dir(17)
     if not data_dir:
         return {"ok": False, "message": "No se encontró directorio de datos de PostgreSQL", "changed_conf": False, "changed_hba": False, "firewall": {"ok": False}}
-    # listen_addresses: preferir Tail IP si disponible
-    tail_ip = os.getenv("TAILSCALE_IPV4") or ""
+    # listen_addresses: preferir Tail IP o WireGuard IP si disponible
+    tail_ip = os.getenv("TAILSCALE_IPV4") or os.getenv("WIREGUARD_IPV4") or ""
     desired = f"localhost,{tail_ip}" if tail_ip else "*"
     ch_conf = _ensure_listen_addresses(data_dir, desired)
     ch_hba = _ensure_pg_hba_ranges(data_dir, ranges)

@@ -60,6 +60,30 @@ except Exception:
     # No bloquear la ejecución en escritorio; continuar con importación de PyQt
     pass
 
+# Auto-bootstrap de prerequisitos en primer arranque (Windows/desktop)
+try:
+    from utils_modules.prerequisites import ensure_prerequisites  # type: ignore
+    try:
+        from device_id import get_device_id  # type: ignore
+        _dev_id = str(get_device_id())
+    except Exception:
+        _dev_id = os.getenv("DEVICE_ID") or "unknown"
+    try:
+        # Ejecuta idempotentemente: instala PostgreSQL, outbox, tareas, red/VPN, replicación
+        _pr_res = ensure_prerequisites(_dev_id)
+        try:
+            logging.info("ensure_prerequisites: %s", json.dumps(_pr_res, ensure_ascii=False))
+        except Exception:
+            pass
+    except Exception as _e_pr:
+        try:
+            logging.warning("Fallo ensure_prerequisitos: %s", _e_pr)
+        except Exception:
+            pass
+except Exception:
+    # No bloquear si prerequisitos fallan; continuar
+    pass
+
 # Desktop nunca arranca servidores locales; Railway gestiona la webapp.
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QVBoxLayout, QWidget,

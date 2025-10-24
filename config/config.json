@@ -15,7 +15,8 @@
     "password": "Matute03",
     "sslmode": "prefer",
     "connect_timeout": 10,
-    "application_name": "gym_management_system"
+    "application_name": "gym_management_system",
+    "dsn": "host=<SERVER_PUBLIC_IP> port=5433 dbname=gimnasio user=postgres password=Matute03 sslmode=require application_name=gym_management_system connect_timeout=10"
   },
   "db_remote": {
     "host": "shuttle.proxy.rlwy.net",
@@ -64,6 +65,7 @@
     }
   },
   "vpn": {
-    "provider": "auto"
+    "provider": "wireguard",
+    "wireguard_config_path": "C:\\Users\\mateo\\OneDrive\\Escritorio\\GYM MANAGEMENT SYSTEM\\gym-management-system\\config\\vpn\\gymms.conf"
   }
 }

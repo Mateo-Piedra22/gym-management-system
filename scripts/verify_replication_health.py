@@ -70,16 +70,13 @@ def read_local_subscription(conn):
         if c in cols:
             select_parts.append(c)
     # Campos de tiempo/lag si existen
-    if "apply_lag" in cols:
-        select_parts.append("apply_lag")
-    if "latest_end_time" in cols:
-        select_parts.append("latest_end_time")
-    if "last_msg_send_time" in cols:
-        select_parts.append("last_msg_send_time")
-    if "last_msg_receipt_time" in cols:
-        select_parts.append("last_msg_receipt_time")
-    if "sync_state" in cols:
-        select_parts.append("sync_state")
+    for c in ("apply_lag", "latest_end_time", "last_msg_send_time", "last_msg_receipt_time", "sync_state"):
+        if c in cols:
+            select_parts.append(c)
+    # Estado y últimos errores si están disponibles
+    for c in ("status", "subconninfo", "last_error", "received_lsn"):
+        if c in cols:
+            select_parts.append(c)
     if not select_parts:
         return []
     sql = "SELECT " + ", ".join(select_parts) + " FROM pg_stat_subscription ORDER BY 1"
@@ -110,7 +107,24 @@ def read_remote_replication(conn):
         """
     )
     slots = [dict(r) for r in cur.fetchall()]
-    return {"wal_senders": stat_replication, "slots": slots}
+    # Config claves en remoto
+    remote_settings = {}
+    try:
+        cur.execute("SHOW wal_level")
+        remote_settings["wal_level"] = cur.fetchone()[0]
+    except Exception:
+        remote_settings["wal_level"] = None
+    try:
+        cur.execute("SHOW max_wal_senders")
+        remote_settings["max_wal_senders"] = cur.fetchone()[0]
+    except Exception:
+        remote_settings["max_wal_senders"] = None
+    try:
+        cur.execute("SHOW max_replication_slots")
+        remote_settings["max_replication_slots"] = cur.fetchone()[0]
+    except Exception:
+        remote_settings["max_replication_slots"] = None
+    return {"wal_senders": stat_replication, "slots": slots, "settings": remote_settings}
 
 
 def main() -> int:

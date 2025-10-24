@@ -312,6 +312,32 @@ class DBConfigDialog(QDialog):
         rep_btns.addWidget(self.test_remote_button)
         form.addRow("", rep_btns)
 
+        # Instaladores (requieren Admin)
+        installers_label = QLabel("Instaladores (requieren Admin)")
+        installers_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", installers_label)
+        self.install_wireguard_admin_button = QPushButton("Instalar WireGuard (Admin)")
+        self.admin_vpn_postgres_button = QPushButton("VPN + Red PostgreSQL (Admin)")
+        self.install_outbox_triggers_button = QPushButton("Instalar triggers outbox")
+        inst_row = QHBoxLayout()
+        inst_row.addWidget(self.install_wireguard_admin_button)
+        inst_row.addWidget(self.admin_vpn_postgres_button)
+        inst_row.addWidget(self.install_outbox_triggers_button)
+        form.addRow("", inst_row)
+
+        # Automatizaciones (operativas)
+        autom_label = QLabel("Automatizaciones")
+        autom_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", autom_label)
+        self.outbox_flush_button = QPushButton("Flush outbox puntual")
+        self.reconcile_remote_to_local_button = QPushButton("Reconciliar remoto→local (puntual)")
+        self.reconcile_local_to_remote_button = QPushButton("Reconciliar local→remoto (puntual)")
+        autom_row = QHBoxLayout()
+        autom_row.addWidget(self.outbox_flush_button)
+        autom_row.addWidget(self.reconcile_remote_to_local_button)
+        autom_row.addWidget(self.reconcile_local_to_remote_button)
+        form.addRow("", autom_row)
+
         # Prerequisitos/Bootstrap
         self.device_id_edit = QLineEdit()
         self.device_id_edit.setPlaceholderText("device_id")
@@ -390,6 +416,14 @@ class DBConfigDialog(QDialog):
         self.full_bootstrap_button.clicked.connect(self._on_full_bootstrap)
         self.secure_owner_local_button.clicked.connect(self._on_secure_owner_local)
         self.secure_owner_remote_button.clicked.connect(self._on_secure_owner_remote)
+        # Instaladores
+        self.install_wireguard_admin_button.clicked.connect(self._on_install_wireguard_admin)
+        self.admin_vpn_postgres_button.clicked.connect(self._on_admin_vpn_postgres)
+        self.install_outbox_triggers_button.clicked.connect(self._on_install_outbox_triggers)
+        # Automatizaciones
+        self.outbox_flush_button.clicked.connect(self._on_outbox_flush_once)
+        self.reconcile_remote_to_local_button.clicked.connect(self._on_reconcile_remote_to_local_once)
+        self.reconcile_local_to_remote_button.clicked.connect(self._on_reconcile_local_to_remote_once)
 
     def _load_params(self):
         # Establecer perfil actual en el combo
@@ -850,6 +884,108 @@ class DBConfigDialog(QDialog):
             QMessageBox.information(self, "Bootstrap completo", pretty)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo en bootstrap: {e}")
+
+    def _run_powershell_admin(self, script_rel_path: str) -> tuple[bool, str]:
+        try:
+            base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+            script_path = (base / script_rel_path).resolve()
+            if not script_path.exists():
+                return False, f"Script no encontrado: {script_path}"
+            # Intento 1: ShellExecuteW runas
+            try:
+                import ctypes
+                ShellExecute = ctypes.windll.shell32.ShellExecuteW
+                r = ShellExecute(None, "runas", "powershell.exe", f"-ExecutionPolicy Bypass -File \"{str(script_path)}\"", None, 1)
+                # ShellExecuteW returns value >32 on success
+                if r > 32:
+                    return True, f"Elevado y lanzado: {script_path.name}"
+                else:
+                    # Continue to fallback
+                    pass
+            except Exception:
+                pass
+            # Intento 2: Start-Process -Verb RunAs
+            try:
+                import subprocess
+                cmd = [
+                    "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-Command",
+                    f"Start-Process PowerShell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','{str(script_path)}'"
+                ]
+                subprocess.Popen(cmd, shell=False)
+                return True, f"Elevado y lanzado (fallback): {script_path.name}"
+            except Exception as e2:
+                return False, f"No se pudo elevar: {e2}"
+        except Exception as e:
+            return False, f"Error: {e}"
+
+    def _on_install_wireguard_admin(self):
+        ok, msg = self._run_powershell_admin('scripts/setup_wireguard_client.ps1')
+        if ok:
+            QMessageBox.information(self, "WireGuard", msg)
+        else:
+            QMessageBox.critical(self, "WireGuard", msg)
+
+    def _on_admin_vpn_postgres(self):
+        ok, msg = self._run_powershell_admin('scripts/admin_setup_vpn_postgres.ps1')
+        if ok:
+            QMessageBox.information(self, "VPN + PostgreSQL", msg)
+        else:
+            QMessageBox.critical(self, "VPN + PostgreSQL", msg)
+
+    def _on_install_outbox_triggers(self):
+        try:
+            # Ejecutar el instalador Python inline
+            import importlib
+            mod = importlib.import_module('scripts.install_outbox_triggers')
+            res = mod.run()
+            try:
+                pretty = json.dumps(res, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(res)
+            if res.get('ok'):
+                QMessageBox.information(self, "Outbox", pretty)
+            else:
+                QMessageBox.warning(self, "Outbox", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Outbox", f"Fallo al instalar triggers: {e}")
+
+    def _run_python_script(self, script_rel_path: str, args: list[str] | None = None) -> tuple[bool, str, str]:
+        try:
+            base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+            script_path = (base / script_rel_path).resolve()
+            if not script_path.exists():
+                return False, "", f"Script no encontrado: {script_path}"
+            import subprocess
+            py = sys.executable if not getattr(sys, 'frozen', False) else 'python'
+            cmd = [py, str(script_path)] + list(args or [])
+            proc = subprocess.run(cmd, cwd=str(base), capture_output=True, text=True, shell=False)
+            ok = proc.returncode == 0
+            return ok, (proc.stdout or '').strip(), (proc.stderr or '').strip()
+        except Exception as e:
+            return False, "", str(e)
+
+    def _on_outbox_flush_once(self):
+        ok, out, err = self._run_python_script('scripts/run_outbox_flush_once.py')
+        text = out or err or ("ok" if ok else "error")
+        try:
+            pretty = json.dumps(json.loads(out), ensure_ascii=False, indent=2, default=str)
+        except Exception:
+            pretty = text
+        if ok:
+            QMessageBox.information(self, "Flush outbox", pretty)
+        else:
+            QMessageBox.critical(self, "Flush outbox", pretty)
+
+    def _on_reconcile_remote_to_local_once(self):
+        ok, out, err = self._run_python_script('scripts/reconcile_remote_to_local_once.py')
+        text = out or err or ("ok" if ok else "error")
+        QMessageBox.information(self, "Reconciliación remoto→local", text)
+
+    def _on_reconcile_local_to_remote_once(self):
+        ok, out, err = self._run_python_script('scripts/reconcile_local_remote_once.py')
+        text = out or err or ("ok" if ok else "error")
+        QMessageBox.information(self, "Reconciliación local→remoto", text)
 
     def _write_config_and_password(self, params: dict):
         # Determinar directorio base
