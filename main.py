@@ -6194,6 +6194,93 @@ def main():
                     except Exception:
                         pass
 
+                # Sincronización periódica L→R y R→L mientras la app está abierta
+                try:
+                    from PyQt6.QtCore import QTimer
+                    import sys, subprocess, os, threading
+                    window._r2l_running = False
+                    window._l2r_running = False
+
+                    def _repo_root():
+                        try:
+                            return os.path.dirname(os.path.abspath(__file__))
+                        except Exception:
+                            return os.getcwd()
+
+                    def _run_script_async(args: list, flag_attr: str):
+                        def _worker():
+                            try:
+                                subprocess.run(
+                                    args,
+                                    cwd=_repo_root(),
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+                                )
+                            except Exception as e:
+                                try:
+                                    logging.warning(f"Fallo al ejecutar {' '.join(map(str, args))}: {e}")
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    setattr(window, flag_attr, False)
+                                except Exception:
+                                    pass
+                        try:
+                            if getattr(window, flag_attr, False):
+                                return
+                            setattr(window, flag_attr, True)
+                            threading.Thread(target=_worker, daemon=True).start()
+                        except Exception:
+                            try:
+                                setattr(window, flag_attr, False)
+                            except Exception:
+                                pass
+
+                    def _start_r2l_timer():
+                        try:
+                            # Remote→Local cada 5 minutos, con gating interno de threshold
+                            r2l = QTimer(window)
+                            r2l.setInterval(2 * 60 * 1000)
+                            r2l.timeout.connect(lambda: _run_script_async(
+                                [sys.executable or 'python', os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py'), '--threshold-minutes', '5'],
+                                '_r2l_running'
+                            ))
+                            r2l.start()
+                            window._timer_r2l = r2l
+                            logging.info("Timer R→L iniciado (cada 5 minutos)")
+                        except Exception as e:
+                            logging.debug(f"No se pudo iniciar timer R→L: {e}")
+
+                    def _start_l2r_timer():
+                        try:
+                            # Local→Remote cada 2 minutos
+                            l2r = QTimer(window)
+                            l2r.setInterval(2 * 60 * 1000)
+                            l2r.timeout.connect(lambda: _run_script_async(
+                                [sys.executable or 'python', os.path.join(_repo_root(), 'scripts', 'reconcile_local_remote_once.py')],
+                                '_l2r_running'
+                            ))
+                            l2r.start()
+                            window._timer_l2r = l2r
+                            logging.info("Timer L→R iniciado (cada 2 minutos)")
+                        except Exception as e:
+                            logging.debug(f"No se pudo iniciar timer L→R: {e}")
+
+                    # Arrancar ambos timers de forma diferida para no bloquear el render inicial
+                    QTimer.singleShot(1500, _start_r2l_timer)
+                    QTimer.singleShot(1500, _start_l2r_timer)
+
+                    # Detener timers al salir
+                    try:
+                        app.aboutToQuit.connect(lambda: (
+                            getattr(window, '_timer_r2l', None) and window._timer_r2l.stop(),
+                            getattr(window, '_timer_l2r', None) and window._timer_l2r.stop()
+                        ))
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+
                 # Integrar monitor de salud de redes en background
                 try:
                     try:
