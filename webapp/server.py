@@ -937,6 +937,13 @@ def _get_password() -> str:
                 return pwd.strip()
     except Exception:
         pass
+    # Fallback: variables de entorno si están definidas (solo si DB no devuelve valor)
+    try:
+        env_pwd = (os.getenv("WEBAPP_OWNER_PASSWORD", "") or os.getenv("OWNER_PASSWORD", "")).strip()
+    except Exception:
+        env_pwd = ""
+    if env_pwd:
+        return env_pwd
     # Fallback: contraseña de desarrollador si existe (solo si DB no devuelve valor)
     try:
         if DEV_PASSWORD:

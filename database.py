@@ -4429,9 +4429,25 @@ class DatabaseManager:
                     except Exception:
                         pass
                     return env_val
-                # Fallback por defecto conocido
+                # Fallback de desarrollo coherente (sin hardcode)
                 if clave == 'owner_password':
-                    return 'Matute03'
+                    dev_pwd = None
+                    try:
+                        from managers import DeveloperManager  # type: ignore
+                        dev_pwd = str(getattr(DeveloperManager, "DEV_PASSWORD", "") or "").strip()
+                    except Exception:
+                        dev_pwd = None
+                    if not dev_pwd:
+                        try:
+                            dev_pwd = os.getenv("DEV_PASSWORD", "").strip()
+                        except Exception:
+                            dev_pwd = None
+                    if dev_pwd:
+                        try:
+                            self.cache.set('config', clave, dev_pwd)
+                        except Exception:
+                            pass
+                        return dev_pwd
                 return None
         except Exception:
             pass

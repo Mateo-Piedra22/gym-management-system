@@ -250,6 +250,93 @@ class DBConfigDialog(QDialog):
         bkp_row.addWidget(self.backup_time_edit)
         form.addRow("Backup:", bkp_row)
 
+        # --- Sección de Configuración General ---
+        gen_label = QLabel("Configuración general")
+        gen_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", gen_label)
+
+        self.webapp_base_url_edit = QLineEdit()
+        self.client_base_url_edit = QLineEdit()
+        self.sync_upload_token_edit = QLineEdit()
+        self.sync_upload_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.webapp_session_secret_edit = QLineEdit()
+        self.webapp_session_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        # Túnel público
+        self.tunnel_enabled_checkbox = QCheckBox("Activar túnel público")
+        self.tunnel_subdomain_edit = QLineEdit()
+        tun_row = QHBoxLayout()
+        tun_row.addWidget(self.tunnel_enabled_checkbox)
+        tun_row.addStretch()
+        tun_row.addWidget(QLabel("Subdominio:"))
+        tun_row.addWidget(self.tunnel_subdomain_edit)
+
+        form.addRow("Webapp base URL:", self.webapp_base_url_edit)
+        form.addRow("Client base URL:", self.client_base_url_edit)
+        form.addRow("Token de subida:", self.sync_upload_token_edit)
+        form.addRow("Session secret:", self.webapp_session_secret_edit)
+        form.addRow("Túnel público:", tun_row)
+
+        # --- Sección de Replicación y Automatización ---
+        rep_label = QLabel("Replicación y automatización")
+        rep_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", rep_label)
+
+        # Nombres de publicación/suscripción
+        self.publication_name_edit = QLineEdit()
+        self.subscription_name_edit = QLineEdit()
+        rep_names_row = QHBoxLayout()
+        rep_names_row.addWidget(QLabel("Publication:"))
+        rep_names_row.addWidget(self.publication_name_edit)
+        rep_names_row.addStretch()
+        rep_names_row.addWidget(QLabel("Subscription:"))
+        rep_names_row.addWidget(self.subscription_name_edit)
+        form.addRow("Replicación:", rep_names_row)
+
+        # Modo + alcance remoto
+        self.replication_mode_combo = QComboBox()
+        self.replication_mode_combo.addItems(["Remoto → Local", "Bidireccional"])
+        self.remote_can_reach_local_checkbox = QCheckBox("Remoto puede acceder al local (VPN/Túnel)")
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(self.replication_mode_combo)
+        mode_row.addStretch()
+        mode_row.addWidget(self.remote_can_reach_local_checkbox)
+        form.addRow("Modo:", mode_row)
+
+        # Acciones de replicación
+        self.setup_replication_button = QPushButton("Configurar replicación")
+        self.health_check_button = QPushButton("Verificar salud replicación")
+        self.test_remote_button = QPushButton("Probar conexión remota")
+        rep_btns = QHBoxLayout()
+        rep_btns.addWidget(self.setup_replication_button)
+        rep_btns.addWidget(self.health_check_button)
+        rep_btns.addWidget(self.test_remote_button)
+        form.addRow("", rep_btns)
+
+        # Prerequisitos/Bootstrap
+        self.device_id_edit = QLineEdit()
+        self.device_id_edit.setPlaceholderText("device_id")
+        self.detect_device_button = QPushButton("Detectar")
+        dev_row = QHBoxLayout()
+        dev_row.addWidget(QLabel("Device ID:"))
+        dev_row.addWidget(self.device_id_edit)
+        dev_row.addWidget(self.detect_device_button)
+        form.addRow("", dev_row)
+
+        self.ensure_prereq_button = QPushButton("Asegurar prerequisitos")
+        self.full_bootstrap_button = QPushButton("Forzar instalación completa")
+        boot_row = QHBoxLayout()
+        boot_row.addWidget(self.ensure_prereq_button)
+        boot_row.addWidget(self.full_bootstrap_button)
+        form.addRow("", boot_row)
+
+        # Seguridad y datos iniciales
+        self.secure_owner_local_button = QPushButton("Asegurar DUEÑO (local)")
+        self.secure_owner_remote_button = QPushButton("Asegurar DUEÑO (remoto)")
+        own_row = QHBoxLayout()
+        own_row.addWidget(self.secure_owner_local_button)
+        own_row.addWidget(self.secure_owner_remote_button)
+        form.addRow("", own_row)
+
         # Indicador de estado de conexión
         self.status_label = QLabel("Estado: Sin probar")
         self.status_label.setStyleSheet("color: #666;")
@@ -294,6 +381,15 @@ class DBConfigDialog(QDialog):
         self.profile_combo.currentTextChanged.connect(self._on_profile_changed)
         self.dsn_import_button.clicked.connect(self._on_import_dsn)
         self.tasks_master_checkbox.toggled.connect(self._on_tasks_master_toggled)
+        # Señales de replicación y automatización
+        self.setup_replication_button.clicked.connect(self._on_setup_replication)
+        self.health_check_button.clicked.connect(self._on_health_check)
+        self.test_remote_button.clicked.connect(self._on_test_remote)
+        self.detect_device_button.clicked.connect(self._on_detect_device)
+        self.ensure_prereq_button.clicked.connect(self._on_ensure_prereq)
+        self.full_bootstrap_button.clicked.connect(self._on_full_bootstrap)
+        self.secure_owner_local_button.clicked.connect(self._on_secure_owner_local)
+        self.secure_owner_remote_button.clicked.connect(self._on_secure_owner_remote)
 
     def _load_params(self):
         # Establecer perfil actual en el combo
@@ -320,6 +416,32 @@ class DBConfigDialog(QDialog):
         self.app_name_edit.setText(str(self.params.get('application_name', 'gym_management_system')))
         # Cargar configuración de tareas
         self._load_tasks_cfg()
+        # Cargar configuración general desde config.json
+        try:
+            cfg = self.full_cfg if isinstance(self.full_cfg, dict) else {}
+            self.webapp_base_url_edit.setText(str(cfg.get('webapp_base_url', '')))
+            self.client_base_url_edit.setText(str(cfg.get('client_base_url', '')))
+            self.sync_upload_token_edit.setText(str(cfg.get('sync_upload_token', '')))
+            self.webapp_session_secret_edit.setText(str(cfg.get('webapp_session_secret', '')))
+            public_tunnel = cfg.get('public_tunnel') or {}
+            self.tunnel_enabled_checkbox.setChecked(bool(public_tunnel.get('enabled', False)))
+            self.tunnel_subdomain_edit.setText(str(public_tunnel.get('subdomain', '')))
+        except Exception:
+            pass
+        # Cargar configuración de replicación
+        try:
+            rep = (self.full_cfg or {}).get('replication') if isinstance(self.full_cfg, dict) else {}
+            rep = rep or {}
+            self.publication_name_edit.setText(str(rep.get('publication_name', 'gym_pub')))
+            self.subscription_name_edit.setText(str(rep.get('subscription_name', 'gym_sub')))
+            self.remote_can_reach_local_checkbox.setChecked(bool(rep.get('remote_can_reach_local', False)))
+            # Inferir modo si hay pistas en config
+            mode_idx = 0
+            if rep.get('local_publication_name') or rep.get('remote_subscription_name') or rep.get('remote_can_reach_local'):
+                mode_idx = 1  # Bidireccional
+            self.replication_mode_combo.setCurrentIndex(mode_idx)
+        except Exception:
+            pass
 
     def _collect_params(self) -> dict:
         return {
@@ -521,6 +643,214 @@ class DBConfigDialog(QDialog):
             self.status_label.setText("Estado: Error al intentar conexión local")
             self.status_label.setStyleSheet("color: #e74c3c;")
 
+    def _on_test_remote(self):
+        try:
+            params = self._get_profile_params('remoto')
+            host = str(params.get('host', '')).strip()
+            if not host:
+                QMessageBox.warning(self, "Config incompleta", "Configura primero el perfil REMOTO (host/puerto/etc.).")
+                return
+            ok = self._test_connection(params)
+            if ok:
+                self.status_label.setText("Estado: Conexión remota OK")
+                self.status_label.setStyleSheet("color: #2ecc71;")
+            else:
+                self.status_label.setText("Estado: Error con base remota")
+                self.status_label.setStyleSheet("color: #e74c3c;")
+        except Exception:
+            self.status_label.setText("Estado: Error al intentar conexión remota")
+            self.status_label.setStyleSheet("color: #e74c3c;")
+
+    def _on_setup_replication(self):
+        try:
+            from utils_modules.replication_setup import ensure_logical_replication, ensure_bidirectional_replication
+            # Cargar config actual desde disco para evitar usar cache desactualizada
+            cfg = self._load_full_config() or (self.full_cfg if isinstance(self.full_cfg, dict) else {})
+            if not isinstance(cfg, dict):
+                cfg = {}
+            # Aplicar valores de UI a la sección de replicación
+            rep = cfg.get('replication', {}) or {}
+            pub = self.publication_name_edit.text().strip() or rep.get('publication_name') or 'gym_pub'
+            sub = self.subscription_name_edit.text().strip() or rep.get('subscription_name') or 'gym_sub'
+            rep['publication_name'] = pub
+            rep['subscription_name'] = sub
+            rep['remote_can_reach_local'] = bool(self.remote_can_reach_local_checkbox.isChecked())
+            # Pistas para bidireccional
+            if self.replication_mode_combo.currentIndex() == 1:
+                rep.setdefault('local_publication_name', pub)
+                rep.setdefault('remote_subscription_name', sub)
+            cfg['replication'] = rep
+            # Validaciones ligeras
+            if not cfg.get('db_local') or not cfg.get('db_remote'):
+                QMessageBox.warning(self, "Config incompleta", "Faltan secciones db_local o db_remote en config/config.json. Guarda y vuelve a intentar.")
+                return
+            # Orquestar replicación
+            if self.replication_mode_combo.currentIndex() == 1:
+                out = ensure_bidirectional_replication(cfg)
+            else:
+                out = ensure_logical_replication(cfg)
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2)
+            except Exception:
+                pretty = str(out)
+            QMessageBox.information(self, "Replicación", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error en replicación", str(e))
+
+    def _on_health_check(self):
+        try:
+            # Usar helpers del script verify_replication_health y resolvers de replication_setup
+            import importlib
+            vmod = importlib.import_module('scripts.verify_replication_health')
+            from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
+            cfg = vmod.load_cfg()
+            out = {}
+            try:
+                local_params = resolve_local_credentials(cfg)
+                with vmod.connect(local_params) as lconn:
+                    out['local_pg_stat_subscription'] = vmod.read_local_subscription(lconn)
+            except Exception as e:
+                out['local_error'] = str(e)
+            try:
+                remote_params = resolve_remote_credentials(cfg)
+                with vmod.connect(remote_params) as rconn:
+                    out['remote_replication'] = vmod.read_remote_replication(rconn)
+            except Exception as e:
+                out['remote_error'] = str(e)
+            out['ok'] = True
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(out)
+            QMessageBox.information(self, "Salud de replicación", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error verificando salud", str(e))
+
+    def _on_detect_device(self):
+        try:
+            try:
+                from device_id import get_device_id
+                dev = get_device_id()
+            except Exception:
+                import uuid
+                dev = str(uuid.uuid4())
+            self.device_id_edit.setText(str(dev))
+            QMessageBox.information(self, "Device ID", f"Device ID detectado: {dev}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo detectar el device_id: {e}")
+
+    def _on_ensure_prereq(self):
+        try:
+            dev = self.device_id_edit.text().strip()
+            if not dev:
+                try:
+                    from device_id import get_device_id
+                    dev = get_device_id()
+                    self.device_id_edit.setText(str(dev))
+                except Exception:
+                    pass
+            try:
+                if dev:
+                    from device_id import set_device_id
+                    set_device_id(dev)
+            except Exception:
+                pass
+            from utils_modules.prerequisites import ensure_prerequisites
+            res = ensure_prerequisites(dev or "unknown")
+            try:
+                pretty = json.dumps(res, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(res)
+            QMessageBox.information(self, "Prerequisitos", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo al asegurar prerequisitos: {e}")
+
+    def _on_secure_owner_local(self):
+        try:
+            params = self._get_profile_params('local')
+            out = self._secure_owner_on_params(params)
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(out)
+            QMessageBox.information(self, "Asegurar Dueño (Local)", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo asegurar Dueño (local): {e}")
+
+    def _on_secure_owner_remote(self):
+        try:
+            params = self._get_profile_params('remoto')
+            host = str(params.get('host', '')).strip()
+            if not host:
+                QMessageBox.warning(self, "Config remota faltante", "Configura primero el perfil REMOTO (host/puerto/etc.).")
+                return
+            out = self._secure_owner_on_params(params)
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(out)
+            QMessageBox.information(self, "Asegurar Dueño (Remoto)", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo asegurar Dueño (remoto): {e}")
+
+    def _on_full_bootstrap(self):
+        try:
+            dev = self.device_id_edit.text().strip()
+            if not dev:
+                try:
+                    from device_id import get_device_id
+                    dev = get_device_id()
+                    self.device_id_edit.setText(str(dev))
+                except Exception:
+                    dev = "unknown"
+            else:
+                try:
+                    from device_id import set_device_id
+                    set_device_id(dev)
+                except Exception:
+                    pass
+            out = {
+                "ok": False,
+                "device_id": dev,
+                "ensure_prerequisites": None,
+                "replication_health": None,
+            }
+            try:
+                from utils_modules.prerequisites import ensure_prerequisites
+                prereq_res = ensure_prerequisites(dev)
+                out["ensure_prerequisites"] = prereq_res
+            except Exception as e:
+                out["ensure_prerequisites"] = {"ok": False, "error": str(e)}
+            try:
+                import importlib
+                vmod = importlib.import_module('scripts.verify_replication_health')
+                from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
+                cfg = vmod.load_cfg()
+                health = {}
+                try:
+                    local_params = resolve_local_credentials(cfg)
+                    with vmod.connect(local_params) as lconn:
+                        health['local_pg_stat_subscription'] = vmod.read_local_subscription(lconn)
+                except Exception as e:
+                    health['local_error'] = str(e)
+                try:
+                    remote_params = resolve_remote_credentials(cfg)
+                    with vmod.connect(remote_params) as rconn:
+                        health['remote_replication'] = vmod.read_remote_replication(rconn)
+                except Exception as e:
+                    health['remote_error'] = str(e)
+                out["replication_health"] = health
+            except Exception as e:
+                out["replication_health"] = {"error": str(e)}
+            out["ok"] = True
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(out)
+            QMessageBox.information(self, "Bootstrap completo", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo en bootstrap: {e}")
+
     def _write_config_and_password(self, params: dict):
         # Determinar directorio base
         try:
@@ -581,6 +911,42 @@ class DBConfigDialog(QDialog):
         # Persistir configuración de tareas programadas desde la UI
         try:
             existing_cfg['scheduled_tasks'] = self._collect_tasks_cfg()
+        except Exception:
+            pass
+
+        # Persistir configuración general
+        try:
+            base_url = self.webapp_base_url_edit.text().strip()
+            client_url = self.client_base_url_edit.text().strip()
+            sync_token = self.sync_upload_token_edit.text().strip()
+            session_secret = self.webapp_session_secret_edit.text().strip()
+            if base_url:
+                existing_cfg['webapp_base_url'] = base_url
+            if client_url:
+                existing_cfg['client_base_url'] = client_url
+            if sync_token:
+                existing_cfg['sync_upload_token'] = sync_token
+            if session_secret:
+                existing_cfg['webapp_session_secret'] = session_secret
+            existing_cfg['public_tunnel'] = existing_cfg.get('public_tunnel', {}) or {}
+            existing_cfg['public_tunnel']['enabled'] = bool(self.tunnel_enabled_checkbox.isChecked())
+            existing_cfg['public_tunnel']['subdomain'] = self.tunnel_subdomain_edit.text().strip()
+        except Exception:
+            pass
+
+        # Persistir configuración de replicación
+        try:
+            rep = existing_cfg.get('replication', {}) or {}
+            pub = self.publication_name_edit.text().strip() or rep.get('publication_name') or 'gym_pub'
+            sub = self.subscription_name_edit.text().strip() or rep.get('subscription_name') or 'gym_sub'
+            rep['publication_name'] = pub
+            rep['subscription_name'] = sub
+            rep['remote_can_reach_local'] = bool(self.remote_can_reach_local_checkbox.isChecked())
+            # Guardar pistas de modo bidireccional si corresponde
+            if self.replication_mode_combo.currentIndex() == 1:
+                rep.setdefault('local_publication_name', pub)
+                rep.setdefault('remote_subscription_name', sub)
+            existing_cfg['replication'] = rep
         except Exception:
             pass
 
@@ -1015,6 +1381,215 @@ class DBConfigDialog(QDialog):
             except Exception:
                 pass
 
+    def _secure_owner_on_params(self, params: dict) -> dict:
+        conn = None
+        try:
+            conn = psycopg2.connect(
+                host=params.get('host'),
+                port=int(params.get('port') or 5432),
+                dbname=params.get('database'),
+                user=params.get('user'),
+                password=params.get('password'),
+                sslmode=params.get('sslmode') or 'prefer',
+                application_name=params.get('application_name', 'gym_management_system'),
+                connect_timeout=int(params.get('connect_timeout') or 10),
+            )
+            conn.autocommit = False
+            cur = conn.cursor()
+
+            # 1) Soltar triggers/funciones defensivas si existen para permitir inserción
+            try:
+                cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios")
+            except Exception:
+                pass
+            try:
+                cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios")
+            except Exception:
+                pass
+            try:
+                cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd()")
+            except Exception:
+                pass
+            try:
+                cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete()")
+            except Exception:
+                pass
+
+            # 2) Asegurar tabla usuarios existe
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id SERIAL PRIMARY KEY,
+                    nombre VARCHAR(255) NOT NULL,
+                    dni VARCHAR(20) UNIQUE,
+                    telefono VARCHAR(50) NOT NULL,
+                    pin VARCHAR(10) DEFAULT '1234',
+                    rol VARCHAR(50) DEFAULT 'socio' NOT NULL,
+                    notas TEXT,
+                    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    activo BOOLEAN DEFAULT TRUE,
+                    tipo_cuota VARCHAR(100) DEFAULT 'estandar',
+                    ultimo_pago DATE,
+                    fecha_proximo_vencimiento DATE,
+                    cuotas_vencidas INTEGER DEFAULT 0
+                )
+                """
+            )
+
+            # 3) Insertar Dueño si no existe (antes de reinstalar protecciones)
+            cur.execute("SELECT 1 FROM usuarios WHERE rol = 'dueño'")
+            has_owner = bool(cur.fetchone())
+            if not has_owner:
+                cur.execute(
+                    """INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
+                )
+
+            # 4) Reinstalar RLS y políticas bloqueando filas 'dueño'
+            cur.execute(
+                """
+                ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
+                ALTER TABLE usuarios FORCE ROW LEVEL SECURITY;
+
+                DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios;
+                DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios;
+                DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios;
+                DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios;
+
+                CREATE POLICY usuarios_block_owner_select ON usuarios
+                    FOR SELECT
+                    USING (rol IS DISTINCT FROM 'dueño');
+
+                CREATE POLICY usuarios_block_owner_update ON usuarios
+                    FOR UPDATE
+                    USING (rol IS DISTINCT FROM 'dueño')
+                    WITH CHECK (rol IS DISTINCT FROM 'dueño');
+
+                CREATE POLICY usuarios_block_owner_delete ON usuarios
+                    FOR DELETE
+                    USING (rol IS DISTINCT FROM 'dueño');
+
+                CREATE POLICY usuarios_block_owner_insert ON usuarios
+                    FOR INSERT
+                    WITH CHECK (rol IS DISTINCT FROM 'dueño');
+                """
+            )
+
+            # 5) Crear funciones y triggers defensivos
+            cur.execute(
+                """
+                CREATE FUNCTION usuarios_bloquear_dueno_ins_upd() RETURNS trigger AS $$
+                BEGIN
+                    IF NEW.rol = 'dueño' THEN
+                        RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" son inafectables';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE FUNCTION usuarios_bloquear_dueno_delete() RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.rol = 'dueño' THEN
+                        RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" no pueden eliminarse';
+                    END IF;
+                    RETURN OLD;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER trg_usuarios_bloquear_ins_upd_dueno
+                BEFORE INSERT OR UPDATE ON usuarios
+                FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_ins_upd();
+
+                CREATE TRIGGER trg_usuarios_bloquear_del_dueno
+                BEFORE DELETE ON usuarios
+                FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
+                """
+            )
+
+            # 6) Asegurar columna updated_at, índice y trigger de actualización
+            cur.execute(
+                """
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'usuarios' AND column_name = 'updated_at'
+                """
+            )
+            missing_updated = cur.fetchone() is None
+            if missing_updated:
+                cur.execute("ALTER TABLE usuarios ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()")
+                cur.execute("UPDATE usuarios SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_updated_at ON usuarios(updated_at)")
+            cur.execute(
+                """
+                CREATE OR REPLACE FUNCTION usuarios_set_updated_at() RETURNS trigger AS $$
+                BEGIN
+                    NEW.updated_at = NOW();
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+                """
+            )
+            cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_set_updated_at ON usuarios")
+            cur.execute(
+                """
+                CREATE TRIGGER trg_usuarios_set_updated_at
+                BEFORE UPDATE ON usuarios
+                FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
+                """
+            )
+
+            # 7) Asegurar tabla configuracion y sembrar owner_password si existe en entorno
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS configuracion (
+                    id SERIAL PRIMARY KEY,
+                    clave VARCHAR(255) UNIQUE NOT NULL,
+                    valor TEXT NOT NULL,
+                    tipo VARCHAR(50) DEFAULT 'string',
+                    descripcion TEXT
+                )
+                """
+            )
+            env_pwd = (os.getenv('WEBAPP_OWNER_PASSWORD', '') or os.getenv('OWNER_PASSWORD', '')).strip()
+            if env_pwd:
+                cur.execute(
+                    """
+                    INSERT INTO configuracion (clave, valor, tipo, descripcion)
+                    VALUES (%s, %s, 'string', 'Contraseña de acceso del dueño')
+                    ON CONFLICT (clave) DO NOTHING
+                    """,
+                    ('owner_password', env_pwd)
+                )
+
+            # Validación básica: existencia de Dueño y triggers/políticas
+            cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol = 'dueño'")
+            owner_count = int((cur.fetchone() or [0])[0])
+            cur.execute("SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='usuarios'")
+            pols = {r[0] for r in (cur.fetchall() or [])}
+            cur.execute("SELECT tgname FROM pg_trigger WHERE tgrelid = 'usuarios'::regclass")
+            trigs = {r[0] for r in (cur.fetchall() or [])}
+
+            conn.commit()
+            return {
+                "ok": True,
+                "owner_count": owner_count,
+                "policies": sorted(list(pols)),
+                "triggers": sorted(list(trigs)),
+            }
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            return {"ok": False, "error": str(e)}
+        finally:
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
+
     def _on_cleanup_databases(self):
         try:
             # Primera confirmación
@@ -1060,221 +1635,12 @@ class DBConfigDialog(QDialog):
             local_params = self._get_profile_params('local')
             remote_params = self._get_profile_params('remoto')
 
-            def _secure_owner_on(params: dict) -> dict:
-                conn = None
-                try:
-                    conn = psycopg2.connect(
-                        host=params.get('host'),
-                        port=int(params.get('port') or 5432),
-                        dbname=params.get('database'),
-                        user=params.get('user'),
-                        password=params.get('password'),
-                        sslmode=params.get('sslmode') or 'prefer',
-                        application_name=params.get('application_name', 'gym_management_system'),
-                        connect_timeout=int(params.get('connect_timeout') or 10),
-                    )
-                    conn.autocommit = False
-                    cur = conn.cursor()
-
-                    # 1) Soltar triggers/funciones defensivas si existen para permitir inserción
-                    try:
-                        cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios")
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios")
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd()")
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete()")
-                    except Exception:
-                        pass
-
-                    # 2) Asegurar tabla usuarios existe
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS usuarios (
-                            id SERIAL PRIMARY KEY,
-                            nombre VARCHAR(255) NOT NULL,
-                            dni VARCHAR(20) UNIQUE,
-                            telefono VARCHAR(50) NOT NULL,
-                            pin VARCHAR(10) DEFAULT '1234',
-                            rol VARCHAR(50) DEFAULT 'socio' NOT NULL,
-                            notas TEXT,
-                            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            activo BOOLEAN DEFAULT TRUE,
-                            tipo_cuota VARCHAR(100) DEFAULT 'estandar',
-                            ultimo_pago DATE,
-                            fecha_proximo_vencimiento DATE,
-                            cuotas_vencidas INTEGER DEFAULT 0
-                        )
-                        """
-                    )
-
-                    # 3) Insertar Dueño si no existe (antes de reinstalar protecciones)
-                    cur.execute("SELECT 1 FROM usuarios WHERE rol = 'dueño'")
-                    has_owner = bool(cur.fetchone())
-                    if not has_owner:
-                        cur.execute(
-                            """INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
-                                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                            ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
-                        )
-
-                    # 4) Reinstalar RLS y políticas bloqueando filas 'dueño'
-                    cur.execute(
-                        """
-                        ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
-                        ALTER TABLE usuarios FORCE ROW LEVEL SECURITY;
-
-                        DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios;
-                        DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios;
-                        DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios;
-                        DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios;
-
-                        CREATE POLICY usuarios_block_owner_select ON usuarios
-                            FOR SELECT
-                            USING (rol IS DISTINCT FROM 'dueño');
-
-                        CREATE POLICY usuarios_block_owner_update ON usuarios
-                            FOR UPDATE
-                            USING (rol IS DISTINCT FROM 'dueño')
-                            WITH CHECK (rol IS DISTINCT FROM 'dueño');
-
-                        CREATE POLICY usuarios_block_owner_delete ON usuarios
-                            FOR DELETE
-                            USING (rol IS DISTINCT FROM 'dueño');
-
-                        CREATE POLICY usuarios_block_owner_insert ON usuarios
-                            FOR INSERT
-                            WITH CHECK (rol IS DISTINCT FROM 'dueño');
-                        """
-                    )
-
-                    # 5) Crear funciones y triggers defensivos
-                    cur.execute(
-                        """
-                        CREATE FUNCTION usuarios_bloquear_dueno_ins_upd() RETURNS trigger AS $$
-                        BEGIN
-                            IF NEW.rol = 'dueño' THEN
-                                RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" son inafectables';
-                            END IF;
-                            RETURN NEW;
-                        END;
-                        $$ LANGUAGE plpgsql;
-
-                        CREATE FUNCTION usuarios_bloquear_dueno_delete() RETURNS trigger AS $$
-                        BEGIN
-                            IF OLD.rol = 'dueño' THEN
-                                RAISE EXCEPTION 'Operación no permitida: los usuarios con rol "dueño" no pueden eliminarse';
-                            END IF;
-                            RETURN OLD;
-                        END;
-                        $$ LANGUAGE plpgsql;
-
-                        CREATE TRIGGER trg_usuarios_bloquear_ins_upd_dueno
-                        BEFORE INSERT OR UPDATE ON usuarios
-                        FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_ins_upd();
-
-                        CREATE TRIGGER trg_usuarios_bloquear_del_dueno
-                        BEFORE DELETE ON usuarios
-                        FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
-                        """
-                    )
-
-                    # 6) Asegurar columna updated_at, índice y trigger de actualización
-                    cur.execute(
-                        """
-                        SELECT 1 FROM information_schema.columns
-                        WHERE table_name = 'usuarios' AND column_name = 'updated_at'
-                        """
-                    )
-                    missing_updated = cur.fetchone() is None
-                    if missing_updated:
-                        cur.execute("ALTER TABLE usuarios ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()")
-                        cur.execute("UPDATE usuarios SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_updated_at ON usuarios(updated_at)")
-                    cur.execute(
-                        """
-                        CREATE OR REPLACE FUNCTION usuarios_set_updated_at() RETURNS trigger AS $$
-                        BEGIN
-                            NEW.updated_at = NOW();
-                            RETURN NEW;
-                        END;
-                        $$ LANGUAGE plpgsql;
-                        """
-                    )
-                    cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_set_updated_at ON usuarios")
-                    cur.execute(
-                        """
-                        CREATE TRIGGER trg_usuarios_set_updated_at
-                        BEFORE UPDATE ON usuarios
-                        FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
-                        """
-                    )
-
-                    # 7) Asegurar tabla configuracion y sembrar owner_password si existe en entorno
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS configuracion (
-                            id SERIAL PRIMARY KEY,
-                            clave VARCHAR(255) UNIQUE NOT NULL,
-                            valor TEXT NOT NULL,
-                            tipo VARCHAR(50) DEFAULT 'string',
-                            descripcion TEXT
-                        )
-                        """
-                    )
-                    env_pwd = (os.getenv('WEBAPP_OWNER_PASSWORD', '') or os.getenv('OWNER_PASSWORD', '')).strip()
-                    if env_pwd:
-                        cur.execute(
-                            """
-                            INSERT INTO configuracion (clave, valor, tipo, descripcion)
-                            VALUES (%s, %s, 'string', 'Contraseña de acceso del dueño')
-                            ON CONFLICT (clave) DO NOTHING
-                            """,
-                            ('owner_password', env_pwd)
-                        )
-
-                    # Validación básica: existencia de Dueño y triggers/políticas
-                    cur.execute("SELECT COUNT(*) FROM usuarios WHERE rol = 'dueño'")
-                    owner_count = int((cur.fetchone() or [0])[0])
-                    cur.execute("SELECT polname FROM pg_policies WHERE schemaname='public' AND tablename='usuarios'")
-                    pols = {r[0] for r in (cur.fetchall() or [])}
-                    cur.execute("SELECT tgname FROM pg_trigger WHERE tgrelid = 'usuarios'::regclass")
-                    trigs = {r[0] for r in (cur.fetchall() or [])}
-
-                    conn.commit()
-                    return {
-                        "ok": True,
-                        "owner_count": owner_count,
-                        "policies": sorted(list(pols)),
-                        "triggers": sorted(list(trigs)),
-                    }
-                except Exception as e:
-                    try:
-                        if conn:
-                            conn.rollback()
-                    except Exception:
-                        pass
-                    return {"ok": False, "error": str(e)}
-                finally:
-                    try:
-                        if conn:
-                            conn.close()
-                    except Exception:
-                        pass
-
             results = []
             # Local
             try:
                 rloc = self._truncate_public_tables(local_params)
                 if rloc.get('ok'):
-                    rloc_secure = _secure_owner_on(local_params)
+                    rloc_secure = self._secure_owner_on_params(local_params)
                 else:
                     rloc_secure = {"ok": False, "error": rloc.get('error') or 'No se pudo truncar'}
                 results.append(("LOCAL", rloc, rloc_secure))
@@ -1286,7 +1652,7 @@ class DBConfigDialog(QDialog):
                 if str(remote_params.get('host', '')).strip():
                     rrem = self._truncate_public_tables(remote_params)
                     if rrem.get('ok'):
-                        rrem_secure = _secure_owner_on(remote_params)
+                        rrem_secure = self._secure_owner_on_params(remote_params)
                     else:
                         rrem_secure = {"ok": False, "error": rrem.get('error') or 'No se pudo truncar'}
                     results.append(("REMOTO", rrem, rrem_secure))

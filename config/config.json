@@ -29,7 +29,8 @@
   },
   "replication": {
     "subscription_name": "gym_sub",
-    "publication_name": "gym_pub"
+    "publication_name": "gym_pub",
+    "remote_can_reach_local": false
   },
   "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
   "public_tunnel": {
@@ -40,9 +41,9 @@
   "sync_upload_token": "gymms_sync_b3d2a9f6c1e5470ab9d83b7e4c59f12a7d8c3e1f5a9b2c4d6e7f8091a2b3c4d5",
   "webapp_session_secret": "XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY",
   "scheduled_tasks": {
-    "enabled": false,
+    "enabled": true,
     "uploader": {
-      "enabled": false,
+      "enabled": true,
       "interval_minutes": 3
     },
     "reconcile_r2l": {
@@ -54,12 +55,15 @@
       "time": "02:00"
     },
     "cleanup": {
-      "enabled": false,
+      "enabled": true,
       "time": "03:15"
     },
     "backup": {
-      "enabled": false,
+      "enabled": true,
       "time": "02:30"
     }
+  },
+  "vpn": {
+    "provider": "auto"
   }
 }

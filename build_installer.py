@@ -199,6 +199,7 @@ def _env_get(name: str) -> str | None:
 def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
     """Genera config/remote_bootstrap.json a partir de variables de entorno.
     Reconoce PGREMOTE_DSN/DATABASE_URL_REMOTE y campos sueltos.
+    Además, incluye configuración VPN (TAILSCALE/WIREGUARD) si está disponible en entorno.
     Devuelve True si se generó archivo.
     """
     try:
@@ -206,6 +207,7 @@ def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
     except Exception:
         pass
 
+    # --- Campos remotos (PostgreSQL) ---
     dsn = _env_get("PGREMOTE_DSN") or _env_get("DATABASE_URL_REMOTE")
     host = _env_get("PGREMOTE_HOST")
     port = _env_get("PGREMOTE_PORT")
@@ -216,11 +218,30 @@ def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
     appname = _env_get("PGREMOTE_APPNAME") or "gym_management_system"
     timeout = _env_get("PGREMOTE_TIMEOUT")
 
-    if not any([dsn, host, user, password, db]):
+    # --- Campos VPN ---
+    vpn_provider = (_env_get("VPN_PROVIDER") or "").lower()
+    ts_authkey = _env_get("TAILSCALE_AUTHKEY")
+    ts_hostname_prefix = _env_get("TAILSCALE_HOSTNAME_PREFIX")
+    ts_control_url = _env_get("TAILSCALE_CONTROL_URL")
+    ts_accept_routes = _env_get("TAILSCALE_ACCEPT_ROUTES")
+    ts_accept_dns = _env_get("TAILSCALE_ACCEPT_DNS")
+    ts_advertise_tags = _env_get("TAILSCALE_ADVERTISE_TAGS")
+
+    wg_config_b64 = _env_get("WIREGUARD_CONFIG_B64")
+    wg_config_path = _env_get("WIREGUARD_CONFIG_PATH")
+
+    remote_present = any([dsn, host, user, password, db])
+    vpn_present = any([
+        vpn_provider,
+        ts_authkey, ts_hostname_prefix, ts_control_url, ts_accept_routes, ts_accept_dns, ts_advertise_tags,
+        wg_config_b64, wg_config_path,
+    ])
+
+    if not (remote_present or vpn_present):
         # No hay datos suficientes; no generar
         return False
 
-    payload = {"remote": {}}
+    payload = {"remote": {}, "vpn": {}}
     r = payload["remote"]
     if dsn:
         r["dsn"] = dsn
@@ -247,11 +268,44 @@ def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
         except Exception:
             r["connect_timeout"] = timeout
 
+    v = payload["vpn"]
+    if vpn_provider:
+        v["provider"] = vpn_provider
+    # Tailscale
+    if ts_authkey:
+        v["tailscale_auth_key"] = ts_authkey
+    if ts_hostname_prefix:
+        v["hostname_prefix"] = ts_hostname_prefix
+    if ts_control_url:
+        v["control_url"] = ts_control_url
+    def _to_bool(s: str | None) -> bool | None:
+        if s is None:
+            return None
+        s2 = str(s).strip().lower()
+        if s2 in {"1", "true", "yes", "y"}:
+            return True
+        if s2 in {"0", "false", "no", "n"}:
+            return False
+        return None
+    br = _to_bool(ts_accept_routes)
+    bd = _to_bool(ts_accept_dns)
+    if br is not None:
+        v["accept_routes"] = br
+    if bd is not None:
+        v["accept_dns"] = bd
+    if ts_advertise_tags:
+        v["advertise_tags"] = [t.strip() for t in ts_advertise_tags.split(",") if t.strip()]
+    # WireGuard
+    if wg_config_b64:
+        v["wireguard_config_b64"] = wg_config_b64
+    if wg_config_path:
+        v["wireguard_config_path"] = wg_config_path
+
     out_path = config_dir / "remote_bootstrap.json"
     try:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"- Generado {out_path} desde variables de entorno (credenciales remotas).")
+        print(f"- Generado {out_path} desde entorno (remoto/VPN).")
         return True
     except Exception as e:
         print(f"ADVERTENCIA: No se pudo generar remote_bootstrap.json: {e}")

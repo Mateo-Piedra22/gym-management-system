@@ -101,6 +101,8 @@ def resolve_remote_credentials(cfg: dict) -> dict:
     sslmode = remote.get('sslmode') or cfg.get('sslmode') or 'require'
     appname = remote.get('application_name') or cfg.get('application_name') or 'gym_management_system'
     timeout = int(remote.get('connect_timeout') or cfg.get('connect_timeout') or 10)
+    retries = int(os.environ.get('PG_CONNECT_RETRIES') or remote.get('connect_retries') or cfg.get('connect_retries') or 3)
+    retry_delay = float(os.environ.get('PG_CONNECT_RETRY_DELAY') or remote.get('connect_retry_delay') or cfg.get('connect_retry_delay') or 1.0)
 
     dsn = os.environ.get('PGREMOTE_DSN') or ''
     host, port, db, user, pw_from_dsn, sslmode, appname, timeout = _parse_dsn(
@@ -131,6 +133,8 @@ def resolve_remote_credentials(cfg: dict) -> dict:
         'sslmode': sslmode,
         'application_name': appname,
         'connect_timeout': timeout,
+        'connect_retries': retries,
+        'connect_retry_delay': retry_delay,
         'dsn': dsn,
     }
 
@@ -145,6 +149,8 @@ def resolve_local_credentials(cfg: dict) -> dict:
     sslmode = local.get('sslmode') or cfg.get('sslmode') or 'prefer'
     appname = local.get('application_name') or cfg.get('application_name') or 'gym_management_system'
     timeout = int(local.get('connect_timeout') or cfg.get('connect_timeout') or 10)
+    retries = int(os.environ.get('PG_CONNECT_RETRIES') or local.get('connect_retries') or cfg.get('connect_retries') or 3)
+    retry_delay = float(os.environ.get('PG_CONNECT_RETRY_DELAY') or local.get('connect_retry_delay') or cfg.get('connect_retry_delay') or 1.0)
 
     dsn = os.environ.get('PGLOCAL_DSN') or ''
     host, port, db, user, pw_from_dsn, sslmode, appname, timeout = _parse_dsn(
@@ -175,6 +181,8 @@ def resolve_local_credentials(cfg: dict) -> dict:
         'sslmode': sslmode,
         'application_name': appname,
         'connect_timeout': timeout,
+        'connect_retries': retries,
+        'connect_retry_delay': retry_delay,
         'dsn': dsn,
     }
 
@@ -182,17 +190,36 @@ def resolve_local_credentials(cfg: dict) -> dict:
 def _connect(params: dict, dbname: Optional[str] = None):
     if psycopg2 is None:
         raise RuntimeError("psycopg2 no disponible")
+    import time
     dbname = dbname or params.get('database')
     dsn = params.get('dsn') or ''
     timeout = int(params.get('connect_timeout') or 10)
-    if dsn:
-        return psycopg2.connect(dsn, connect_timeout=timeout)
-    return psycopg2.connect(
-        host=params['host'], port=params['port'], dbname=dbname,
-        user=params['user'], password=params.get('password'), sslmode=params['sslmode'],
-        application_name=params.get('application_name') or 'gym_management_system',
-        connect_timeout=timeout,
-    )
+    retries = int(params.get('connect_retries') or 3)
+    delay = float(params.get('connect_retry_delay') or 1.0)
+    last_exc = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            if dsn:
+                return psycopg2.connect(dsn, connect_timeout=timeout)
+            return psycopg2.connect(
+                host=params['host'], port=params['port'], dbname=dbname,
+                user=params['user'], password=params.get('password'), sslmode=params['sslmode'],
+                application_name=params.get('application_name') or 'gym_management_system',
+                connect_timeout=timeout,
+            )
+        except Exception as e:
+            last_exc = e
+            if attempt >= max(1, retries):
+                raise
+            try:
+                time.sleep(delay)
+            except Exception:
+                pass
+            delay = min(delay * 1.6, 5.0)
+    # Si todos los intentos fallan, relanzar la última excepción
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Error de conexión desconocido")
 
 
 def check_remote_logical_capability(remote_params: dict) -> Dict[str, Any]:
@@ -242,14 +269,20 @@ def check_remote_logical_capability(remote_params: dict) -> Dict[str, Any]:
             info["max_wal_senders"] = int(mws) if mws is not None else None
         except Exception:
             info["max_wal_senders"] = mws
-        info["in_recovery"] = bool(rec) if rec is not None else None
-        # Condición mínima para publicar: wal_level=logical, slots>0, senders>0 y no estar en recovery
-        info["ok"] = (
-            (info["wal_level"] == "logical") and
-            (isinstance(info["max_replication_slots"], int) and info["max_replication_slots"] > 0) and
-            (isinstance(info["max_wal_senders"], int) and info["max_wal_senders"] > 0) and
-            (info["in_recovery"] is False)
-        )
+        info["in_recovery"] = rec
+        try:
+            is_logical = (str(info.get("wal_level")).lower() == "logical")
+        except Exception:
+            is_logical = False
+        try:
+            max_slots = int(info.get("max_replication_slots") or 0)
+        except Exception:
+            max_slots = 0
+        try:
+            max_senders = int(info.get("max_wal_senders") or 0)
+        except Exception:
+            max_senders = 0
+        info["ok"] = bool(is_logical and max_slots > 0 and max_senders > 0 and (rec is False))
         return info
     except Exception:
         return info
@@ -332,50 +365,57 @@ def ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub') 
                             cur.execute(sql.SQL("CREATE PUBLICATION {} FOR ALL TABLES WITH (publish = 'insert, update, delete, truncate')").format(sql.Identifier(pubname)))
                         except Exception:
                             pass
-                changed = True
             else:
-                # Sincronizar conjunto de tablas de la publicación existente
+                # Alinear publicación con tablas existentes
                 try:
-                    cur.execute("SELECT tablename FROM pg_publication_tables WHERE pubname = %s", (pubname,))
-                    current = {r[0] for r in (cur.fetchall() or [])}
+                    cur.execute(
+                        """
+                        SELECT pt.nspname, pt.relname
+                        FROM pg_publication p
+                        JOIN pg_publication_rel pr ON pr.prpubid = p.oid
+                        JOIN pg_class c ON c.oid = pr.prrelid
+                        JOIN pg_namespace pt ON pt.oid = c.relnamespace
+                        WHERE p.pubname = %s
+                        ORDER BY 1,2
+                        """,
+                        (pubname,)
+                    )
+                    already = [r[1] for r in (cur.fetchall() or [])]
                 except Exception:
-                    current = set()
-                desired = set(pub_tables) if pub_tables else set(remote_tables)
-                to_add = sorted(list(desired - current))
-                to_drop = sorted(list(current - desired))
-                for t in to_add:
+                    already = []
+                desired = set(pub_tables)
+                current = set(already)
+                to_add = list(desired - current)
+                to_drop = list(current - desired)
+                added_count = 0
+                dropped_count = 0
+                if to_add:
+                    parts = [
+                        sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t))
+                        for t in to_add
+                    ]
                     try:
-                        cur.execute(sql.SQL("ALTER PUBLICATION {} ADD TABLE {}.{}").format(
-                            sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
-                        added_count += 1
+                        alter_add = sql.SQL("ALTER PUBLICATION {} ADD TABLE ")\
+                            .format(sql.Identifier(pubname)) + sql.SQL(", ").join(parts)
+                        cur.execute(alter_add)
+                        added_count = len(to_add)
                     except Exception:
                         pass
-                for t in to_drop:
+                if to_drop:
+                    parts = [
+                        sql.SQL("{}.{}").format(sql.Identifier('public'), sql.Identifier(t))
+                        for t in to_drop
+                    ]
                     try:
-                        cur.execute(sql.SQL("ALTER PUBLICATION {} DROP TABLE {}.{}").format(
-                            sql.Identifier(pubname), sql.Identifier('public'), sql.Identifier(t)))
-                        dropped_count += 1
+                        alter_drop = sql.SQL("ALTER PUBLICATION {} DROP TABLE ")\
+                            .format(sql.Identifier(pubname)) + sql.SQL(", ").join(parts)
+                        cur.execute(alter_drop)
+                        dropped_count = len(to_drop)
                     except Exception:
                         pass
-                # Asegurar opciones de publicación completas
-                try:
-                    cur.execute(sql.SQL("ALTER PUBLICATION {} SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = true)").format(sql.Identifier(pubname)))
-                except Exception:
-                    try:
-                        cur.execute(sql.SQL("ALTER PUBLICATION {} SET (publish = 'insert, update, delete, truncate')").format(sql.Identifier(pubname)))
-                    except Exception:
-                        pass
-
-        return {
-            "ok": True,
-            "changed": changed,
-            "added_tables": added_count,
-            "dropped_tables": dropped_count,
-            "message": f"Publication '{pubname}' sincronizada"
-        }
+        return {"ok": True, "changed": added_count > 0 or dropped_count > 0, "message": "PUBLICATION remoto verificado/creado", "added": added_count, "dropped": dropped_count}
     except Exception as e:
-        logging.exception("Error asegurando publicación en remoto")
-        return {"ok": False, "error": str(e), "message": "Fallo en ensure_publication_on_remote"}
+        return {"ok": False, "changed": False, "message": f"Fallo PUBLICATION remoto: {e}"}
     finally:
         try:
             if conn:
@@ -443,25 +483,71 @@ def ensure_subscription_on_local(local_params: dict, remote_params: dict, subnam
 def seed_keyring_credentials(cfg: dict) -> Dict[str, Any]:
     """Si faltan, almacena contraseñas en keyring bajo cuentas diferenciadas."""
     info = {"local": False, "remote": False}
+    # Local
     try:
         local = cfg.get('db_local') or cfg
         l_user = local.get('user') or cfg.get('user') or 'postgres'
-        l_pwd = local.get('password') or cfg.get('password')
-        _keyring_set_if_missing(f"{l_user}@local", l_pwd)
+        # Resolver host/port desde config y PGLOCAL_DSN
+        l_host = local.get('host') or cfg.get('host') or 'localhost'
+        try:
+            l_port = int(local.get('port') or cfg.get('port') or 5432)
+        except Exception:
+            l_port = 5432
+        l_dsn = os.environ.get('PGLOCAL_DSN') or ''
+        if l_dsn:
+            try:
+                l_host, l_port, _db, l_user, l_pwd_dsn, _ssl, _app, _to = _parse_dsn(l_dsn, {
+                    'host': l_host, 'port': l_port, 'database': local.get('database') or cfg.get('database') or 'gimnasio',
+                    'user': l_user, 'password': local.get('password') or cfg.get('password'),
+                    'sslmode': local.get('sslmode') or cfg.get('sslmode') or 'prefer',
+                    'application_name': local.get('application_name') or cfg.get('application_name') or 'gym_management_system',
+                    'connect_timeout': local.get('connect_timeout') or cfg.get('connect_timeout') or 10,
+                })
+            except Exception:
+                l_pwd_dsn = None
+        else:
+            l_pwd_dsn = None
+        # Prioridad de password: ENV > DSN > CONFIG
+        l_pwd = os.environ.get('PGLOCAL_PASSWORD') \
+            or os.environ.get('DB_LOCAL_PASSWORD') \
+            or os.environ.get('DB_PASSWORD') \
+            or os.environ.get('PGPASSWORD') \
+            or os.environ.get('POSTGRES_PASSWORD') \
+            or l_pwd_dsn \
+            or local.get('password') \
+            or cfg.get('password')
+        # Guardar en variantes
+        for acct in [f"{l_user}@local", f"{l_user}@{l_host}:{l_port}", l_user]:
+            _keyring_set_if_missing(acct, l_pwd)
         if l_pwd:
             info["local"] = True
     except Exception:
         pass
+    # Remoto
     try:
         remote = cfg.get('db_remote') or {}
-        r_user = remote.get('user') or 'postgres'
-        r_pwd = remote.get('password')
-        _keyring_set_if_missing(f"{r_user}@railway", r_pwd)
-        # También por host:port si está disponible
-        host = remote.get('host') or ''
-        port = remote.get('port')
-        if host and port:
-            _keyring_set_if_missing(f"{r_user}@{host}:{port}", r_pwd)
+        r_user = os.environ.get('PGREMOTE_USER') or remote.get('user') or 'postgres'
+        r_host = remote.get('host') or ''
+        try:
+            r_port = int(remote.get('port') or 5432)
+        except Exception:
+            r_port = 5432
+        r_dsn = os.environ.get('PGREMOTE_DSN') or ''
+        if r_dsn:
+            try:
+                r_host, r_port, _db, r_user, r_pwd_dsn, _ssl, _app, _to = _parse_dsn(r_dsn, {
+                    'host': r_host, 'port': r_port, 'database': remote.get('database') or 'railway',
+                    'user': r_user, 'password': remote.get('password'), 'sslmode': remote.get('sslmode') or 'require',
+                    'application_name': remote.get('application_name') or 'gym_management_system', 'connect_timeout': remote.get('connect_timeout') or 10,
+                })
+            except Exception:
+                r_pwd_dsn = None
+        else:
+            r_pwd_dsn = None
+        r_pwd = os.environ.get('PGREMOTE_PASSWORD') or r_pwd_dsn or remote.get('password')
+        for acct in [f"{r_user}@railway", (f"{r_user}@{r_host}:{r_port}" if r_host else None), r_user]:
+            if acct:
+                _keyring_set_if_missing(acct, r_pwd)
         if r_pwd:
             info["remote"] = True
     except Exception:

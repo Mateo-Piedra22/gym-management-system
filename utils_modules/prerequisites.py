@@ -3,8 +3,9 @@ import json
 import shutil
 import subprocess
 import sys
+import glob
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from urllib.parse import urlparse
 
 try:
@@ -298,7 +299,7 @@ def apply_remote_bootstrap_if_present() -> dict:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f) or {}
         remote = data.get("remote") or data
-        dsn = str(remote.get("dsn") or os.getenv("PGREMOTE_DSN", ""))
+        dsn = str(remote.get("dsn") or data.get("remote_dsn") or os.getenv("PGREMOTE_DSN", ""))
         host, port, db, user, password, sslmode, timeout, appname = _parse_dsn_bootstrap(
             dsn,
             {
@@ -340,6 +341,80 @@ def apply_remote_bootstrap_if_present() -> dict:
                 os.environ["PGREMOTE_PASSWORD"] = password
             except Exception:
                 pass
+        # Procesar configuración VPN desde remote_bootstrap.json y exportar variables
+        vpn = data.get("vpn") or {}
+        provider = (vpn.get("provider") or "").lower()
+        if provider:
+            try:
+                os.environ["VPN_PROVIDER"] = provider
+            except Exception:
+                pass
+        if provider == "tailscale":
+            ts_auth = vpn.get("tailscale_auth_key")
+            if ts_auth:
+                try:
+                    os.environ["TAILSCALE_AUTHKEY"] = ts_auth
+                except Exception:
+                    pass
+            hp = vpn.get("hostname_prefix")
+            if hp:
+                try:
+                    os.environ["TAILSCALE_HOSTNAME_PREFIX"] = str(hp)
+                except Exception:
+                    pass
+            cu = vpn.get("control_url")
+            if cu:
+                try:
+                    os.environ["TAILSCALE_CONTROL_URL"] = str(cu)
+                except Exception:
+                    pass
+            for k_src, k_env in [("accept_routes", "TAILSCALE_ACCEPT_ROUTES"), ("accept_dns", "TAILSCALE_ACCEPT_DNS")]:
+                val = vpn.get(k_src)
+                if val is not None:
+                    try:
+                        os.environ[k_env] = "true" if bool(val) else "false"
+                    except Exception:
+                        pass
+            tags = vpn.get("advertise_tags") or []
+            if tags:
+                try:
+                    os.environ["TAILSCALE_ADVERTISE_TAGS"] = ",".join([str(t) for t in tags])
+                except Exception:
+                    pass
+        elif provider == "wireguard":
+            b64 = vpn.get("wireguard_config_b64")
+            pth = vpn.get("wireguard_config_path")
+            if b64:
+                try:
+                    os.environ["WIREGUARD_CONFIG_B64"] = str(b64)
+                except Exception:
+                    pass
+            if pth:
+                try:
+                    os.environ["WIREGUARD_CONFIG_PATH"] = str(pth)
+                except Exception:
+                    pass
+        
+        # Procesar Webapp base URL y token de sincronización
+        webapp = data.get("webapp") or {}
+        pub_url = str(webapp.get("public_base_url") or data.get("public_webapp_url") or "").strip()
+        if pub_url:
+            try:
+                os.environ["WEBAPP_BASE_URL"] = pub_url
+            except Exception:
+                pass
+        sync_token = str(data.get("sync_upload_token") or "").strip()
+        if sync_token:
+            try:
+                os.environ["SYNC_UPLOAD_TOKEN"] = sync_token
+            except Exception:
+                pass
+        owner_seed = str(data.get("owner_password") or "").strip()
+        if owner_seed:
+            try:
+                os.environ["WEBAPP_OWNER_PASSWORD"] = owner_seed
+            except Exception:
+                pass
         # Actualizar config.json (solo datos sin password)
         try:
             cfg_path = os.path.join(cfg_dir, "config.json")
@@ -356,6 +431,32 @@ def apply_remote_bootstrap_if_present() -> dict:
                 "sslmode": sslmode or "require",
             })
             cfg["db_remote"] = remote_cfg
+            # Persistir webapp_base_url y token si vienen en bootstrap
+            if pub_url:
+                cfg["webapp_base_url"] = pub_url
+            if sync_token:
+                cfg["sync_upload_token"] = sync_token
+            # Persistir configuración no sensible del VPN
+            if provider:
+                vpn_cfg = dict(cfg.get("vpn") or {})
+                vpn_cfg.update({
+                    "provider": provider,
+                })
+                if provider == "tailscale":
+                    if hp:
+                        vpn_cfg["hostname_prefix"] = hp
+                    if cu:
+                        vpn_cfg["control_url"] = cu
+                    if vpn.get("accept_routes") is not None:
+                        vpn_cfg["accept_routes"] = bool(vpn.get("accept_routes"))
+                    if vpn.get("accept_dns") is not None:
+                        vpn_cfg["accept_dns"] = bool(vpn.get("accept_dns"))
+                    if tags:
+                        vpn_cfg["advertise_tags"] = tags
+                elif provider == "wireguard":
+                    if pth:
+                        vpn_cfg["wireguard_config_path"] = pth
+                cfg["vpn"] = vpn_cfg
             with open(cfg_path, "w", encoding="utf-8") as cf:
                 json.dump(cfg, cf, ensure_ascii=False, indent=2)
         except Exception:
@@ -395,19 +496,195 @@ def ensure_prerequisites(device_id: str) -> dict:
         "remote_bootstrap": {"applied": False, "message": ""},
     }
 
-    # Aplicar bootstrap remoto (idempotente, antes de salida temprana por marker)
+    # Aplicar bootstrap remoto (idempotente, antes de cualquier salida)
     try:
         result["remote_bootstrap"] = apply_remote_bootstrap_if_present()
     except Exception as e:
         result["remote_bootstrap"] = {"applied": False, "error": str(e)}
 
-    # Si ya hay marca, evitar reinstalar; solo reportar estado actual
+    # Si ya hay marca, no salimos: aplicamos pasos idempotentes (outbox/tareas/red/replicación)
     marker = read_marker(device_id)
     if marker:
-        # Solo reportar estado actual de PostgreSQL
+        # Solo reportar estado actual de PostgreSQL y continuar
         result["postgresql"]["installed"] = is_postgresql_installed(17)
         result["marked"] = True
-        return result
+
+    # PostgreSQL
+    if is_postgresql_installed(17):
+        result["postgresql"]["installed"] = True
+    else:
+        ok, msg = install_postgresql_17()
+        result["postgresql"]["attempted"] = True
+        result["postgresql"]["installed"] = ok and is_postgresql_installed(17)
+        result["postgresql"]["message"] = msg
+
+    # Si PostgreSQL está instalado, intentar crear la base definida en config.json
+    try:
+        if result["postgresql"]["installed"]:
+            db_ok, db_msg = create_database_from_config(17)
+            result["postgresql"]["db_created"] = bool(db_ok)
+            if not db_ok and db_msg:
+                result["postgresql"]["db_message"] = db_msg
+    except Exception as e:
+        result["postgresql"]["db_created"] = False
+        result["postgresql"]["db_message"] = str(e)
+
+    # Sembrar owner_password en DB si viene por entorno/bootstrap y no existe
+    try:
+        seed_pwd = os.getenv("WEBAPP_OWNER_PASSWORD") or os.getenv("OWNER_PASSWORD") or ""
+        if seed_pwd:
+            try:
+                from database import DatabaseManager  # type: ignore
+                dbm = DatabaseManager()
+                cur = dbm.obtener_configuracion("owner_password")
+                if not cur:
+                    ok_upd = dbm.actualizar_configuracion("owner_password", seed_pwd)
+                    result["owner_password_seed"] = {"ok": bool(ok_upd), "via": "DatabaseManager"}
+                else:
+                    result["owner_password_seed"] = {"ok": True, "skipped": True, "reason": "already_set"}
+            except Exception as e_dm:
+                # Fallback con psql CLI, sin sobreescribir si ya existe
+                try:
+                    cfg_local = _load_cfg()
+                    profile = cfg_local.get("db_local") if isinstance(cfg_local.get("db_local"), dict) else cfg_local
+                    host = str(profile.get("host") or cfg_local.get("host") or "localhost")
+                    try:
+                        port = int(profile.get("port") or cfg_local.get("port") or 5432)
+                    except Exception:
+                        port = 5432
+                    dbname = str(profile.get("database") or cfg_local.get("database") or "gimnasio")
+                    user = str(profile.get("user") or cfg_local.get("user") or "postgres")
+                    pwd = _resolve_pg_password(cfg_local)
+                    psql_exe = _resolve_pg_bin(17, "psql")
+                    if not psql_exe:
+                        result["owner_password_seed"] = {"ok": False, "error": "psql no encontrado"}
+                    else:
+                        env = os.environ.copy()
+                        if pwd:
+                            env["PGPASSWORD"] = pwd
+                        seed_pwd_sql = seed_pwd.replace("'", "''")
+                        sql = (
+                            "CREATE TABLE IF NOT EXISTS configuracion (clave TEXT PRIMARY KEY, valor TEXT); "
+                            f"INSERT INTO configuracion (clave, valor) VALUES ('owner_password', '{seed_pwd_sql}') "
+                            "ON CONFLICT (clave) DO NOTHING;"
+                        )
+                        code, out, err = run_cmd_capture([psql_exe, "-h", host, "-p", str(port), "-U", user, "-d", dbname, "-v", "ON_ERROR_STOP=1", "-c", sql], timeout=20)
+                        result["owner_password_seed"] = {"ok": code == 0, "via": "psql", "message": out or err}
+                except Exception as e_psql:
+                    result["owner_password_seed"] = {"ok": False, "error": str(e_psql)}
+        else:
+            result["owner_password_seed"] = {"ok": True, "skipped": True, "reason": "no_env_password"}
+    except Exception as e_seed:
+        result["owner_password_seed"] = {"ok": False, "error": str(e_seed)}
+
+    # Instalar triggers de outbox de forma idempotente y sin depender de la UI
+    try:
+        from scripts.install_outbox_triggers import run as install_outbox  # type: ignore
+        install_outbox()
+        result["outbox"] = {"ok": True, "installed": True}
+    except Exception as e:
+        result["outbox"] = {"ok": False, "error": str(e)}
+
+    # Aplicar tareas programadas según config.json (idempotente)
+    try:
+        tasks_res = ensure_scheduled_tasks(device_id)
+        result["scheduled_tasks"] = tasks_res
+    except Exception as e:
+        result["scheduled_tasks"] = {"ok": False, "error": str(e)}
+
+    # Intentar asegurar conectividad VPN y replicación bidireccional si hay configuración disponible (no bloqueante)
+    try:
+        cfg = _load_cfg()
+
+        # VPN join automático (si cfg['vpn'] o variables de entorno lo indican)
+        try:
+            from utils_modules.vpn_setup import ensure_vpn_connectivity  # type: ignore
+            vpn_info = ensure_vpn_connectivity(cfg, device_id)
+        except Exception:
+            vpn_info = {"ok": False}
+        # Asegurar exposición segura de PostgreSQL para acceso vía VPN y Firewall
+        try:
+            net_res = ensure_postgres_network_access(cfg)
+            result.setdefault("postgresql", {})["network"] = net_res
+        except Exception as e:
+            result.setdefault("postgresql", {})["network_error"] = str(e)
+
+        # Determinar y fijar alcance del remoto al local según VPN/IP (blindado)
+        remote_can_reach = False
+        ip = None
+        try:
+            if vpn_info.get("ok"):
+                ip = vpn_info.get("ip")
+                remote_can_reach = bool(ip)
+        except Exception:
+            ip = None
+            remote_can_reach = False
+        try:
+            rep_cfg = dict(cfg.get("replication") or {})
+            rep_cfg["remote_can_reach_local"] = bool(remote_can_reach)
+            cfg["replication"] = rep_cfg
+            with open(os.path.join(CONFIG_DIR, "config.json"), "w", encoding="utf-8") as cf:
+                json.dump(cfg, cf, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+        # Exportar o limpiar variables de entorno del túnel para consumidores posteriores
+        if remote_can_reach and ip:
+            try:
+                local = cfg.get("db_local") or {}
+                host = str(ip)
+                port = int(local.get("port") or cfg.get("port") or 5432)
+                dbname = local.get("database") or cfg.get("database") or "gimnasio"
+                user = local.get("user") or cfg.get("user") or "postgres"
+                pwd = local.get("password") or os.getenv("PGLOCAL_PASSWORD") or ""
+                if not pwd and keyring:
+                    try:
+                        acct = f"{user}@{host}:{port}"
+                        saved_pwd = keyring.get_password(KEYRING_SERVICE_NAME, acct)
+                        if saved_pwd:
+                            pwd = saved_pwd
+                    except Exception:
+                        pass
+                os.environ["PGLOCAL_DSN"] = f"postgres://{user}:{pwd}@{host}:{port}/{dbname}?sslmode=prefer&application_name=gym_management_system"
+                if pwd:
+                    os.environ["PGLOCAL_PASSWORD"] = pwd
+            except Exception:
+                pass
+        else:
+            # Eliminar DSN local si no hay IP de túnel para evitar usos accidentales
+            try:
+                os.environ.pop("PGLOCAL_DSN", None)
+            except Exception:
+                pass
+
+        # Decidir flujo de replicación
+        sync_tables_path = os.path.join(CONFIG_DIR, "sync_tables.json")
+        if os.path.exists(sync_tables_path):
+            try:
+                # Configurar replicación bidireccional completa si VPN se unió o hay alcance
+                from utils_modules.replication_setup import ensure_bidirectional_replication  # type: ignore
+                rep_res = ensure_bidirectional_replication(cfg)
+                result["replication"] = rep_res
+            except Exception as e:
+                result["replication"] = {"ok": False, "error": str(e)}
+        else:
+            try:
+                from utils_modules.replication_setup import ensure_logical_replication  # type: ignore
+                rep_res = ensure_logical_replication(cfg)
+                result["replication"] = rep_res
+            except Exception as e:
+                result["replication"] = {"ok": False, "error": str(e)}
+    except Exception:
+        pass
+
+    # Marcar como completado para este device si PostgreSQL está resuelto
+    if result["postgresql"]["installed"]:
+        write_marker(device_id, {
+            "postgresql": result["postgresql"],
+        })
+        result["marked"] = True
+
+    return result
 
 # ===== Programación automática de tareas (primer arranque) =====
 
@@ -513,21 +790,21 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
             {
                 "key": "uploader",
                 "name": "GymMS_Uploader",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_sync_uploader.ps1")}"',
+                "action": f'wscript.exe "{os.path.join(scripts_dir, "run_sync_uploader_hidden.vbs")}"',
                 "default": {"interval_minutes": 3},
                 "type": "minute",
             },
             {
                 "key": "reconcile_r2l",
                 "name": "GymMS_ReconcileRemoteToLocal",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_reconcile_remote_to_local_scheduled.ps1")}"',
+                "action": f'wscript.exe "{os.path.join(scripts_dir, "run_reconcile_remote_to_local_scheduled_hidden.vbs")}"',
                 "default": {"interval_minutes": 60},
                 "type": "minute",
             },
             {
                 "key": "reconcile_l2r",
                 "name": "GymMS_ReconcileLocalToRemote",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_reconcile_scheduled.ps1")}"',
+                "action": f'wscript.exe "{os.path.join(scripts_dir, "run_reconcile_scheduled_hidden.vbs")}"',
                 "default": {"time": "02:00"},
                 "type": "daily",
             },
@@ -613,46 +890,170 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
         result["error"] = str(e)
     return result
 
-    # PostgreSQL
-    if is_postgresql_installed(17):
-        result["postgresql"]["installed"] = True
-    else:
-        ok, msg = install_postgresql_17()
-        result["postgresql"]["attempted"] = True
-        result["postgresql"]["installed"] = ok and is_postgresql_installed(17)
-        result["postgresql"]["message"] = msg
 
-    # Si PostgreSQL está instalado, intentar crear la base definida en config.json
+def _find_pg_data_dir(required_major: int = 17) -> Optional[str]:
     try:
-        if result["postgresql"]["installed"]:
-            db_ok, db_msg = create_database_from_config(17)
-            result["postgresql"]["db_created"] = bool(db_ok)
-            if not db_ok and db_msg:
-                result["postgresql"]["db_message"] = db_msg
-    except Exception as e:
-        result["postgresql"]["db_created"] = False
-        result["postgresql"]["db_message"] = str(e)
-
-    # Intentar asegurar replicación lógica si hay configuración disponible (no bloqueante)
-    try:
-        cfg = _load_cfg()
-        # Sólo si existe archivo de tablas de sincronización, asumimos intención de replicar
-        sync_tables_path = os.path.join(CONFIG_DIR, "sync_tables.json")
-        if os.path.exists(sync_tables_path):
-            try:
-                from utils_modules.replication_setup import ensure_logical_replication  # type: ignore
-                rep_res = ensure_logical_replication(cfg)
-                result["replication"] = rep_res
-            except Exception as e:
-                result["replication"] = {"ok": False, "error": str(e)}
+        base = os.path.join("C:\\Program Files\\PostgreSQL", str(required_major), "data")
+        if os.path.exists(os.path.join(base, "postgresql.conf")):
+            return base
     except Exception:
         pass
+    try:
+        candidates = glob.glob("C:\\Program Files\\PostgreSQL\\*\\data\\postgresql.conf")
+        for conf in candidates:
+            d = os.path.dirname(conf)
+            if os.path.exists(os.path.join(d, "pg_hba.conf")):
+                return d
+    except Exception:
+        pass
+    return None
 
-    # Marcar como completado para este device si PostgreSQL está resuelto
-    if result["postgresql"]["installed"]:
-        write_marker(device_id, {
-            "postgresql": result["postgresql"],
-        })
-        result["marked"] = True
 
-    return result
+def _ensure_listen_addresses(data_dir: str, address: str = "*") -> bool:
+    path = os.path.join(data_dir, "postgresql.conf")
+    if not os.path.exists(path):
+        return False
+    changed = False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        new_lines = []
+        found = False
+        desired_line = f"listen_addresses = '{address}'\n"
+        for ln in lines:
+            if ln.strip().startswith("listen_addresses"):
+                found = True
+                if address in ln:
+                    new_lines.append(ln)
+                else:
+                    new_lines.append(desired_line)
+                    changed = True
+            else:
+                new_lines.append(ln)
+        if not found:
+            new_lines.append("\n" + desired_line)
+            changed = True
+        if changed:
+            with open(path, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+        return changed
+    except Exception:
+        return False
+
+
+def _wireguard_allowed_ranges_from_config(conf_path: str) -> List[str]:
+    ranges: List[str] = []
+    try:
+        if not os.path.exists(conf_path):
+            return ranges
+        with open(conf_path, "r", encoding="utf-8") as f:
+            txt = f.read()
+        for line in txt.splitlines():
+            line = line.strip()
+            if line.lower().startswith("allowedips"):
+                # Ej: AllowedIPs = 10.10.0.2/32, 10.10.0.0/24
+                parts = line.split("=", 1)
+                if len(parts) == 2:
+                    ips = [p.strip() for p in parts[1].split(",") if p.strip()]
+                    for ip in ips:
+                        if "/" in ip:
+                            ranges.append(ip)
+                        else:
+                            ranges.append(f"{ip}/32")
+        # dedup
+        uniq = []
+        for r in ranges:
+            if r not in uniq:
+                uniq.append(r)
+        return uniq
+    except Exception:
+        return ranges
+
+
+def _ensure_pg_hba_ranges(data_dir: str, ranges: List[str]) -> bool:
+    path = os.path.join(data_dir, "pg_hba.conf")
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        to_add = []
+        for rng in ranges:
+            line = f"host all all {rng} md5"
+            if line not in content:
+                to_add.append(line)
+        if to_add:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n# GymMS VPN access\n")
+                for l in to_add:
+                    f.write(l + "\n")
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _ensure_windows_firewall_postgres(port: int, ranges: List[str]) -> dict:
+    if os.name != "nt":
+        return {"ok": True, "message": "Firewall no aplica (no Windows)"}
+    rule_name = f"GymMS-PostgreSQL-{port}"
+    addr = ",".join(ranges) if ranges else "Any"
+    ps_cmd = (
+        "$n='" + rule_name + "';"
+        "$p=" + str(port) + ";"
+        "$addr='" + addr + "';"
+        "$r=Get-NetFirewallRule -DisplayName $n -ErrorAction SilentlyContinue;"
+        "if(-not $r){ New-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private -RemoteAddress $addr }"
+        " else { Set-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private; Set-NetFirewallAddressFilter -DisplayName $n -RemoteAddress $addr }"
+    )
+    code, out, err = run_cmd_capture(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], timeout=60)
+    return {"ok": code == 0, "message": out or err}
+
+
+def _restart_postgres_service() -> dict:
+    if os.name != "nt":
+        return {"ok": True, "message": "No Windows"}
+    ps_cmd = (
+        "$svc=Get-Service | Where-Object {$_.Name -like 'postgresql*'} | Select-Object -First 1;"
+        "if($svc){ Restart-Service -Name $svc.Name -Force; Write-Output $svc.Name } else { Write-Error 'Servicio PostgreSQL no encontrado' }"
+    )
+    code, out, err = run_cmd_capture(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], timeout=90)
+    return {"ok": code == 0, "message": out or err}
+
+
+def ensure_postgres_network_access(cfg: dict) -> dict:
+    # Determinar puerto local y rangos permitidos según VPN
+    local = cfg.get("db_local") or {}
+    try:
+        port = int(local.get("port") or cfg.get("port") or 5432)
+    except Exception:
+        port = 5432
+    vpn = cfg.get("vpn") or {}
+    provider = (vpn.get("provider") or os.getenv("VPN_PROVIDER") or "").lower()
+    ranges: List[str] = []
+    # Tailscale: rango oficial 100.64.0.0/10
+    if provider == "tailscale" or os.getenv("TAILSCALE_AUTHKEY"):
+        ranges.append("100.64.0.0/10")
+    # WireGuard: intentar extraer AllowedIPs
+    if provider == "wireguard" or os.getenv("WIREGUARD_CONFIG_B64") or os.getenv("WIREGUARD_CONFIG_PATH"):
+        conf_path = vpn.get("wireguard_config_path") or os.getenv("WIREGUARD_CONFIG_PATH") or ""
+        wg_ranges = _wireguard_allowed_ranges_from_config(conf_path) if conf_path else []
+        if wg_ranges:
+            ranges.extend(wg_ranges)
+        else:
+            # Fallback común si no se puede parsear config
+            ranges.append("10.0.0.0/8")
+    # Resolver directorio de datos
+    data_dir = _find_pg_data_dir(17)
+    if not data_dir:
+        return {"ok": False, "message": "No se encontró directorio de datos de PostgreSQL", "changed_conf": False, "changed_hba": False, "firewall": {"ok": False}}
+    # listen_addresses: preferir Tail IP si disponible
+    tail_ip = os.getenv("TAILSCALE_IPV4") or ""
+    desired = f"localhost,{tail_ip}" if tail_ip else "*"
+    ch_conf = _ensure_listen_addresses(data_dir, desired)
+    ch_hba = _ensure_pg_hba_ranges(data_dir, ranges)
+    fw = _ensure_windows_firewall_postgres(port, ranges)
+    # Reiniciar servicio si hubo cambios
+    if ch_conf or ch_hba:
+        _restart_postgres_service()
+    return {"ok": True, "message": "postgresql.conf/pg_hba.conf firewall asegurados", "changed_conf": ch_conf, "changed_hba": ch_hba, "firewall": fw}
