@@ -212,7 +212,22 @@ class ProfessorScheduleWidget(QWidget):
             # Limpiar formulario después de agregar
             self.limpiar_formulario()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al agregar horario: {str(e)}")
+            msg = str(e)
+            # Mensaje claro si es una violación de llave foránea del profesor
+            if (
+                "horarios_profesores_profesor_id_fkey" in msg or
+                ("foreign key" in msg.lower() and "profesor" in msg.lower()) or
+                "llave foránea" in msg.lower() or
+                ("profesor_id" in msg and "profesores" in msg)
+            ):
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "El profesor seleccionado no existe en la tabla de profesores. "
+                    "Primero cree/guarde el perfil del profesor en la pestaña correspondiente."
+                )
+            else:
+                QMessageBox.critical(self, "Error", f"Error al agregar horario: {msg}")
     
     def set_profesor_id(self, profesor_id: int):
         """Establece el ID del profesor y recarga los horarios"""
@@ -255,19 +270,36 @@ class ProfessorScheduleWidget(QWidget):
             self.lista_horarios.addItem(item)
     
     def seleccionar_horario(self, item):
-        horario = item.data(Qt.ItemDataRole.UserRole)
+        # Obtener el dict de horario de forma segura
+        horario = None
+        try:
+            if item is not None:
+                horario = item.data(Qt.ItemDataRole.UserRole)
+        except Exception:
+            horario = None
+        if not isinstance(horario, dict):
+            return
+
         self.horario_seleccionado = horario
         
         # Cargar datos en el formulario
-        self.dia_combo.setCurrentText(horario['dia_semana'])
+        self.dia_combo.setCurrentText(horario.get('dia_semana', ''))
         
-        # Convertir datetime.time a string si es necesario
-        hora_inicio_str = horario['hora_inicio'].strftime("%H:%M") if hasattr(horario['hora_inicio'], 'strftime') else str(horario['hora_inicio'])
-        hora_fin_str = horario['hora_fin'].strftime("%H:%M") if hasattr(horario['hora_fin'], 'strftime') else str(horario['hora_fin'])
+        # Conversión robusta de hora_inicio y hora_fin
+        def _to_qtime(v):
+            try:
+                if hasattr(v, 'strftime'):
+                    return QTime.fromString(v.strftime('%H:%M'), 'HH:mm')
+                s = str(v) if v is not None else ''
+                if len(s) >= 5:
+                    return QTime.fromString(s[:5], 'HH:mm')
+                return QTime(0, 0)
+            except Exception:
+                return QTime(0, 0)
         
-        self.hora_inicio.setTime(QTime.fromString(hora_inicio_str, "HH:mm"))
-        self.hora_fin.setTime(QTime.fromString(hora_fin_str, "HH:mm"))
-        self.disponible_check.setChecked(bool(horario['disponible']))
+        self.hora_inicio.setTime(_to_qtime(horario.get('hora_inicio')))
+        self.hora_fin.setTime(_to_qtime(horario.get('hora_fin')))
+        self.disponible_check.setChecked(bool(horario.get('disponible', True)))
         
         # Asegurar que los QTimeEdit sigan siendo editables después de cargar datos
         self.hora_inicio.setReadOnly(False)
@@ -422,6 +454,11 @@ class ProfessorScheduleWidget(QWidget):
     
     def set_profesor_id(self, profesor_id: int):
         self.profesor_id = profesor_id
+        # Limpiar estado de edición al cambiar de profesor
+        self.cancelar_edicion()
+        # Habilitar botón agregar según selección
+        self.btn_agregar.setEnabled(self.profesor_id is not None)
+        # Recargar horarios
         self.cargar_horarios()
     
     # Métodos de validación de horarios

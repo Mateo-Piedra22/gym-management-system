@@ -367,7 +367,7 @@ def main():
     local_conn.close()
     remote_conn.close()
 
-    print(f"Listo. Insertadas: {total_inserted}, Actualizadas: {total_updated}, Borradas: {total_deleted}. Use scripts/verify_replication_status.py para validar.")
+    print(f"Listo. Insertadas: {total_inserted}, Actualizadas: {total_updated}, Borradas: {total_deleted}. Use scripts/verify_replication_health.py para validar.")
 
 
 if __name__ == '__main__':

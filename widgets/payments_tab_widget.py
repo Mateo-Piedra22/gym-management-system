@@ -1251,7 +1251,28 @@ class PaymentsTabWidget(QWidget):
         
         # Configuración de numeración de comprobantes
         self.config_numbering_button.clicked.connect(self.configure_receipt_numbering)
+        # Refresco inmediato al emitir cambios de pagos
+        self.pagos_modificados.connect(self._on_pagos_modificados)
     
+    def _invalidate_history_cache(self):
+        """Invalida la caché del historial para forzar recarga inmediata."""
+        try:
+            self._history_cache = {"user_id": None, "data": None, "ts": 0}
+        except Exception:
+            pass
+
+    def _on_pagos_modificados(self):
+        """Maneja refresco inmediato tras cambios de pagos."""
+        try:
+            self._invalidate_history_cache()
+            self.update_payment_history()
+            try:
+                self.update_payment_status()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def load_initial_data(self):
         """Carga los datos iniciales"""
         try:
@@ -1753,6 +1774,8 @@ class PaymentsTabWidget(QWidget):
                 if pago:
                     self.show_receipt_confirmation(pago, self.selected_user)
                 
+                # Invalida caché y refresca inmediatamente
+                self._invalidate_history_cache()
                 self.update_current_view()
                 self.reset_payment_form()
                 self.pagos_modificados.emit()
@@ -1867,6 +1890,8 @@ class PaymentsTabWidget(QWidget):
         if dialog.exec():
             try:
                 self.payment_manager.modificar_pago(dialog.get_payment_data())
+                # Invalida caché y refresca inmediatamente
+                self._invalidate_history_cache()
                 self.update_current_view()
                 self.pagos_modificados.emit()
             except Exception as e:
@@ -1883,6 +1908,8 @@ class PaymentsTabWidget(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             try:
                 self.payment_manager.eliminar_pago(pago.id)
+                # Invalida caché y refresca inmediatamente
+                self._invalidate_history_cache()
                 self.update_current_view()
                 self.pagos_modificados.emit()
             except Exception as e:

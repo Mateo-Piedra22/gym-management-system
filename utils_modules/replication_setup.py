@@ -413,6 +413,14 @@ def ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub') 
                         dropped_count = len(to_drop)
                     except Exception:
                         pass
+                # Asegurar opciones de publicación consistentes
+                try:
+                    cur.execute(sql.SQL("ALTER PUBLICATION {} SET (publish = 'insert, update, delete, truncate', publish_via_partition_root = true)").format(sql.Identifier(pubname)))
+                except Exception:
+                    try:
+                        cur.execute(sql.SQL("ALTER PUBLICATION {} SET (publish = 'insert, update, delete, truncate')").format(sql.Identifier(pubname)))
+                    except Exception:
+                        pass
         return {"ok": True, "changed": added_count > 0 or dropped_count > 0, "message": "PUBLICATION remoto verificado/creado", "added": added_count, "dropped": dropped_count}
     except Exception as e:
         return {"ok": False, "changed": False, "message": f"Fallo PUBLICATION remoto: {e}"}

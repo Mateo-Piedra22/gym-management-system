@@ -124,7 +124,28 @@ def read_remote_replication(conn):
         remote_settings["max_replication_slots"] = cur.fetchone()[0]
     except Exception:
         remote_settings["max_replication_slots"] = None
-    return {"wal_senders": stat_replication, "slots": slots, "settings": remote_settings}
+
+    # Publicaciones y tablas publicadas (si existen)
+    publications = []
+    publication_tables = []
+    try:
+        cur.execute("SELECT pubname FROM pg_publication ORDER BY pubname")
+        publications = [r["pubname"] for r in cur.fetchall()]
+    except Exception:
+        publications = []
+    try:
+        cur.execute(
+            """
+            SELECT pubname, schemaname, tablename
+            FROM pg_publication_tables
+            ORDER BY pubname, tablename
+            """
+        )
+        publication_tables = [dict(r) for r in cur.fetchall()]
+    except Exception:
+        publication_tables = []
+
+    return {"wal_senders": stat_replication, "slots": slots, "settings": remote_settings, "publications": publications, "publication_tables": publication_tables}
 
 
 def main() -> int:

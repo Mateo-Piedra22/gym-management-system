@@ -2,6 +2,14 @@ import sys
 import os
 from typing import Optional
 
+
+def safe_get(obj, name, default=None):
+    try:
+        return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+    except Exception:
+        return default
+
+
 def resource_path(relative_path):
     """ 
     Obtiene la ruta absoluta al recurso. Funciona tanto en modo de desarrollo

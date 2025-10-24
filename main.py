@@ -98,7 +98,7 @@ from typing import Callable
 # --- NUEVA IMPORTACIÓN ---
 from widgets.custom_style import CustomProxyStyle
 
-from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled
+from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled, safe_get
 from logger_config import setup_logging
 setup_logging()
 import threading
@@ -1447,13 +1447,23 @@ class MainWindow(QMainWindow):
         try:
             # Obtener nombre del profesor logueado
             professor_name = ""
-            professor_id = None
-            
+            profesor_id_real = None
+
+            # Obtener nombre del usuario logueado
             if self.logged_in_user and hasattr(self.logged_in_user, 'get'):
                 professor_name = self.logged_in_user.get('nombre', '')
-                professor_id = self.logged_in_user.get('id')
             elif hasattr(self, 'logged_in_user') and self.logged_in_user:
                 professor_name = str(self.logged_in_user)
+
+            # Resolver profesor_id real a partir de usuario_id
+            if self.user_role == 'profesor':
+                try:
+                    usuario_id_para_buscar = safe_get(self.logged_in_user, 'usuario_id') or safe_get(self.logged_in_user, 'id')
+                    info = self.db_manager.obtener_profesor_por_usuario_id(usuario_id_para_buscar)
+                    if info and hasattr(info, 'profesor_id'):
+                        profesor_id_real = info.profesor_id
+                except Exception as e:
+                    logging.debug(f"No se pudo resolver profesor_id: {e}")
             
             # Construir título dinámico
             title_parts = [f"Sistema de Gestión de {self.gym_name}"]
@@ -1465,9 +1475,9 @@ class MainWindow(QMainWindow):
                 title_parts.append(f"Modo: {self.user_role.capitalize()}")
             
             # Agregar duración de sesión en tiempo real si es profesor
-            if self.user_role == 'profesor' and professor_id:
+            if self.user_role == 'profesor' and profesor_id_real:
                 try:
-                    duracion_info = self.db_manager.obtener_duracion_sesion_actual_profesor(professor_id)
+                    duracion_info = self.db_manager.obtener_duracion_sesion_actual_profesor(profesor_id_real)
                     if duracion_info.get('success') and duracion_info.get('tiene_sesion_activa'):
                         tiempo_formateado = duracion_info.get('tiempo_formateado', '0h 0m')
                         title_parts.append(f"Sesión: {tiempo_formateado}")
@@ -5618,7 +5628,13 @@ class MainWindow(QMainWindow):
         try:
             # Solo mostrar para profesores
             if self.user_role == 'profesor' and self.logged_in_user:
-                profesor_id = self.logged_in_user.get('id')
+                try:
+                    usuario_id_para_buscar = safe_get(self.logged_in_user, 'usuario_id') or safe_get(self.logged_in_user, 'id')
+                    info = self.db_manager.obtener_profesor_por_usuario_id(usuario_id_para_buscar)
+                    profesor_id = info.profesor_id if info and hasattr(info, 'profesor_id') else None
+                except Exception:
+                    profesor_id = None
+
                 if profesor_id:
                     # Evitar ejecuciones concurrentes
                     if self._hours_worker_running:
@@ -5750,18 +5766,13 @@ class MainWindow(QMainWindow):
                 # Verificar si el usuario logueado es un profesor
                 try:
                     # Usar usuario_id en lugar de id para buscar el profesor (aceptando dict u objeto Usuario)
-                    def _uget(obj, name, default=None):
-                        try:
-                            return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
-                        except Exception:
-                            return default
-                    usuario_id_para_buscar = _uget(self.logged_in_user, 'usuario_id') or _uget(self.logged_in_user, 'id')
+                    usuario_id_para_buscar = safe_get(self.logged_in_user, 'usuario_id') or safe_get(self.logged_in_user, 'id')
                     logging.info(f"Verificando si el usuario {usuario_id_para_buscar} es profesor para gestionar su sesión de trabajo")
                     profesor_info = self.db_manager.obtener_profesor_por_usuario_id(usuario_id_para_buscar)
                     if profesor_info and hasattr(profesor_info, 'profesor_id'):
                         profesor_id = profesor_info.profesor_id
-                        profesor_nombre = f"{_uget(self.logged_in_user,'nombre','')} {_uget(self.logged_in_user,'apellido','')}".strip()
-                        logging.info(f"Cerrando sesión del usuario logueado: {profesor_nombre} (ID: {_uget(self.logged_in_user,'id')}, Profesor ID: {profesor_id})")
+                        profesor_nombre = f"{safe_get(self.logged_in_user,'nombre','')} {safe_get(self.logged_in_user,'apellido','')}".strip()
+                        logging.info(f"Cerrando sesión del usuario logueado: {profesor_nombre} (ID: {safe_get(self.logged_in_user,'id')}, Profesor ID: {profesor_id})")
                         
                         # Verificar si tiene sesión activa
                         duracion_info = self.db_manager.obtener_duracion_sesion_actual_profesor(profesor_id)

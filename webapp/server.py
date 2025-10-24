@@ -5335,7 +5335,16 @@ async def api_profesor_horarios_create(request: Request, _=Depends(require_owner
             created = db.crear_horario_profesor(profesor_id, str(dia), str(inicio), str(fin), disponible_val)  # type: ignore
         except Exception as e:
             logging.exception("Error crear horario profesor")
-            return JSONResponse({"error": str(e)}, status_code=500)
+            msg = str(e)
+            if "Profesor no existe" in msg:
+                return JSONResponse({"error": "profesor_not_found"}, status_code=404)
+            if "Día inválido" in msg:
+                return JSONResponse({"error": "invalid_day"}, status_code=400)
+            if "hora_inicio debe ser menor" in msg:
+                return JSONResponse({"error": "invalid_time_range"}, status_code=400)
+            if "violates foreign key constraint" in msg:
+                return JSONResponse({"error": "profesor_not_found"}, status_code=404)
+            return JSONResponse({"error": msg}, status_code=500)
         return {"ok": True, "horario": created}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -5361,7 +5370,12 @@ async def api_profesor_horarios_update(horario_id: int, request: Request, _=Depe
             updated = db.actualizar_horario_profesor(horario_id, str(dia), str(inicio), str(fin), disponible_val)  # type: ignore
         except Exception as e:
             logging.exception("Error actualizar horario profesor")
-            return JSONResponse({"error": str(e)}, status_code=500)
+            msg = str(e)
+            if "Día inválido" in msg:
+                return JSONResponse({"error": "invalid_day"}, status_code=400)
+            if "hora_inicio debe ser menor" in msg:
+                return JSONResponse({"error": "invalid_time_range"}, status_code=400)
+            return JSONResponse({"error": msg}, status_code=500)
         return {"ok": bool(updated), "horario": updated}
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

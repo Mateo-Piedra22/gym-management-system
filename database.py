@@ -8487,6 +8487,24 @@ class DatabaseManager:
                         FOREIGN KEY (profesor_id) REFERENCES profesores (id) ON DELETE CASCADE
                     )
                 """)
+                # Validaciones de entrada
+                # 1) Verificar existencia de profesor
+                cursor.execute("SELECT 1 FROM profesores WHERE id = %s", (profesor_id,))
+                if cursor.fetchone() is None:
+                    raise ValueError("Profesor no existe")
+                # 2) Validar día de la semana
+                valid_days = ('Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo')
+                if dia not in valid_days:
+                    raise ValueError("Día inválido")
+                # 3) Validar que hora_inicio < hora_fin
+                cursor.execute("SELECT %s::time < %s::time", (hora_inicio, hora_fin))
+                res = cursor.fetchone()
+                try:
+                    is_valid_range = bool(res[0]) if res is not None else False
+                except Exception:
+                    is_valid_range = False
+                if not is_valid_range:
+                    raise ValueError("hora_inicio debe ser menor que hora_fin")
                 
                 sql = "INSERT INTO horarios_profesores (profesor_id, dia_semana, hora_inicio, hora_fin, disponible) VALUES (%s, %s, %s, %s, %s) RETURNING id"
                 cursor.execute(sql, (profesor_id, dia, hora_inicio, hora_fin, disponible))
@@ -8498,6 +8516,16 @@ class DatabaseManager:
         """Actualiza un horario de disponibilidad de profesor"""
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
+                # Validaciones básicas
+                valid_days = ('Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo')
+                if dia not in valid_days:
+                    raise ValueError("Día inválido")
+                cursor.execute("SELECT %s::time < %s::time", (hora_inicio, hora_fin))
+                res = cursor.fetchone()
+                ok = bool(res[0]) if res is not None else False
+                if not ok:
+                    raise ValueError("hora_inicio debe ser menor que hora_fin")
+                # Actualización
                 sql = "UPDATE horarios_profesores SET dia_semana = %s, hora_inicio = %s, hora_fin = %s, disponible = %s WHERE id = %s"
                 cursor.execute(sql, (dia, hora_inicio, hora_fin, disponible, horario_id))
                 conn.commit()

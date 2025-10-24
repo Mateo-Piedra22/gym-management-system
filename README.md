@@ -409,7 +409,7 @@ Automatización con script:
 - Tras ejecutar, verifica estado con: `SELECT subname, sync_state, apply_lag FROM pg_stat_subscription;` en la base local.
 
 Limpieza de artefactos antiguos:
-- Si existen objetos heredados `sym_%` de motores previos de replicación, ejecutar el script `scripts/cleanup_symmetricds.sql` en ambas bases para retirar tablas, triggers, funciones y secuencias.
+- Si existen objetos heredados `sym_%` de motores previos de replicación, elimínalos manualmente (DROP) o con tus propios scripts; este proyecto no incluye `scripts/cleanup_symmetricds.sql`.
 
 ### 🔧 **Configuración Inicial**
 1. **Base de Datos**: Configurar conexión PostgreSQL en `config.py`
