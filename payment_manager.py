@@ -309,15 +309,20 @@ class PaymentManager:
             return self._crear_pago_desde_fila(row) if row else None
 
     def _crear_pago_desde_fila(self, row: dict) -> Pago:
-        pago_data = dict(row)
+        pago_data_raw = dict(row or {})
+        # Normalizar fecha_pago
         try:
-            pago_data['fecha_pago'] = datetime.fromisoformat(pago_data['fecha_pago']) if isinstance(pago_data['fecha_pago'], str) else datetime.now()
+            fp = pago_data_raw.get('fecha_pago')
+            pago_data_raw['fecha_pago'] = datetime.fromisoformat(fp) if isinstance(fp, str) else fp
         except (TypeError, ValueError):
-            pago_data['fecha_pago'] = datetime.now()
+            pago_data_raw['fecha_pago'] = datetime.now()
         # Asegurar que metodo_pago_id esté presente
-        if 'metodo_pago_id' not in pago_data:
-            pago_data['metodo_pago_id'] = None
-        return Pago(**pago_data)
+        if 'metodo_pago_id' not in pago_data_raw:
+            pago_data_raw['metodo_pago_id'] = None
+        # Filtrar únicamente las claves del modelo Pago
+        allowed = {'id', 'usuario_id', 'monto', 'mes', 'año', 'fecha_pago', 'metodo_pago_id'}
+        pago_clean = {k: pago_data_raw.get(k) for k in allowed if k in pago_data_raw}
+        return Pago(**pago_clean)
 
     def obtener_pago(self, pago_id: int) -> Optional[Pago]:
         with self.db_manager.get_connection_context() as conn:

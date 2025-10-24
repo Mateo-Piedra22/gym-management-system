@@ -5936,11 +5936,31 @@ class ConfigTabWidget(QWidget):
                         else:
                             concepto_id = concepto_result[0]
                         
-                        # Insertar pago
-                        cursor.execute("""
-                            INSERT INTO pagos (usuario_id, concepto_id, monto, fecha_pago, estado)
-                            VALUES (%s, %s, %s, %s, 'completado')
-                        """, (usuario_id, concepto_id, monto, fecha_pago or 'CURRENT_DATE'))
+                        # Insertar pago principal y detalle asociado al concepto
+                        fecha_param = fecha_pago if fecha_pago else None
+                        cursor.execute(
+                            """
+                            INSERT INTO pagos (usuario_id, monto, mes, año, fecha_pago, metodo_pago_id)
+                            VALUES (
+                                %s, %s,
+                                EXTRACT(MONTH FROM COALESCE(%s::timestamp, CURRENT_TIMESTAMP)),
+                                EXTRACT(YEAR FROM COALESCE(%s::timestamp, CURRENT_TIMESTAMP)),
+                                COALESCE(%s::timestamp, CURRENT_TIMESTAMP),
+                                %s
+                            )
+                            RETURNING id
+                            """,
+                            (usuario_id, monto, fecha_param, fecha_param, fecha_param, None)
+                        )
+                        new_pago_row = cursor.fetchone()
+                        if not new_pago_row:
+                            raise Exception("No se pudo crear el pago principal")
+                        pago_id = int(new_pago_row[0])
+
+                        cursor.execute(
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s)",
+                            (pago_id, concepto_id, 1, monto, monto, monto)
+                        )
                         
                         imported_count += 1
                         

@@ -8846,7 +8846,12 @@ class DatabaseManager:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute("SELECT * FROM pagos WHERE id = %s", (pago_id,))
             row = cursor.fetchone()
-            return Pago(**dict(row)) if row else None
+            if not row:
+                return None
+            pago_dict = dict(row)
+            allowed = {'id', 'usuario_id', 'monto', 'mes', 'año', 'fecha_pago', 'metodo_pago_id'}
+            pago_clean = {k: pago_dict.get(k) for k in allowed if k in pago_dict}
+            return Pago(**pago_clean)
 
     def obtener_pagos_mes(self, mes: int, año: int) -> List[Pago]:
         """Obtiene todos los pagos de un mes específico"""
@@ -8870,7 +8875,9 @@ class DatabaseManager:
                 pago_dict = dict(row)
                 # Remover campos que no pertenecen al modelo Pago
                 usuario_nombre = pago_dict.pop('usuario_nombre', None)
-                pago = Pago(**pago_dict)
+                allowed = {'id', 'usuario_id', 'monto', 'mes', 'año', 'fecha_pago', 'metodo_pago_id'}
+                pago_clean = {k: pago_dict.get(k) for k in allowed if k in pago_dict}
+                pago = Pago(**pago_clean)
                 pago.usuario_nombre = usuario_nombre  # Agregar como atributo adicional
                 pagos.append(pago)
             
