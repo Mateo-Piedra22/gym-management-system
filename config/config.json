@@ -47,11 +47,11 @@
       "interval_minutes": 3
     },
     "reconcile_r2l": {
-      "enabled": false,
-      "interval_minutes": 60
+      "enabled": true,
+      "interval_minutes": 15
     },
     "reconcile_l2r": {
-      "enabled": false,
+      "enabled": true,
       "time": "02:00"
     },
     "cleanup": {

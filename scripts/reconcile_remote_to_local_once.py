@@ -40,90 +40,26 @@ from utils_modules.replication_setup import (
 
 DEFAULT_SCHEMA = 'public'
 
-def load_config() -> dict:
-    base_dir = Path(__file__).resolve().parent.parent
-    cfg_path = base_dir / 'config' / 'config.json'
-    if cfg_path.exists():
-        with open(cfg_path, 'r', encoding='utf-8') as f:
-            return json.load(f) or {}
-    return {}
 
-
-def load_tables() -> List[str]:
-    base_dir = Path(__file__).resolve().parent.parent
-    path = base_dir / 'config' / 'sync_tables.json'
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f) or {}
-            return list(data.get('publishes_remote_to_local') or [])
-    except Exception:
-        return []
-
-
-def connect(params: dict):
-    # Usa psycopg2.connect con parámetros resueltos
-    dsn = params.get('dsn') or ''
-    timeout = int(params.get('connect_timeout') or 10)
-    if dsn:
-        return psycopg2.connect(dsn, connect_timeout=timeout)
-    return psycopg2.connect(
-        host=params['host'], port=params['port'], dbname=params.get('database') or params.get('dbname'),
-        user=params['user'], password=params.get('password'), sslmode=params.get('sslmode') or 'prefer',
-        application_name=params.get('application_name') or 'reconcile_remote_to_local_once',
-        connect_timeout=timeout,
-    )
-
-
-def disable_subscription(local_conn, subname: str):
-    with local_conn.cursor() as cur:
-        try:
-            cur.execute(sql.SQL("ALTER SUBSCRIPTION {} DISABLE").format(sql.Identifier(subname)))
-            local_conn.commit()
-            print(f"Suscripción '{subname}' DESHABILITADA")
-        except Exception as e:
-            local_conn.rollback()
-            print(f"Aviso: No se pudo deshabilitar la suscripción '{subname}': {e}")
-
-
-def enable_subscription(local_conn, subname: str):
-    with local_conn.cursor() as cur:
-        try:
-            cur.execute(sql.SQL("ALTER SUBSCRIPTION {} ENABLE").format(sql.Identifier(subname)))
-            local_conn.commit()
-            print(f"Suscripción '{subname}' HABILITADA")
-        except Exception as e:
-            local_conn.rollback()
-            print(f"Aviso: No se pudo habilitar la suscripción '{subname}': {e}")
+def resolve_conn(creds: Dict[str, Any], *, is_remote: bool = False):
+    kwargs = dict(host=creds['host'], port=creds['port'], dbname=creds['database'], user=creds['user'], password=creds['password'])
+    if is_remote and 'sslmode' in creds:
+        kwargs['sslmode'] = creds['sslmode']
+    return psycopg2.connect(**kwargs)
 
 
 def get_pk_columns(conn, schema: str, table: str) -> List[str]:
     q = """
-    SELECT kcu.column_name
-    FROM information_schema.table_constraints tc
-    JOIN information_schema.key_column_usage kcu
-      ON tc.constraint_name = kcu.constraint_name
-     AND tc.table_schema = kcu.table_schema
-     AND tc.table_name = kcu.table_name
-    WHERE tc.table_schema = %s AND tc.table_name = %s AND tc.constraint_type = 'PRIMARY KEY'
-    ORDER BY kcu.ordinal_position
+    SELECT a.attname
+    FROM pg_index i
+    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+    WHERE i.indrelid = %s::regclass AND i.indisprimary
+    ORDER BY a.attnum
     """
     with conn.cursor() as cur:
-        cur.execute(q, (schema, table))
+        cur.execute(q, (f'{schema}.{table}',))
         rows = cur.fetchall() or []
-        cols = [r[0] for r in rows]
-        if not cols:
-            # Fallback común
-            try:
-                cur.execute(
-                    "SELECT column_name FROM information_schema.columns WHERE table_schema=%s AND table_name=%s",
-                    (schema, table),
-                )
-                all_cols = [r[0] for r in cur.fetchall() or []]
-                if 'id' in all_cols:
-                    return ['id']
-            except Exception:
-                pass
-        return cols
+    return [r[0] for r in rows]
 
 
 def table_columns(conn, schema: str, table: str) -> List[str]:
@@ -189,9 +125,16 @@ def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry
             vals = [row[c] for c in cols]
             if dry_run:
                 print(f"DRY-RUN: INSERT INTO {schema}.{table} ({', '.join(cols)}) VALUES ({vals})")
-            else:
+                continue
+            cur.execute("SAVEPOINT sp_row")
+            try:
                 cur.execute(stmt, vals)
                 inserted += 1
+            except Exception as e:
+                # Tolerancia por fila: seguir con el resto
+                pk_preview = ', '.join(f"{k}={row.get(k)}" for k in cols if k in ('id','dni'))
+                print(f"Aviso: se omitió INSERT en {schema}.{table} ({pk_preview}): {e}")
+                cur.execute("ROLLBACK TO SAVEPOINT sp_row")
         if not dry_run:
             local_conn.commit()
     return inserted
@@ -215,12 +158,22 @@ def delete_rows_local(local_conn, schema: str, table: str, pk_cols: List[str], p
             params.extend(list(key))
         where_clause = sql.SQL(' OR ').join(conds)
     stmt = sql.SQL("DELETE FROM {}.{} WHERE ").format(sql.Identifier(schema), sql.Identifier(table)) + where_clause
+    deleted = 0
     with local_conn.cursor() as cur:
         if dry_run:
             print(f"DRY-RUN: DELETE FROM {schema}.{table} WHERE PKs={pks}")
             return 0
-        cur.execute(stmt, params)
-        deleted = cur.rowcount
+        for key in pks:
+            cur.execute("SAVEPOINT sp_row")
+            try:
+                if len(pk_cols) == 1:
+                    cur.execute(stmt, [key[0]])
+                else:
+                    cur.execute(stmt, list(key))
+                deleted += cur.rowcount
+            except Exception as e:
+                print(f"Aviso: se omitió DELETE en {schema}.{table} PK={key}: {e}")
+                cur.execute("ROLLBACK TO SAVEPOINT sp_row")
         local_conn.commit()
         return deleted
 
@@ -269,70 +222,101 @@ def update_rows_local(local_conn, remote_conn, schema: str, table: str, pk_cols:
                 if dry_run:
                     print(f"DRY-RUN: UPDATE {schema}.{table} SET {[c for c in non_pk_cols]} WHERE {[c for c in pk_cols]} KEYS={where_vals}")
                 else:
-                    cu.execute(stmt, set_vals + where_vals)
-                    updated += 1
+                    cu.execute("SAVEPOINT sp_row")
+                    try:
+                        cu.execute(stmt, set_vals + where_vals)
+                        updated += 1
+                    except Exception as e:
+                        pk_preview = ', '.join(f"{c}={row[c]}" for c in pk_cols)
+                        print(f"Aviso: se omitió UPDATE en {schema}.{table} ({pk_preview}): {e}")
+                        cu.execute("ROLLBACK TO SAVEPOINT sp_row")
             if not dry_run:
                 local_conn.commit()
     return updated
 
 
-def is_subscription_stalled(local_conn, threshold_minutes: int) -> bool:
+def disable_subscription(local_conn, subname: str):
     try:
-        with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT COALESCE(EXTRACT(EPOCH FROM apply_lag), 0) AS apply_lag_s, latest_end_time, last_msg_receipt_time FROM pg_stat_subscription")
-            rows = cur.fetchall() or []
-            if not rows:
-                return True  # no hay suscripción detectable
-            import datetime
-            now = datetime.datetime.utcnow()
-            for r in rows:
-                # Si no hay timestamps o apply_lag muy alto, considerar estancado
-                let = r.get('latest_end_time')
-                lmr = r.get('last_msg_receipt_time')
-                lag_s = r.get('apply_lag_s')
-                if lag_s and float(lag_s) > threshold_minutes * 60:
-                    return True
-                for ts in [let, lmr]:
-                    if ts and isinstance(ts, datetime.datetime):
-                        delta = now - ts.replace(tzinfo=None)
-                        if delta.total_seconds() > threshold_minutes * 60:
-                            return True
-            return False
-    except Exception:
-        return True
+        with local_conn.cursor() as cur:
+            cur.execute(f"ALTER SUBSCRIPTION {sql.Identifier(subname).as_string(local_conn)} DISABLE")
+        local_conn.commit()
+    except Exception as e:
+        print(f"Aviso: No se pudo deshabilitar la suscripción '{subname}': {e}")
+        local_conn.rollback()
+
+
+def enable_subscription(local_conn, subname: str):
+    try:
+        with local_conn.cursor() as cur:
+            cur.execute(f"ALTER SUBSCRIPTION {sql.Identifier(subname).as_string(local_conn)} ENABLE")
+        local_conn.commit()
+    except Exception as e:
+        print(f"Aviso: No se pudo habilitar la suscripción '{subname}': {e}")
+        local_conn.rollback()
+
+
+def last_activity_minutes(local_conn) -> float:
+    q = """
+    SELECT EXTRACT(EPOCH FROM (now() - COALESCE(last_msg_receipt_time, 'epoch'))) / 60.0
+    FROM pg_stat_subscription
+    ORDER BY 1 ASC
+    LIMIT 1
+    """
+    with local_conn.cursor() as cur:
+        cur.execute(q)
+        r = cur.fetchone()
+        return float(r[0]) if r and r[0] is not None else 1e9
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Reconciliación remoto→local (segura)")
-    ap.add_argument('--schema', default=DEFAULT_SCHEMA)
-    ap.add_argument('--subscription', default=None, help="Nombre de suscripción local (default desde config)")
-    ap.add_argument('--tables', nargs='*', default=None, help="Lista de tablas a reconciliar")
-    ap.add_argument('--dry-run', action='store_true')
-    ap.add_argument('--threshold-minutes', type=int, default=120, help="Gating: ejecutar sólo si suscripción estancada > N minutos")
-    ap.add_argument('--force', action='store_true', help="Ignorar gating y ejecutar siempre")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description='Reconciliación remoto→local puntual')
+    parser.add_argument('--schema', default=DEFAULT_SCHEMA)
+    parser.add_argument('--tables', nargs='*', help='Lista de tablas a procesar')
+    parser.add_argument('--dry-run', action='store_true', help='No aplica cambios, sólo imprime')
+    parser.add_argument('--threshold-minutes', type=int, default=5, help='Sólo corre si la suscripción lleva inactiva al menos este tiempo')
+    parser.add_argument('--force', action='store_true', help='Ignora threshold; fuerza ejecución')
+    parser.add_argument('--subscription', default='gym_sub')
 
-    cfg = load_config() or {}
-    rep_cfg = cfg.get('replication') or {}
-    subname = args.subscription or rep_cfg.get('subscription_name') or 'gym_sub'
+    args = parser.parse_args()
 
-    local_params = resolve_local_credentials(cfg)
-    remote_params = resolve_remote_credentials(cfg)
+    # Cargar credenciales
+    with open(BASE_DIR / 'config' / 'config.json', 'r', encoding='utf-8') as f:
+        full_cfg = json.load(f)
 
-    local_conn = connect(local_params)
-    remote_conn = connect(remote_params)
+    local_conf = resolve_local_credentials(full_cfg)
+    remote_conf = resolve_remote_credentials(full_cfg)
+
+    local_conn = resolve_conn(local_conf, is_remote=False)
+    remote_conn = resolve_conn(remote_conf, is_remote=True)
 
     try:
-        if not args.force:
-            if not is_subscription_stalled(local_conn, args.threshold_minutes):
-                print(f"Suscripción no estancada (threshold {args.threshold_minutes} min). Saliendo.")
-                return
-        tables = args.tables or load_tables()
-        if not tables:
-            print("No hay tablas configuradas para publishes_remote_to_local")
-            return
+        subname = args.subscription
+        # Gating por inactividad
+        if not args.force and not args.dry_run:
+            try:
+                minutes = last_activity_minutes(local_conn)
+                if minutes < args.threshold_minutes:
+                    print(f"Suscripción activa recientemente ({minutes:.1f} min < {args.threshold_minutes}); no se ejecuta.")
+                    return
+            except Exception:
+                # Si no podemos leer estado, continuamos de todos modos
+                pass
 
+        # Pausar suscripción para aplicar cambios masivos
         disable_subscription(local_conn, subname)
+
+        tables = args.tables
+        if not tables:
+            # Si no se especificaron, inferir desde config/sync_tables.json publicadas en remoto
+            try:
+                with open(BASE_DIR / 'config' / 'sync_tables.json', 'r', encoding='utf-8') as tf:
+                    st = json.load(tf)
+                tables = st.get('publishes_remote_to_local') or st.get('tables') or []
+            except Exception:
+                tables = []
+        if not tables:
+            print('No hay tablas a procesar')
+            return
 
         total_ins = 0
         total_upd = 0
@@ -365,6 +349,7 @@ def main():
                 print(f"{schema}.{table}: +{ins} / ~{upc} / -{delc}")
             except Exception as e:
                 print(f"[ERROR] {schema}.{table}: {e}")
+                local_conn.rollback()
 
         enable_subscription(local_conn, subname)
         print(f"Resumen: INSERT={total_ins} UPDATE={total_upd} DELETE={total_del}")
