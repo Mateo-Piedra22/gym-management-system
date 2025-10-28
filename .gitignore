@@ -95,3 +95,6 @@ config/sync_outbox.jsonl
 
 # Salidas generadas
 exports/
+venv312/
+venv312/
+venv/

@@ -20,6 +20,7 @@ Uso:
 """
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import List, Tuple, Dict, Any
 
@@ -29,9 +30,30 @@ from psycopg2 import sql
 
 # Asegura que el repo root esté en sys.path antes de imports locales
 import sys
-BASE_DIR = Path(__file__).resolve().parent.parent
+
+def _resolve_base_dir() -> Path:
+    try:
+        if getattr(sys, 'frozen', False):
+            # PyInstaller/Nuitka: usar el directorio del ejecutable
+            return Path(sys.executable).resolve().parent
+    except Exception:
+        pass
+    try:
+        return Path(__file__).resolve().parent.parent
+    except Exception:
+        return Path(os.getcwd())
+
+BASE_DIR = _resolve_base_dir()
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
+
+def resource_path(rel_path: str) -> str:
+    """Resuelve rutas empaquetadas en ejecutables y en entorno de desarrollo."""
+    try:
+        base = Path(getattr(sys, '_MEIPASS', BASE_DIR))
+    except Exception:
+        base = BASE_DIR
+    return str((base / rel_path))
 
 from utils_modules.replication_setup import (
     resolve_local_credentials,
@@ -267,22 +289,52 @@ def last_activity_minutes(local_conn) -> float:
         r = cur.fetchone()
         return float(r[0]) if r and r[0] is not None else 1e9
 
+def _load_cfg() -> Dict[str, Any]:
+    """Carga config desde recurso empaquetado o desde el árbol del proyecto."""
+    # Intento 1: recurso empaquetado
+    try:
+        p = Path(resource_path('config/config.json'))
+        if p.exists():
+            with open(p, 'r', encoding='utf-8') as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    # Intento 2: ruta relativa al proyecto
+    try:
+        p2 = BASE_DIR / 'config' / 'config.json'
+        if p2.exists():
+            with open(p2, 'r', encoding='utf-8') as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    return {}
 
-def main():
-    parser = argparse.ArgumentParser(description='Reconciliación remoto→local puntual')
-    parser.add_argument('--schema', default=DEFAULT_SCHEMA)
-    parser.add_argument('--tables', nargs='*', help='Lista de tablas a procesar')
-    parser.add_argument('--dry-run', action='store_true', help='No aplica cambios, sólo imprime')
-    parser.add_argument('--threshold-minutes', type=int, default=5, help='Sólo corre si la suscripción lleva inactiva al menos este tiempo')
-    parser.add_argument('--force', action='store_true', help='Ignora threshold; fuerza ejecución')
-    parser.add_argument('--subscription', default='gym_sub')
+def _load_sync_tables_default() -> List[str]:
+    """Carga lista de tablas por defecto desde sync_tables.json si existe."""
+    # Recurso empaquetado primero
+    try:
+        p = Path(resource_path('config/sync_tables.json'))
+        if p.exists():
+            with open(p, 'r', encoding='utf-8') as tf:
+                st = json.load(tf) or {}
+            return st.get('publishes_remote_to_local') or st.get('tables') or []
+    except Exception:
+        pass
+    # Fallback a BASE_DIR
+    try:
+        p2 = BASE_DIR / 'config' / 'sync_tables.json'
+        if p2.exists():
+            with open(p2, 'r', encoding='utf-8') as tf:
+                st = json.load(tf) or {}
+            return st.get('publishes_remote_to_local') or st.get('tables') or []
+    except Exception:
+        pass
+    return []
 
-    args = parser.parse_args()
-
+def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, dry_run: bool = False, threshold_minutes: int = 5, force: bool = False, subscription: str = 'gym_sub') -> None:
+    """Ejecuta la reconciliación remoto→local una vez, invocable desde la app."""
     # Cargar credenciales
-    with open(BASE_DIR / 'config' / 'config.json', 'r', encoding='utf-8') as f:
-        full_cfg = json.load(f)
-
+    full_cfg = _load_cfg()
     local_conf = resolve_local_credentials(full_cfg)
     remote_conf = resolve_remote_credentials(full_cfg)
 
@@ -290,13 +342,13 @@ def main():
     remote_conn = resolve_conn(remote_conf, is_remote=True)
 
     try:
-        subname = args.subscription
+        subname = subscription
         # Gating por inactividad
-        if not args.force and not args.dry_run:
+        if not force and not dry_run:
             try:
                 minutes = last_activity_minutes(local_conn)
-                if minutes < args.threshold_minutes:
-                    print(f"Suscripción activa recientemente ({minutes:.1f} min < {args.threshold_minutes}); no se ejecuta.")
+                if minutes < threshold_minutes:
+                    print(f"Suscripción activa recientemente ({minutes:.1f} min < {threshold_minutes}); no se ejecuta.")
                     return
             except Exception:
                 # Si no podemos leer estado, continuamos de todos modos
@@ -305,24 +357,17 @@ def main():
         # Pausar suscripción para aplicar cambios masivos
         disable_subscription(local_conn, subname)
 
-        tables = args.tables
-        if not tables:
-            # Si no se especificaron, inferir desde config/sync_tables.json publicadas en remoto
-            try:
-                with open(BASE_DIR / 'config' / 'sync_tables.json', 'r', encoding='utf-8') as tf:
-                    st = json.load(tf)
-                tables = st.get('publishes_remote_to_local') or st.get('tables') or []
-            except Exception:
-                tables = []
-        if not tables:
+        use_tables = list(tables or [])
+        if not use_tables:
+            use_tables = _load_sync_tables_default()
+        if not use_tables:
             print('No hay tablas a procesar')
             return
 
         total_ins = 0
         total_upd = 0
         total_del = 0
-        schema = args.schema
-        for table in tables:
+        for table in use_tables:
             try:
                 pk_cols = get_pk_columns(local_conn, schema, table)
                 if not pk_cols:
@@ -334,16 +379,16 @@ def main():
                 # Inserciones: claves que faltan en local
                 to_insert = list(remote_keys - local_keys)
                 rows_to_insert = fetch_rows_by_pk(remote_conn, schema, table, pk_cols, to_insert)
-                ins = insert_rows_local(local_conn, schema, table, rows_to_insert, dry_run=args.dry_run)
+                ins = insert_rows_local(local_conn, schema, table, rows_to_insert, dry_run=dry_run)
                 total_ins += ins
 
                 # Borrados: claves extra en local
                 to_delete = list(local_keys - remote_keys)
-                delc = delete_rows_local(local_conn, schema, table, pk_cols, to_delete, dry_run=args.dry_run)
+                delc = delete_rows_local(local_conn, schema, table, pk_cols, to_delete, dry_run=dry_run)
                 total_del += delc
 
                 # Actualizaciones por updated_at
-                upc = update_rows_local(local_conn, remote_conn, schema, table, pk_cols, dry_run=args.dry_run)
+                upc = update_rows_local(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
                 total_upd += upc
 
                 print(f"{schema}.{table}: +{ins} / ~{upc} / -{delc}")
@@ -362,6 +407,25 @@ def main():
             remote_conn.close()
         except Exception:
             pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Reconciliación remoto→local puntual')
+    parser.add_argument('--schema', default=DEFAULT_SCHEMA)
+    parser.add_argument('--tables', nargs='*', help='Lista de tablas a procesar')
+    parser.add_argument('--dry-run', action='store_true', help='No aplica cambios, sólo imprime')
+    parser.add_argument('--threshold-minutes', type=int, default=5, help='Sólo corre si la suscripción lleva inactiva al menos este tiempo')
+    parser.add_argument('--force', action='store_true', help='Ignora threshold; fuerza ejecución')
+    parser.add_argument('--subscription', default='gym_sub')
+    args = parser.parse_args()
+    run_once(
+        schema=args.schema,
+        tables=args.tables,
+        dry_run=args.dry_run,
+        threshold_minutes=args.threshold_minutes,
+        force=args.force,
+        subscription=args.subscription,
+    )
 
 
 if __name__ == '__main__':

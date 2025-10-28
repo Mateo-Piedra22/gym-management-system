@@ -570,6 +570,11 @@ def ensure_logical_replication(cfg: dict) -> Dict[str, Any]:
         if psycopg2 is None:
             raise RuntimeError("psycopg2 no disponible")
 
+        try:
+            logging.info("Replicación lógica: iniciando")
+        except Exception:
+            pass
+
         # Paso 1: siembra keyring (idempotente)
         seeded = seed_keyring_credentials(cfg)
         results["steps"].append({"seed_keyring": seeded})
@@ -604,12 +609,29 @@ def ensure_logical_replication(cfg: dict) -> Dict[str, Any]:
         results["steps"].append({"publication": pub_res})
         if not pub_res.get("ok"):
             logging.warning(pub_res.get("message"))
+        else:
+            try:
+                logging.info(
+                    f"Replicación lógica: publicación remota -> ok={pub_res.get('ok')} changed={pub_res.get('changed')}"
+                )
+            except Exception:
+                pass
 
         # Paso 4: asegurar SUBSCRIPTION local
         sub_res = ensure_subscription_on_local(local, remote, subname=subname, pubname=pubname)
         results["steps"].append({"subscription": sub_res})
+        try:
+            logging.info(
+                f"Replicación lógica: suscripción local -> ok={sub_res.get('ok')} changed={sub_res.get('changed')}"
+            )
+        except Exception:
+            pass
 
         results["ok"] = bool(pub_res.get("ok") and sub_res.get("ok"))
+        try:
+            logging.info(f"Replicación lógica: finalizada ok={results['ok']}")
+        except Exception:
+            pass
         return results
     except Exception as e:
         logging.exception("Error asegurando replicación lógica")

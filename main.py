@@ -1,5 +1,12 @@
 import sys
 import os
+
+# First run setup
+try:
+    from first_run_setup import first_run_setup
+    first_run_setup()
+except Exception:
+    pass  # Continue even if first run setup fails
 import logging
 import json
 """
@@ -31,16 +38,17 @@ def _is_headless_env() -> bool:
 try:
     if _is_headless_env():
         try:
-            import uvicorn
-            # Importar la app FastAPI del servidor web
-            from webapp.server import app  # type: ignore
+            # Importación dinámica para evitar que empaquetadores incluyan dependencias web en builds de escritorio
+            m_uvicorn = __import__("uvicorn")
+            webapp_server = __import__("webapp.server", fromlist=["app"])  # type: ignore
+            app = getattr(webapp_server, "app")
             host = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
             try:
                 port = int(os.getenv("PORT", "8000"))
             except Exception:
                 port = 8000
             log_level = os.getenv("LOG_LEVEL", "info").strip() or "info"
-            uvicorn.run(
+            m_uvicorn.run(  # type: ignore
                 app,
                 host=host,
                 port=port,
@@ -804,9 +812,18 @@ class MainWindow(QMainWindow):
             
             logging.info("Aplicación inicializando en segundo plano (deferred startup).")
         except Exception as e:
+            # No cerrar ni abortar: continuar en modo degradado para evitar crash silencioso
             logging.critical(f"Fallo crítico durante la inicialización de MainWindow: {e}", exc_info=True)
-            self.close()
-            sys.exit(1)
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Error al inicializar", f"Ocurrió un error inicializando la ventana principal. Algunas funciones pueden no estar disponibles.\n\nDetalle: {e}")
+            except Exception:
+                pass
+            try:
+                logging.error("Continuando en modo degradado; algunas funciones pueden no estar disponibles.")
+            except Exception:
+                pass
+            # Importante: no cerrar la ventana y no re-lanzar la excepción
             
         # Bandera para distinguir entre logout y cierre de aplicación
         self.is_logout = False
@@ -1045,6 +1062,10 @@ class MainWindow(QMainWindow):
     def _run_deferred_startup(self):
         """Ejecuta pasos pesados de arranque en serie usando QTimer, con progreso."""
         try:
+            try:
+                logging.info("Deferred startup: iniciando")
+            except Exception:
+                pass
             steps: list[tuple[str, callable]] = [
                 ("Verificando prerequisitos (PostgreSQL)…", self.verify_and_install_prereqs_step),
                 ("Configurando pestañas…", self.setup_tabs),
@@ -1057,6 +1078,10 @@ class MainWindow(QMainWindow):
             ]
 
             total = len(steps)
+            try:
+                logging.info(f"Deferred startup: {total} pasos")
+            except Exception:
+                pass
 
             def _run_step(i: int):
                 if i >= total:
@@ -1069,9 +1094,17 @@ class MainWindow(QMainWindow):
                         QTimer.singleShot(0, self.initialized.emit)
                     except Exception:
                         pass
+                    try:
+                        logging.info("Deferred startup: completado")
+                    except Exception:
+                        pass
                     return
                 label, fn = steps[i]
                 try:
+                    try:
+                        logging.info(f"Deferred startup: paso {i+1}/{total} - {label}")
+                    except Exception:
+                        pass
                     with profile(f"startup step: {label}"):
                         fn()
                 except Exception as e:
@@ -1138,6 +1171,10 @@ class MainWindow(QMainWindow):
                             if hasattr(self, 'system_status_label') and self.system_status_label:
                                 self.system_status_label.setText(text)
                                 self.system_status_label.setToolTip("Auto-verificación de PostgreSQL ejecutada en background")
+                        except Exception:
+                            pass
+                        try:
+                            logging.info(f"Prerequisitos resumen: {text}")
                         except Exception:
                             pass
                 except Exception:
@@ -6062,14 +6099,205 @@ def terminate_ssh_processes(timeout: float = 3.0):
             pass
 
 def main():
-    # Instala el filtro de mensajes Qt antes de crear la app
+    # Instalar handler de mensajes Qt temprano para capturar errores de plugins
     try:
-        qInstallMessageHandler(_qt_message_handler)
-    except Exception as e:
-        logging.debug(f"No se pudo instalar el filtro de mensajes Qt: {e}")
+        from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QCoreApplication  # type: ignore
+        def _default_qt_handler(msg_type, context, message):
+            try:
+                if msg_type == QtMsgType.QtDebugMsg:
+                    logging.debug(message)
+                elif msg_type == QtMsgType.QtInfoMsg:
+                    logging.info(message)
+                elif msg_type == QtMsgType.QtWarningMsg:
+                    logging.warning(message)
+                elif msg_type in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+                    logging.error(message)
+                else:
+                    logging.info(message)
+            except Exception:
+                pass
+        try:
+            handler = _qt_message_handler  # type: ignore
+        except Exception:
+            handler = _default_qt_handler
+        try:
+            qInstallMessageHandler(handler)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     # Asegurar AppUserModelID en Windows antes de crear la aplicación
     _ensure_windows_app_id()
-    app = QApplication(sys.argv)
+
+    # Proteger y forzar resolución de plugins/DLL de Qt en ejecutables (Nuitka/PyInstaller)
+    try:
+        exe_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+        meipass = getattr(sys, "_MEIPASS", None)
+        plugin_root_candidates = [
+            os.path.join(exe_dir, "PyQt6", "Qt6", "plugins"),
+            os.path.join(exe_dir, "Qt6", "plugins"),
+            os.path.join(exe_dir, "plugins"),
+            os.path.join(exe_dir, "lib", "PyQt6", "Qt6", "plugins"),
+            os.path.join(exe_dir, "lib", "Qt6", "plugins"),
+        ]
+        if meipass:
+            plugin_root_candidates.extend([
+                os.path.join(meipass, "PyQt6", "Qt6", "plugins"),
+                os.path.join(meipass, "Qt6", "plugins"),
+                os.path.join(meipass, "plugins"),
+            ])
+        def _valid_dir(path):
+            try:
+                return os.path.isdir(path)
+            except Exception:
+                return False
+        platform_candidates = []
+        styles_candidates = []
+        imageformats_candidates = []
+        iconengines_candidates = []
+        for root in plugin_root_candidates:
+            if _valid_dir(root):
+                platform_candidates.append(os.path.join(root, "platforms"))
+                styles_candidates.append(os.path.join(root, "styles"))
+                imageformats_candidates.append(os.path.join(root, "imageformats"))
+                iconengines_candidates.append(os.path.join(root, "iconengines"))
+        # Candidatos explícitos
+        explicit = [
+            os.path.join(exe_dir, "PyQt6", "Qt6", "plugins"),
+            os.path.join(exe_dir, "Qt6", "plugins"),
+            os.path.join(exe_dir, "plugins"),
+        ]
+        for base in explicit:
+            platform_candidates.append(os.path.join(base, "platforms"))
+            styles_candidates.append(os.path.join(base, "styles"))
+            imageformats_candidates.append(os.path.join(base, "imageformats"))
+            iconengines_candidates.append(os.path.join(base, "iconengines"))
+        if meipass:
+            for base in [
+                os.path.join(meipass, "PyQt6", "Qt6", "plugins"),
+                os.path.join(meipass, "Qt6", "plugins"),
+                os.path.join(meipass, "plugins"),
+            ]:
+                platform_candidates.append(os.path.join(base, "platforms"))
+                styles_candidates.append(os.path.join(base, "styles"))
+                imageformats_candidates.append(os.path.join(base, "imageformats"))
+                iconengines_candidates.append(os.path.join(base, "iconengines"))
+
+        selected_root = None
+        selected_platform = None
+        selected_styles = None
+        selected_imageformats = None
+        selected_iconengines = None
+        # Elegir primer ruta válida que contenga plugin de plataforma qwindows
+        for plat in platform_candidates:
+            try:
+                if _valid_dir(plat):
+                    has_qwindows = any(fn.lower().startswith("qwindows") for fn in os.listdir(plat))
+                    if has_qwindows:
+                        selected_platform = plat
+                        selected_root = os.path.dirname(plat)
+                        break
+            except Exception:
+                continue
+        # Detectar otros plugins útiles
+        for sty in styles_candidates:
+            if _valid_dir(sty):
+                try:
+                    has_style = any(fn.lower().startswith("qwindows") or fn.lower().endswith("style.dll") for fn in os.listdir(sty))
+                except Exception:
+                    has_style = True
+                if has_style:
+                    selected_styles = sty
+                    break
+        for img in imageformats_candidates:
+            if _valid_dir(img):
+                selected_imageformats = img
+                break
+        for ico in iconengines_candidates:
+            if _valid_dir(ico):
+                selected_iconengines = ico
+                break
+
+        # Forzar variables de entorno y rutas dinámicas
+        try:
+            from PyQt6.QtCore import QCoreApplication  # type: ignore
+        except Exception:
+            QCoreApplication = None  # type: ignore
+        if selected_root:
+            os.environ["QT_PLUGIN_PATH"] = selected_root
+            try:
+                if QCoreApplication:
+                    QCoreApplication.addLibraryPath(selected_root)
+            except Exception:
+                pass
+        if selected_platform:
+            os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = selected_platform
+            try:
+                if QCoreApplication:
+                    QCoreApplication.addLibraryPath(selected_platform)
+            except Exception:
+                pass
+        for extra in [selected_styles, selected_imageformats, selected_iconengines]:
+            if extra:
+                try:
+                    if QCoreApplication:
+                        QCoreApplication.addLibraryPath(extra)
+                except Exception:
+                    pass
+        # Inyectar rutas de DLL Qt en PATH para resolver dependencias
+        bin_candidates = [
+            os.path.join(exe_dir, "PyQt6", "Qt6", "bin"),
+            os.path.join(exe_dir, "Qt6", "bin"),
+            os.path.join(exe_dir, "bin"),
+        ]
+        if meipass:
+            bin_candidates.extend([
+                os.path.join(meipass, "PyQt6", "Qt6", "bin"),
+                os.path.join(meipass, "Qt6", "bin"),
+                os.path.join(meipass, "bin"),
+            ])
+        current_path = os.environ.get("PATH", "")
+        for b in bin_candidates:
+            try:
+                if _valid_dir(b) and b not in current_path:
+                    current_path = b + os.pathsep + current_path
+            except Exception:
+                pass
+        os.environ["PATH"] = current_path
+        # Activar depuración de plugins para obtener logs útiles durante el arranque
+        os.environ["QT_DEBUG_PLUGINS"] = os.environ.get("QT_DEBUG_PLUGINS", "1")
+    except Exception:
+        pass
+
+    # Crear QApplication con protección ante fallos de plugins
+    try:
+        app = QApplication(sys.argv)
+    except Exception as e:
+        # Mostrar mensaje nativo en Windows si no se puede iniciar Qt
+        try:
+            if os.name == "nt":
+                import ctypes
+                msg = (
+                    "No se pudo inicializar la interfaz Qt.\n\n"
+                    "Verifica que el ejecutable contenga los plugins de Qt (platforms/styles) y que no esté bloqueado por antivirus.\n"
+                    "Si el problema persiste, reinstala o reconstruye con los plugins incluidos.\n\n"
+                    f"Detalle: {e}"
+                )
+                ctypes.windll.user32.MessageBoxW(None, msg, "Error de inicio", 0x10)
+        except Exception:
+            pass
+        # Registrar y salir con código de error
+        try:
+            logging.error(f"Fallo al crear QApplication: {e}")
+        except Exception:
+            pass
+        sys.exit(1)
+    # Evitar que la app termine si se cierra el último diálogo (p.ej., Login)
+    try:
+        app.setQuitOnLastWindowClosed(False)
+    except Exception:
+        pass
     
     # --- APLICACIÓN DEL ESTILO PERSONALIZADO ---
     # Esto asegura que los pequeños íconos (flechas) en los SpinBox y ComboBox
@@ -6165,7 +6393,81 @@ def main():
         pass
     
     try:
-        if login_dialog.exec():
+        from PyQt6.QtWidgets import QDialog, QMessageBox
+        # En binarios compilados se ha observado cierre prematuro del diálogo.
+        # Reintentamos el login una vez antes de cerrar la aplicación.
+        login_attempts = 0
+        while True:
+            result = login_dialog.exec()
+            if result == QDialog.DialogCode.Accepted:
+                break
+            login_attempts += 1
+            logging.warning("Login rechazado/cancelado (intento %s).", login_attempts)
+            # Si el diálogo indicó cierre explícito, salir sin mostrar confirmación adicional
+            try:
+                if getattr(login_dialog, "_closing_confirmed", False):
+                    logging.info("Login cancelado por el usuario desde el diálogo. Cerrando aplicación.")
+                    db_manager_for_login.close_connections()
+                    try:
+                        wd = getattr(app, 'global_proxy_watchdog', None)
+                        if wd:
+                            wd.stop()
+                    except Exception:
+                        pass
+                    try:
+                        tmr = getattr(app, '_global_proxy_watchdog_timer', None)
+                        if tmr:
+                            tmr.stop()
+                    except Exception:
+                        pass
+                    try:
+                        terminate_tunnel_processes()
+                    except Exception:
+                        pass
+                    try:
+                        terminate_ssh_processes()
+                    except Exception:
+                        pass
+                    sys.exit(0)
+            except Exception:
+                pass
+            # Un reintento automático para cubrir cierre inesperado en el .exe
+            if login_attempts >= 1:
+                reply = QMessageBox.question(
+                    None,
+                    "Login requerido",
+                    "El inicio de sesión fue cancelado. ¿Desea cerrar la aplicación?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    logging.info("Login cancelado por el usuario. Cerrando aplicación.")
+                    db_manager_for_login.close_connections()
+                    try:
+                        wd = getattr(app, 'global_proxy_watchdog', None)
+                        if wd:
+                            wd.stop()
+                    except Exception:
+                        pass
+                    try:
+                        tmr = getattr(app, '_global_proxy_watchdog_timer', None)
+                        if tmr:
+                            tmr.stop()
+                    except Exception:
+                        pass
+                    try:
+                        terminate_tunnel_processes()
+                    except Exception:
+                        pass
+                    try:
+                        terminate_ssh_processes()
+                    except Exception:
+                        pass
+                    sys.exit(0)
+                else:
+                    # Reintentar mostrando nuevamente el diálogo
+                    continue
+        if True:
             # Mostrar ventana principal inmediatamente; el progreso se gestionará en overlay no bloqueante
 
             # Crear la ventana principal de forma diferida para que el diálogo se pinte primero
@@ -6271,15 +6573,90 @@ def main():
                             except Exception:
                                 pass
 
+                    # Ejecución en-proceso de reconciliaciones, compatible con ejecutable
+                    def _run_r2l_inprocess(flag_attr: str):
+                        def _worker():
+                            try:
+                                # Preferir importación por nombre para compatibilidad con ejecutables
+                                try:
+                                    import importlib
+                                    mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
+                                except Exception:
+                                    from importlib.util import spec_from_file_location, module_from_spec
+                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py')
+                                    spec = spec_from_file_location('reconcile_remote_to_local_once', mod_path)
+                                    mod = module_from_spec(spec)  # type: ignore
+                                    spec.loader.exec_module(mod)  # type: ignore
+                                # Ejecutar con gating de 5 minutos
+                                try:
+                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=5, force=False, subscription='gym_sub')
+                                except Exception as e:
+                                    logging.warning(f"Fallo R→L in-process: {e}")
+                            except Exception as e:
+                                try:
+                                    logging.warning(f"No se pudo cargar módulo R→L: {e}")
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    setattr(window, flag_attr, False)
+                                except Exception:
+                                    pass
+                        try:
+                            if getattr(window, flag_attr, False):
+                                return
+                            setattr(window, flag_attr, True)
+                            threading.Thread(target=_worker, daemon=True).start()
+                        except Exception:
+                            try:
+                                setattr(window, flag_attr, False)
+                            except Exception:
+                                pass
+
+                    def _run_l2r_inprocess(flag_attr: str):
+                        def _worker():
+                            try:
+                                # Preferir importación por nombre para compatibilidad con ejecutables
+                                try:
+                                    import importlib
+                                    mod = importlib.import_module('scripts.reconcile_local_remote_once')
+                                except Exception:
+                                    from importlib.util import spec_from_file_location, module_from_spec
+                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_local_remote_once.py')
+                                    spec = spec_from_file_location('reconcile_local_remote_once', mod_path)
+                                    mod = module_from_spec(spec)  # type: ignore
+                                    spec.loader.exec_module(mod)  # type: ignore
+                                try:
+                                    mod.run_once(subscription='gym_sub', schema='public', tables=None, dry_run=False)
+                                except Exception as e:
+                                    logging.warning(f"Fallo L→R in-process: {e}")
+                            except Exception as e:
+                                try:
+                                    logging.warning(f"No se pudo cargar módulo L→R: {e}")
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    setattr(window, flag_attr, False)
+                                except Exception:
+                                    pass
+                        try:
+                            if getattr(window, flag_attr, False):
+                                return
+                            setattr(window, flag_attr, True)
+                            threading.Thread(target=_worker, daemon=True).start()
+                        except Exception:
+                            try:
+                                setattr(window, flag_attr, False)
+                            except Exception:
+                                pass
+
                     def _start_r2l_timer():
                         try:
                             # Remote→Local cada 5 minutos, con gating interno de threshold
                             r2l = QTimer(window)
                             r2l.setInterval(2 * 60 * 1000)
-                            r2l.timeout.connect(lambda: _run_script_async(
-                                [sys.executable or 'python', os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py'), '--threshold-minutes', '5'],
-                                '_r2l_running'
-                            ))
+                            r2l.timeout.connect(lambda: _run_r2l_inprocess('_r2l_running'))
                             r2l.start()
                             window._timer_r2l = r2l
                             logging.info("Timer R→L iniciado (cada 5 minutos)")
@@ -6291,10 +6668,7 @@ def main():
                             # Local→Remote cada 2 minutos
                             l2r = QTimer(window)
                             l2r.setInterval(2 * 60 * 1000)
-                            l2r.timeout.connect(lambda: _run_script_async(
-                                [sys.executable or 'python', os.path.join(_repo_root(), 'scripts', 'reconcile_local_remote_once.py')],
-                                '_l2r_running'
-                            ))
+                            l2r.timeout.connect(lambda: _run_l2r_inprocess('_l2r_running'))
                             l2r.start()
                             window._timer_l2r = l2r
                             logging.info("Timer L→R iniciado (cada 2 minutos)")
@@ -6315,6 +6689,18 @@ def main():
                         pass
                 except Exception:
                     pass
+
+                # Definir host/port para escritorio (para monitor y toast)
+                try:
+                    host = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
+                    try:
+                        _port_env = os.getenv("WEBAPP_PORT") or os.getenv("PORT")
+                        port = int(_port_env) if _port_env else 8000
+                    except Exception:
+                        port = 8000
+                except Exception:
+                    host = "127.0.0.1"
+                    port = 8000
 
                 # Integrar monitor de salud de redes en background
                 try:
@@ -6357,56 +6743,63 @@ def main():
                 # URL pública (Railway) desde config si existe
                 public_url_val = None
                 try:
-                    cfg_path = _Path(__file__).resolve().parent / 'config' / 'config.json'
+                    cfg_path = _Path(resource_path('config/config.json'))
+                    if not cfg_path.exists():
+                        cfg_path = _Path(__file__).resolve().parent / 'config' / 'config.json'
                     if cfg_path.exists():
                         with open(cfg_path, 'r', encoding='utf-8') as f:
                             _cfg = _json.load(f) or {}
                         public_url_val = _cfg.get('UPSTREAM_WEBAPP_BASE_URL') or _cfg.get('webapp_base_url')
                 except Exception:
-                    public_url_val = None
+                        public_url_val = None
 
-                # Probar salud de WebApp
+            except Exception:
+                pass
+
+            # Probar salud de WebApp
+            webapp_ok = None
+            try:
+                import requests as _requests  # type: ignore
+                r = _requests.get(f"http://127.0.0.1:{port}/healthz", timeout=2.5)
+                webapp_ok = (r.status_code == 200)
+            except Exception:
                 webapp_ok = None
-                try:
-                    import requests as _requests  # type: ignore
-                    r = _requests.get(f"http://127.0.0.1:{port}/healthz", timeout=2.5)
-                    webapp_ok = (r.status_code == 200)
-                except Exception:
-                    webapp_ok = None
 
-                # Resolver perfiles de DB y probar conexión
-                db_local_ok = None
-                db_remote_ok = None
-                try:
-                    from database import DatabaseManager as _DBM
-                    cfg = {}
+            # Resolver perfiles de DB y probar conexión
+            db_local_ok = None
+            db_remote_ok = None
+            try:
+                from database import DatabaseManager as _DBM
+                cfg = {}
+                cfg_path = _Path(resource_path('config/config.json'))
+                if not cfg_path.exists():
                     cfg_path = _Path(__file__).resolve().parent / 'config' / 'config.json'
-                    if cfg_path.exists():
-                        with open(cfg_path, 'r', encoding='utf-8') as f:
-                            cfg = _json.load(f) or {}
-                    local_prof = cfg.get('db_local', {}) or {}
-                    remote_prof = cfg.get('db_remote', {}) or {}
-                    db_local_ok = bool(_DBM.test_connection(local_prof)) if local_prof else None
-                    db_remote_ok = bool(_DBM.test_connection(remote_prof)) if remote_prof else None
-                except Exception:
-                    pass
+                if cfg_path.exists():
+                    with open(cfg_path, 'r', encoding='utf-8') as f:
+                        cfg = _json.load(f) or {}
+                local_prof = cfg.get('db_local', {}) or {}
+                remote_prof = cfg.get('db_remote', {}) or {}
+                db_local_ok = bool(_DBM.test_connection(local_prof)) if local_prof else None
+                db_remote_ok = bool(_DBM.test_connection(remote_prof)) if remote_prof else None
+            except Exception:
+                pass
 
-                try:
-                    # Identificador externo: no disponible (replicación lógica administrada por PostgreSQL)
-                    ext_id = None
+            try:
+                # Identificador externo: no disponible (replicación lógica administrada por PostgreSQL)
+                ext_id = None
 
-                    toast = ServerStatusToast(
-                        window,
-                        local_url=local_url,
-                        public_url=public_url_val,
-                        webapp_ok=webapp_ok,
-                        db_local_ok=db_local_ok,
-                        db_remote_ok=db_remote_ok,
-                        external_id=ext_id,
-                    )
-                    toast.show_toast()
-                except Exception:
-                    pass
+                toast = ServerStatusToast(
+                    window,
+                    local_url=local_url,
+                    public_url=public_url_val,
+                    webapp_ok=webapp_ok,
+                    db_local_ok=db_local_ok,
+                    db_remote_ok=db_remote_ok,
+                    external_id=ext_id,
+                )
+                toast.show_toast()
+            except Exception:
+                pass
             except Exception:
                 pass
             exit_code = app.exec()

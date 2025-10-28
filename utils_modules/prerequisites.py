@@ -7,6 +7,7 @@ import glob
 from datetime import datetime
 from typing import Optional, Tuple, List
 from urllib.parse import urlparse
+import logging
 
 try:
     import keyring
@@ -490,6 +491,10 @@ def ensure_prerequisites(device_id: str) -> dict:
     Retorna diccionario con resultados por componente.
     """
     _ensure_dirs()
+    try:
+        logging.info(f"Prerequisitos: inicio para device_id={device_id}")
+    except Exception:
+        pass
     result = {
         "postgresql": {"installed": False, "attempted": False, "message": ""},
         "marked": False,
@@ -498,9 +503,17 @@ def ensure_prerequisites(device_id: str) -> dict:
 
     # Aplicar bootstrap remoto (idempotente, antes de cualquier salida)
     try:
+        logging.info("Prerequisitos: aplicando remote_bootstrap si existe")
+    except Exception:
+        pass
+    try:
         result["remote_bootstrap"] = apply_remote_bootstrap_if_present()
     except Exception as e:
         result["remote_bootstrap"] = {"applied": False, "error": str(e)}
+    try:
+        logging.info(f"Prerequisitos: remote_bootstrap -> applied={result['remote_bootstrap'].get('applied')}")
+    except Exception:
+        pass
 
     # Si ya hay marca, no salimos: aplicamos pasos idempotentes (outbox/tareas/red/replicación)
     marker = read_marker(device_id)
@@ -508,26 +521,51 @@ def ensure_prerequisites(device_id: str) -> dict:
         # Solo reportar estado actual de PostgreSQL y continuar
         result["postgresql"]["installed"] = is_postgresql_installed(17)
         result["marked"] = True
+        try:
+            logging.info("Prerequisitos: marker existente, continuar pasos idempotentes")
+        except Exception:
+            pass
 
     # PostgreSQL
+    try:
+        logging.info("Prerequisitos: verificando PostgreSQL 17")
+    except Exception:
+        pass
     if is_postgresql_installed(17):
         result["postgresql"]["installed"] = True
+        try:
+            logging.info("Prerequisitos: PostgreSQL ya instalado")
+        except Exception:
+            pass
     else:
         ok, msg = install_postgresql_17()
         result["postgresql"]["attempted"] = True
         result["postgresql"]["installed"] = ok and is_postgresql_installed(17)
         result["postgresql"]["message"] = msg
+        try:
+            logging.info(f"Prerequisitos: instalación PostgreSQL -> ok={ok}")
+        except Exception:
+            pass
 
     # Si PostgreSQL está instalado, intentar crear la base definida en config.json
     try:
         if result["postgresql"]["installed"]:
+            logging.info("Prerequisitos: creando base de datos desde config.json")
             db_ok, db_msg = create_database_from_config(17)
             result["postgresql"]["db_created"] = bool(db_ok)
             if not db_ok and db_msg:
                 result["postgresql"]["db_message"] = db_msg
+            try:
+                logging.info(f"Prerequisitos: creación DB -> ok={bool(db_ok)}")
+            except Exception:
+                pass
     except Exception as e:
         result["postgresql"]["db_created"] = False
         result["postgresql"]["db_message"] = str(e)
+        try:
+            logging.warning(f"Prerequisitos: error creación DB -> {e}")
+        except Exception:
+            pass
 
     # Sembrar owner_password en DB si viene por entorno/bootstrap y no existe
     try:
@@ -576,21 +614,41 @@ def ensure_prerequisites(device_id: str) -> dict:
             result["owner_password_seed"] = {"ok": True, "skipped": True, "reason": "no_env_password"}
     except Exception as e_seed:
         result["owner_password_seed"] = {"ok": False, "error": str(e_seed)}
+    try:
+        logging.info(f"Prerequisitos: seed owner_password -> {result.get('owner_password_seed')}")
+    except Exception:
+        pass
 
     # Instalar triggers de outbox de forma idempotente y sin depender de la UI
+    try:
+        logging.info("Prerequisitos: instalando triggers de outbox")
+    except Exception:
+        pass
     try:
         from scripts.install_outbox_triggers import run as install_outbox  # type: ignore
         install_outbox()
         result["outbox"] = {"ok": True, "installed": True}
     except Exception as e:
         result["outbox"] = {"ok": False, "error": str(e)}
+        try:
+            logging.warning(f"Prerequisitos: error instalando outbox -> {e}")
+        except Exception:
+            pass
 
     # Aplicar tareas programadas según config.json (idempotente)
+    try:
+        logging.info("Prerequisitos: asegurando tareas programadas")
+    except Exception:
+        pass
     try:
         tasks_res = ensure_scheduled_tasks(device_id)
         result["scheduled_tasks"] = tasks_res
     except Exception as e:
         result["scheduled_tasks"] = {"ok": False, "error": str(e)}
+        try:
+            logging.warning(f"Prerequisitos: error tareas programadas -> {e}")
+        except Exception:
+            pass
 
     # Intentar asegurar conectividad VPN y replicación bidireccional si hay configuración disponible (no bloqueante)
     try:
@@ -598,16 +656,28 @@ def ensure_prerequisites(device_id: str) -> dict:
 
         # VPN join automático (si cfg['vpn'] o variables de entorno lo indican)
         try:
+            logging.info("Prerequisitos: verificando conectividad VPN")
+        except Exception:
+            pass
+        try:
             from utils_modules.vpn_setup import ensure_vpn_connectivity  # type: ignore
             vpn_info = ensure_vpn_connectivity(cfg, device_id)
         except Exception:
             vpn_info = {"ok": False}
+        try:
+            logging.info(f"Prerequisitos: VPN -> ok={vpn_info.get('ok')} ip={vpn_info.get('ip')}")
+        except Exception:
+            pass
         # Asegurar exposición segura de PostgreSQL para acceso vía VPN y Firewall
         try:
             net_res = ensure_postgres_network_access(cfg)
             result.setdefault("postgresql", {})["network"] = net_res
         except Exception as e:
             result.setdefault("postgresql", {})["network_error"] = str(e)
+        try:
+            logging.info(f"Prerequisitos: red PostgreSQL -> {result.get('postgresql', {}).get('network', {})}")
+        except Exception:
+            pass
 
         # Determinar y fijar alcance del remoto al local según VPN/IP (blindado)
         remote_can_reach = False
@@ -674,6 +744,10 @@ def ensure_prerequisites(device_id: str) -> dict:
                 result["replication"] = rep_res
             except Exception as e:
                 result["replication"] = {"ok": False, "error": str(e)}
+        try:
+            logging.info(f"Prerequisitos: replicación -> ok={result.get('replication', {}).get('ok')}")
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -683,6 +757,10 @@ def ensure_prerequisites(device_id: str) -> dict:
             "postgresql": result["postgresql"],
         })
         result["marked"] = True
+        try:
+            logging.info("Prerequisitos: marcado de primer ejecución creado")
+        except Exception:
+            pass
 
     return result
 
@@ -829,7 +907,13 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
             name = td["name"]
             action = td["action"]
             tcfg = scfg.get(key, {}) if isinstance(scfg.get(key), dict) else {}
-            enabled = bool(master_enabled and tcfg.get("enabled", False))
+            # Si falta el flag 'enabled' en subtarea, habilitar por defecto el uploader
+            # cuando el maestro esté activo, para compatibilidad con configs antiguas.
+            if tcfg.get("enabled") is None and key == "uploader":
+                sub_enabled = True
+            else:
+                sub_enabled = bool(tcfg.get("enabled", False))
+            enabled = bool(master_enabled and sub_enabled)
 
             # Construir horario deseado
             schedule = {}

@@ -877,12 +877,30 @@ class DatabaseManager:
         self._initializing = False
         self.audit_logger = None
         self.logger = logging.getLogger(__name__)
+        try:
+            _safe = {
+                'host': connection_params.get('host'),
+                'port': connection_params.get('port'),
+                'database': connection_params.get('database'),
+                'user': connection_params.get('user'),
+                'sslmode': connection_params.get('sslmode'),
+                'connect_timeout': connection_params.get('connect_timeout'),
+                'application_name': connection_params.get('application_name'),
+                'options_present': bool(connection_params.get('options')),
+            }
+            self.logger.info(f"DatabaseManager: init con params seguros={_safe}")
+        except Exception:
+            pass
         
         self._connection_pool = ConnectionPool(
             connection_params=connection_params,
             max_connections=8,
             timeout=20.0
         )
+        try:
+            self.logger.info("DatabaseManager: pool creado max_connections=8, timeout=20.0s")
+        except Exception:
+            pass
         
         self._cache_config = {
             'usuarios': {'duration': 300, 'max_size': 500},
@@ -915,13 +933,25 @@ class DatabaseManager:
         
         # Inicialización pesada diferida y única (no bloquear UI múltiples veces)
         self._init_database_once_deferred()
-        
+        try:
+            self.logger.debug("DatabaseManager: inicialización diferida solicitada")
+        except Exception:
+            pass
+
         if AUDIT_ENABLED:
             self.audit_logger = get_audit_logger(self)
+            try:
+                self.logger.info("DatabaseManager: auditoría habilitada")
+            except Exception:
+                pass
         
 
-        
+
         self._start_cache_cleanup_thread()
+        try:
+            self.logger.debug("DatabaseManager: hilo de limpieza de caché iniciado")
+        except Exception:
+            pass
 
         # --- Circuit Breaker (resiliencia ante fallos de DB) ---
         self._cb_failure_count = 0
@@ -934,6 +964,10 @@ class DatabaseManager:
             'open_seconds': int(os.getenv('DB_CB_OPEN_SECONDS', 25)),
             'half_open_probe': True,
         }
+        try:
+            self.logger.info(f"DatabaseManager: configuración Circuit Breaker={self._cb_conf}")
+        except Exception:
+            pass
 
         # Caché liviano de credenciales del Dueño (TTL)
         try:
@@ -1011,6 +1045,20 @@ class DatabaseManager:
             opts = params.get('options')
             if opts:
                 test_params['options'] = opts
+            try:
+                _safe = {
+                    'host': test_params.get('host'),
+                    'port': test_params.get('port'),
+                    'dbname': test_params.get('dbname'),
+                    'user': test_params.get('user'),
+                    'sslmode': test_params.get('sslmode'),
+                    'connect_timeout': test_params.get('connect_timeout'),
+                    'application_name': test_params.get('application_name'),
+                    'options_present': ('options' in test_params),
+                }
+                logging.debug(f"DatabaseManager.test_connection: intentando con {_safe}")
+            except Exception:
+                pass
 
             conn = psycopg2.connect(**test_params)
             try:
@@ -1022,8 +1070,16 @@ class DatabaseManager:
                     conn.close()
                 except Exception:
                     pass
+            try:
+                logging.info("DatabaseManager.test_connection: conexión exitosa")
+            except Exception:
+                pass
             return True
-        except Exception:
+        except Exception as e:
+            try:
+                logging.warning(f"DatabaseManager.test_connection: fallo de conexión ({type(e).__name__})")
+            except Exception:
+                pass
             return False
 
     # === Helpers de lectura segura con timeouts y modo read-only ===
@@ -1057,6 +1113,10 @@ class DatabaseManager:
         - Aplica SET LOCAL de lock_timeout, statement_timeout e idle_in_transaction_session_timeout.
         - Opcionalmente desactiva seqscan para favorecer índices.
         """
+        try:
+            self.logger.debug(f"readonly_session: start lock_ms={lock_ms}, statement_ms={statement_ms}, idle_s={idle_s}, seqscan_off={seqscan_off}")
+        except Exception:
+            pass
         with self.get_connection_context() as conn:
             # Activar autocommit de forma temporal
             prev_autocommit = getattr(conn, 'autocommit', None)
@@ -1086,6 +1146,10 @@ class DatabaseManager:
                 try:
                     if prev_autocommit is not None:
                         conn.autocommit = prev_autocommit
+                except Exception:
+                    pass
+                try:
+                    self.logger.debug("readonly_session: end")
                 except Exception:
                     pass
 
@@ -1780,6 +1844,10 @@ class DatabaseManager:
             if getattr(self, '_cb_is_open', False):
                 open_until = getattr(self, '_cb_open_until', 0.0)
                 if time.time() < float(open_until):
+                    try:
+                        self.logger.warning(f"get_connection_context: circuito abierto; bloqueado hasta {open_until:.3f}")
+                    except Exception:
+                        pass
                     raise RuntimeError('Database circuit open')
                 else:
                     # Semi-apertura: permitir un intento y cerrar si falla
@@ -1789,6 +1857,10 @@ class DatabaseManager:
 
         if hasattr(self, '_initializing') and self._initializing:
             conn = self._crear_conexion_directa()
+            try:
+                self.logger.debug("get_connection_context: conexión directa adquirida (inicializando)")
+            except Exception:
+                pass
             try:
                 # Timeouts de sesión aplicados vía 'options' en la conexión
                 try:
@@ -1805,10 +1877,18 @@ class DatabaseManager:
                     except Exception:
                         pass
             finally:
+                try:
+                    self.logger.debug("get_connection_context: conexión directa liberada")
+                except Exception:
+                    pass
                 conn.close()
         else:
             with self._connection_pool.connection() as conn:
                 # Timeouts de sesión aplicados vía 'options' en la conexión
+                try:
+                    self.logger.debug("get_connection_context: conexión de pool adquirida")
+                except Exception:
+                    pass
                 try:
                     yield conn
                 except Exception as e:
@@ -1820,6 +1900,10 @@ class DatabaseManager:
                 else:
                     try:
                         self._cb_register_success()
+                    except Exception:
+                        pass
+                    try:
+                        self.logger.debug("get_connection_context: conexión de pool liberada")
                     except Exception:
                         pass
 
@@ -4182,7 +4266,7 @@ class DatabaseManager:
         """Elimina un usuario y todos sus datos relacionados"""
         user_to_delete = self.obtener_usuario(usuario_id)
         if user_to_delete and user_to_delete.rol == 'dueño': 
-            raise PermissionError("El usuario 'Dueño' no puede ser eliminado.")
+            raise PermissionError(f"El usuario con ID {usuario_id} tiene el rol 'dueño' y no puede ser eliminado.")
         
         old_values = None
         if self.audit_logger and user_to_delete:

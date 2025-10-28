@@ -578,7 +578,29 @@ python build_installer.py --mode onefile
 - Carpeta de salida: `dist/` (contiene ejecutables y recursos).
 - Ejecutables generados:
   - `GymMSW.exe`: lanzador web con indicador y bandeja del sistema.
-  - `main.exe`: aplicación principal con servidor web y túnel público.
+  - `Gym_Management_System.exe`: aplicación principal empaquetada.
+  - `cdbconfig.exe`: editor de configuración de base de datos.
+
+#### ✅ Verificaciones previas al build
+- Crea `logs/` en el proyecto si no existe para evitar `FileNotFoundError` en runtime.
+- Muestra versiones detectadas de dependencias clave (`fastapi`, `uvicorn`, `starlette`, `psycopg2`) y las compara con `requirements.txt`.
+- Genera bootstrap remoto desde variables de entorno si están definidas.
+
+#### 🧩 psycopg2 y dependencias nativas
+- Detecta la carpeta `psycopg2.libs` y la incluye en el build (`libpq`, `ssl`, etc.).
+- Si `psycopg2` no está instalado, intenta instalar `psycopg2-binary` automáticamente antes del empaquetado.
+- En `dist/lib/` deben existir `psycopg2/` y `psycopg2.libs/` tras el build.
+
+#### 🔁 Reproducibilidad del build
+- Usa entorno virtual: `python -m venv venv && venv\Scripts\activate`.
+- Instala dependencias: `pip install -r requirements.txt`.
+- Ejecuta: `python build_installer.py` (opcional `--msi` en Windows para instalador MSI).
+- No se requiere servidor de túnel ni procesos adicionales; el build es determinista.
+
+#### 📝 Notas de logging
+- El sistema escribe en `logs/` (raíz del proyecto). Si el directorio no existe, se crea automáticamente en tiempo de ejecución.
+- Se reforzó el manejo defensivo en `utils_modules/users_loader.py` para crear `logs/` al escribir `logs/cache_metrics.json`.
+- La configuración de logging se inicializa temprano en `main.py` vía `logger_config.setup_logging()`.
 
 ### 🎨 **Estilos Dinámicos y Branding**
 - Los estilos `styles/style.qss` se aplican y se enriquecen con CSS dinámico.

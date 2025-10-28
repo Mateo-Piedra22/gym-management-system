@@ -2350,8 +2350,13 @@ class LoginDialog(QDialog):
                 QMessageBox.StandardButton.No,
             )
             if reply == QMessageBox.StandardButton.Yes:
-                # Cierra la aplicación entera tras limpiar hilos
-                sys.exit(0)
+                # Marcar cierre confirmado y rechazar el diálogo para que main maneje la limpieza
+                try:
+                    setattr(self, "_closing_confirmed", True)
+                except Exception:
+                    pass
+                event.accept()
+                self.reject()
             else:
                 event.ignore()
 

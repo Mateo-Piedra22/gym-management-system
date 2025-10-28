@@ -24,6 +24,7 @@ Config:
 """
 import os
 import json
+import sys
 from pathlib import Path
 from typing import List, Tuple
 
@@ -38,13 +39,33 @@ DEFAULT_TABLES = [
     'whatsapp_messages',
 ]
 
+def resource_path(rel_path: str) -> str:
+    """Resuelve rutas empaquetadas para ejecutables o desde el árbol del proyecto."""
+    try:
+        base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent))
+    except Exception:
+        base = Path(__file__).resolve().parent.parent
+    return str((base / rel_path))
+
 
 def load_config() -> dict:
-    base_dir = Path(__file__).resolve().parent.parent
-    cfg_path = base_dir / 'config' / 'config.json'
-    if cfg_path.exists():
-        with open(cfg_path, 'r', encoding='utf-8') as f:
-            return json.load(f) or {}
+    # Intento: recurso empaquetado (PyInstaller/Nuitka)
+    try:
+        rp = Path(resource_path('config/config.json'))
+        if rp.exists():
+            with open(rp, 'r', encoding='utf-8') as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
+    # Fallback: ruta relativa al repo durante desarrollo
+    try:
+        base_dir = Path(__file__).resolve().parent.parent
+        cfg_path = base_dir / 'config' / 'config.json'
+        if cfg_path.exists():
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                return json.load(f) or {}
+    except Exception:
+        pass
     return {}
 
 
@@ -213,6 +234,48 @@ def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], p
 def delete_rows_remote(remote_conn, schema: str, table: str, pk_cols: List[str], pks: List[Tuple], dry_run: bool = False) -> int:
     if not pks:
         return 0
+        
+    # Special handling for usuarios table to prevent deletion of owner users
+    if table == 'usuarios':
+        # Filter out owner users from the list of PKs to delete
+        with remote_conn.cursor() as cur:
+            owner_pks = set()
+            if len(pk_cols) == 1:
+                placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
+                query = sql.SQL("SELECT {} FROM {}.{} WHERE {} IN (" + placeholders.as_string(remote_conn) + ") AND rol = 'dueño'").format(
+                    sql.Identifier(pk_cols[0]), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk_cols[0])
+                )
+                params = [pk[0] for pk in pks]
+            else:
+                # For composite PKs, we need to check each combination
+                conds = []
+                params = []
+                for key in pks:
+                    cond = sql.SQL('(') + sql.SQL(' AND ').join(
+                        sql.SQL("{} = %s").format(sql.Identifier(col)) for col in pk_cols
+                    ) + sql.SQL(')')
+                    conds.append(cond)
+                    params.extend(list(key))
+                where_clause = sql.SQL(' OR ').join(conds)
+                query = sql.SQL("SELECT {} FROM {}.{} WHERE ({}) AND rol = 'dueño'").format(
+                    sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table), where_clause
+                )
+            cur.execute(query, params)
+            owner_results = cur.fetchall()
+            if len(pk_cols) == 1:
+                owner_pks = {tuple([r[0]]) for r in owner_results}
+            else:
+                owner_pks = {tuple(r) for r in owner_results}
+            
+            # Filter out owner PKs from the list to delete
+            filtered_pks = [pk for pk in pks if pk not in owner_pks]
+            if len(filtered_pks) != len(pks):
+                print(f"  Omitidas {len(pks) - len(filtered_pks)} filas de usuarios con rol 'dueño'")
+            pks = filtered_pks
+        
+        if not pks:
+            return 0
+    
     if len(pk_cols) == 1:
         placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
         where_clause = sql.SQL("{} IN (" + placeholders.as_string(remote_conn) + ")").format(sql.Identifier(pk_cols[0]))
@@ -289,16 +352,8 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
     return updated
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Reconciliación segura local→remoto con inserciones, actualizaciones y borrados')
-    parser.add_argument('--subscription', default='gym_sub', help='Nombre de la suscripción local a deshabilitar/habilitar')
-    parser.add_argument('--schema', default='public', help='Esquema de las tablas')
-    parser.add_argument('--tables', nargs='*', default=DEFAULT_TABLES, help='Lista de tablas a reconciliar')
-    parser.add_argument('--dry-run', action='store_true', help='No aplica cambios, sólo muestra acciones')
-    args = parser.parse_args()
-
+def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: List[str] | None = None, dry_run: bool = False) -> None:
+    """Ejecuta reconciliación local→remoto una vez, invocable desde la app."""
     cfg = load_config()
     local_params = build_conn_params('local', cfg)
     remote_params = build_conn_params('remote', cfg)
@@ -308,16 +363,19 @@ def main():
     print('Conectando a REMOTO...')
     remote_conn = connect(remote_params)
 
-    disable_subscription(local_conn, args.subscription)
+    disable_subscription(local_conn, subscription)
 
-    tables_to_process = list(args.tables)
+    # Determinar tablas a procesar
+    tables_to_process = list(tables or DEFAULT_TABLES)
     try:
-        sync_path = Path(__file__).resolve().parent.parent / 'config' / 'sync_tables.json'
+        sync_path = Path(resource_path('config/sync_tables.json'))
+        if not sync_path.exists():
+            sync_path = Path(__file__).resolve().parent.parent / 'config' / 'sync_tables.json'
         if sync_path.exists():
             with open(sync_path, 'r', encoding='utf-8') as f:
                 sync_cfg = json.load(f) or {}
             uploads = sync_cfg.get('uploads_local_to_remote') or []
-            if (args.tables == DEFAULT_TABLES or not args.tables) and uploads:
+            if (tables is None or tables == DEFAULT_TABLES) and uploads:
                 tables_to_process = uploads
     except Exception:
         pass
@@ -325,49 +383,71 @@ def main():
     total_inserted = 0
     total_updated = 0
     total_deleted = 0
-    for table in tables_to_process:
-        print(f"Procesando {args.schema}.{table}...")
-        pk_cols = get_pk_columns(local_conn, args.schema, table)
-        local_keys = fetch_keys(local_conn, args.schema, table, pk_cols)
-        remote_keys = fetch_keys(remote_conn, args.schema, table, pk_cols)
-        local_key_set = set(local_keys)
-        remote_key_set = set(remote_keys)
+    try:
+        for table in tables_to_process:
+            print(f"Procesando {schema}.{table}...")
+            pk_cols = get_pk_columns(local_conn, schema, table)
+            local_keys = fetch_keys(local_conn, schema, table, pk_cols)
+            remote_keys = fetch_keys(remote_conn, schema, table, pk_cols)
+            local_key_set = set(local_keys)
+            remote_key_set = set(remote_keys)
 
-        # Inserciones en remoto: claves presentes en local y faltantes en remoto
-        missing_remote = [k for k in local_keys if k not in remote_key_set]
-        if missing_remote:
-            rows = fetch_rows_by_pk(local_conn, args.schema, table, pk_cols, missing_remote)
-            print(f"  Filas a insertar en remoto: {len(rows)}")
-            inserted = insert_rows_remote(remote_conn, args.schema, table, rows, pk_cols, dry_run=args.dry_run)
-            total_inserted += inserted
-            print(f"  Insertadas en remoto: {inserted}")
-        else:
-            print("  Sin filas faltantes en remoto.")
+            # Inserciones en remoto: claves presentes en local y faltantes en remoto
+            missing_remote = [k for k in local_keys if k not in remote_key_set]
+            if missing_remote:
+                rows = fetch_rows_by_pk(local_conn, schema, table, pk_cols, missing_remote)
+                print(f"  Filas a insertar en remoto: {len(rows)}")
+                inserted = insert_rows_remote(remote_conn, schema, table, rows, pk_cols, dry_run=dry_run)
+                total_inserted += inserted
+                print(f"  Insertadas en remoto: {inserted}")
+            else:
+                print("  Sin filas faltantes en remoto.")
 
-        # Borrados en remoto: claves presentes en remoto y ausentes en local
-        extra_remote = [k for k in remote_keys if k not in local_key_set]
-        if extra_remote:
-            print(f"  Filas a borrar en remoto: {len(extra_remote)}")
-            deleted = delete_rows_remote(remote_conn, args.schema, table, pk_cols, extra_remote, dry_run=args.dry_run)
-            total_deleted += deleted
-            print(f"  Borradas en remoto: {deleted}")
-        else:
-            print("  Sin filas extra en remoto.")
+            # Borrados en remoto: claves presentes en remoto y ausentes en local
+            extra_remote = [k for k in remote_keys if k not in local_key_set]
+            if extra_remote:
+                print(f"  Filas a borrar en remoto: {len(extra_remote)}")
+                deleted = delete_rows_remote(remote_conn, schema, table, pk_cols, extra_remote, dry_run=dry_run)
+                total_deleted += deleted
+                print(f"  Borradas en remoto: {deleted}")
+            else:
+                print("  Sin filas extra en remoto.")
 
-        # Actualizaciones en remoto por updated_at más reciente en local
-        updated = reconcile_updates_remote(local_conn, remote_conn, args.schema, table, pk_cols, dry_run=args.dry_run)
-        if updated:
-            print(f"  Filas actualizadas en remoto: {updated}")
-            total_updated += updated
-        else:
-            print("  Sin actualizaciones pendientes en remoto.")
-
-    enable_subscription(local_conn, args.subscription)
-
-    local_conn.close()
-    remote_conn.close()
+            # Actualizaciones en remoto por updated_at más reciente en local
+            updated = reconcile_updates_remote(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
+            if updated:
+                print(f"  Filas actualizadas en remoto: {updated}")
+                total_updated += updated
+            else:
+                print("  Sin actualizaciones pendientes en remoto.")
+    finally:
+        # Asegurar re-habilitar suscripción aunque falle algo
+        try:
+            enable_subscription(local_conn, subscription)
+        except Exception:
+            pass
+        try:
+            local_conn.close()
+        except Exception:
+            pass
+        try:
+            remote_conn.close()
+        except Exception:
+            pass
 
     print(f"Listo. Insertadas: {total_inserted}, Actualizadas: {total_updated}, Borradas: {total_deleted}. Use scripts/verify_replication_health.py para validar.")
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Reconciliación segura local→remoto con inserciones, actualizaciones y borrados')
+    parser.add_argument('--subscription', default='gym_sub', help='Nombre de la suscripción local a deshabilitar/habilitar')
+    parser.add_argument('--schema', default='public', help='Esquema de las tablas')
+    parser.add_argument('--tables', nargs='*', default=DEFAULT_TABLES, help='Lista de tablas a reconciliar')
+    parser.add_argument('--dry-run', action='store_true', help='No aplica cambios, sólo muestra acciones')
+    args = parser.parse_args()
+    run_once(subscription=args.subscription, schema=args.schema, tables=args.tables, dry_run=args.dry_run)
 
 
 if __name__ == '__main__':

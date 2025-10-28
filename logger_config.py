@@ -5,6 +5,7 @@ import sys  # Importar sys para el manejo de excepciones
 from datetime import datetime
 import traceback # Importar traceback para formatear la excepción
 import io  # Para envolver stdout/stderr con UTF-8
+import tempfile
 
 # --- FUNCIÓN NUEVA: Manejador global de excepciones ---
 def handle_exception(exc_type, exc_value, exc_traceback):
@@ -30,27 +31,57 @@ def handle_exception(exc_type, exc_value, exc_traceback):
     #                      "Por favor, revise los archivos de log para más detalles.")
 
 def setup_logging():
-    """Configura el sistema de logging para la aplicación."""
+    """Configura el sistema de logging para la aplicación con rutas resistentes en .exe."""
     # Asegurar entorno UTF-8 para evitar errores de 'charmap'
     try:
         os.environ.setdefault("PYTHONIOENCODING", "utf-8")
     except Exception:
         pass
 
-    log_dir = 'logs'
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
+    # Elegir un directorio de logs escribible, con fallback para entorno empaquetado
+    log_dir = None
+    try:
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(sys.executable)
+        else:
+            exe_dir = os.getcwd()
+        candidate = os.path.join(exe_dir, 'logs')
+        os.makedirs(candidate, exist_ok=True)
+        log_dir = candidate
+    except Exception:
+        log_dir = None
+    if log_dir is None:
+        try:
+            lad = os.getenv("LOCALAPPDATA")
+            if lad:
+                candidate = os.path.join(lad, 'GymMS', 'logs')
+                os.makedirs(candidate, exist_ok=True)
+                log_dir = candidate
+        except Exception:
+            log_dir = None
+    if log_dir is None:
+        try:
+            candidate = os.path.join(tempfile.gettempdir(), 'GymMS', 'logs')
+            os.makedirs(candidate, exist_ok=True)
+            log_dir = candidate
+        except Exception:
+            log_dir = None
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = f"log_{timestamp}.log"
-    log_filepath = os.path.join(log_dir, log_filename)
+    log_filepath = os.path.join(log_dir, log_filename) if log_dir else None
 
     log_formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - [%(module)s:%(lineno)d] - %(message)s'
     )
 
-    file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
-    file_handler.setFormatter(log_formatter)
+    file_handler = None
+    if log_filepath:
+        try:
+            file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
+            file_handler.setFormatter(log_formatter)
+        except Exception:
+            file_handler = None
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(log_formatter)
@@ -61,7 +92,8 @@ def setup_logging():
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    logger.addHandler(file_handler)
+    if file_handler:
+        logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
     # Forzar stdout/stderr a UTF-8 para evitar UnicodeEncodeError en 'print' con emojis/símbolos
@@ -83,4 +115,7 @@ def setup_logging():
     # --- LÍNEA CLAVE: Establecer nuestro manejador como el por defecto ---
     sys.excepthook = handle_exception
 
-    logging.info(f"Sistema de logging configurado. Registrando en: {log_filepath}")
+    if log_filepath:
+        logging.info(f"Sistema de logging configurado. Registrando en: {log_filepath}")
+    else:
+        logging.info("Sistema de logging configurado. Registrando solo en consola (sin ruta de archivo escribible)")

@@ -24,6 +24,12 @@ def _safe_log_cache_metric(duration_ms: float, source: str = "cache_or_db", coun
         # Leer archivo existente si posible
         log_path = "logs/cache_metrics.json"
         try:
+            # Asegurar carpeta 'logs' para evitar FileNotFoundError
+            import os
+            os.makedirs("logs", exist_ok=True)
+        except Exception:
+            pass
+        try:
             with open(log_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if not isinstance(data, list):

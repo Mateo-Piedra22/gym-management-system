@@ -2,13 +2,16 @@ import os
 import sys
 from pathlib import Path
 import json
+import io
+import contextlib
+import socket
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QApplication, QDialog, QFormLayout, QLineEdit, QSpinBox, QComboBox,
     QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QMessageBox, QInputDialog,
-    QCheckBox, QTimeEdit
+    QCheckBox, QTimeEdit, QProgressDialog, QScrollArea, QWidget
 )
 from PyQt6.QtCore import Qt, QTime
 
@@ -319,10 +322,12 @@ class DBConfigDialog(QDialog):
         self.install_wireguard_admin_button = QPushButton("Instalar WireGuard (Admin)")
         self.admin_vpn_postgres_button = QPushButton("VPN + Red PostgreSQL (Admin)")
         self.install_outbox_triggers_button = QPushButton("Instalar triggers outbox")
+        self.test_wireguard_button = QPushButton("Probar WireGuard/VPN")
         inst_row = QHBoxLayout()
         inst_row.addWidget(self.install_wireguard_admin_button)
         inst_row.addWidget(self.admin_vpn_postgres_button)
         inst_row.addWidget(self.install_outbox_triggers_button)
+        inst_row.addWidget(self.test_wireguard_button)
         form.addRow("", inst_row)
 
         # Automatizaciones (operativas)
@@ -355,6 +360,26 @@ class DBConfigDialog(QDialog):
         boot_row.addWidget(self.full_bootstrap_button)
         form.addRow("", boot_row)
 
+        # Advanced Setup Options
+        advanced_label = QLabel("Configuración avanzada")
+        advanced_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", advanced_label)
+
+        self.force_dependencies_button = QPushButton("Forzar instalación de dependencias")
+        self.force_database_init_button = QPushButton("Forzar inicialización de base de datos")
+        self.force_replication_button = QPushButton("Forzar configuración de replicación")
+        self.force_scheduled_tasks_button = QPushButton("Forzar configuración de tareas programadas")
+        
+        advanced_row1 = QHBoxLayout()
+        advanced_row1.addWidget(self.force_dependencies_button)
+        advanced_row1.addWidget(self.force_database_init_button)
+        form.addRow("", advanced_row1)
+        
+        advanced_row2 = QHBoxLayout()
+        advanced_row2.addWidget(self.force_replication_button)
+        advanced_row2.addWidget(self.force_scheduled_tasks_button)
+        form.addRow("", advanced_row2)
+
         # Seguridad y datos iniciales
         self.secure_owner_local_button = QPushButton("Asegurar DUEÑO (local)")
         self.secure_owner_remote_button = QPushButton("Asegurar DUEÑO (remoto)")
@@ -368,6 +393,14 @@ class DBConfigDialog(QDialog):
         self.status_label.setStyleSheet("color: #666;")
         self.info_label = QLabel("Nota: Puedes pegar el DSN de Railway para autocompletar. Los cambios de tareas se aplican al guardar.")
         self.info_label.setStyleSheet("color: #666; font-size: 11px;")
+
+        # Envolver el formulario en un QScrollArea
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_content.setLayout(form)
+        scroll_area.setWidget(scroll_content)
 
         # Botones
         self.test_button = QPushButton("Probar conexión")
@@ -389,7 +422,7 @@ class DBConfigDialog(QDialog):
         btns.addWidget(self.cancel_button)
 
         root = QVBoxLayout()
-        root.addLayout(form)
+        root.addWidget(scroll_area)
         root.addWidget(self.status_label)
         root.addWidget(self.info_label)
         root.addLayout(btns)
@@ -420,10 +453,17 @@ class DBConfigDialog(QDialog):
         self.install_wireguard_admin_button.clicked.connect(self._on_install_wireguard_admin)
         self.admin_vpn_postgres_button.clicked.connect(self._on_admin_vpn_postgres)
         self.install_outbox_triggers_button.clicked.connect(self._on_install_outbox_triggers)
+        self.test_wireguard_button.clicked.connect(self._on_test_wireguard)
         # Automatizaciones
         self.outbox_flush_button.clicked.connect(self._on_outbox_flush_once)
         self.reconcile_remote_to_local_button.clicked.connect(self._on_reconcile_remote_to_local_once)
         self.reconcile_local_to_remote_button.clicked.connect(self._on_reconcile_local_to_remote_once)
+        
+        # Advanced setup connections
+        self.force_dependencies_button.clicked.connect(self._on_force_dependencies)
+        self.force_database_init_button.clicked.connect(self._on_force_database_init)
+        self.force_replication_button.clicked.connect(self._on_force_replication)
+        self.force_scheduled_tasks_button.clicked.connect(self._on_force_scheduled_tasks)
 
     def _load_params(self):
         # Establecer perfil actual en el combo
@@ -547,13 +587,28 @@ class DBConfigDialog(QDialog):
         self.status_label.setStyleSheet("color: #666;")
 
     def _on_test(self):
-        params = self._collect_params()
-        ok = self._test_connection(params)
-        if ok:
-            self.status_label.setText("Estado: Conexión OK")
-            self.status_label.setStyleSheet("color: #2ecc71;")
-        else:
-            self.status_label.setText("Estado: Error de conexión")
+        try:
+            params = self._collect_params()
+            progress = QProgressDialog("Probando conexión…", None, 0, 0, self)
+            progress.setWindowTitle("Prueba de conexión")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            ok = self._test_connection(params)
+            try:
+                progress.close()
+            except Exception:
+                pass
+            if ok:
+                self.status_label.setText("Estado: Conexión OK")
+                self.status_label.setStyleSheet("color: #2ecc71;")
+            else:
+                self.status_label.setText("Estado: Error de conexión")
+                self.status_label.setStyleSheet("color: #e74c3c;")
+        except Exception:
+            self.status_label.setText("Estado: Error al intentar conexión")
             self.status_label.setStyleSheet("color: #e74c3c;")
 
     def _on_save(self):
@@ -574,21 +629,50 @@ class DBConfigDialog(QDialog):
         if params['sslmode'] not in ['disable', 'allow', 'prefer', 'require', 'verify-ca', 'verify-full']:
             QMessageBox.warning(self, "Dato inválido", "El modo SSL seleccionado no es válido.")
             return
-        if not self._test_connection(params):
-            QMessageBox.critical(self, "Conexión fallida", "No se pudo establecer conexión con los parámetros ingresados.")
-            return
-
+        # Progreso para verificación y guardado
+        progress = QProgressDialog("Validando y guardando…", None, 0, 3, self)
+        progress.setWindowTitle("Guardar configuración")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(True)
+        progress.setValue(0)
+        progress.show()
+        QApplication.processEvents()
         try:
+            # Paso 1: Probar conexión
+            ok_conn = self._test_connection(params)
+            progress.setValue(1)
+            QApplication.processEvents()
+            if not ok_conn:
+                try:
+                    progress.close()
+                except Exception:
+                    pass
+                QMessageBox.critical(self, "Conexión fallida", "No se pudo establecer conexión con los parámetros ingresados.")
+                return
+            # Paso 2: Guardar config y password
             self._write_config_and_password(params)
-            # Aplicar configuración de tareas programadas inmediatamente
+            progress.setValue(2)
+            QApplication.processEvents()
+            # Paso 3: Asegurar tareas programadas
             try:
                 from utils_modules.prerequisites import ensure_scheduled_tasks
                 ensure_scheduled_tasks('local')
             except Exception:
                 pass
+            progress.setValue(3)
+            QApplication.processEvents()
+            try:
+                progress.close()
+            except Exception:
+                pass
             QMessageBox.information(self, "Guardado", "Configuración guardada y tareas programadas aplicadas.")
             self.accept()
         except Exception as e:
+            try:
+                progress.close()
+            except Exception:
+                pass
             QMessageBox.critical(self, "Error al guardar", f"No se pudo guardar la configuración: {e}")
 
     def _test_connection(self, params: dict) -> bool:
@@ -684,7 +768,18 @@ class DBConfigDialog(QDialog):
             if not host:
                 QMessageBox.warning(self, "Config incompleta", "Configura primero el perfil REMOTO (host/puerto/etc.).")
                 return
+            progress = QProgressDialog("Probando conexión remota…", None, 0, 0, self)
+            progress.setWindowTitle("Conexión remota")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             ok = self._test_connection(params)
+            try:
+                progress.close()
+            except Exception:
+                pass
             if ok:
                 self.status_label.setText("Estado: Conexión remota OK")
                 self.status_label.setStyleSheet("color: #2ecc71;")
@@ -697,6 +792,20 @@ class DBConfigDialog(QDialog):
 
     def _on_setup_replication(self):
         try:
+            # Confirmación previa
+            resp = QMessageBox.question(
+                self,
+                "Confirmar replicación",
+                (
+                    "Esto creará/ajustará publicación y suscripción, y puede modificar objetos\n"
+                    "en ambas bases (local/remota). ¿Deseas continuar?"
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+
             from utils_modules.replication_setup import ensure_logical_replication, ensure_bidirectional_replication
             # Cargar config actual desde disco para evitar usar cache desactualizada
             cfg = self._load_full_config() or (self.full_cfg if isinstance(self.full_cfg, dict) else {})
@@ -718,11 +827,23 @@ class DBConfigDialog(QDialog):
             if not cfg.get('db_local') or not cfg.get('db_remote'):
                 QMessageBox.warning(self, "Config incompleta", "Faltan secciones db_local o db_remote en config/config.json. Guarda y vuelve a intentar.")
                 return
-            # Orquestar replicación
+            # Orquestar replicación con progreso
+            progress = QProgressDialog("Ejecutando replicación…", None, 0, 0, self)
+            progress.setWindowTitle("Replicación")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            # Ejecutar
             if self.replication_mode_combo.currentIndex() == 1:
                 out = ensure_bidirectional_replication(cfg)
             else:
                 out = ensure_logical_replication(cfg)
+            try:
+                progress.close()
+            except Exception:
+                pass
             try:
                 pretty = json.dumps(out, ensure_ascii=False, indent=2)
             except Exception:
@@ -739,6 +860,13 @@ class DBConfigDialog(QDialog):
             from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
             cfg = vmod.load_cfg()
             out = {}
+            progress = QProgressDialog("Verificando salud de replicación…", None, 0, 0, self)
+            progress.setWindowTitle("Salud de replicación")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             try:
                 local_params = resolve_local_credentials(cfg)
                 with vmod.connect(local_params) as lconn:
@@ -751,6 +879,10 @@ class DBConfigDialog(QDialog):
                     out['remote_replication'] = vmod.read_remote_replication(rconn)
             except Exception as e:
                 out['remote_error'] = str(e)
+            try:
+                progress.close()
+            except Exception:
+                pass
             out['ok'] = True
             try:
                 pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
@@ -790,7 +922,18 @@ class DBConfigDialog(QDialog):
             except Exception:
                 pass
             from utils_modules.prerequisites import ensure_prerequisites
+            progress = QProgressDialog("Asegurando prerequisitos…", None, 0, 0, self)
+            progress.setWindowTitle("Prerequisitos")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             res = ensure_prerequisites(dev or "unknown")
+            try:
+                progress.close()
+            except Exception:
+                pass
             try:
                 pretty = json.dumps(res, ensure_ascii=False, indent=2, default=str)
             except Exception:
@@ -802,7 +945,18 @@ class DBConfigDialog(QDialog):
     def _on_secure_owner_local(self):
         try:
             params = self._get_profile_params('local')
+            progress = QProgressDialog("Asegurando Dueño (local)…", None, 0, 0, self)
+            progress.setWindowTitle("Dueño local")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             out = self._secure_owner_on_params(params)
+            try:
+                progress.close()
+            except Exception:
+                pass
             try:
                 pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
             except Exception:
@@ -818,7 +972,18 @@ class DBConfigDialog(QDialog):
             if not host:
                 QMessageBox.warning(self, "Config remota faltante", "Configura primero el perfil REMOTO (host/puerto/etc.).")
                 return
+            progress = QProgressDialog("Asegurando Dueño (remoto)…", None, 0, 0, self)
+            progress.setWindowTitle("Dueño remoto")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             out = self._secure_owner_on_params(params)
+            try:
+                progress.close()
+            except Exception:
+                pass
             try:
                 pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
             except Exception:
@@ -851,7 +1016,18 @@ class DBConfigDialog(QDialog):
             }
             try:
                 from utils_modules.prerequisites import ensure_prerequisites
+                progress = QProgressDialog("Asegurando prerequisitos…", None, 0, 0, self)
+                progress.setWindowTitle("Bootstrap")
+                progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+                progress.setMinimumDuration(0)
+                progress.setAutoClose(True)
+                progress.show()
+                QApplication.processEvents()
                 prereq_res = ensure_prerequisites(dev)
+                try:
+                    progress.close()
+                except Exception:
+                    pass
                 out["ensure_prerequisites"] = prereq_res
             except Exception as e:
                 out["ensure_prerequisites"] = {"ok": False, "error": str(e)}
@@ -861,6 +1037,13 @@ class DBConfigDialog(QDialog):
                 from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
                 cfg = vmod.load_cfg()
                 health = {}
+                progress2 = QProgressDialog("Verificando salud de replicación…", None, 0, 0, self)
+                progress2.setWindowTitle("Bootstrap")
+                progress2.setWindowModality(Qt.WindowModality.ApplicationModal)
+                progress2.setMinimumDuration(0)
+                progress2.setAutoClose(True)
+                progress2.show()
+                QApplication.processEvents()
                 try:
                     local_params = resolve_local_credentials(cfg)
                     with vmod.connect(local_params) as lconn:
@@ -873,6 +1056,10 @@ class DBConfigDialog(QDialog):
                         health['remote_replication'] = vmod.read_remote_replication(rconn)
                 except Exception as e:
                     health['remote_error'] = str(e)
+                try:
+                    progress2.close()
+                except Exception:
+                    pass
                 out["replication_health"] = health
             except Exception as e:
                 out["replication_health"] = {"error": str(e)}
@@ -927,7 +1114,28 @@ class DBConfigDialog(QDialog):
             QMessageBox.critical(self, "WireGuard", msg)
 
     def _on_admin_vpn_postgres(self):
+        # Confirmación previa por operación administrativa
+        ret = QMessageBox.question(
+            self,
+            "Confirmar acción",
+            "¿Deseas ejecutar la configuración administrativa de VPN + PostgreSQL?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        progress = QProgressDialog("Configurando VPN + PostgreSQL…", None, 0, 0, self)
+        progress.setWindowTitle("Configuración administrativa")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(True)
+        progress.show()
+        QApplication.processEvents()
         ok, msg = self._run_powershell_admin('scripts/admin_setup_vpn_postgres.ps1')
+        try:
+            progress.close()
+        except Exception:
+            pass
         if ok:
             QMessageBox.information(self, "VPN + PostgreSQL", msg)
         else:
@@ -938,7 +1146,18 @@ class DBConfigDialog(QDialog):
             # Ejecutar el instalador Python inline
             import importlib
             mod = importlib.import_module('scripts.install_outbox_triggers')
+            progress = QProgressDialog("Instalando triggers outbox…", None, 0, 0, self)
+            progress.setWindowTitle("Outbox")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
             res = mod.run()
+            try:
+                progress.close()
+            except Exception:
+                pass
             try:
                 pretty = json.dumps(res, ensure_ascii=False, indent=2, default=str)
             except Exception:
@@ -966,26 +1185,199 @@ class DBConfigDialog(QDialog):
             return False, "", str(e)
 
     def _on_outbox_flush_once(self):
-        ok, out, err = self._run_python_script('scripts/run_outbox_flush_once.py')
-        text = out or err or ("ok" if ok else "error")
+        # Ejecutar flush directamente con OutboxPoller para compatibilidad con ejecutables
         try:
-            pretty = json.dumps(json.loads(out), ensure_ascii=False, indent=2, default=str)
-        except Exception:
-            pretty = text
-        if ok:
+            from database import DatabaseManager  # type: ignore
+            from utils_modules.outbox_poller import OutboxPoller  # type: ignore
+        except Exception as e:
+            QMessageBox.critical(self, "Flush outbox", f"Fallo importando módulos: {e}")
+            return
+        try:
+            progress = QProgressDialog("Flushing outbox…", None, 0, 0, self)
+            progress.setWindowTitle("Outbox")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            dbm = DatabaseManager()
+            poller = OutboxPoller(dbm)
+            res = poller.flush_once() or {}
+            try:
+                progress.close()
+            except Exception:
+                pass
+            out = {
+                "ok": True,
+                "pending": int(res.get("pending", 0)) if isinstance(res.get("pending"), int) else res.get("pending"),
+                "sent": int(res.get("sent", 0)) if isinstance(res.get("sent"), int) else res.get("sent"),
+                "acked": int(res.get("acked", 0)) if isinstance(res.get("acked"), int) else res.get("acked"),
+                "auth": res.get("auth"),
+                "error": res.get("error"),
+            }
+            try:
+                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(out)
             QMessageBox.information(self, "Flush outbox", pretty)
-        else:
-            QMessageBox.critical(self, "Flush outbox", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Flush outbox", f"Fallo ejecutando flush: {e}")
 
     def _on_reconcile_remote_to_local_once(self):
-        ok, out, err = self._run_python_script('scripts/reconcile_remote_to_local_once.py')
-        text = out or err or ("ok" if ok else "error")
-        QMessageBox.information(self, "Reconciliación remoto→local", text)
+        # Importar módulo y ejecutar run_once capturando stdout para mensajes claros
+        try:
+            import importlib
+            mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
+        except Exception as e:
+            QMessageBox.critical(self, "Reconciliación remoto→local", f"No se pudo importar script: {e}")
+            return
+        try:
+            cfg = self._load_full_config()
+            rep = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
+            sub = (rep.get('subscription_name') or self.subscription_name_edit.text().strip() or 'gym_sub')
+            buf = io.StringIO()
+            progress = QProgressDialog("Reconciliando remoto→local…", None, 0, 0, self)
+            progress.setWindowTitle("Reconciliación")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            with contextlib.redirect_stdout(buf):
+                # Ejecutar con tablas por defecto y sin dry-run
+                mod.run_once(subscription=sub, dry_run=False)
+            try:
+                progress.close()
+            except Exception:
+                pass
+            text = buf.getvalue().strip() or "Reconciliación R→L completada."
+            QMessageBox.information(self, "Reconciliación remoto→local", text)
+        except Exception as e:
+            QMessageBox.critical(self, "Reconciliación remoto→local", f"Fallo ejecutando: {e}")
 
     def _on_reconcile_local_to_remote_once(self):
-        ok, out, err = self._run_python_script('scripts/reconcile_local_remote_once.py')
-        text = out or err or ("ok" if ok else "error")
-        QMessageBox.information(self, "Reconciliación local→remoto", text)
+        # Importar módulo y ejecutar run_once capturando stdout para mensajes claros
+        try:
+            import importlib
+            mod = importlib.import_module('scripts.reconcile_local_remote_once')
+        except Exception as e:
+            QMessageBox.critical(self, "Reconciliación local→remoto", f"No se pudo importar script: {e}")
+            return
+        try:
+            cfg = self._load_full_config()
+            rep = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
+            sub = (rep.get('subscription_name') or self.subscription_name_edit.text().strip() or 'gym_sub')
+            buf = io.StringIO()
+            progress = QProgressDialog("Reconciliando local→remoto…", None, 0, 0, self)
+            progress.setWindowTitle("Reconciliación")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            with contextlib.redirect_stdout(buf):
+                mod.run_once(subscription=sub, dry_run=False)
+            try:
+                progress.close()
+            except Exception:
+                pass
+            text = buf.getvalue().strip() or "Reconciliación L→R completada."
+            QMessageBox.information(self, "Reconciliación local→remoto", text)
+        except Exception as e:
+            QMessageBox.critical(self, "Reconciliación local→remoto", f"Fallo ejecutando: {e}")
+
+    def _on_test_wireguard(self):
+        # Prueba de instalación/adaptadores WireGuard y conectividad hacia remoto (puerto PostgreSQL)
+        try:
+            results = {}
+            # Detectar instalación de WireGuard
+            candidates = [
+                Path(os.getenv('ProgramFiles', 'C\\Program Files')) / 'WireGuard' / 'wireguard.exe',
+                Path(os.getenv('ProgramFiles(x86)', 'C\\Program Files (x86)')) / 'WireGuard' / 'wireguard.exe',
+            ]
+            results['wireguard_installed'] = any(p.exists() for p in candidates)
+
+            # Enumerar adaptadores WireGuard via PowerShell si disponible
+            adapters = []
+            try:
+                import subprocess
+                cmd = [
+                    'powershell', '-NoProfile', '-Command',
+                    'Get-NetAdapter | Select-Object Name,Status,InterfaceDescription | ConvertTo-Json -Compress'
+                ]
+                proc = subprocess.run(cmd, capture_output=True, text=True, shell=False)
+                if proc.returncode == 0 and proc.stdout.strip():
+                    try:
+                        arr = json.loads(proc.stdout)
+                        if isinstance(arr, dict):
+                            arr = [arr]
+                        for it in arr or []:
+                            desc = str(it.get('InterfaceDescription', ''))
+                            name = str(it.get('Name', ''))
+                            status = str(it.get('Status', ''))
+                            if ('WireGuard' in desc) or ('WireGuard' in name):
+                                adapters.append({'name': name, 'status': status})
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            results['wireguard_adapters'] = adapters
+
+            # Probar conectividad TCP y conexión DB a remoto
+            cfg = self._load_full_config()
+            remote = (cfg.get('db_remote') or {}) if isinstance(cfg, dict) else {}
+            host = str(remote.get('host') or cfg.get('host') or '').strip()
+            try:
+                port = int(remote.get('port') or cfg.get('port') or 5432)
+            except Exception:
+                port = 5432
+            tcp_ok = False
+            tcp_err = None
+            if host:
+                try:
+                    with socket.create_connection((host, port), timeout=3):
+                        tcp_ok = True
+                except Exception as e:
+                    tcp_err = str(e)
+            results['tcp_connect_remote_pg'] = {'host': host, 'port': port, 'ok': tcp_ok, 'error': tcp_err}
+
+            # Conexión DB
+            db_ok = False
+            db_err = None
+            try:
+                params = self._get_profile_params('remoto')
+                if str(params.get('host', '')).strip():
+                    conn = psycopg2.connect(
+                        host=params.get('host'),
+                        port=int(params.get('port') or 5432),
+                        dbname=params.get('database'),
+                        user=params.get('user'),
+                        password=params.get('password'),
+                        sslmode=params.get('sslmode') or 'require',
+                        application_name=params.get('application_name', 'cdbconfig_wireguard_test'),
+                        connect_timeout=3,
+                    )
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute('SELECT 1')
+                            cur.fetchone()
+                        db_ok = True
+                    finally:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+            except Exception as e:
+                db_err = str(e)
+            results['db_connection'] = {'ok': db_ok, 'error': db_err}
+
+            try:
+                pretty = json.dumps(results, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                pretty = str(results)
+            QMessageBox.information(self, 'Prueba WireGuard/VPN', pretty)
+        except Exception as e:
+            QMessageBox.critical(self, 'Prueba WireGuard/VPN', f'Fallo en prueba: {e}')
 
     def _write_config_and_password(self, params: dict):
         # Determinar directorio base
@@ -1770,6 +2162,14 @@ class DBConfigDialog(QDialog):
             # Ejecutar limpieza en local y remoto (si configurado)
             local_params = self._get_profile_params('local')
             remote_params = self._get_profile_params('remoto')
+            progress = QProgressDialog("Ejecutando limpieza…", None, 0, 4, self)
+            progress.setWindowTitle("Limpieza")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.setValue(0)
+            progress.show()
+            QApplication.processEvents()
 
             results = []
             # Local
@@ -1780,9 +2180,17 @@ class DBConfigDialog(QDialog):
                 else:
                     rloc_secure = {"ok": False, "error": rloc.get('error') or 'No se pudo truncar'}
                 results.append(("LOCAL", rloc, rloc_secure))
+                try:
+                    progress.setValue(1)
+                    QApplication.processEvents()
+                except Exception:
+                    pass
             except Exception as e:
                 results.append(("LOCAL", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
-
+                try:
+                    progress.setValue(1)
+                except Exception:
+                    pass
             # Remoto si hay host informado
             try:
                 if str(remote_params.get('host', '')).strip():
@@ -1794,8 +2202,19 @@ class DBConfigDialog(QDialog):
                     results.append(("REMOTO", rrem, rrem_secure))
                 else:
                     results.append(("REMOTO", {"ok": False, "error": "No configurado"}, {"ok": False, "error": "No configurado"}))
+                try:
+                    progress.setValue(3)
+                    QApplication.processEvents()
+                except Exception:
+                    pass
             except Exception as e:
                 results.append(("REMOTO", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
+
+            try:
+                progress.setValue(4)
+                progress.close()
+            except Exception:
+                pass
 
             # Mostrar resumen
             lines = []
@@ -1812,6 +2231,125 @@ class DBConfigDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo en limpieza: {e}")
 
+    def _on_force_dependencies(self):
+        """Force installation of dependencies"""
+        try:
+            from utils_modules.prerequisites import install_dependencies
+            progress = QProgressDialog("Instalando dependencias...", None, 0, 0, self)
+            progress.setWindowTitle("Dependencias")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            
+            result = install_dependencies()
+            
+            try:
+                progress.close()
+            except Exception:
+                pass
+                
+            if result.get("ok"):
+                QMessageBox.information(self, "Dependencias", "Dependencias instaladas correctamente.")
+            else:
+                QMessageBox.critical(self, "Dependencias", f"Error al instalar dependencias: {result.get('error')}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo al instalar dependencias: {e}")
+
+    def _on_force_database_init(self):
+        """Force database initialization"""
+        try:
+            from initialize_database import initialize_database
+            
+            progress = QProgressDialog("Inicializando base de datos...", None, 0, 0, self)
+            progress.setWindowTitle("Inicialización")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            
+            result = initialize_database()
+            
+            try:
+                progress.close()
+            except Exception:
+                pass
+                
+            if result.get("success"):
+                QMessageBox.information(self, "Base de datos", "Base de datos inicializada correctamente.")
+            else:
+                QMessageBox.critical(self, "Base de datos", f"Error al inicializar base de datos: {result.get('error')}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo al inicializar base de datos: {e}")
+
+    def _on_force_replication(self):
+        """Force replication setup"""
+        try:
+            from utils_modules.replication_setup import ensure_logical_replication
+            
+            # Load current config
+            cfg = self._load_full_config()
+            
+            progress = QProgressDialog("Configurando replicación...", None, 0, 0, self)
+            progress.setWindowTitle("Replicación")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            
+            result = ensure_logical_replication(cfg)
+            
+            try:
+                progress.close()
+            except Exception:
+                pass
+                
+            try:
+                pretty = json.dumps(result, ensure_ascii=False, indent=2)
+            except Exception:
+                pretty = str(result)
+                
+            if result.get("ok"):
+                QMessageBox.information(self, "Replicación", f"Replicación configurada correctamente:\n{pretty}")
+            else:
+                QMessageBox.critical(self, "Replicación", f"Error al configurar replicación:\n{pretty}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo al configurar replicación: {e}")
+
+    def _on_force_scheduled_tasks(self):
+        """Force scheduled tasks setup"""
+        try:
+            from utils_modules.prerequisites import ensure_scheduled_tasks
+            
+            progress = QProgressDialog("Configurando tareas programadas...", None, 0, 0, self)
+            progress.setWindowTitle("Tareas programadas")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            
+            result = ensure_scheduled_tasks('local')
+            
+            try:
+                progress.close()
+            except Exception:
+                pass
+                
+            try:
+                pretty = json.dumps(result, ensure_ascii=False, indent=2)
+            except Exception:
+                pretty = str(result)
+                
+            if result.get("ok"):
+                QMessageBox.information(self, "Tareas programadas", f"Tareas programadas configuradas correctamente:\n{pretty}")
+            else:
+                QMessageBox.critical(self, "Tareas programadas", f"Error al configurar tareas programadas:\n{pretty}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Fallo al configurar tareas programadas: {e}")
 
 def main():
     app = QApplication(sys.argv)
@@ -1829,7 +2367,11 @@ def main():
 
     if not ok or pwd != "Matute03!?":
         QMessageBox.critical(None, "Acceso denegado", "Contraseña incorrecta.")
-        sys.exit(1)
+        try:
+            app.quit()
+        except Exception:
+            pass
+        return
 
     dlg = DBConfigDialog()
     dlg.show()
