@@ -615,41 +615,42 @@ python build_installer.py --mode onefile
 - Replicación lógica Postgres (remoto → local) ya automatizada por el sistema.
 - Outbox con triggers (local → remoto) capturando cambios en todas las tablas listadas en `config/sync_tables.json`.
 
-### ⏱️ Asegurar `updated_at` para reconciliación por timestamp
-- Las rutinas de reconciliación utilizan la columna `updated_at` para decidir qué cambio es más reciente.
- - Por defecto, la tabla `usuarios` ya trae columna, índice y trigger `BEFORE INSERT OR UPDATE` que actualiza `updated_at = NOW()`.
-- Para aplicar esta política a todas las tablas incluidas en `config/sync_tables.json`, ejecuta:
+### ⏱️ Versión lógica para reconciliación (`logical_ts`/`last_op_id`)
+- Las rutinas de reconciliación utilizan los campos `logical_ts` (entero monotónico) y `last_op_id` (UUID de la última operación) para decidir qué cambio es más reciente.
+- El sistema migra todas las tablas del esquema `public` para incluir estos campos y sus triggers de mantenimiento.
+
+#### Aplicar migración lógica
+Ejecuta la migración idempotente que crea `logical_ts`/`last_op_id`, elimina `updated_at` y configura los triggers:
 
 ```powershell
-python scripts/ensure_updated_at_triggers.py --apply-local --apply-remote
+python scripts/auto_setup.py --apply-logical-migration
 ```
 
-- El script:
-  - Crea/asegura la función `public.set_updated_at()`.
-  - Añade la columna `updated_at TIMESTAMPTZ DEFAULT NOW()` si falta y la inicializa donde esté en `NULL`.
-  - Crea el índice `idx_<tabla>_updated_at` si falta.
-   - Crea el trigger `trg_<tabla>_set_updated_at` (`BEFORE INSERT OR UPDATE`) que asigna `NEW.updated_at = NOW()`.
-  - Aplica en LOCAL y REMOTO (puedes limitar con `--apply-local` o `--apply-remote`).
+Si prefieres aplicar solo el SQL:
 
-- Opciones:
-  - `--dry-run`: imprime acciones sin aplicar cambios.
-  - `--schema public`: esquema objetivo (por defecto `public`).
-  - `--tables usuarios pagos`: limitar a tablas específicas.
+```powershell
+psql "<CONN_STR_LOCAL>" -f scripts/migrate_to_logical_ts.sql
+psql "<CONN_STR_REMOTE>" -f scripts/migrate_to_logical_ts.sql
+```
 
-- Sugerido tras asegurar `updated_at`:
+Detalles de la migración:
+- Añade columnas `logical_ts BIGINT NOT NULL DEFAULT 0` y `last_op_id UUID NOT NULL DEFAULT gen_random_uuid()` en todas las tablas de `public` (excepto `node_state`).
+- Inicializa valores para filas existentes sin romper triggers restrictivos (p.ej., usuarios con rol "dueño").
+- Crea `public.node_state` y secuencias auxiliares para la numeración lógica.
+- Elimina columna, funciones, índices y triggers legacy de `updated_at`.
+- Crea un único trigger `ensure_logical_fields()` por tabla para mantener `last_op_id` y `logical_ts` en escrituras.
+
+#### Ejecutar reconciliaciones
+Tras la migración, puedes ejecutar las reconciliaciones manualmente:
 
 ```powershell
 python scripts/reconcile_local_remote_once.py --dry-run
 python scripts/reconcile_remote_to_local_once.py --force
 ```
 
-#### Ejecución automática de `updated_at`
-- En nuevas instalaciones y arranques, la app asegura `updated_at` sin intervención:
-  - Primer arranque (escritorio): `scripts/auto_setup.py` invoca el aseguramiento tras crear la base local y tras configurar la replicación, aplicándolo en local y remoto si hay credenciales.
-  - Prerrequisitos del cliente: `utils_modules/prerequisites.ensure_prerequisites` intenta aplicar en LOCAL y REMOTO de forma idempotente.
-  - Arranque del servidor (FastAPI): se intenta aplicar en REMOTO sin bloquear el inicio.
-- Para REMOTO, provee credenciales en `config/config.json` o variables como `DATABASE_URL_REMOTE`, `DB_REMOTE_PASSWORD`. Para LOCAL, usa `DATABASE_URL_LOCAL` o los valores por defecto.
-- Este proceso es seguro e idempotente: solo crea la columna, índice y trigger cuando faltan.
+Notas:
+- Los scripts de reconciliación omiten actualizaciones sobre usuarios con rol "dueño" por políticas de seguridad.
+- La comparación de versiones se basa exclusivamente en `logical_ts` y `last_op_id`.
 
 #### Reconciliación programada (Windows)
 - Se crean dos tareas diarias para mantener sincronía automática:
@@ -665,6 +666,11 @@ python scripts/reconcile_remote_to_local_once.py --force
 - Notas:
   - Los wrappers usan PowerShell con ruta absoluta y `PYTHONIOENCODING=utf-8` para evitar errores de codificación.
   - Por defecto corren en modo "Interactivo" del usuario actual. Para ejecutar sin sesión iniciada, recrea las tareas con `/RU` y `/RP`.
+
+### Deprecated
+- `scripts/ensure_updated_at_triggers.py` y `scripts/test_updated_at_verification.py` quedan obsoletos tras la migración lógica.
+- Se trasladan a `scripts/_archive/` para referencia histórica; no se usan en producción.
+- La comparación de versiones se hace exclusivamente con `logical_ts/last_op_id`.
 
 ### Token de seguridad: `SYNC_UPLOAD_TOKEN`
 Para autorizar la subida de cambios locales al servidor, cliente y servidor deben compartir el mismo token.

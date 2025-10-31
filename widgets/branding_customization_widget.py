@@ -2221,13 +2221,14 @@ class BrandingCustomizationWidget(QWidget):
                     CREATE TABLE IF NOT EXISTS scheduling_config (
                         id SERIAL PRIMARY KEY,
                         enabled BOOLEAN DEFAULT 0,
-                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                        logical_ts BIGINT NOT NULL DEFAULT 0,
+                        last_op_id UUID
                     )
                     """
                 )
                 conn.commit()
 
-                # Upsert del estado; el trigger de updated_at se encarga del timestamp
+# Upsert del estado; el trigger de logical_ts/last_op_id gestiona el contador lógico
                 cursor.execute(
                     """
                     INSERT INTO scheduling_config (id, enabled)
@@ -3031,7 +3032,7 @@ class BrandingCustomizationWidget(QWidget):
                     # Actualizar configuración existente
                     cursor.execute("""
                         UPDATE theme_scheduling_config 
-                        SET config_data = %s, updated_at = CURRENT_TIMESTAMP
+                        SET config_data = %s
                         WHERE config_type = 'advanced'
                     """, (config_json,))
                 else:

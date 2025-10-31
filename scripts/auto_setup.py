@@ -212,31 +212,66 @@ def setup_replication():
         log(f"Error setting up replication: {e}")
         return False
 
-def ensure_updated_at_triggers():
-    """Ensure updated_at columns, indexes and triggers in sync tables"""
-    log("Ensuring updated_at triggers...")
+def ensure_logical_migration():
+    """Ejecuta la migración a logical_ts/last_op_id en bases LOCAL y REMOTA."""
+    log("Aplicando migración logical_ts/last_op_id...")
     try:
-        from scripts.ensure_updated_at_triggers import run as ensure_updated_at
+        import psycopg2
+        from pathlib import Path
+        # Cargar config
+        config_path = PROJECT_ROOT / "config" / "config.json"
+        cfg = {}
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+
+        # Helper para construir parámetros de conexión
+        def _conn_params(profile: str) -> dict:
+            node = cfg.get('db_remote') if profile == 'remote' else (cfg.get('db_local') or {})
+            return {
+                'host': node.get('host') or cfg.get('host') or 'localhost',
+                'port': int(node.get('port') or cfg.get('port') or 5432),
+                'dbname': node.get('database') or cfg.get('database') or ('railway' if profile == 'remote' else 'gimnasio'),
+                'user': node.get('user') or cfg.get('user') or 'postgres',
+                'password': node.get('password') or cfg.get('password') or '',
+                'sslmode': node.get('sslmode') or cfg.get('sslmode') or ('require' if profile == 'remote' else 'prefer'),
+                'connect_timeout': int(cfg.get('connect_timeout') or 10),
+                'application_name': 'auto_setup_logical_migration',
+            }
+
+        # Leer SQL de migración
+        sql_path = PROJECT_ROOT / "scripts" / "migrate_to_logical_ts.sql"
+        if not sql_path.exists():
+            log("Archivo migrate_to_logical_ts.sql no encontrado")
+            return False
+        migration_sql = sql_path.read_text(encoding="utf-8")
+
+        def _apply(profile: str):
+            try:
+                log(f"Conectando a {profile.upper()} para migración...")
+                conn = psycopg2.connect(**_conn_params(profile))
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    cur.execute(migration_sql)
+                conn.close()
+                log(f"Migración aplicada en {profile.upper()}")
+                return True
+            except Exception as e:
+                log(f"Error aplicando migración en {profile.upper()}: {e}")
+                return False
+
+        # En headless, priorizar REMOTO; en desktop, aplicar LOCAL y luego REMOTO
+        ok_local = True
+        ok_remote = True
         if _is_headless_env():
-            # Remote-only in container/headless environments
-            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False, all_tables=True)
-            log("Updated_at triggers ensured on REMOTE")
+            ok_remote = _apply('remote')
         else:
-            # Local first
-            try:
-                ensure_updated_at(schema='public', tables=None, apply_local=True, apply_remote=False, dry_run=False, all_tables=True)
-                log("Updated_at triggers ensured on LOCAL")
-            except Exception as e_loc:
-                log(f"Failed to ensure updated_at on LOCAL: {e_loc}")
-            # Remote then
-            try:
-                ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False, all_tables=True)
-                log("Updated_at triggers ensured on REMOTE")
-            except Exception as e_rem:
-                log(f"Failed to ensure updated_at on REMOTE: {e_rem}")
-        return True
+            ok_local = _apply('local')
+            ok_remote = _apply('remote')
+
+        return bool(ok_local and ok_remote)
     except Exception as e:
-        log(f"Error ensuring updated_at triggers: {e}")
+        log(f"Error en migración logical_ts/last_op_id: {e}")
         return False
 
 def setup_scheduled_tasks():
@@ -279,16 +314,16 @@ def main():
     if not initialize_database():
         log("Database initialization failed, continuing anyway...")
     else:
-        # Ensure updated_at after local DB init
-        ensure_updated_at_triggers()
+        # Aplicar migración logical_ts/last_op_id tras inicializar la DB local
+        ensure_logical_migration()
     
     # Setup replication
     if not setup_replication():
         log("Replication setup failed, continuing anyway...")
     else:
-        # Ensure updated_at again to cover remote after replication params
+        # Reaplicar migración para REMOTO tras configurar la replicación
         try:
-            ensure_updated_at_triggers()
+            ensure_logical_migration()
         except Exception:
             pass
     

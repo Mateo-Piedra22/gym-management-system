@@ -7,7 +7,7 @@ Pasos:
 - DESHABILITA la suscripción local (por defecto 'gym_sub') para evitar conflictos.
 - Detecta filas presentes en local y ausentes en remoto (por PK) y las inserta.
 - Detecta filas presentes en remoto y ausentes en local (por PK) y las BORRA en remoto.
-- Actualiza filas existentes en remoto si local tiene updated_at más reciente.
+- Actualiza filas existentes en remoto si local tiene versión lógica (`logical_ts`/`last_op_id`) más reciente.
 - VUELVE A HABILITAR la suscripción.
 
 Limitaciones:
@@ -38,6 +38,27 @@ DEFAULT_TABLES = [
     'whatsapp_config',
     'whatsapp_messages',
 ]
+
+def _is_newer_version(a_ts, a_opid, b_ts, b_opid) -> bool:
+    """True si A es más reciente que B comparando logical_ts y last_op_id.
+
+    - Mayor `logical_ts` gana.
+    - Si empata, compara `last_op_id` lexicográficamente.
+    - None se considera mínimo.
+    """
+    try:
+        a_ts = int(a_ts) if a_ts is not None else -1
+    except Exception:
+        a_ts = -1
+    try:
+        b_ts = int(b_ts) if b_ts is not None else -1
+    except Exception:
+        b_ts = -1
+    if a_ts != b_ts:
+        return a_ts > b_ts
+    a_id = str(a_opid) if a_opid is not None else ''
+    b_id = str(b_opid) if b_opid is not None else ''
+    return a_id > b_id
 
 def resource_path(rel_path: str) -> str:
     """Resuelve rutas empaquetadas para ejecutables o desde el árbol del proyecto."""
@@ -312,24 +333,25 @@ def delete_rows_remote(remote_conn, schema: str, table: str, pk_cols: List[str],
 def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, pk_cols: List[str], dry_run: bool = False) -> int:
     local_cols = table_columns(local_conn, schema, table)
     remote_cols = table_columns(remote_conn, schema, table)
-    if ('updated_at' not in local_cols) or ('updated_at' not in remote_cols):
+    use_logical = all(c in local_cols for c in ('logical_ts', 'last_op_id')) and all(c in remote_cols for c in ('logical_ts', 'last_op_id'))
+    if not use_logical:
         return 0
     non_pk_cols = [c for c in local_cols if c not in pk_cols]
 
     with local_conn.cursor() as cl, remote_conn.cursor() as cr:
-        cl.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
+        cl.execute(sql.SQL("SELECT {}, logical_ts, last_op_id FROM {}.{}").format(
             sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
-        local_entries = [(tuple(r[:-1]), r[-1]) for r in cl.fetchall()]
-        cr.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
+        local_entries = {tuple(r[:-2]): (r[-2], r[-1]) for r in cl.fetchall()}
+        cr.execute(sql.SQL("SELECT {}, logical_ts, last_op_id FROM {}.{}").format(
             sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
-        remote_entries = {tuple(r[:-1]): r[-1] for r in cr.fetchall()}
-    to_update_keys = [k for (k, lu) in local_entries if (k in remote_entries) and (lu is not None) and (remote_entries.get(k) is not None) and (lu > remote_entries[k])]
+        remote_entries = {tuple(r[:-2]): (r[-2], r[-1]) for r in cr.fetchall()}
+        to_update_keys = [k for (k, (lts, lid)) in local_entries.items()
+                          if (k in remote_entries) and _is_newer_version(lts, lid, *(remote_entries.get(k) or (None, None)))]
     if not to_update_keys:
         return 0
     rows = fetch_rows_by_pk(local_conn, schema, table, pk_cols, to_update_keys)
     if not rows:
         return 0
-    # Evitar actualizar usuarios con rol 'dueño' en remoto
     if table == 'usuarios':
         original_count = len(rows)
         rows = [r for r in rows if (r.get('rol') != 'dueño')]
@@ -352,7 +374,6 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
             if dry_run:
                 print(f"DRY-RUN: UPDATE {schema}.{table} SET {', '.join(non_pk_cols)} WHERE PKs={to_update_keys}")
             else:
-                # Tolerancia por fila: si una fila está protegida por trigger/regla, la omitimos
                 cur.execute("SAVEPOINT reconcile_row")
                 try:
                     cur.execute(update_tmpl, vals)
@@ -447,7 +468,7 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
             else:
                 print("  Sin filas extra en remoto.")
 
-            # Actualizaciones en remoto por updated_at más reciente en local
+            # Actualizaciones en remoto por versión lógica más reciente en local
             updated = reconcile_updates_remote(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
             if updated:
                 print(f"  Filas actualizadas en remoto: {updated}")

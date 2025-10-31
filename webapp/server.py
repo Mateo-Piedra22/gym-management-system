@@ -1187,13 +1187,7 @@ async def _startup_init_db():
             except Exception:
                 # No bloquear el arranque si falla la autocreación
                 pass
-        # Asegurar updated_at/trigger en tablas remotas de sincronización (idempotente)
-        try:
-            from scripts.ensure_updated_at_triggers import run as ensure_updated_at  # type: ignore
-            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False)
-        except Exception:
-            # No bloquear el arranque si falla esta verificación en remoto
-            pass
+        # Eliminado: aseguramiento legacy de updated_at en remoto. El esquema usa logical_ts/last_op_id.
     except Exception:
         # No bloquear el arranque; los endpoints intentarán reintentar
         pass

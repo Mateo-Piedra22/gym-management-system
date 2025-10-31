@@ -6,7 +6,7 @@ Reconciliación segura remoto→local para restaurar consistencia cuando el loca
 Acciones por tabla (schema `public` por defecto):
 - Inserta en local filas que existen en remoto y faltan en local (por PK).
 - Borra en local filas que existen en local y no en remoto (por PK).
-- Actualiza en local filas existentes si `updated_at` remoto es más reciente.
+- Actualiza en local filas existentes si la versión lógica (`logical_ts`/`last_op_id`) remota es más reciente.
 
 Protecciones:
 - Deshabilita la suscripción local durante la reconciliación y la vuelve a habilitar al finalizar.
@@ -61,6 +61,29 @@ from utils_modules.replication_setup import (
 )
 
 DEFAULT_SCHEMA = 'public'
+
+
+def _is_newer_version(a_ts, a_opid, b_ts, b_opid) -> bool:
+    """Devuelve True si la versión A es más reciente que B.
+
+    Reglas:
+    - Compara primero por `logical_ts` (mayor gana).
+    - Si `logical_ts` empata, usa `last_op_id` como desempate determinístico (lexicográfico).
+    - Si faltan campos, trata None como el mínimo.
+    """
+    try:
+        a_ts = int(a_ts) if a_ts is not None else -1
+    except Exception:
+        a_ts = -1
+    try:
+        b_ts = int(b_ts) if b_ts is not None else -1
+    except Exception:
+        b_ts = -1
+    if a_ts != b_ts:
+        return a_ts > b_ts
+    a_id = str(a_opid) if a_opid is not None else ''
+    b_id = str(b_opid) if b_opid is not None else ''
+    return a_id > b_id
 
 
 def table_exists(conn, schema: str, table: str) -> bool:
@@ -263,44 +286,38 @@ def delete_rows_local(local_conn, schema: str, table: str, pk_cols: List[str], p
 def update_rows_local(local_conn, remote_conn, schema: str, table: str, pk_cols: List[str], dry_run: bool = False) -> int:
     local_cols = table_columns(local_conn, schema, table)
     remote_cols = table_columns(remote_conn, schema, table)
-    if ('updated_at' not in local_cols) or ('updated_at' not in remote_cols):
+    use_logical = all(c in local_cols for c in ('logical_ts', 'last_op_id')) and all(c in remote_cols for c in ('logical_ts', 'last_op_id'))
+    if not use_logical:
         return 0
     non_pk_cols = [c for c in local_cols if c not in pk_cols]
     updated = 0
     with local_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cl, \
          remote_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cr:
-        # Obtener updated_at remoto por PK
-        cr.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
-            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
         remote_map: Dict[Tuple, Any] = {}
+        local_map: Dict[Tuple, Any] = {}
+        cr.execute(sql.SQL("SELECT {}, logical_ts, last_op_id FROM {}.{}").format(
+            sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
         for row in cr.fetchall() or []:
             key = tuple(row[c] for c in pk_cols)
-            remote_map[key] = row['updated_at']
-        if not remote_map:
-            return 0
-        # Obtener updated_at local por PK
-        cl.execute(sql.SQL("SELECT {}, updated_at FROM {}.{}").format(
+            remote_map[key] = (row.get('logical_ts'), row.get('last_op_id'))
+        cl.execute(sql.SQL("SELECT {}, logical_ts, last_op_id FROM {}.{}").format(
             sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table)))
-        local_map: Dict[Tuple, Any] = {}
         for row in cl.fetchall() or []:
             key = tuple(row[c] for c in pk_cols)
-            local_map[key] = row['updated_at']
-        # Determinar claves a actualizar (remoto más reciente)
-        to_update_keys = [k for k, rv in remote_map.items() if (k in local_map) and (rv and local_map.get(k) and rv > local_map[k])]
+            local_map[key] = (row.get('logical_ts'), row.get('last_op_id'))
+        to_update_keys = [k for k, (r_ts, r_id) in remote_map.items()
+                          if (k in local_map) and _is_newer_version(r_ts, r_id, *(local_map.get(k) or (None, None)))]
         if not to_update_keys:
             return 0
-        # Cargar filas completas de remoto para esas claves
         rows = fetch_rows_by_pk(remote_conn, schema, table, pk_cols, to_update_keys)
         if not rows:
             return 0
-        # Evitar actualizar usuarios con rol 'dueño' en local
         if table == 'usuarios':
             original_count = len(rows)
             rows = [r for r in rows if (r.get('rol') != 'dueño')]
             omitted = original_count - len(rows)
             if omitted > 0:
                 print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (update local)")
-        # Construir UPDATE genérico para no-PK
         set_clause = sql.SQL(', ').join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in non_pk_cols)
         where_clause = sql.SQL(' AND ').join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in pk_cols)
         stmt = sql.SQL("UPDATE {}.{} SET ").format(sql.Identifier(schema), sql.Identifier(table)) + set_clause + sql.SQL(" WHERE ") + where_clause
@@ -479,7 +496,7 @@ def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, d
                 delc = delete_rows_local(local_conn, schema, table, pk_cols, to_delete, dry_run=dry_run)
                 result['total_deleted'] += delc
 
-                # Actualizaciones por updated_at
+                # Actualizaciones por versión lógica
                 upc = update_rows_local(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
                 result['total_updated'] += upc
 
@@ -502,6 +519,12 @@ def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, d
         except Exception:
             pass
     return result
+
+# Alias de compatibilidad para llamadas existentes desde main.py
+def reconcile_updates_local(remote_conn, local_conn, schema: str, table: str, pk_cols: List[str], dry_run: bool = False) -> int:
+    """Compatibilidad: delega a update_rows_local con el orden esperado.
+    """
+    return update_rows_local(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
 
 
 def main():

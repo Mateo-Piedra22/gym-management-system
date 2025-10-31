@@ -2464,7 +2464,7 @@ class MainWindow(QMainWindow):
         """Ejecuta reconciliación inicial bidireccional sin bloquear la UI.
         - Usa nombres de suscripción/publicación desde config/replication.
         - Resuelve tablas dinámicamente desde config/sync_tables.json.
-        - Soporta PK compuestas y actualiza filas con updated_at.
+        - Soporta PK compuestas y actualiza filas por versión lógica (logical_ts/last_op_id).
         """
         try:
             QTimer.singleShot(0, lambda: self.show_sync_overlay("Reconciliando datos históricos…", detail="Preparando reconciliación local⇄remoto"))
@@ -2509,7 +2509,7 @@ class MainWindow(QMainWindow):
                             rows = L2R.fetch_rows_by_pk(local_conn, 'public', table, pk_cols, missing)
                             inserted = L2R.insert_rows_remote(remote_conn, 'public', table, rows, pk_cols, dry_run=False)
                             total_inserted += int(inserted or 0)
-                        # Actualizaciones: filas existentes con updated_at más reciente en local
+                        # Actualizaciones: filas existentes con versión lógica más reciente en local
                         updated = L2R.reconcile_updates_remote(local_conn, remote_conn, 'public', table, pk_cols, dry_run=False)
                         total_updated += int(updated or 0)
                     except Exception:
@@ -2576,7 +2576,7 @@ class MainWindow(QMainWindow):
                             rows = R2L.fetch_rows_by_pk(remote_conn, 'public', table, pk_cols, missing)
                             inserted = R2L.insert_rows_local(local_conn, 'public', table, rows, pk_cols, dry_run=False)
                             total_inserted += int(inserted or 0)
-                        # Actualizaciones: filas existentes con updated_at más reciente en remoto
+                        # Actualizaciones: filas existentes con versión lógica más reciente en remoto
                         updated = R2L.reconcile_updates_local(remote_conn, local_conn, 'public', table, pk_cols, dry_run=False)
                         total_updated += int(updated or 0)
                     except Exception:

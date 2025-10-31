@@ -2425,50 +2425,7 @@ class DatabaseManager:
                     FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
                     """)
 
-                    # Asegurar columna de sync y consistencia temporal
-                    try:
-                        # Añadir columna updated_at si no existe (timestamptz, default NOW())
-                        cursor.execute(
-                            """
-                            SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'usuarios' AND column_name = 'updated_at'
-                            """
-                        )
-                        if cursor.fetchone() is None:
-                            cursor.execute(
-                                "ALTER TABLE usuarios ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()"
-                            )
-                            # Backfill seguro evitando RLS del dueño
-                            cursor.execute(
-                                "UPDATE usuarios SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL"
-                            )
-                        # Índice para acelerar consultas de sync
-                        cursor.execute(
-                            "CREATE INDEX IF NOT EXISTS idx_usuarios_updated_at ON usuarios(updated_at)"
-                        )
-                        # Trigger para mantener updated_at en UPDATE
-                        cursor.execute(
-                            """
-                            CREATE OR REPLACE FUNCTION usuarios_set_updated_at() RETURNS trigger AS $$
-                            BEGIN
-                                NEW.updated_at = NOW();
-                                RETURN NEW;
-                            END;
-                            $$ LANGUAGE plpgsql;
-                            """
-                        )
-                        cursor.execute(
-                            "DROP TRIGGER IF EXISTS trg_usuarios_set_updated_at ON usuarios"
-                        )
-                        cursor.execute(
-                            """
-                            CREATE TRIGGER trg_usuarios_set_updated_at
-                            BEFORE UPDATE ON usuarios
-                            FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
-                            """
-                        )
-                    except Exception as _e:
-                        logging.error(f"Error asegurando columna/trigger updated_at en usuarios: {_e}")
+                    # Eliminado: lógica legacy de updated_at; migración usa logical_ts/last_op_id
                     
                     # Tabla de pagos
                     cursor.execute("""
@@ -3036,7 +2993,7 @@ class DatabaseManager:
                         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )""")
                     
-                    # Tabla de logs de auditoría
+                    # Tabla de logs de auditoría (con campos lógicos)
                     cursor.execute("""
                     CREATE TABLE IF NOT EXISTS audit_logs (
                         id SERIAL PRIMARY KEY,
@@ -3050,6 +3007,8 @@ class DatabaseManager:
                         user_agent TEXT,
                         session_id VARCHAR(255),
                         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        logical_ts BIGINT NOT NULL DEFAULT 0,
+                        last_op_id UUID,
                         FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE SET NULL
                     )""")
                     
@@ -3133,6 +3092,8 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuario_estados_usuario_id ON usuario_estados(usuario_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuario_estados_creado_por ON usuario_estados(creado_por)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_logical_ts ON audit_logs(logical_ts)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_last_op_id ON audit_logs(last_op_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_theme_schedules_theme_id ON theme_schedules(theme_id)")
                     # Índices compuestos para ordenar y filtrar usuarios eficientemente
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_rol_nombre ON usuarios(rol, nombre)")
@@ -10575,7 +10536,8 @@ class DatabaseManager:
                         resolved_at TIMESTAMP NULL,
                         resolution_time INTEGER,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                        updated_at TIMESTAMP NULL,
+                        logical_ts BIGINT NOT NULL DEFAULT 0,
+                        last_op_id UUID,
                         CONSTRAINT fk_conflict_profesor FOREIGN KEY (professor_id) REFERENCES profesores(id),
                         CONSTRAINT fk_conflict_clase FOREIGN KEY (class_id) REFERENCES clases(id)
                     )
@@ -10700,8 +10662,7 @@ class DatabaseManager:
                         resolution_type = %s,
                         resolution_notes = %s,
                         resolved_by = %s,
-                        resolved_at = NOW(),
-                        updated_at = NOW()
+                        resolved_at = NOW()
                     WHERE id = %s
                     """,
                     (resolution_type, resolution_notes, resolved_by, conflicto_id),
@@ -10720,8 +10681,7 @@ class DatabaseManager:
                 cursor.execute(
                     """
                     UPDATE schedule_conflicts SET
-                        status = 'Ignorado',
-                        updated_at = NOW()
+                        status = 'Ignorado'
                     WHERE id = %s
                     """,
                     (conflicto_id,),
@@ -11526,14 +11486,21 @@ class DatabaseManager:
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Obtener campos lógicos para esta operación
+                try:
+                    from utils_modules.logical_clock import assign_logical_fields
+                    logical_ts, last_op_id = assign_logical_fields(conn)
+                except Exception:
+                    # Fallback: valores seguros
+                    logical_ts, last_op_id = (0, None)
                 sql = """
                     INSERT INTO audit_logs 
-                    (user_id, action, table_name, record_id, old_values, new_values, ip_address, user_agent, session_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (user_id, action, table_name, record_id, old_values, new_values, ip_address, user_agent, session_id, logical_ts, last_op_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """
                 cursor.execute(sql, (user_id, action, table_name, record_id, old_values, new_values, 
-                                   ip_address, user_agent, session_id))
+                                   ip_address, user_agent, session_id, logical_ts, last_op_id))
                 conn.commit()
                 return cursor.fetchone()['id']
         except Exception as e:
@@ -14948,9 +14915,14 @@ class DatabaseManager:
                     ip_address TEXT,
                     user_agent TEXT,
                     session_id TEXT,
+                    logical_ts BIGINT NOT NULL DEFAULT 0,
+                    last_op_id UUID,
                     FOREIGN KEY (user_id) REFERENCES usuarios(id)
                 )
             """)
+            # Índices adicionales para campos lógicos
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_logical_ts ON audit_logs(logical_ts)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_last_op_id ON audit_logs(last_op_id)")
             
             # Tabla de diagnósticos del sistema
             cursor.execute("""
@@ -17883,7 +17855,8 @@ class DatabaseManager:
                             variables JSONB,
                             active BOOLEAN DEFAULT TRUE,
                             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                            logical_ts BIGINT NOT NULL DEFAULT 0,
+                            last_op_id UUID
                         )
                     """)
                     
@@ -17896,7 +17869,8 @@ class DatabaseManager:
                             access_token TEXT,
                             active BOOLEAN DEFAULT TRUE,
                             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                            logical_ts BIGINT NOT NULL DEFAULT 0,
+                            last_op_id UUID
                         )
                     """)
                     

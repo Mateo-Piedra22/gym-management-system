@@ -635,40 +635,7 @@ def ensure_prerequisites(device_id: str) -> dict:
         except Exception:
             pass
 
-    # Asegurar columna/índice/trigger updated_at en tablas sincronizadas (idempotente)
-    try:
-        logging.info("Prerequisitos: asegurando updated_at en tablas de sincronización")
-    except Exception:
-        pass
-    try:
-        # Ejecutar separadamente en LOCAL y REMOTO para aislar fallos de conectividad
-        from scripts.ensure_updated_at_triggers import run as ensure_updated_at  # type: ignore
-        # Local primero (entorno de escritorio)
-        try:
-            ensure_updated_at(schema='public', tables=None, apply_local=True, apply_remote=False, dry_run=False, all_tables=True)
-            result["updated_at_triggers_local"] = {"ok": True}
-        except Exception as e_loc:
-            result["updated_at_triggers_local"] = {"ok": False, "error": str(e_loc)}
-            try:
-                logging.warning(f"Prerequisitos: fallo ensure updated_at LOCAL -> {e_loc}")
-            except Exception:
-                pass
-        # Intentar también en remoto si hay credenciales; no bloquear si falla
-        try:
-            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False, all_tables=True)
-            result["updated_at_triggers_remote"] = {"ok": True}
-        except Exception as e_rem:
-            result["updated_at_triggers_remote"] = {"ok": False, "error": str(e_rem)}
-            try:
-                logging.warning(f"Prerequisitos: fallo ensure updated_at REMOTO -> {e_rem}")
-            except Exception:
-                pass
-    except Exception as e:
-        result["updated_at_triggers"] = {"ok": False, "error": str(e)}
-        try:
-            logging.warning(f"Prerequisitos: error asegurando updated_at -> {e}")
-        except Exception:
-            pass
+    # Eliminado: aseguramiento de updated_at. El esquema ahora usa logical_ts/last_op_id.
 
     # Aplicar tareas programadas según config.json (idempotente)
     try:

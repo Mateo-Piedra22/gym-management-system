@@ -2035,36 +2035,7 @@ class DBConfigDialog(QDialog):
                 """
             )
 
-            # 6) Asegurar columna updated_at, índice y trigger de actualización
-            cur.execute(
-                """
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'usuarios' AND column_name = 'updated_at'
-                """
-            )
-            missing_updated = cur.fetchone() is None
-            if missing_updated:
-                cur.execute("ALTER TABLE usuarios ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW()")
-                cur.execute("UPDATE usuarios SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_updated_at ON usuarios(updated_at)")
-            cur.execute(
-                """
-                CREATE OR REPLACE FUNCTION usuarios_set_updated_at() RETURNS trigger AS $$
-                BEGIN
-                    NEW.updated_at = NOW();
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql;
-                """
-            )
-            cur.execute("DROP TRIGGER IF EXISTS trg_usuarios_set_updated_at ON usuarios")
-            cur.execute(
-                """
-                CREATE TRIGGER trg_usuarios_set_updated_at
-                BEFORE INSERT OR UPDATE ON usuarios
-                FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
-                """
-            )
+            
 
             # 7) Asegurar tabla configuracion y sembrar owner_password si existe en entorno
             cur.execute(
