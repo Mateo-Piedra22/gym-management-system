@@ -615,6 +615,57 @@ python build_installer.py --mode onefile
 - Replicación lógica Postgres (remoto → local) ya automatizada por el sistema.
 - Outbox con triggers (local → remoto) capturando cambios en todas las tablas listadas en `config/sync_tables.json`.
 
+### ⏱️ Asegurar `updated_at` para reconciliación por timestamp
+- Las rutinas de reconciliación utilizan la columna `updated_at` para decidir qué cambio es más reciente.
+- Por defecto, la tabla `usuarios` ya trae columna, índice y trigger `BEFORE UPDATE` que actualiza `updated_at = NOW()`.
+- Para aplicar esta política a todas las tablas incluidas en `config/sync_tables.json`, ejecuta:
+
+```powershell
+python scripts/ensure_updated_at_triggers.py --apply-local --apply-remote
+```
+
+- El script:
+  - Crea/asegura la función `public.set_updated_at()`.
+  - Añade la columna `updated_at TIMESTAMPTZ DEFAULT NOW()` si falta y la inicializa donde esté en `NULL`.
+  - Crea el índice `idx_<tabla>_updated_at` si falta.
+  - Crea el trigger `trg_<tabla>_set_updated_at` (`BEFORE UPDATE`) que asigna `NEW.updated_at = NOW()`.
+  - Aplica en LOCAL y REMOTO (puedes limitar con `--apply-local` o `--apply-remote`).
+
+- Opciones:
+  - `--dry-run`: imprime acciones sin aplicar cambios.
+  - `--schema public`: esquema objetivo (por defecto `public`).
+  - `--tables usuarios pagos`: limitar a tablas específicas.
+
+- Sugerido tras asegurar `updated_at`:
+
+```powershell
+python scripts/reconcile_local_remote_once.py --dry-run
+python scripts/reconcile_remote_to_local_once.py --force
+```
+
+#### Ejecución automática de `updated_at`
+- En nuevas instalaciones y arranques, la app asegura `updated_at` sin intervención:
+  - Primer arranque (escritorio): `scripts/auto_setup.py` invoca el aseguramiento tras crear la base local y tras configurar la replicación, aplicándolo en local y remoto si hay credenciales.
+  - Prerrequisitos del cliente: `utils_modules/prerequisites.ensure_prerequisites` intenta aplicar en LOCAL y REMOTO de forma idempotente.
+  - Arranque del servidor (FastAPI): se intenta aplicar en REMOTO sin bloquear el inicio.
+- Para REMOTO, provee credenciales en `config/config.json` o variables como `DATABASE_URL_REMOTE`, `DB_REMOTE_PASSWORD`. Para LOCAL, usa `DATABASE_URL_LOCAL` o los valores por defecto.
+- Este proceso es seguro e idempotente: solo crea la columna, índice y trigger cuando faltan.
+
+#### Reconciliación programada (Windows)
+- Se crean dos tareas diarias para mantener sincronía automática:
+  - `GymMS_Reconcile_LocalToRemote` a las `03:10` ejecuta `scripts/run_reconcile_scheduled_hidden.vbs` → `scripts/run_reconcile_scheduled.ps1` → `scripts/reconcile_local_remote_once.py`.
+  - `GymMS_Reconcile_RemoteToLocal` a las `03:40` ejecuta `scripts/run_reconcile_remote_to_local_scheduled_hidden.vbs` → `scripts/run_reconcile_remote_to_local_scheduled.ps1` → `scripts/reconcile_remote_to_local_once.py`.
+- Logs generados:
+  - Local→Remoto: `backups/reconcile_local_remote_once.log`
+  - Remoto→Local: `backups/reconcile_remote_to_local_once.log`
+- Para ajustar o verificar:
+  - Ejecutar manualmente: `schtasks /Run /TN "GymMS_Reconcile_LocalToRemote"` y `schtasks /Run /TN "GymMS_Reconcile_RemoteToLocal"`
+  - Consultar detalle: `schtasks /Query /TN "GymMS_Reconcile_LocalToRemote" /V /FO LIST`
+  - Cambiar horario: `schtasks /Change /TN "GymMS_Reconcile_LocalToRemote" /ST 03:10`
+- Notas:
+  - Los wrappers usan PowerShell con ruta absoluta y `PYTHONIOENCODING=utf-8` para evitar errores de codificación.
+  - Por defecto corren en modo "Interactivo" del usuario actual. Para ejecutar sin sesión iniciada, recrea las tareas con `/RU` y `/RP`.
+
 ### Token de seguridad: `SYNC_UPLOAD_TOKEN`
 Para autorizar la subida de cambios locales al servidor, cliente y servidor deben compartir el mismo token.
 

@@ -4,7 +4,18 @@
 $ErrorActionPreference = 'Stop'
 
 # Raíz del repo y carpeta de logs
-$repoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+# Resolver raíz del repo de forma robusta para ambos casos:
+# - Ejecutado desde scripts/* (repoRoot = ..)
+# - Ejecutado desde dist/scripts/* (repoRoot = ../..)
+function Get-RepoRoot([string]$path) {
+    $dir = Split-Path -Parent $path
+    if ($dir -match "\\dist\\scripts$") {
+        return (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $path)))
+    }
+    return (Split-Path -Parent (Split-Path -Parent $path))
+}
+
+$repoRoot = Get-RepoRoot -path $PSCommandPath
 $logsDir = Join-Path $repoRoot 'backups'
 if (-not (Test-Path $logsDir)) {
     New-Item -ItemType Directory -Path $logsDir | Out-Null

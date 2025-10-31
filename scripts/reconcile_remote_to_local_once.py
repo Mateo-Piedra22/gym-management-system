@@ -63,6 +63,24 @@ from utils_modules.replication_setup import (
 DEFAULT_SCHEMA = 'public'
 
 
+def table_exists(conn, schema: str, table: str) -> bool:
+    """Verifica si existe la tabla en el esquema dado."""
+    q = """
+    SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = %s
+    )
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(q, (schema, table))
+            r = cur.fetchone()
+            return bool(r and r[0])
+    except Exception:
+        return False
+
+
 def resolve_conn(creds: Dict[str, Any], *, is_remote: bool = False):
     kwargs = dict(host=creds['host'], port=creds['port'], dbname=creds['database'], user=creds['user'], password=creds['password'])
     if is_remote and 'sslmode' in creds:
@@ -134,6 +152,13 @@ def fetch_rows_by_pk(conn, schema: str, table: str, pk_cols: List[str], pks: Lis
 def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry_run: bool = False) -> int:
     if not rows:
         return 0
+    # Evitar insertar usuarios con rol 'dueño' en local
+    if table == 'usuarios':
+        original_count = len(rows)
+        rows = [r for r in rows if (r.get('rol') != 'dueño')]
+        omitted = original_count - len(rows)
+        if omitted > 0:
+            print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (inserción local)")
     cols = list(rows[0].keys())
     col_idents = [sql.Identifier(c) for c in cols]
     placeholders = [sql.Placeholder() for _ in cols]
@@ -165,6 +190,41 @@ def insert_rows_local(local_conn, schema: str, table: str, rows: List[dict], dry
 def delete_rows_local(local_conn, schema: str, table: str, pk_cols: List[str], pks: List[Tuple], dry_run: bool = False) -> int:
     if not pks:
         return 0
+    # Evitar borrar usuarios con rol 'dueño' en local
+    if table == 'usuarios':
+        with local_conn.cursor() as cur:
+            owner_pks = set()
+            if len(pk_cols) == 1:
+                placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
+                query = sql.SQL("SELECT {} FROM {}.{} WHERE {} IN (" + placeholders.as_string(local_conn) + ") AND rol = 'dueño'").format(
+                    sql.Identifier(pk_cols[0]), sql.Identifier(schema), sql.Identifier(table), sql.Identifier(pk_cols[0])
+                )
+                params = [pk[0] for pk in pks]
+            else:
+                conds = []
+                params = []
+                for key in pks:
+                    cond = sql.SQL('(') + sql.SQL(' AND ').join(
+                        sql.SQL("{} = %s").format(sql.Identifier(col)) for col in pk_cols
+                    ) + sql.SQL(')')
+                    conds.append(cond)
+                    params.extend(list(key))
+                where_clause = sql.SQL(' OR ').join(conds)
+                query = sql.SQL("SELECT {} FROM {}.{} WHERE ({}) AND rol = 'dueño'").format(
+                    sql.SQL(',').join(sql.Identifier(c) for c in pk_cols), sql.Identifier(schema), sql.Identifier(table), where_clause
+                )
+            cur.execute(query, params)
+            owner_results = cur.fetchall() or []
+            if len(pk_cols) == 1:
+                owner_pks = {tuple([r[0]]) for r in owner_results}
+            else:
+                owner_pks = {tuple(r) for r in owner_results}
+        filtered_pks = [pk for pk in pks if pk not in owner_pks]
+        if len(filtered_pks) != len(pks):
+            print(f"  Omitidas {len(pks) - len(filtered_pks)} filas de usuarios con rol 'dueño' (borrado local)")
+        pks = filtered_pks
+        if not pks:
+            return 0
     if len(pk_cols) == 1:
         placeholders = sql.SQL(',').join(sql.Placeholder() for _ in pks)
         where_clause = sql.SQL("{} IN (" + placeholders.as_string(local_conn) + ")").format(sql.Identifier(pk_cols[0]))
@@ -233,6 +293,13 @@ def update_rows_local(local_conn, remote_conn, schema: str, table: str, pk_cols:
         rows = fetch_rows_by_pk(remote_conn, schema, table, pk_cols, to_update_keys)
         if not rows:
             return 0
+        # Evitar actualizar usuarios con rol 'dueño' en local
+        if table == 'usuarios':
+            original_count = len(rows)
+            rows = [r for r in rows if (r.get('rol') != 'dueño')]
+            omitted = original_count - len(rows)
+            if omitted > 0:
+                print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (update local)")
         # Construir UPDATE genérico para no-PK
         set_clause = sql.SQL(', ').join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in non_pk_cols)
         where_clause = sql.SQL(' AND ').join(sql.SQL("{} = %s").format(sql.Identifier(c)) for c in pk_cols)
@@ -331,8 +398,20 @@ def _load_sync_tables_default() -> List[str]:
         pass
     return []
 
-def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, dry_run: bool = False, threshold_minutes: int = 5, force: bool = False, subscription: str = 'gym_sub') -> None:
-    """Ejecuta la reconciliación remoto→local una vez, invocable desde la app."""
+def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, dry_run: bool = False, threshold_minutes: int = 5, force: bool = False, subscription: str = 'gym_sub') -> dict:
+    """Ejecuta la reconciliación remoto→local una vez, invocable desde la app.
+
+    Devuelve un diccionario con métricas por tabla:
+    {
+      'direction': 'remote_to_local',
+      'total_inserted': int,
+      'total_updated': int,
+      'total_deleted': int,
+      'tables': [
+        {'name': 'tabla', 'inserted': int, 'updated': int, 'deleted': int, 'error': Optional[str]}
+      ]
+    }
+    """
     # Cargar credenciales
     full_cfg = _load_cfg()
     local_conf = resolve_local_credentials(full_cfg)
@@ -362,16 +441,29 @@ def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, d
             use_tables = _load_sync_tables_default()
         if not use_tables:
             print('No hay tablas a procesar')
-            return
+            return {'direction': 'remote_to_local', 'total_inserted': 0, 'total_updated': 0, 'total_deleted': 0, 'tables': []}
 
-        total_ins = 0
-        total_upd = 0
-        total_del = 0
+        result = {
+            'direction': 'remote_to_local',
+            'total_inserted': 0,
+            'total_updated': 0,
+            'total_deleted': 0,
+            'tables': []
+        }
         for table in use_tables:
             try:
+                # Bypass si falta en local o en remoto
+                exists_local = table_exists(local_conn, schema, table)
+                exists_remote = table_exists(remote_conn, schema, table)
+                if not exists_local or not exists_remote:
+                    missing_where = 'local' if not exists_local else 'remote'
+                    print(f"[INFO] {schema}.{table}: tabla ausente en {missing_where}; bypass.")
+                    result['tables'].append({'name': table, 'inserted': 0, 'updated': 0, 'deleted': 0, 'error': None})
+                    continue
                 pk_cols = get_pk_columns(local_conn, schema, table)
                 if not pk_cols:
                     print(f"[WARN] {schema}.{table}: No se pudo determinar PK; saltando.")
+                    result['tables'].append({'name': table, 'inserted': 0, 'updated': 0, 'deleted': 0, 'error': 'PK desconocida'})
                     continue
                 local_keys = set(fetch_keys(local_conn, schema, table, pk_cols))
                 remote_keys = set(fetch_keys(remote_conn, schema, table, pk_cols))
@@ -380,24 +472,26 @@ def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, d
                 to_insert = list(remote_keys - local_keys)
                 rows_to_insert = fetch_rows_by_pk(remote_conn, schema, table, pk_cols, to_insert)
                 ins = insert_rows_local(local_conn, schema, table, rows_to_insert, dry_run=dry_run)
-                total_ins += ins
+                result['total_inserted'] += ins
 
                 # Borrados: claves extra en local
                 to_delete = list(local_keys - remote_keys)
                 delc = delete_rows_local(local_conn, schema, table, pk_cols, to_delete, dry_run=dry_run)
-                total_del += delc
+                result['total_deleted'] += delc
 
                 # Actualizaciones por updated_at
                 upc = update_rows_local(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
-                total_upd += upc
+                result['total_updated'] += upc
 
                 print(f"{schema}.{table}: +{ins} / ~{upc} / -{delc}")
+                result['tables'].append({'name': table, 'inserted': ins, 'updated': upc, 'deleted': delc, 'error': None})
             except Exception as e:
                 print(f"[ERROR] {schema}.{table}: {e}")
+                result['tables'].append({'name': table, 'inserted': 0, 'updated': 0, 'deleted': 0, 'error': str(e)})
                 local_conn.rollback()
 
         enable_subscription(local_conn, subname)
-        print(f"Resumen: INSERT={total_ins} UPDATE={total_upd} DELETE={total_del}")
+        print(f"Resumen R→L: INSERT={result['total_inserted']} UPDATE={result['total_updated']} DELETE={result['total_deleted']}")
     finally:
         try:
             local_conn.close()
@@ -407,6 +501,7 @@ def run_once(*, schema: str = DEFAULT_SCHEMA, tables: List[str] | None = None, d
             remote_conn.close()
         except Exception:
             pass
+    return result
 
 
 def main():

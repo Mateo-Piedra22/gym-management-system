@@ -13,7 +13,10 @@ $logFile = Join-Path $logsDir 'reconcile_remote_to_local_once.log'
 
 # Resolver Python
 $pythonCandidates = @(
-    'C:\Python313\python.exe',
+    'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python311\\python.exe',
+    'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python312\\python.exe',
+    'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python310\\python.exe',
+    'C:\\Python313\\python.exe',
     "$env:LocalAppData\Programs\Python\Python313\python.exe",
     "$env:LocalAppData\Programs\Python\Python312\python.exe",
     "$env:LocalAppData\Programs\Python\Python311\python.exe",
@@ -30,6 +33,14 @@ if (-not $python) { $python = 'python' }
 # Preferir pythonw.exe si disponible para ejecución sin consola
 $pythonw = $null
 try { $cmdw = Get-Command pythonw.exe -ErrorAction SilentlyContinue; if ($cmdw) { $pythonw = $cmdw.Path } } catch {}
+if (-not $pythonw) {
+    $pythonwCandidates = @(
+        'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python311\\pythonw.exe',
+        'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python312\\pythonw.exe',
+        'C:\\Users\\mateo\\AppData\\Local\\Programs\\Python\\Python310\\pythonw.exe'
+    )
+    foreach ($pw in $pythonwCandidates) { if (Test-Path $pw) { $pythonw = $pw; break } }
+}
 if (-not $pythonw -and $python -ne 'python') {
     $guess = Join-Path (Split-Path $python -Parent) 'pythonw.exe'
     if (Test-Path $guess) { $pythonw = $guess }
@@ -38,6 +49,7 @@ $exe = if ($pythonw) { $pythonw } else { $python }
 
 # Ejecutar script oculto, con gating por defecto (threshold 120 min)
 $env:PYTHONUNBUFFERED = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 Set-Location $repoRoot
 Add-Content -Path $logFile -Value "[INFO] Ejecutando scripts\\reconcile_remote_to_local_once.py con $exe..."
 

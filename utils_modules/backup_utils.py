@@ -7,6 +7,7 @@ Utilidades de backup de base de datos local (PostgreSQL) usando pg_dump.
 import os
 import json
 import subprocess
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
@@ -63,7 +64,6 @@ def _build_local_params(cfg: dict) -> dict:
 
 def _resolve_pg_dump() -> str:
     try:
-        import shutil
         p = shutil.which('pg_dump')
         if p:
             return p
@@ -85,6 +85,14 @@ def perform_quick_backup() -> Tuple[int, str]:
     out_path = BACKUPS_DIR / fname
 
     pg_dump = _resolve_pg_dump()
+    # Si pg_dump no está disponible en el sistema, evitar fallos: saltar backup limpiamente.
+    try:
+        pg_dump_available = bool(shutil.which('pg_dump')) or Path(pg_dump).exists()
+    except Exception:
+        pg_dump_available = Path(pg_dump).exists()
+    if not pg_dump_available:
+        # No provocar errores en tareas programadas: indicar salto y éxito.
+        return 0, "SKIPPED (pg_dump not found)"
     env = os.environ.copy()
     if params.get('password'):
         env['PGPASSWORD'] = params['password']

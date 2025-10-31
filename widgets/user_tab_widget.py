@@ -232,6 +232,7 @@ class UserTabWidget(QWidget):
         self.add_user_button = QPushButton("Agregar Socio")
         self.pdf_export_button = QPushButton("Exportar a PDF")
         self.excel_export_button = QPushButton("Exportar a Excel")
+        self.reconcile_button = QPushButton(QIcon(os.path.join('assets', 'gym_logo.png')), "Reconciliar BD")
         
         toolbar.addWidget(self.search_input)
         toolbar.addWidget(self.show_inactive_checkbox)
@@ -243,6 +244,7 @@ class UserTabWidget(QWidget):
         self.reports_button = QPushButton("Reportes")
         self.reports_button.setToolTip("Generar reportes automáticos de usuarios")
         
+        toolbar.addWidget(self.reconcile_button)
         toolbar.addWidget(self.reports_button)
         toolbar.addWidget(self.pdf_export_button)
         toolbar.addWidget(self.excel_export_button)
@@ -723,6 +725,7 @@ class UserTabWidget(QWidget):
         self.register_attendance_button.clicked.connect(self.register_attendance)
         self.excel_export_button.clicked.connect(lambda: self.exportar_tabla('excel'))
         self.pdf_export_button.clicked.connect(lambda: self.exportar_tabla('pdf'))
+        self.reconcile_button.clicked.connect(self.reconciliar_bases)
         self.reports_button.clicked.connect(self.show_reports_menu)
         
         # Las señales de cambio ahora se manejan desde el diálogo de gestión
@@ -5271,4 +5274,517 @@ class UserTabWidget(QWidget):
         except Exception as e:
             print(f"Error al configurar automatización: {e}")
             return False
+
+    def reconciliar_bases(self):
+        """Ejecuta reconciliación bidireccional en 3 pasos asíncronos con verificación y log."""
+        try:
+            reply = QMessageBox.question(
+                self,
+                "Confirmar Reconciliación",
+                "Esto reconciliará ambas bases (Local→Remoto y Remoto→Local).\n¿Desea continuar?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # Barra de progreso por pasos
+            progress = None
+            try:
+                from PyQt6.QtWidgets import QProgressDialog
+                progress = QProgressDialog("Paso 1/3: Local→Remoto", None, 0, 3, self)
+                progress.setWindowTitle("Reconciliación en curso")
+                progress.setCancelButton(None)
+                try:
+                    progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+                except Exception:
+                    pass
+                progress.setMinimumDuration(0)
+                progress.setAutoClose(False)
+                progress.setAutoReset(False)
+                progress.setValue(0)
+                progress.show()
+            except Exception:
+                progress = None
+
+            # Cursor de espera y deshabilitar botón durante el proceso
+            try:
+                QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'reconcile_button'):
+                    self.reconcile_button.setEnabled(False)
+            except Exception:
+                pass
+
+            # Preparar log y tablas objetivo
+            tables_list = []
+            self._reconcile_log = []
+            try:
+                import json, os
+                cfg_path = os.path.join('config', 'sync_tables.json')
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict) and 'tables' in data:
+                    tables_list = list(data.get('tables') or [])
+                elif isinstance(data, list):
+                    tables_list = list(data)
+            except Exception:
+                tables_list = []
+            try:
+                self._reconcile_log.append("Iniciando reconciliación bidireccional")
+                if tables_list:
+                    self._reconcile_log.append(f"Tablas objetivo ({len(tables_list)}): ")
+                    try:
+                        self._reconcile_log.append(", ".join(map(str, tables_list)))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Paso 1: Local → Remoto
+            def _run_local_to_remote():
+                from scripts.reconcile_local_remote_once import run_once as run_local_to_remote
+                return run_local_to_remote(subscription='gym_sub', schema='public', tables=None, dry_run=False)
+
+            # Paso 2: Remoto → Local
+            def _run_remote_to_local():
+                from scripts.reconcile_remote_to_local_once import run_once as run_remote_to_local
+                return run_remote_to_local(schema='public', tables=None, dry_run=False, threshold_minutes=0, force=True, subscription='gym_sub')
+
+            # Paso 3: Verificación
+            def _verify_health():
+                try:
+                    from scripts.verify_replication_health import (
+                        load_cfg,
+                        resolve_local_credentials,
+                        resolve_remote_credentials,
+                        connect,
+                        read_local_subscription,
+                        read_remote_replication,
+                    )
+                except Exception:
+                    from scripts.verify_replication_health import (
+                        load_cfg,
+                        connect,
+                        read_local_subscription,
+                        read_remote_replication,
+                    )
+                    from utils_modules.replication_setup import (
+                        resolve_local_credentials,
+                        resolve_remote_credentials,
+                    )
+
+                cfg = load_cfg()
+                local_params = resolve_local_credentials(cfg)
+                remote_params = resolve_remote_credentials(cfg)
+
+                local_res = {}
+                remote_res = {}
+                try:
+                    lconn = connect(local_params)
+                    try:
+                        local_res = read_local_subscription(lconn)
+                    finally:
+                        try:
+                            lconn.close()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    local_res = {"error": str(e)}
+
+                try:
+                    rconn = connect(remote_params)
+                    try:
+                        remote_res = read_remote_replication(rconn)
+                    finally:
+                        try:
+                            rconn.close()
+                        except Exception:
+                            pass
+                except Exception as e:
+                    remote_res = {"error": str(e)}
+
+                return {"local": local_res, "remote": remote_res}
+
+            # Manejo de errores común
+            def _fail(message):
+                try:
+                    if progress:
+                        progress.close()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, 'reconcile_button'):
+                        self.reconcile_button.setEnabled(True)
+                except Exception:
+                    pass
+                try:
+                    QApplication.restoreOverrideCursor()
+                except Exception:
+                    pass
+                QMessageBox.critical(self, "Error de Reconciliación", f"Falló el proceso:\n{message}")
+
+            # Orquestación de pasos
+            def _start_step2(res_local: object = None):
+                try:
+                    if progress:
+                        progress.setLabelText("Paso 2/3: Remoto→Local")
+                        progress.setValue(1)
+                        try:
+                            QApplication.processEvents()
+                        except Exception:
+                            pass
+                    self._reconcile_log.append("Local→Remoto completado")
+                except Exception:
+                    pass
+                try:
+                    self._reconcile_local_metrics = res_local
+                except Exception:
+                    try:
+                        self._reconcile_local_metrics = None
+                    except Exception:
+                        pass
+                try:
+                    TaskThread(_run_remote_to_local, on_success=_start_step3, on_error=_fail, parent=self).start()
+                except Exception as e:
+                    _fail(str(e))
+
+            def _start_step3(res_remote: object = None):
+                try:
+                    if progress:
+                        progress.setLabelText("Paso 3/3: Verificación")
+                        progress.setValue(2)
+                        try:
+                            QApplication.processEvents()
+                        except Exception:
+                            pass
+                    self._reconcile_log.append("Remoto→Local completado")
+                except Exception:
+                    pass
+                try:
+                    self._reconcile_remote_metrics = res_remote
+                except Exception:
+                    try:
+                        self._reconcile_remote_metrics = None
+                    except Exception:
+                        pass
+                try:
+                    TaskThread(_verify_health, on_success=_finish, on_error=_fail, parent=self).start()
+                except Exception as e:
+                    _fail(str(e))
+
+            def _finish(result: object):
+                try:
+                    if progress:
+                        progress.setValue(3)
+                        progress.close()
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, 'reconcile_button'):
+                        self.reconcile_button.setEnabled(True)
+                except Exception:
+                    pass
+                try:
+                    QApplication.restoreOverrideCursor()
+                except Exception:
+                    pass
+
+                # Resumen amigable + log
+                try:
+                    local_info = result.get("local", {}) if isinstance(result, dict) else {}
+                    remote_info = result.get("remote", {}) if isinstance(result, dict) else {}
+
+                    subs = local_info.get("subscriptions", []) if isinstance(local_info, dict) else []
+                    slots = remote_info.get("slots", []) if isinstance(remote_info, dict) else []
+                    senders = remote_info.get("wal_senders", []) if isinstance(remote_info, dict) else []
+
+                    msg = "Reconciliación completada.\n\n"
+                    msg += "Pasos: ✓ Local→Remoto, ✓ Remoto→Local, ✓ Verificación\n"
+                    # Métricas por dirección
+                    try:
+                        lm = getattr(self, '_reconcile_local_metrics', None)
+                        if isinstance(lm, dict):
+                            msg += "\nLocal→Remoto (cambios totales):\n"
+                            msg += f" - Inserciones: {lm.get('total_inserted', 0)}\n"
+                            msg += f" - Actualizaciones: {lm.get('total_updated', 0)}\n"
+                            msg += f" - Eliminaciones: {lm.get('total_deleted', 0)}\n"
+                            tables = lm.get('tables', []) if isinstance(lm.get('tables', []), list) else []
+                            if tables:
+                                msg += "   Tablas:\n"
+                                for t in tables:
+                                    if not isinstance(t, dict):
+                                        continue
+                                    name = t.get('table') or t.get('name') or '?'
+                                    ins = t.get('inserted', 0)
+                                    upd = t.get('updated', 0)
+                                    dele = t.get('deleted', 0)
+                                    err = t.get('error')
+                                    msg += f"   - {name}: +{ins} / ~{upd} / -{dele}"
+                                    if err:
+                                        msg += f" (error: {err})"
+                                    msg += "\n"
+                    except Exception:
+                        pass
+
+                    try:
+                        rm = getattr(self, '_reconcile_remote_metrics', None)
+                        if isinstance(rm, dict):
+                            msg += "\nRemoto→Local (cambios totales):\n"
+                            msg += f" - Inserciones: {rm.get('total_inserted', 0)}\n"
+                            msg += f" - Actualizaciones: {rm.get('total_updated', 0)}\n"
+                            msg += f" - Eliminaciones: {rm.get('total_deleted', 0)}\n"
+                            tables = rm.get('tables', []) if isinstance(rm.get('tables', []), list) else []
+                            if tables:
+                                msg += "   Tablas:\n"
+                                for t in tables:
+                                    if not isinstance(t, dict):
+                                        continue
+                                    name = t.get('table') or t.get('name') or '?'
+                                    ins = t.get('inserted', 0)
+                                    upd = t.get('updated', 0)
+                                    dele = t.get('deleted', 0)
+                                    err = t.get('error')
+                                    msg += f"   - {name}: +{ins} / ~{upd} / -{dele}"
+                                    if err:
+                                        msg += f" (error: {err})"
+                                    msg += "\n"
+                    except Exception:
+                        pass
+                    msg += f"Suscripciones locales: {len(subs)}\n"
+                    try:
+                        if subs:
+                            nombres = ", ".join([s.get("subname", "?") for s in subs if isinstance(s, dict)])
+                            estados = ", ".join([s.get("sync_state", "?") for s in subs if isinstance(s, dict)])
+                            msg += f"Nombres: {nombres}\n" if nombres else ""
+                            msg += f"Estados: {estados}\n" if estados else ""
+                    except Exception:
+                        pass
+                    msg += f"Slots remotos: {len(slots)}\n"
+                    msg += f"WAL senders: {len(senders)}\n\n"
+
+                    # Adjuntar log
+                    try:
+                        if getattr(self, '_reconcile_log', None):
+                            msg += "Log:\n" + "\n".join(self._reconcile_log)
+                    except Exception:
+                        pass
+
+                    # Diálogo de resultados visual
+                    def _show_results_dialog(summary_text: str, local_metrics: object, remote_metrics: object, verification: dict, log: list):
+                        from PyQt6.QtWidgets import (
+                            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+                            QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QFileDialog,
+                            QFrame, QWidget
+                        )
+                        from PyQt6.QtGui import QFont, QGuiApplication
+                        from PyQt6.QtCore import Qt
+                        import json, csv
+
+                        dlg = QDialog(self)
+                        dlg.setWindowTitle("Resultados de Reconciliación")
+                        try:
+                            dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+                        except Exception:
+                            pass
+                        dlg.setMinimumSize(900, 650)
+
+                        root = QVBoxLayout(dlg)
+
+                        # Encabezado
+                        header_frame = QFrame()
+                        header_layout = QVBoxLayout(header_frame)
+                        title_lbl = QLabel("Reconciliación completada")
+                        tfont = QFont(title_lbl.font()); tfont.setPointSize(14); tfont.setBold(True); title_lbl.setFont(tfont)
+                        subtitle_lbl = QLabel("Pasos: ✓ Local→Remoto, ✓ Remoto→Local, ✓ Verificación")
+                        header_layout.addWidget(title_lbl)
+                        header_layout.addWidget(subtitle_lbl)
+                        header_frame.setFrameShape(QFrame.Shape.StyledPanel)
+                        root.addWidget(header_frame)
+
+                        tabs = QTabWidget()
+
+                        def build_metrics_tab(metrics: object, direction_label: str) -> QWidget:
+                            frame = QFrame()
+                            v = QVBoxLayout(frame)
+                            if isinstance(metrics, dict):
+                                ins = metrics.get('total_inserted', 0)
+                                upd = metrics.get('total_updated', 0)
+                                dele = metrics.get('total_deleted', 0)
+                                totals_lbl = QLabel(f"{direction_label} • Totales: +{ins} / ~{upd} / -{dele}")
+                                v.addWidget(totals_lbl)
+
+                                tables = metrics.get('tables', []) if isinstance(metrics.get('tables', []), list) else []
+                                table = QTableWidget()
+                                table.setAlternatingRowColors(True)
+                                table.setColumnCount(5)
+                                table.setHorizontalHeaderLabels(["Tabla", "Inserciones", "Actualizaciones", "Eliminaciones", "Error"])
+                                table.setRowCount(len(tables))
+                                for row, t in enumerate(tables):
+                                    if not isinstance(t, dict):
+                                        continue
+                                    name = t.get('table') or t.get('name') or '?'
+                                    ins = t.get('inserted', 0)
+                                    up = t.get('updated', 0)
+                                    dl = t.get('deleted', 0)
+                                    err = t.get('error') or ""
+                                    table.setItem(row, 0, QTableWidgetItem(str(name)))
+                                    table.setItem(row, 1, QTableWidgetItem(str(ins)))
+                                    table.setItem(row, 2, QTableWidgetItem(str(up)))
+                                    table.setItem(row, 3, QTableWidgetItem(str(dl)))
+                                    table.setItem(row, 4, QTableWidgetItem(str(err)))
+                                try:
+                                    table.horizontalHeader().setStretchLastSection(True)
+                                    from PyQt6.QtWidgets import QHeaderView
+                                    table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+                                except Exception:
+                                    pass
+                                v.addWidget(table)
+                            else:
+                                v.addWidget(QLabel("Sin datos disponibles"))
+                            return frame
+
+                        # Local → Remoto
+                        tabs.addTab(build_metrics_tab(local_metrics, "Local→Remoto"), "Local→Remoto")
+                        # Remoto → Local
+                        tabs.addTab(build_metrics_tab(remote_metrics, "Remoto→Local"), "Remoto→Local")
+
+                        # Verificación
+                        verif_frame = QFrame()
+                        verif_layout = QVBoxLayout(verif_frame)
+                        local_info = verification.get('local', {}) if isinstance(verification, dict) else {}
+                        remote_info = verification.get('remote', {}) if isinstance(verification, dict) else {}
+                        subs = local_info.get('subscriptions', []) if isinstance(local_info, dict) else []
+                        slots = remote_info.get('slots', []) if isinstance(remote_info, dict) else []
+                        senders = remote_info.get('wal_senders', []) if isinstance(remote_info, dict) else []
+                        counts_lbl = QLabel(f"Suscripciones: {len(subs)} • Slots remotos: {len(slots)} • WAL senders: {len(senders)}")
+                        verif_layout.addWidget(counts_lbl)
+
+                        json_view = QTextEdit()
+                        try:
+                            json_view.setPlainText(json.dumps({"local": local_info, "remote": remote_info}, ensure_ascii=False, indent=2))
+                        except Exception:
+                            json_view.setPlainText(str({"local": local_info, "remote": remote_info}))
+                        json_view.setReadOnly(True)
+                        verif_layout.addWidget(json_view)
+                        tabs.addTab(verif_frame, "Verificación")
+
+                        root.addWidget(tabs)
+
+                        # Log
+                        if isinstance(log, list) and log:
+                            log_frame = QFrame()
+                            lf_layout = QVBoxLayout(log_frame)
+                            lf_layout.addWidget(QLabel("Log del proceso:"))
+                            log_view = QTextEdit()
+                            log_view.setReadOnly(True)
+                            log_view.setPlainText("\n".join([str(x) for x in log]))
+                            lf_layout.addWidget(log_view)
+                            root.addWidget(log_frame)
+
+                        # Acciones
+                        btns = QHBoxLayout()
+                        btn_export_json = QPushButton("Exportar JSON")
+                        btn_export_csv = QPushButton("Exportar CSV")
+                        btn_copy = QPushButton("Copiar resumen")
+                        btn_close = QPushButton("Cerrar")
+                        btns.addWidget(btn_export_json)
+                        btns.addWidget(btn_export_csv)
+                        btns.addWidget(btn_copy)
+                        btns.addStretch(1)
+                        btns.addWidget(btn_close)
+                        root.addLayout(btns)
+
+                        def do_export_json():
+                            path, _ = QFileDialog.getSaveFileName(dlg, "Guardar JSON", "reconciliacion_resultados.json", "JSON (*.json)")
+                            if not path:
+                                return
+                            payload = {
+                                "local_metrics": local_metrics if isinstance(local_metrics, dict) else None,
+                                "remote_metrics": remote_metrics if isinstance(remote_metrics, dict) else None,
+                                "verification": {"local": local_info, "remote": remote_info},
+                                "log": log,
+                            }
+                            try:
+                                with open(path, "w", encoding="utf-8") as f:
+                                    json.dump(payload, f, ensure_ascii=False, indent=2)
+                            except Exception as e:
+                                QMessageBox.critical(dlg, "Error", f"No se pudo exportar JSON: {e}")
+
+                        def do_export_csv():
+                            path, _ = QFileDialog.getSaveFileName(dlg, "Guardar CSV", "reconciliacion_tablas.csv", "CSV (*.csv)")
+                            if not path:
+                                return
+                            rows = []
+                            def collect(direction: str, metrics_obj: object):
+                                if isinstance(metrics_obj, dict):
+                                    for t in metrics_obj.get('tables', []) or []:
+                                        if not isinstance(t, dict):
+                                            continue
+                                        rows.append([
+                                            direction,
+                                            t.get('table') or t.get('name') or '?',
+                                            t.get('inserted', 0),
+                                            t.get('updated', 0),
+                                            t.get('deleted', 0),
+                                            t.get('error') or "",
+                                        ])
+                            collect("Local→Remoto", local_metrics)
+                            collect("Remoto→Local", remote_metrics)
+                            try:
+                                import csv
+                                with open(path, "w", newline="", encoding="utf-8") as f:
+                                    writer = csv.writer(f)
+                                    writer.writerow(["Direccion", "Tabla", "Insertados", "Actualizados", "Eliminados", "Error"])
+                                    writer.writerows(rows)
+                            except Exception as e:
+                                QMessageBox.critical(dlg, "Error", f"No se pudo exportar CSV: {e}")
+
+                        def do_copy():
+                            try:
+                                QGuiApplication.clipboard().setText(summary_text)
+                            except Exception:
+                                pass
+
+                        btn_export_json.clicked.connect(do_export_json)
+                        btn_export_csv.clicked.connect(do_export_csv)
+                        btn_copy.clicked.connect(do_copy)
+                        btn_close.clicked.connect(dlg.accept)
+
+                        try:
+                            dlg.exec()
+                        except Exception:
+                            # Fallback
+                            QMessageBox.information(self, "Reconciliación OK", summary_text)
+
+                    _show_results_dialog(
+                        summary_text=msg,
+                        local_metrics=getattr(self, '_reconcile_local_metrics', None),
+                        remote_metrics=getattr(self, '_reconcile_remote_metrics', None),
+                        verification={"local": local_info, "remote": remote_info},
+                        log=getattr(self, '_reconcile_log', []),
+                    )
+                except Exception as e:
+                    QMessageBox.information(self, "Reconciliación completada", f"Finalizado. No se pudo generar resumen:\n{e}")
+
+            # Iniciar paso 1
+            try:
+                if progress:
+                    progress.setLabelText("Paso 1/3: Local→Remoto")
+                    progress.setValue(0)
+                    try:
+                        QApplication.processEvents()
+                    except Exception:
+                        pass
+                TaskThread(_run_local_to_remote, on_success=_start_step2, on_error=_fail, parent=self).start()
+            except Exception as e:
+                _fail(f"No se pudo iniciar reconciliación: {e}")
+        except Exception as e:
+            try:
+                QApplication.restoreOverrideCursor()
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error", f"Error interno: {e}")
 

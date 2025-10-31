@@ -5739,6 +5739,11 @@ class MainWindow(QMainWindow):
             def _guarded_start(thread_self, *args, **kwargs):
                 try:
                     MainWindow._QTHREAD_REGISTRY.add(thread_self)
+                    # Remover automáticamente del registro cuando el hilo termine
+                    try:
+                        thread_self.finished.connect(lambda: MainWindow._QTHREAD_REGISTRY.discard(thread_self))
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 if MainWindow._orig_qthread_start:
@@ -5754,7 +5759,8 @@ class MainWindow(QMainWindow):
             pass
 
     def _shutdown_qthreads_guarded(self):
-        """Cierra de forma segura todos los QThreads registrados para evitar crashes."""
+        """Cierra de forma segura todos los QThreads y hilos Python no demonio."""
+        # 1) Apagar QThreads registrados con intento de interrupción y aborto forzado si necesario
         try:
             for thr in list(MainWindow._QTHREAD_REGISTRY):
                 try:
@@ -5768,9 +5774,37 @@ class MainWindow(QMainWindow):
                         except Exception:
                             pass
                         try:
-                            thr.wait(2000)
+                            thr.wait(3000)
                         except Exception:
                             pass
+                        # Si sigue vivo, forzar terminación para evitar bloqueo en salida
+                        try:
+                            if thr.isRunning():
+                                thr.terminate()
+                                thr.wait(1500)
+                        except Exception:
+                            pass
+                finally:
+                    try:
+                        MainWindow._QTHREAD_REGISTRY.discard(thr)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # 2) Unir hilos Python activos (no demonio) para evitar procesos colgados
+        try:
+            import threading, time
+            deadline = time.time() + 5.0
+            current = threading.current_thread()
+            for th in threading.enumerate():
+                try:
+                    if th is current or getattr(th, "daemon", False):
+                        continue
+                    remaining = max(0.0, deadline - time.time())
+                    if remaining <= 0:
+                        break
+                    th.join(remaining)
                 except Exception:
                     pass
         except Exception:
@@ -6021,6 +6055,28 @@ class MainWindow(QMainWindow):
             
             # Continuar con el cierre normal
             logging.info("Cerrando la aplicación.")
+            # Detener timers de larga ejecución para evitar callbacks posteriores
+            try:
+                if hasattr(self, 'whatsapp_sendall_timer') and getattr(self, 'whatsapp_sendall_timer', None):
+                    try:
+                        self.whatsapp_sendall_timer.stop()
+                        logging.info("Timer de WhatsApp detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, '_timer_r2l') and getattr(self, '_timer_r2l', None):
+                    try:
+                        self._timer_r2l.stop()
+                        logging.info("Timer de Reconciliación R→L detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, '_timer_l2r') and getattr(self, '_timer_l2r', None):
+                    try:
+                        self._timer_l2r.stop()
+                        logging.info("Timer de Reconciliación L→R detenido")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             # Cerrar túnel público (ssh.exe) si estuviera activo
             try:
                 terminate_tunnel_processes()
@@ -6589,7 +6645,7 @@ def main():
                                     spec.loader.exec_module(mod)  # type: ignore
                                 # Ejecutar con gating de 5 minutos
                                 try:
-                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=5, force=False, subscription='gym_sub')
+                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=15, force=False, subscription='gym_sub')
                                 except Exception as e:
                                     logging.warning(f"Fallo R→L in-process: {e}")
                             except Exception as e:
@@ -6651,15 +6707,54 @@ def main():
                             except Exception:
                                 pass
 
+                    # Disparo inicial R→L forzado para drenar pendientes a los 60s
+                    def _run_r2l_initial_once():
+                        def _worker():
+                            try:
+                                try:
+                                    import importlib
+                                    mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
+                                except Exception:
+                                    from importlib.util import spec_from_file_location, module_from_spec
+                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py')
+                                    spec = spec_from_file_location('reconcile_remote_to_local_once', mod_path)
+                                    mod = module_from_spec(spec)  # type: ignore
+                                    spec.loader.exec_module(mod)  # type: ignore
+                                try:
+                                    # Forzar ejecución inicial ignorando umbral
+                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=15, force=True, subscription='gym_sub')
+                                except Exception as e:
+                                    logging.warning(f"Fallo R→L inicial forzado: {e}")
+                            except Exception as e:
+                                try:
+                                    logging.warning(f"No se pudo cargar módulo R→L inicial: {e}")
+                                except Exception:
+                                    pass
+                            finally:
+                                try:
+                                    setattr(window, '_r2l_running', False)
+                                except Exception:
+                                    pass
+                        try:
+                            if getattr(window, '_r2l_running', False):
+                                return
+                            setattr(window, '_r2l_running', True)
+                            threading.Thread(target=_worker, daemon=True).start()
+                        except Exception:
+                            try:
+                                setattr(window, '_r2l_running', False)
+                            except Exception:
+                                pass
+
                     def _start_r2l_timer():
                         try:
                             # Remote→Local cada 5 minutos, con gating interno de threshold
                             r2l = QTimer(window)
-                            r2l.setInterval(2 * 60 * 1000)
+                            r2l.setInterval(15 * 60 * 1000)
                             r2l.timeout.connect(lambda: _run_r2l_inprocess('_r2l_running'))
                             r2l.start()
                             window._timer_r2l = r2l
-                            logging.info("Timer R→L iniciado (cada 5 minutos)")
+                            logging.info("Timer R→L iniciado (cada 15 minutos)")
                         except Exception as e:
                             logging.debug(f"No se pudo iniciar timer R→L: {e}")
 
@@ -6667,17 +6762,25 @@ def main():
                         try:
                             # Local→Remote cada 2 minutos
                             l2r = QTimer(window)
-                            l2r.setInterval(2 * 60 * 1000)
+                            l2r.setInterval(15 * 60 * 1000)
                             l2r.timeout.connect(lambda: _run_l2r_inprocess('_l2r_running'))
                             l2r.start()
                             window._timer_l2r = l2r
-                            logging.info("Timer L→R iniciado (cada 2 minutos)")
+                            logging.info("Timer L→R iniciado (cada 15 minutos)")
                         except Exception as e:
                             logging.debug(f"No se pudo iniciar timer L→R: {e}")
 
                     # Arrancar ambos timers de forma diferida para no bloquear el render inicial
                     QTimer.singleShot(1500, _start_r2l_timer)
                     QTimer.singleShot(1500, _start_l2r_timer)
+
+                    # Programar primer disparo a los 15 segundos para drenar pendientes
+                    try:
+                        QTimer.singleShot(15000, _run_r2l_initial_once)
+                        QTimer.singleShot(15000, lambda: _run_l2r_inprocess('_l2r_running'))
+                        logging.info("Primer disparo de reconciliación R→L y L→R programado a 15s")
+                    except Exception:
+                        pass
 
                     # Detener timers al salir
                     try:

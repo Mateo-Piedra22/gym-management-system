@@ -206,6 +206,13 @@ def fetch_rows_by_pk(local_conn, schema: str, table: str, pk_cols: List[str], pk
 def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], pk_cols: List[str], dry_run: bool = False) -> int:
     if not rows:
         return 0
+    # Evitar insertar usuarios con rol 'dueño' en remoto
+    if table == 'usuarios':
+        original_count = len(rows)
+        rows = [r for r in rows if (r.get('rol') != 'dueño')]
+        omitted = original_count - len(rows)
+        if omitted > 0:
+            print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (inserción remoto)")
     cols = list(rows[0].keys())
     col_idents = [sql.Identifier(c) for c in cols]
     placeholders = [sql.Placeholder() for _ in cols]
@@ -322,6 +329,13 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
     rows = fetch_rows_by_pk(local_conn, schema, table, pk_cols, to_update_keys)
     if not rows:
         return 0
+    # Evitar actualizar usuarios con rol 'dueño' en remoto
+    if table == 'usuarios':
+        original_count = len(rows)
+        rows = [r for r in rows if (r.get('rol') != 'dueño')]
+        omitted = original_count - len(rows)
+        if omitted > 0:
+            print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (update remoto)")
     set_clause = sql.SQL(', ').join(
         sql.SQL("{} = %s").format(sql.Identifier(c)) for c in non_pk_cols
     )
@@ -352,8 +366,20 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
     return updated
 
 
-def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: List[str] | None = None, dry_run: bool = False) -> None:
-    """Ejecuta reconciliación local→remoto una vez, invocable desde la app."""
+def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: List[str] | None = None, dry_run: bool = False) -> dict:
+    """Ejecuta reconciliación local→remoto una vez, invocable desde la app.
+
+    Devuelve un diccionario con métricas por tabla:
+    {
+      'direction': 'local_to_remote',
+      'total_inserted': int,
+      'total_updated': int,
+      'total_deleted': int,
+      'tables': [
+        {'name': 'tabla', 'inserted': int, 'updated': int, 'deleted': int, 'error': Optional[str]}
+      ]
+    }
+    """
     cfg = load_config()
     local_params = build_conn_params('local', cfg)
     remote_params = build_conn_params('remote', cfg)
@@ -380,9 +406,13 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
     except Exception:
         pass
 
-    total_inserted = 0
-    total_updated = 0
-    total_deleted = 0
+    result = {
+        'direction': 'local_to_remote',
+        'total_inserted': 0,
+        'total_updated': 0,
+        'total_deleted': 0,
+        'tables': []
+    }
     try:
         for table in tables_to_process:
             print(f"Procesando {schema}.{table}...")
@@ -392,13 +422,16 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
             local_key_set = set(local_keys)
             remote_key_set = set(remote_keys)
 
+            table_metrics = {'name': table, 'inserted': 0, 'updated': 0, 'deleted': 0, 'error': None}
+
             # Inserciones en remoto: claves presentes en local y faltantes en remoto
             missing_remote = [k for k in local_keys if k not in remote_key_set]
             if missing_remote:
                 rows = fetch_rows_by_pk(local_conn, schema, table, pk_cols, missing_remote)
                 print(f"  Filas a insertar en remoto: {len(rows)}")
                 inserted = insert_rows_remote(remote_conn, schema, table, rows, pk_cols, dry_run=dry_run)
-                total_inserted += inserted
+                result['total_inserted'] += inserted
+                table_metrics['inserted'] = inserted
                 print(f"  Insertadas en remoto: {inserted}")
             else:
                 print("  Sin filas faltantes en remoto.")
@@ -408,7 +441,8 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
             if extra_remote:
                 print(f"  Filas a borrar en remoto: {len(extra_remote)}")
                 deleted = delete_rows_remote(remote_conn, schema, table, pk_cols, extra_remote, dry_run=dry_run)
-                total_deleted += deleted
+                result['total_deleted'] += deleted
+                table_metrics['deleted'] = deleted
                 print(f"  Borradas en remoto: {deleted}")
             else:
                 print("  Sin filas extra en remoto.")
@@ -417,9 +451,12 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
             updated = reconcile_updates_remote(local_conn, remote_conn, schema, table, pk_cols, dry_run=dry_run)
             if updated:
                 print(f"  Filas actualizadas en remoto: {updated}")
-                total_updated += updated
+                result['total_updated'] += updated
+                table_metrics['updated'] = updated
             else:
                 print("  Sin actualizaciones pendientes en remoto.")
+
+            result['tables'].append(table_metrics)
     finally:
         # Asegurar re-habilitar suscripción aunque falle algo
         try:
@@ -434,6 +471,12 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
             remote_conn.close()
         except Exception:
             pass
+    # Imprimir resumen para CLI, pero también devolver métricas para UI
+    try:
+        print(f"Resumen L→R: INSERT={result['total_inserted']} UPDATE={result['total_updated']} DELETE={result['total_deleted']}")
+    except Exception:
+        pass
+    return result
 
     print(f"Listo. Insertadas: {total_inserted}, Actualizadas: {total_updated}, Borradas: {total_deleted}. Use scripts/verify_replication_health.py para validar.")
 

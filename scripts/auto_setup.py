@@ -27,6 +27,19 @@ def log(message):
     """Simple logging function"""
     print(f"[AUTO SETUP] {message}")
 
+def _is_headless_env() -> bool:
+    try:
+        if os.getenv("HEADLESS") == "1":
+            return True
+        if os.getenv("RAILWAY") or os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("PORT"):
+            if sys.platform.startswith("linux") and not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+                return True
+        if sys.platform.startswith("linux") and not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY"):
+            return True
+    except Exception:
+        pass
+    return False
+
 def check_and_install_dependencies():
     """Check and install required dependencies"""
     log("Checking dependencies...")
@@ -199,6 +212,33 @@ def setup_replication():
         log(f"Error setting up replication: {e}")
         return False
 
+def ensure_updated_at_triggers():
+    """Ensure updated_at columns, indexes and triggers in sync tables"""
+    log("Ensuring updated_at triggers...")
+    try:
+        from scripts.ensure_updated_at_triggers import run as ensure_updated_at
+        if _is_headless_env():
+            # Remote-only in container/headless environments
+            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False)
+            log("Updated_at triggers ensured on REMOTE")
+        else:
+            # Local first
+            try:
+                ensure_updated_at(schema='public', tables=None, apply_local=True, apply_remote=False, dry_run=False)
+                log("Updated_at triggers ensured on LOCAL")
+            except Exception as e_loc:
+                log(f"Failed to ensure updated_at on LOCAL: {e_loc}")
+            # Remote then
+            try:
+                ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False)
+                log("Updated_at triggers ensured on REMOTE")
+            except Exception as e_rem:
+                log(f"Failed to ensure updated_at on REMOTE: {e_rem}")
+        return True
+    except Exception as e:
+        log(f"Error ensuring updated_at triggers: {e}")
+        return False
+
 def setup_scheduled_tasks():
     """Setup scheduled tasks"""
     log("Setting up scheduled tasks...")
@@ -238,10 +278,19 @@ def main():
     # Initialize database
     if not initialize_database():
         log("Database initialization failed, continuing anyway...")
+    else:
+        # Ensure updated_at after local DB init
+        ensure_updated_at_triggers()
     
     # Setup replication
     if not setup_replication():
         log("Replication setup failed, continuing anyway...")
+    else:
+        # Ensure updated_at again to cover remote after replication params
+        try:
+            ensure_updated_at_triggers()
+        except Exception:
+            pass
     
     # Setup scheduled tasks
     if not setup_scheduled_tasks():
