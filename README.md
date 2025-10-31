@@ -617,7 +617,7 @@ python build_installer.py --mode onefile
 
 ### ⏱️ Asegurar `updated_at` para reconciliación por timestamp
 - Las rutinas de reconciliación utilizan la columna `updated_at` para decidir qué cambio es más reciente.
-- Por defecto, la tabla `usuarios` ya trae columna, índice y trigger `BEFORE UPDATE` que actualiza `updated_at = NOW()`.
+ - Por defecto, la tabla `usuarios` ya trae columna, índice y trigger `BEFORE INSERT OR UPDATE` que actualiza `updated_at = NOW()`.
 - Para aplicar esta política a todas las tablas incluidas en `config/sync_tables.json`, ejecuta:
 
 ```powershell
@@ -628,7 +628,7 @@ python scripts/ensure_updated_at_triggers.py --apply-local --apply-remote
   - Crea/asegura la función `public.set_updated_at()`.
   - Añade la columna `updated_at TIMESTAMPTZ DEFAULT NOW()` si falta y la inicializa donde esté en `NULL`.
   - Crea el índice `idx_<tabla>_updated_at` si falta.
-  - Crea el trigger `trg_<tabla>_set_updated_at` (`BEFORE UPDATE`) que asigna `NEW.updated_at = NOW()`.
+   - Crea el trigger `trg_<tabla>_set_updated_at` (`BEFORE INSERT OR UPDATE`) que asigna `NEW.updated_at = NOW()`.
   - Aplica en LOCAL y REMOTO (puedes limitar con `--apply-local` o `--apply-remote`).
 
 - Opciones:

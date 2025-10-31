@@ -2061,7 +2061,7 @@ class DBConfigDialog(QDialog):
             cur.execute(
                 """
                 CREATE TRIGGER trg_usuarios_set_updated_at
-                BEFORE UPDATE ON usuarios
+                BEFORE INSERT OR UPDATE ON usuarios
                 FOR EACH ROW EXECUTE FUNCTION usuarios_set_updated_at()
                 """
             )

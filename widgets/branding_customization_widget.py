@@ -2103,16 +2103,40 @@ class BrandingCustomizationWidget(QWidget):
         try:
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            
-
-            
-            # Insertar o actualizar tema
-            cursor.execute("""
-                INSERT INTO custom_themes (name, data, updated_at) ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at
-                VALUES (%s, %s, CURRENT_TIMESTAMP)
-            """, (theme_name, json.dumps(theme_data, ensure_ascii=False)))
-            
-            conn.commit()
+                # Construir JSON de colores desde branding_config si está disponible
+                branding_cfg = None
+                try:
+                    branding_cfg = (theme_data or {}).get('branding_config')
+                except Exception:
+                    branding_cfg = None
+                colores_json = {
+                    'primary_color': (branding_cfg or {}).get('primary_color', '#2c3e50'),
+                    'secondary_color': (branding_cfg or {}).get('secondary_color', '#34495e'),
+                    'accent_color': (branding_cfg or {}).get('accent_color', '#e74c3c'),
+                    'background_color': (branding_cfg or {}).get('background_color', '#ffffff'),
+                    'alt_background_color': (branding_cfg or {}).get('alt_background_color', '#ecf0f1'),
+                    'ui_text_color': (branding_cfg or {}).get('ui_text_color', '#111111'),
+                    'warning_color': (branding_cfg or {}).get('warning_color', '#f39c12'),
+                    'info_color': (branding_cfg or {}).get('info_color', '#3498db')
+                }
+                # Guardar tema: primero intento UPDATE, si no existe hago INSERT
+                cursor.execute(
+                    """
+                    UPDATE custom_themes
+                    SET data = %s, nombre = %s, name = %s, colores = %s
+                    WHERE nombre = %s OR name = %s
+                    """,
+                    (json.dumps(theme_data, ensure_ascii=False), theme_name, theme_name, json.dumps(colores_json, ensure_ascii=False), theme_name, theme_name),
+                )
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        """
+                        INSERT INTO custom_themes (nombre, name, data, colores)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (theme_name, theme_name, json.dumps(theme_data, ensure_ascii=False), json.dumps(colores_json, ensure_ascii=False)),
+                    )
+                conn.commit()
             
         except Exception as e:
             print(f"Error al guardar tema en BD: {e}")
@@ -2124,7 +2148,7 @@ class BrandingCustomizationWidget(QWidget):
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 cursor.execute("""
-                    SELECT name, data FROM custom_themes ORDER BY name
+                    SELECT nombre, data FROM custom_themes ORDER BY nombre
                 """)
                 result = cursor.fetchall()
                 
@@ -2148,8 +2172,8 @@ class BrandingCustomizationWidget(QWidget):
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 cursor.execute("""
-                    SELECT data FROM custom_themes WHERE name = %s
-                """, (theme_name,))
+                    SELECT data FROM custom_themes WHERE nombre = %s OR name = %s
+                """, (theme_name, theme_name))
                 result = cursor.fetchone()
                 
                 if result:
@@ -2167,8 +2191,8 @@ class BrandingCustomizationWidget(QWidget):
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 cursor.execute("""
-                    DELETE FROM custom_themes WHERE name = %s
-                """, (theme_name,))
+                    DELETE FROM custom_themes WHERE nombre = %s OR name = %s
+                """, (theme_name, theme_name))
                 conn.commit()
             
         except Exception as e:
@@ -2192,20 +2216,27 @@ class BrandingCustomizationWidget(QWidget):
         try:
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS scheduling_config (
-                    id SERIAL PRIMARY KEY,
-                    enabled BOOLEAN DEFAULT 0,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS scheduling_config (
+                        id SERIAL PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT 0,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                    """
                 )
-            """)
-            conn.commit()
-            
-            cursor.execute("""
-                INSERT INTO scheduling_config (id, enabled, updated_at) ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = EXCLUDED.updated_at
-                VALUES (1, %s, CURRENT_TIMESTAMP)
-            """, (enabled,))
-            conn.commit()
+                conn.commit()
+
+                # Upsert del estado; el trigger de updated_at se encarga del timestamp
+                cursor.execute(
+                    """
+                    INSERT INTO scheduling_config (id, enabled)
+                    VALUES (1, %s)
+                    ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled
+                    """,
+                    (enabled,),
+                )
+                conn.commit()
             
         except Exception as e:
             print(f"Error al guardar configuración de programación: {e}")

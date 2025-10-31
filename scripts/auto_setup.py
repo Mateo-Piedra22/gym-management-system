@@ -48,7 +48,7 @@ def check_and_install_dependencies():
     requirements_path = PROJECT_ROOT / "requirements.txt"
     if not requirements_path.exists():
         log("Requirements file not found, skipping dependency check")
-        return
+        return True
     
     try:
         # Try to import key packages to see if they're installed
@@ -56,7 +56,7 @@ def check_and_install_dependencies():
         import psycopg2
         import reportlab
         log("Core dependencies already installed")
-        return
+        return True
     except ImportError:
         pass
     
@@ -219,18 +219,18 @@ def ensure_updated_at_triggers():
         from scripts.ensure_updated_at_triggers import run as ensure_updated_at
         if _is_headless_env():
             # Remote-only in container/headless environments
-            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False)
+            ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False, all_tables=True)
             log("Updated_at triggers ensured on REMOTE")
         else:
             # Local first
             try:
-                ensure_updated_at(schema='public', tables=None, apply_local=True, apply_remote=False, dry_run=False)
+                ensure_updated_at(schema='public', tables=None, apply_local=True, apply_remote=False, dry_run=False, all_tables=True)
                 log("Updated_at triggers ensured on LOCAL")
             except Exception as e_loc:
                 log(f"Failed to ensure updated_at on LOCAL: {e_loc}")
             # Remote then
             try:
-                ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False)
+                ensure_updated_at(schema='public', tables=None, apply_local=False, apply_remote=True, dry_run=False, all_tables=True)
                 log("Updated_at triggers ensured on REMOTE")
             except Exception as e_rem:
                 log(f"Failed to ensure updated_at on REMOTE: {e_rem}")

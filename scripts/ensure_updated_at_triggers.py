@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Asegura la columna `updated_at` (TIMESTAMPTZ), su índice y un trigger BEFORE UPDATE
-en todas las tablas incluidas en `config/sync_tables.json`, tanto en LOCAL como en REMOTO.
+Asegura la columna `updated_at` (TIMESTAMPTZ), su índice y un trigger BEFORE INSERT/UPDATE
+en tablas objetivo, tanto en LOCAL como en REMOTO.
+
+Modos soportados:
+- Por defecto: usa `config/sync_tables.json` para obtener la lista.
+- `--tables`: lista explícita de tablas.
+- `--all-tables`: enumera todas las tablas BASE del esquema indicado (p.ej. `public`).
 
 Motivación:
 - Los scripts de reconciliación usan `updated_at` para resolver conflictos (el más reciente gana).
@@ -100,6 +105,22 @@ def _load_tables() -> List[str]:
     return result
 
 
+def _enumerate_all_tables(conn, schema: str) -> List[str]:
+    """Enumera todas las tablas BASE del esquema dado, ordenadas alfabéticamente."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+            """,
+            (schema,),
+        )
+        rows = cur.fetchall() or []
+        return [r[0] for r in rows]
+
+
 def _table_exists(conn, schema: str, table: str) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass(%s)", (f"{schema}.{table}",))
@@ -153,14 +174,24 @@ def _ensure_updated_at(conn, schema: str, table: str, dry_run: bool = False) -> 
                     sql.Identifier(schema), sql.Identifier(table)
                 ))
                 applied_actions.append("added column updated_at")
-        # Inicializar valores nulos
+        # Inicializar valores nulos (manejo especial para tablas con restricciones de actualización)
         if dry_run:
-            applied_actions.append("UPDATE ... SET updated_at = NOW() WHERE updated_at IS NULL")
+            applied_actions.append("UPDATE ... SET updated_at = NOW() WHERE updated_at IS NULL (con excepciones conocidas)")
         else:
-            cur.execute(sql.SQL("UPDATE {}.{} SET updated_at = NOW() WHERE updated_at IS NULL").format(
-                sql.Identifier(schema), sql.Identifier(table)
-            ))
-            applied_actions.append("initialized nulls")
+            try:
+                cur.execute(sql.SQL("UPDATE {}.{} SET updated_at = NOW() WHERE updated_at IS NULL").format(
+                    sql.Identifier(schema), sql.Identifier(table)
+                ))
+                applied_actions.append("initialized nulls")
+            except Exception as e:
+                # Caso conocido: usuarios con rol 'dueño' son inafectables
+                if table == 'usuarios':
+                    cur.execute(sql.SQL("UPDATE {}.{} SET updated_at = NOW() WHERE rol IS DISTINCT FROM 'dueño' AND updated_at IS NULL").format(
+                        sql.Identifier(schema), sql.Identifier(table)
+                    ))
+                    applied_actions.append("initialized nulls (excepto rol=dueño)")
+                else:
+                    raise
         # Índice
         if dry_run:
             applied_actions.append("CREATE INDEX IF NOT EXISTS idx_<table>_updated_at ON <table>(updated_at)")
@@ -169,19 +200,19 @@ def _ensure_updated_at(conn, schema: str, table: str, dry_run: bool = False) -> 
                 sql.Identifier(f"idx_{table}_updated_at"), sql.Identifier(schema), sql.Identifier(table)
             ))
             applied_actions.append("index ensured")
-        # Trigger
+        # Trigger (INSERT y UPDATE)
         if dry_run:
-            applied_actions.append("CREATE TRIGGER trg_<table>_set_updated_at BEFORE UPDATE EXECUTE FUNCTION public.set_updated_at()")
+            applied_actions.append("CREATE TRIGGER trg_<table>_set_updated_at BEFORE INSERT OR UPDATE EXECUTE FUNCTION public.set_updated_at()")
         else:
             cur.execute(sql.SQL("DROP TRIGGER IF EXISTS {} ON {}.{}").format(
                 sql.Identifier(f"trg_{table}_set_updated_at"), sql.Identifier(schema), sql.Identifier(table)
             ))
             cur.execute(sql.SQL(
-                "CREATE TRIGGER {} BEFORE UPDATE ON {}.{} FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
+                "CREATE TRIGGER {} BEFORE INSERT OR UPDATE ON {}.{} FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()"
             ).format(
                 sql.Identifier(f"trg_{table}_set_updated_at"), sql.Identifier(schema), sql.Identifier(table)
             ))
-            applied_actions.append("trigger ensured")
+            applied_actions.append("trigger ensured (insert+update)")
 
     if not dry_run:
         conn.commit()
@@ -189,15 +220,11 @@ def _ensure_updated_at(conn, schema: str, table: str, dry_run: bool = False) -> 
     return True, msg
 
 
-def run(schema: str = 'public', tables: List[str] | None = None, apply_local: bool = True, apply_remote: bool = True, dry_run: bool = False):
+def run(schema: str = 'public', tables: List[str] | None = None, apply_local: bool = True, apply_remote: bool = True, dry_run: bool = False, all_tables: bool = False):
     if psycopg2 is None:
         raise RuntimeError("psycopg2 no está disponible; instala requisitos o ejecuta en entorno con PostgreSQL client")
 
     cfg = _load_json(CONFIG_JSON) or {}
-    all_tables = tables or _load_tables()
-    if not all_tables:
-        print("No se encontraron tablas en config/sync_tables.json y no se pasaron por CLI; sin trabajo.")
-        return
 
     local_conn = None
     remote_conn = None
@@ -211,7 +238,25 @@ def run(schema: str = 'public', tables: List[str] | None = None, apply_local: bo
             remote_conn = _connect(_build_conn_params('remote', cfg))
             _ensure_function(remote_conn)
 
-        for t in all_tables:
+        # Determinar lista de tablas según parámetros
+        target_tables: List[str] = []
+        if tables:
+            target_tables = tables
+        elif all_tables:
+            # Preferir enumeración desde LOCAL si disponible; si no, REMOTO
+            ref_conn = local_conn or remote_conn
+            if not ref_conn:
+                print("No hay conexión para enumerar todas las tablas; especifique --apply-local o --apply-remote.")
+                return
+            target_tables = _enumerate_all_tables(ref_conn, schema)
+        else:
+            target_tables = _load_tables()
+
+        if not target_tables:
+            print("No se encontraron tablas objetivo; revise sync_tables.json o use --all-tables/--tables.")
+            return
+
+        for t in target_tables:
             if apply_local and local_conn:
                 try:
                     ok, msg = _ensure_updated_at(local_conn, schema, t, dry_run=dry_run)
@@ -253,13 +298,14 @@ def main():
     parser.add_argument('--apply-local', action='store_true', help='Aplicar en base LOCAL')
     parser.add_argument('--apply-remote', action='store_true', help='Aplicar en base REMOTA')
     parser.add_argument('--dry-run', action='store_true', help='No cambia nada; sólo imprime acciones')
+    parser.add_argument('--all-tables', action='store_true', help='Enumera todas las tablas BASE del esquema y aplica en todas')
     args = parser.parse_args()
 
     # Por defecto, si no se especifica nada, aplicar en ambas
     apply_local = args.apply_local or (not args.apply_local and not args.apply_remote)
     apply_remote = args.apply_remote or (not args.apply_local and not args.apply_remote)
 
-    run(schema=args.schema, tables=args.tables, apply_local=apply_local, apply_remote=apply_remote, dry_run=args.dry_run)
+    run(schema=args.schema, tables=args.tables, apply_local=apply_local, apply_remote=apply_remote, dry_run=args.dry_run, all_tables=args.all_tables)
 
 
 if __name__ == '__main__':

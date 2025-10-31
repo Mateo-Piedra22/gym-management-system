@@ -2295,12 +2295,70 @@ class DatabaseManager:
                         cuotas_vencidas INTEGER DEFAULT 0
                     )""")
 
+                    # Bypass seguro: desactivar temporalmente protecciones del rol 'dueño'
+                    # para poder verificar e insertar el usuario dueño si falta.
+                    try:
+                        cursor.execute("ALTER TABLE usuarios DISABLE ROW LEVEL SECURITY")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE usuarios NO FORCE ROW LEVEL SECURITY")
+                    except Exception:
+                        pass
+                    # Eliminar políticas/funciones/triggers si existían de ejecuciones previas
+                    try:
+                        cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd()")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete()")
+                    except Exception:
+                        pass
+
                     # Usuario dueño por defecto antes de las protecciones
                     cursor.execute("SELECT id FROM usuarios WHERE rol = 'dueño'")
                     if cursor.fetchone() is None:
-                        cursor.execute("""INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota) 
-                                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                                     ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar"))
+                        cursor.execute(
+                            """
+                            INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (dni) DO NOTHING
+                            """,
+                            ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
+                        )
+                    # Determinar ID del dueño para seeds posteriores
+                    owner_id = None
+                    try:
+                        cursor.execute("SELECT id FROM usuarios WHERE rol = 'dueño' ORDER BY id LIMIT 1")
+                        _row = cursor.fetchone()
+                        if _row and _row[0] is not None:
+                            owner_id = int(_row[0])
+                    except Exception:
+                        owner_id = None
 
                     # Proteger completamente a los usuarios con rol 'dueño':
                     # - No se pueden consultar (SELECT), modificar (UPDATE), borrar (DELETE) ni insertar (INSERT)
@@ -3286,21 +3344,31 @@ class DatabaseManager:
                     # Usuario dueño por defecto ya creado antes de aplicar protecciones (ver sección anterior)
                     
                     # Insertar estados básicos si no existen (después de crear el usuario dueño)
-                    cursor.execute("""
-                        INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
-                        SELECT 1, 1, 'activo', 'Estado activo por defecto', true
-                        WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 1)
-                    """)
-                    cursor.execute("""
-                        INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
-                        SELECT 2, 1, 'inactivo', 'Estado inactivo por defecto', true
-                        WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 2)
-                    """)
-                    cursor.execute("""
-                        INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
-                        SELECT 3, 1, 'suspendido', 'Estado suspendido por defecto', true
-                        WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 3)
-                    """)
+                    if owner_id is not None:
+                        cursor.execute(
+                            """
+                            INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
+                            SELECT 1, %s, 'activo', 'Estado activo por defecto', true
+                            WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 1)
+                            """,
+                            (owner_id,)
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
+                            SELECT 2, %s, 'inactivo', 'Estado inactivo por defecto', true
+                            WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 2)
+                            """,
+                            (owner_id,)
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO usuario_estados (id, usuario_id, estado, descripcion, activo) 
+                            SELECT 3, %s, 'suspendido', 'Estado suspendido por defecto', true
+                            WHERE NOT EXISTS (SELECT 1 FROM usuario_estados WHERE id = 3)
+                            """,
+                            (owner_id,)
+                        )
                     
                     # Migrar datos por defecto
                     self._migrar_tipos_cuota_existentes(cursor)
