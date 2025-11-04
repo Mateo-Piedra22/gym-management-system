@@ -1440,10 +1440,50 @@ class PaymentsTabWidget(QWidget):
         
         self.selected_user = user_data
         if self.selected_user:
+            # Habilitar/inhabilitar según rol y preparar vista
             self.register_button.setEnabled(True)
+            try:
+                if getattr(self.selected_user, 'rol', None) == 'dueño':
+                    self.register_button.setEnabled(False)
+                    self.register_button.setToolTip("Bloqueado para usuario Dueño")
+                else:
+                    self.register_button.setToolTip("")
+            except Exception:
+                pass
             self.pdf_button.setEnabled(True)
             self.excel_button.setEnabled(True)
-            self.update_current_view()
+
+            # Recalcular estado del usuario de forma asíncrona y refrescar objeto
+            try:
+                def _recalc_and_fetch():
+                    try:
+                        # Recalcular estado (fecha_proximo_vencimiento, cuotas_vencidas, activo, etc.)
+                        self.payment_manager.recalcular_estado_usuario(self.selected_user.id)
+                    except Exception:
+                        # Continuar incluso si el recalculo falla para no bloquear la UI
+                        pass
+                    # Obtener objeto de usuario fresco desde DB
+                    return self.db_manager.obtener_usuario_por_id(self.selected_user.id)
+
+                def _on_done(fresh_user):
+                    try:
+                        if fresh_user:
+                            # Actualizar el itemData del combo con el usuario fresco
+                            self.user_combobox.setItemData(index, fresh_user)
+                            self.selected_user = fresh_user
+                    except Exception:
+                        pass
+                    # Actualizar vista con datos actuales (frescos o anteriores)
+                    self.update_current_view()
+
+                def _on_error(err):
+                    logging.warning(f"Error al recalcular/recargar usuario: {err}")
+                    self.update_current_view()
+
+                TaskThread(_recalc_and_fetch, on_success=_on_done, on_error=_on_error, parent=self).start()
+            except Exception:
+                # Fallback inmediato si el hilo no pudo inicializarse
+                self.update_current_view()
     
     def update_current_view(self):
         """Actualiza la vista actual con datos del usuario seleccionado"""
@@ -1454,6 +1494,41 @@ class PaymentsTabWidget(QWidget):
         self.update_payment_history()
         self.update_payment_status()
         self.load_defaults_for_user()
+
+    def showEvent(self, event):
+        """Recalcula estado del usuario al mostrar la pestaña para mantener vencimientos al día."""
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+
+        try:
+            if self.selected_user:
+                current_index = self.user_combobox.currentIndex()
+
+                def _recalc_and_fetch():
+                    try:
+                        self.payment_manager.recalcular_estado_usuario(self.selected_user.id)
+                    except Exception:
+                        pass
+                    return self.db_manager.obtener_usuario_por_id(self.selected_user.id)
+
+                def _on_done(fresh_user):
+                    try:
+                        if fresh_user and current_index >= 0:
+                            self.user_combobox.setItemData(current_index, fresh_user)
+                            self.selected_user = fresh_user
+                    except Exception:
+                        pass
+                    self.update_current_view()
+
+                def _on_error(err):
+                    logging.warning(f"Error al recalcular al mostrar pestaña de pagos: {err}")
+                    self.update_current_view()
+
+                TaskThread(_recalc_and_fetch, on_success=_on_done, on_error=_on_error, parent=self).start()
+        except Exception as e:
+            logging.debug(f"showEvent en PaymentsTabWidget no pudo ejecutar recalculo: {e}")
     
     def update_payment_status(self):
         """Actualiza el estado del pago del usuario"""
@@ -2292,27 +2367,13 @@ class PaymentsTabWidget(QWidget):
         self.user_combobox.lineEdit().setText("")
     
     def set_user_for_payment(self, user_id: int):
-        """Establece un usuario específico para pago"""
+        """Establece un usuario específico para pago sin sobrescribir selected_user manualmente."""
         self.load_defaults()
         for i in range(self.user_combobox.count()):
             user_data = self.user_combobox.itemData(i)
             if user_data and user_data.id == user_id:
+                # Delegar actualización de selected_user y vista al slot on_user_selected
                 self.user_combobox.setCurrentIndex(i)
-                self.selected_user = user_data
-                self.load_defaults_for_user()
-                self.activate_monthly_quota_concept()
-                # Si es 'dueño', deshabilitar acciones de registro y avisar
-                try:
-                    if getattr(self.selected_user, 'rol', None) == 'dueño':
-                        self.register_button.setEnabled(False)
-                        self.register_button.setToolTip("Bloqueado para usuario Dueño")
-                    else:
-                        self.register_button.setToolTip("")
-                    
-                    # Recalcular totales para asegurar coherencia del botón
-                    self.calculate_totals()
-                except Exception:
-                    pass
                 return
     
     def activate_monthly_quota_concept(self):

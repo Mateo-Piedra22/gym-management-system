@@ -95,6 +95,8 @@ class SyncService(QObject):
         self._upload_running = False
         self._upload_lock = threading.Lock()
         self._last_upload_ts: Optional[float] = None
+        # Rastrear hilos en background para parada ordenada
+        self._bg_threads: list[threading.Thread] = []
 
     def start(self):
         """Inicia el polling de la cola de operaciones."""
@@ -138,7 +140,19 @@ class SyncService(QObject):
             # Detener outbox poller si estaba corriendo
             try:
                 if self._outbox_poller:
+                    # Señalar parada y unir brevemente su hilo interno
                     self._outbox_poller.stop()  # type: ignore
+                    try:
+                        th = getattr(self._outbox_poller, '_thread', None)
+                        if th and th.is_alive():
+                            th.join(1.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Intentar unir hilos de background rápidamente
+            try:
+                self.wait_for_bg_threads(timeout_s=1.0)
             except Exception:
                 pass
         finally:
@@ -194,6 +208,10 @@ class SyncService(QObject):
         th = threading.Thread(target=_runner, name="SyncUploaderFlush", daemon=True)
         try:
             th.start()
+            try:
+                self._bg_threads.append(th)
+            except Exception:
+                pass
         except Exception:
             with self._upload_lock:
                 self._upload_running = False
@@ -246,9 +264,39 @@ class SyncService(QObject):
                     pass
             try:
                 # Programar en el hilo de UI el arranque de un hilo real de trabajo
-                QTimer.singleShot(int(delay_ms or 0), lambda: threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True).start())
+                def _start_thread():
+                    th = threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True)
+                    try:
+                        th.start()
+                        try:
+                            self._bg_threads.append(th)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                QTimer.singleShot(int(delay_ms or 0), _start_thread)
             except Exception:
                 # Fallback: lanzar directamente en hilo
-                threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True).start()
+                th = threading.Thread(target=_run, name="OutboxFlushOnce", daemon=True)
+                try:
+                    th.start()
+                    try:
+                        self._bg_threads.append(th)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def wait_for_bg_threads(self, timeout_s: float = 1.0) -> None:
+        """Espera brevemente a que terminen hilos en background para evitar cuelgues."""
+        try:
+            for th in list(getattr(self, '_bg_threads', [])):
+                try:
+                    if th and th.is_alive():
+                        th.join(timeout_s)
+                except Exception:
+                    pass
         except Exception:
             pass

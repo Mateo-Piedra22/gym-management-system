@@ -146,22 +146,54 @@ END $$;
 CREATE OR REPLACE FUNCTION public.ensure_logical_fields()
 RETURNS TRIGGER AS $$
 DECLARE v_uuid UUID;
+DECLARE v_hash TEXT;
 BEGIN
-  IF NEW.last_op_id IS NULL THEN
-    IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
-      EXECUTE 'SELECT gen_random_uuid()' INTO v_uuid;
-      NEW.last_op_id := v_uuid;
-    ELSIF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'uuid-ossp') THEN
-      EXECUTE 'SELECT uuid_generate_v4()' INTO v_uuid;
-      NEW.last_op_id := v_uuid;
-    ELSE
-      EXECUTE 'SELECT md5(random()::text || clock_timestamp()::text)::uuid' INTO v_uuid;
-      NEW.last_op_id := v_uuid;
+  IF TG_OP = 'INSERT' THEN
+    -- Asignar siempre en inserciones si faltan/invalidos
+    IF NEW.last_op_id IS NULL THEN
+      IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
+        EXECUTE 'SELECT gen_random_uuid()' INTO v_uuid;
+        NEW.last_op_id := v_uuid;
+      ELSIF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'uuid-ossp') THEN
+        EXECUTE 'SELECT uuid_generate_v4()' INTO v_uuid;
+        NEW.last_op_id := v_uuid;
+      ELSE
+        EXECUTE 'SELECT md5(random()::text || clock_timestamp()::text)' INTO v_hash;
+        NEW.last_op_id := (
+          substring(v_hash from 1 for 8) || '-' ||
+          substring(v_hash from 9 for 4) || '-' ||
+          substring(v_hash from 13 for 4) || '-' ||
+          substring(v_hash from 17 for 4) || '-' ||
+          substring(v_hash from 21 for 12)
+        )::uuid;
+      END IF;
     END IF;
-  END IF;
-
-  IF NEW.logical_ts IS NULL OR NEW.logical_ts <= 0 THEN
-    NEW.logical_ts := nextval('webapp_logical_ts_seq');
+    IF NEW.logical_ts IS NULL OR NEW.logical_ts <= 0 THEN
+      NEW.logical_ts := nextval('webapp_logical_ts_seq');
+    END IF;
+  ELSE
+    -- UPDATE: incrementar versión si no se proveen explícitamente valores
+    IF NEW.last_op_id IS NULL OR NEW.last_op_id = OLD.last_op_id THEN
+      IF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
+        EXECUTE 'SELECT gen_random_uuid()' INTO v_uuid;
+        NEW.last_op_id := v_uuid;
+      ELSIF EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'uuid-ossp') THEN
+        EXECUTE 'SELECT uuid_generate_v4()' INTO v_uuid;
+        NEW.last_op_id := v_uuid;
+      ELSE
+        EXECUTE 'SELECT md5(random()::text || clock_timestamp()::text)' INTO v_hash;
+        NEW.last_op_id := (
+          substring(v_hash from 1 for 8) || '-' ||
+          substring(v_hash from 9 for 4) || '-' ||
+          substring(v_hash from 13 for 4) || '-' ||
+          substring(v_hash from 17 for 4) || '-' ||
+          substring(v_hash from 21 for 12)
+        )::uuid;
+      END IF;
+    END IF;
+    IF NEW.logical_ts IS NULL OR NEW.logical_ts <= COALESCE(OLD.logical_ts, 0) THEN
+      NEW.logical_ts := nextval('webapp_logical_ts_seq');
+    END IF;
   END IF;
   RETURN NEW;
 END;

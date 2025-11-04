@@ -2740,20 +2740,29 @@ class BrandingCustomizationWidget(QWidget):
         try:
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Verificar si la tabla existe para evitar errores
+                try:
+                    cursor.execute("SELECT to_regclass('public.theme_events') AS t")
+                    reg = cursor.fetchone()
+                    if not reg or not reg.get('t'):
+                        return None
+                except Exception:
+                    return None
                 cursor.execute("""
-                    SELECT id, name, theme_name, start_date, end_date, is_active
+                    SELECT id, evento, theme_id, fecha_inicio, fecha_fin, descripcion, activo
                     FROM theme_events WHERE id = %s
                 """, (event_id,))
                 result = cursor.fetchone()
                 
                 if result:
                     return {
-                        'id': result[0],
-                        'name': result[1],
-                        'theme_name': result[2],
-                        'start_date': result[3],
-                        'end_date': result[4],
-                        'active': result[5]
+                        'id': result['id'],
+                        'name': result['evento'],
+                        'theme_id': result['theme_id'],
+                        'start_date': result['fecha_inicio'],
+                        'end_date': result['fecha_fin'],
+                        'description': result.get('descripcion'),
+                        'active': result['activo']
                     }
                 
                 return None
@@ -2761,12 +2770,20 @@ class BrandingCustomizationWidget(QWidget):
         except Exception as e:
             print(f"Error al obtener evento: {e}")
             return None
-    
+
     def _update_event_in_db(self, event_data):
         """Actualiza un evento en la base de datos"""
         try:
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Verificar existencia de la tabla
+                try:
+                    cursor.execute("SELECT to_regclass('public.theme_events') AS t")
+                    reg = cursor.fetchone()
+                    if not reg or not reg.get('t'):
+                        return False
+                except Exception:
+                    return False
                 cursor.execute("""
                     UPDATE theme_events 
                     SET evento = %s, theme_id = %s, fecha_inicio = %s, fecha_fin = %s, descripcion = %s
@@ -2780,24 +2797,34 @@ class BrandingCustomizationWidget(QWidget):
                     event_data['id']
                 ))
                 conn.commit()
+                return True
             
         except Exception as e:
             print(f"Error al actualizar evento: {e}")
-            raise
-    
+            return False
+
     def _delete_event_from_db(self, event_id):
         """Elimina un evento de la base de datos"""
         try:
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Verificar existencia de la tabla
+                try:
+                    cursor.execute("SELECT to_regclass('public.theme_events') AS t")
+                    reg = cursor.fetchone()
+                    if not reg or not reg.get('t'):
+                        return False
+                except Exception:
+                    return False
                 cursor.execute("""
                     UPDATE theme_events SET activo = false WHERE id = %s
                 """, (event_id,))
                 conn.commit()
+                return True
             
         except Exception as e:
             print(f"Error al eliminar evento: {e}")
-            raise
+            return False
     
     # Métodos para personalización avanzada
     def on_spacing_changed(self, value):

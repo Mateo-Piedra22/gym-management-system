@@ -665,7 +665,18 @@ Notas:
   - Cambiar horario: `schtasks /Change /TN "GymMS_Reconcile_LocalToRemote" /ST 03:10`
 - Notas:
   - Los wrappers usan PowerShell con ruta absoluta y `PYTHONIOENCODING=utf-8` para evitar errores de codificación.
+  - Los wrappers implementan rotación de logs cuando superan ~10MB y escriben eventos en `backups/job_status.jsonl` (`event=skipped` cuando hay gate o conectividad remota ausente, `event=finished` al finalizar).
+  - Anti-reentradas (gate): `cleanup_retention` 30 min, `backup` 120 min. El uploader y reconciliaciones incluyen chequeos adicionales (p. ej. conectividad remota para reconciliaciones) y registro JSONL.
   - Por defecto corren en modo "Interactivo" del usuario actual. Para ejecutar sin sesión iniciada, recrea las tareas con `/RU` y `/RP`.
+
+#### Tareas semanales adicionales
+- `GymMS_OutboxFlushWeekly` (domingos 01:15): ejecuta `scripts/run_outbox_flush_once.ps1` para vaciar el outbox de forma controlada.
+- `GymMS_ReplicationHealthWeekly` (domingos 00:45): ejecuta `scripts/run_replication_health_check.ps1` y registra `replication_health.log`.
+- `GymMS_PublicationVerifyWeekly` (domingos 00:30): ejecuta `scripts/run_publication_verification.ps1` para revisar opciones de publicación remota.
+
+Para ajustar o verificar:
+- Ejecutar manualmente: `schtasks /Run /TN "GymMS_OutboxFlushWeekly"`, `schtasks /Run /TN "GymMS_ReplicationHealthWeekly"`, `schtasks /Run /TN "GymMS_PublicationVerifyWeekly"`.
+- Consultar detalle: `schtasks /Query /TN "GymMS_OutboxFlushWeekly" /V /FO LIST` (equivalente para las otras).
 
 ### Deprecated
 - `scripts/ensure_updated_at_triggers.py` y `scripts/test_updated_at_verification.py` quedan obsoletos tras la migración lógica.

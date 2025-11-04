@@ -146,6 +146,7 @@ DECLARE
   v_tx bigint := txid_current();
   v_data jsonb;
   v_pk jsonb := '{}'::jsonb;
+  v_last_id text;
   pk_cols text[];
   rec_new jsonb;
   rec_old jsonb;
@@ -162,6 +163,7 @@ BEGIN
   IF v_op = 'INSERT' THEN
     rec_new := to_jsonb(NEW);
     v_data := rec_new;
+    v_last_id := COALESCE(rec_new ->> 'last_op_id', NULL);
     IF pk_cols IS NOT NULL THEN
       v_pk := '{}'::jsonb;
       FOREACH key IN ARRAY pk_cols LOOP
@@ -179,6 +181,7 @@ BEGIN
         END IF;
       END IF;
     END LOOP;
+    v_last_id := COALESCE(rec_new ->> 'last_op_id', rec_old ->> 'last_op_id');
     IF pk_cols IS NOT NULL THEN
       v_pk := '{}'::jsonb;
       FOREACH key IN ARRAY pk_cols LOOP
@@ -197,12 +200,13 @@ BEGIN
       END LOOP;
     END IF;
     v_data := NULL;
+    v_last_id := COALESCE(rec_old ->> 'last_op_id', NULL);
   ELSE
     RETURN NULL;
   END IF;
 
-  -- Clave de deduplicación estable por transacción + PK
-  dedup := md5( (v_schema || '.' || v_table || ':' || v_op || ':' || COALESCE(v_pk::text, '{}') || ':' || v_tx::text) );
+  -- Clave de deduplicación estable preferente por last_op_id + PK; fallback a txid
+  dedup := md5( (v_schema || '.' || v_table || ':' || v_op || ':' || COALESCE(v_pk::text, '{}') || ':' || COALESCE(v_last_id, v_tx::text)) );
 
   INSERT INTO public.sync_outbox(schema_name, table_name, op, pk, data, dedup_key, txid)
   VALUES (v_schema, v_table, v_op, COALESCE(v_pk, '{}'::jsonb), v_data, dedup, v_tx)
@@ -255,32 +259,95 @@ def _connect_local():
     return _connect(params)
 
 
+def _ensure_required_table(cur, schema: str, table: str) -> None:
+    """Crea tablas críticas si faltan, con esquema mínimo usado por la app."""
+    if table == 'professor_availability':
+        ddl = f"""
+        CREATE TABLE IF NOT EXISTS {schema}.professor_availability (
+            id SERIAL PRIMARY KEY,
+            profesor_id INTEGER NOT NULL REFERENCES {schema}.profesores(id) ON DELETE CASCADE,
+            date DATE NOT NULL,
+            start_time TIME NOT NULL,
+            end_time TIME NOT NULL,
+            status VARCHAR(50) NOT NULL,
+            notes TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(profesor_id, date)
+        );
+        """
+        cur.execute(ddl)
+    elif table == 'theme_events':
+        ddl = f"""
+        CREATE TABLE IF NOT EXISTS {schema}.theme_events (
+            id SERIAL PRIMARY KEY,
+            evento TEXT NOT NULL,
+            theme_id INTEGER NOT NULL,
+            fecha_inicio DATE NOT NULL,
+            fecha_fin DATE NOT NULL,
+            descripcion TEXT,
+            activo BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        """
+        cur.execute(ddl)
+
+
 def _install_outbox_triggers(conn, uploads: list, schema: str = 'public') -> int:
     count = 0
-    cur = conn.cursor()
-    # Crear tabla e índices
-    cur.execute(DDL_OUTBOX)
-    # Crear función
-    cur.execute(FN_CAPTURE)
-    # Instalar triggers por tabla
-    for t in uploads:
-        if not isinstance(t, str) or not t.strip():
-            continue
-        tname = t.strip()
-        # Saltar si la tabla no existe
-        cur.execute("SELECT to_regclass(%s)", (f"{schema}.{tname}",))
-        reg = cur.fetchone()
-        if not reg or reg[0] is None:
-            logging.warning(f"Tabla no encontrada: {schema}.{tname}, se omite")
-            continue
-        for op, tmpl in TRIGGER_TEMPLATES.items():
-            ddl = tmpl.format(ident_schema=schema, ident_table=tname)
+    # Ejecutar DDL en autocommit para minimizar bloqueos y evitar abortos de transacción
+    prev_autocommit = getattr(conn, 'autocommit', False)
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        # Timeouts defensivos para evitar deadlocks/largos bloqueos
+        try:
+            cur.execute("SET lock_timeout = '1500ms'")
+            cur.execute("SET statement_timeout = '5000ms'")
+        except Exception:
+            pass
+        # Crear tabla e índices de outbox y función de captura
+        cur.execute(DDL_OUTBOX)
+        cur.execute(FN_CAPTURE)
+        # Instalar triggers por tabla
+        for t in uploads:
+            if not isinstance(t, str) or not t.strip():
+                continue
+            tname = t.strip()
+            # Crear tablas críticas si faltan (evita 'tabla no encontrada')
             try:
-                cur.execute(ddl)
-            except Exception as te:
-                logging.warning(f"No se pudo instalar trigger {op} en {schema}.{tname}: {te}")
-        count += 1
-    conn.commit()
+                cur.execute("SELECT to_regclass(%s)", (f"{schema}.{tname}",))
+                reg = cur.fetchone()
+            except Exception:
+                reg = None
+            if not reg or reg[0] is None:
+                try:
+                    _ensure_required_table(cur, schema, tname)
+                    # Revalidar existencia
+                    cur.execute("SELECT to_regclass(%s)", (f"{schema}.{tname}",))
+                    reg2 = cur.fetchone()
+                    if not reg2 or reg2[0] is None:
+                        logging.warning(f"Tabla no encontrada: {schema}.{tname}, se omite")
+                        continue
+                except Exception as ce:
+                    logging.warning(f"No se pudo crear tabla requerida {schema}.{tname}: {ce}")
+                    continue
+            for op, tmpl in TRIGGER_TEMPLATES.items():
+                ddl = tmpl.format(ident_schema=schema, ident_table=tname)
+                try:
+                    cur.execute(ddl)
+                except Exception as te:
+                    # Evitar abortos de transacción persistentes
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    logging.warning(f"No se pudo instalar trigger {op} en {schema}.{tname}: {te}")
+            count += 1
+    finally:
+        try:
+            conn.autocommit = prev_autocommit
+        except Exception:
+            pass
     return count
 
 

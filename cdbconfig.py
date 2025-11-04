@@ -233,6 +233,17 @@ class DBConfigDialog(QDialog):
         rec_l2r_row.addWidget(self.reconcile_l2r_time_edit)
         form.addRow("Reconciliar L→R:", rec_l2r_row)
 
+        # Reconciliación Bidireccional (diaria)
+        self.reconcile_bidirectional_enable_checkbox = QCheckBox("Reconciliación Bidireccional")
+        self.reconcile_bidirectional_time_edit = QTimeEdit()
+        self.reconcile_bidirectional_time_edit.setDisplayFormat("HH:mm")
+        rec_bidir_row = QHBoxLayout()
+        rec_bidir_row.addWidget(self.reconcile_bidirectional_enable_checkbox)
+        rec_bidir_row.addStretch()
+        rec_bidir_row.addWidget(QLabel("Hora:"))
+        rec_bidir_row.addWidget(self.reconcile_bidirectional_time_edit)
+        form.addRow("Reconciliar Bidireccional:", rec_bidir_row)
+
         self.cleanup_enable_checkbox = QCheckBox("Limpieza diaria de retención")
         self.cleanup_time_edit = QTimeEdit()
         self.cleanup_time_edit.setDisplayFormat("HH:mm")
@@ -252,6 +263,52 @@ class DBConfigDialog(QDialog):
         bkp_row.addWidget(QLabel("Hora:"))
         bkp_row.addWidget(self.backup_time_edit)
         form.addRow("Backup:", bkp_row)
+
+        # Tareas semanales
+        # Outbox Flush semanal
+        self.outbox_weekly_enable_checkbox = QCheckBox("Outbox Flush semanal")
+        self.outbox_weekly_time_edit = QTimeEdit()
+        self.outbox_weekly_time_edit.setDisplayFormat("HH:mm")
+        self.outbox_weekly_day_combo = QComboBox()
+        self.outbox_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
+        outbox_weekly_row = QHBoxLayout()
+        outbox_weekly_row.addWidget(self.outbox_weekly_enable_checkbox)
+        outbox_weekly_row.addStretch()
+        outbox_weekly_row.addWidget(QLabel("Hora:"))
+        outbox_weekly_row.addWidget(self.outbox_weekly_time_edit)
+        outbox_weekly_row.addWidget(QLabel("Día:"))
+        outbox_weekly_row.addWidget(self.outbox_weekly_day_combo)
+        form.addRow("Outbox semanal:", outbox_weekly_row)
+
+        # Salud de replicación semanal
+        self.replication_health_weekly_enable_checkbox = QCheckBox("Salud de replicación semanal")
+        self.replication_health_weekly_time_edit = QTimeEdit()
+        self.replication_health_weekly_time_edit.setDisplayFormat("HH:mm")
+        self.replication_health_weekly_day_combo = QComboBox()
+        self.replication_health_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
+        rep_health_weekly_row = QHBoxLayout()
+        rep_health_weekly_row.addWidget(self.replication_health_weekly_enable_checkbox)
+        rep_health_weekly_row.addStretch()
+        rep_health_weekly_row.addWidget(QLabel("Hora:"))
+        rep_health_weekly_row.addWidget(self.replication_health_weekly_time_edit)
+        rep_health_weekly_row.addWidget(QLabel("Día:"))
+        rep_health_weekly_row.addWidget(self.replication_health_weekly_day_combo)
+        form.addRow("Salud replicación:", rep_health_weekly_row)
+
+        # Verificación de publicación semanal
+        self.publication_verify_weekly_enable_checkbox = QCheckBox("Verificación de publicación semanal")
+        self.publication_verify_weekly_time_edit = QTimeEdit()
+        self.publication_verify_weekly_time_edit.setDisplayFormat("HH:mm")
+        self.publication_verify_weekly_day_combo = QComboBox()
+        self.publication_verify_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
+        pub_verify_weekly_row = QHBoxLayout()
+        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_enable_checkbox)
+        pub_verify_weekly_row.addStretch()
+        pub_verify_weekly_row.addWidget(QLabel("Hora:"))
+        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_time_edit)
+        pub_verify_weekly_row.addWidget(QLabel("Día:"))
+        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_day_combo)
+        form.addRow("Verificación publicación:", pub_verify_weekly_row)
 
         # --- Sección de Configuración General ---
         gen_label = QLabel("Configuración general")
@@ -464,6 +521,17 @@ class DBConfigDialog(QDialog):
         self.force_database_init_button.clicked.connect(self._on_force_database_init)
         self.force_replication_button.clicked.connect(self._on_force_replication)
         self.force_scheduled_tasks_button.clicked.connect(self._on_force_scheduled_tasks)
+        # Mutua exclusión: bidireccional desactiva individuales
+        try:
+            self.reconcile_bidirectional_enable_checkbox.toggled.connect(self._on_bidir_toggled)
+        except Exception:
+            pass
+        # Mutua exclusión inversa: activar R→L o L→R desactiva bidireccional
+        try:
+            self.reconcile_r2l_enable_checkbox.toggled.connect(self._on_individual_reconcile_toggled)
+            self.reconcile_l2r_enable_checkbox.toggled.connect(self._on_individual_reconcile_toggled)
+        except Exception:
+            pass
 
     def _load_params(self):
         # Establecer perfil actual en el combo
@@ -509,10 +577,9 @@ class DBConfigDialog(QDialog):
             self.publication_name_edit.setText(str(rep.get('publication_name', 'gym_pub')))
             self.subscription_name_edit.setText(str(rep.get('subscription_name', 'gym_sub')))
             self.remote_can_reach_local_checkbox.setChecked(bool(rep.get('remote_can_reach_local', False)))
-            # Inferir modo si hay pistas en config
-            mode_idx = 0
-            if rep.get('local_publication_name') or rep.get('remote_subscription_name') or rep.get('remote_can_reach_local'):
-                mode_idx = 1  # Bidireccional
+            # Modo por defecto: Bidireccional
+            # Si se requieren pistas para forzar modo unidireccional, pueden añadirse en el futuro.
+            mode_idx = 1
             self.replication_mode_combo.setCurrentIndex(mode_idx)
         except Exception:
             pass
@@ -1576,7 +1643,7 @@ class DBConfigDialog(QDialog):
         # Subtareas con valores por defecto
         uploader = base.get('uploader') if isinstance(base.get('uploader'), dict) else {}
         uploader.setdefault('enabled', False)
-        uploader.setdefault('interval_minutes', 3)
+        uploader.setdefault('interval_minutes', 15)
         base['uploader'] = uploader
         # Legacy reconcile → nuevos campos
         legacy = base.get('reconcile') if isinstance(base.get('reconcile'), dict) else None
@@ -1600,6 +1667,11 @@ class DBConfigDialog(QDialog):
         l2r.setdefault('enabled', False)
         l2r.setdefault('time', '02:00')
         base['reconcile_l2r'] = l2r
+        # Bidireccional diaria
+        bidir = base.get('reconcile_bidirectional') if isinstance(base.get('reconcile_bidirectional'), dict) else {}
+        bidir.setdefault('enabled', False)
+        bidir.setdefault('time', '02:15')
+        base['reconcile_bidirectional'] = bidir
         cleanup = base.get('cleanup') if isinstance(base.get('cleanup'), dict) else {}
         cleanup.setdefault('enabled', False)
         cleanup.setdefault('time', '03:15')
@@ -1608,15 +1680,31 @@ class DBConfigDialog(QDialog):
         backup.setdefault('enabled', False)
         backup.setdefault('time', '02:30')
         base['backup'] = backup
+        # Semanales
+        outbox_w = base.get('outbox_flush_weekly') if isinstance(base.get('outbox_flush_weekly'), dict) else {}
+        outbox_w.setdefault('enabled', False)
+        outbox_w.setdefault('time', '01:15')
+        outbox_w.setdefault('days', 'SUN')
+        base['outbox_flush_weekly'] = outbox_w
+        rep_health_w = base.get('replication_health_weekly') if isinstance(base.get('replication_health_weekly'), dict) else {}
+        rep_health_w.setdefault('enabled', False)
+        rep_health_w.setdefault('time', '00:45')
+        rep_health_w.setdefault('days', 'SUN')
+        base['replication_health_weekly'] = rep_health_w
+        pub_verify_w = base.get('publication_verify_weekly') if isinstance(base.get('publication_verify_weekly'), dict) else {}
+        pub_verify_w.setdefault('enabled', False)
+        pub_verify_w.setdefault('time', '00:30')
+        pub_verify_w.setdefault('days', 'SUN')
+        base['publication_verify_weekly'] = pub_verify_w
         return base
 
     def _load_tasks_cfg(self):
         try:
             scfg = self._ensure_tasks_defaults(self.full_cfg.get('scheduled_tasks'))
-            self.tasks_master_checkbox.setChecked(bool(scfg.get('enabled', True)))
+            self.tasks_master_checkbox.setChecked(bool(scfg.get('enabled', False)))
             # Uploader
-            self.uploader_enable_checkbox.setChecked(bool(scfg['uploader'].get('enabled', True)))
-            self.uploader_interval_spin.setValue(int(scfg['uploader'].get('interval_minutes', 3)))
+            self.uploader_enable_checkbox.setChecked(bool(scfg['uploader'].get('enabled', False)))
+            self.uploader_interval_spin.setValue(int(scfg['uploader'].get('interval_minutes', 15)))
             # Reconcile R→L
             r2l = scfg.get('reconcile_r2l', {})
             self.reconcile_r2l_enable_checkbox.setChecked(bool(r2l.get('enabled', False)))
@@ -1628,20 +1716,53 @@ class DBConfigDialog(QDialog):
                 t_l2r = QTime(2, 0)
             self.reconcile_l2r_time_edit.setTime(t_l2r)
             self.reconcile_l2r_enable_checkbox.setChecked(bool(l2r.get('enabled', False)))
+            # Reconcile Bidireccional
+            bid = scfg.get('reconcile_bidirectional', {})
+            t_bid = QTime.fromString(str(bid.get('time', '02:15')), "HH:mm")
+            if not t_bid.isValid():
+                t_bid = QTime(2, 15)
+            self.reconcile_bidirectional_time_edit.setTime(t_bid)
+            self.reconcile_bidirectional_enable_checkbox.setChecked(bool(bid.get('enabled', False)))
             # Cleanup time
             t_clean = QTime.fromString(str(scfg['cleanup'].get('time', '03:15')), "HH:mm")
             if not t_clean.isValid():
                 t_clean = QTime(3, 15)
             self.cleanup_time_edit.setTime(t_clean)
-            self.cleanup_enable_checkbox.setChecked(bool(scfg['cleanup'].get('enabled', True)))
+            self.cleanup_enable_checkbox.setChecked(bool(scfg['cleanup'].get('enabled', False)))
             # Backup time
             t_backup = QTime.fromString(str(scfg['backup'].get('time', '02:30')), "HH:mm")
             if not t_backup.isValid():
                 t_backup = QTime(2, 30)
             self.backup_time_edit.setTime(t_backup)
-            self.backup_enable_checkbox.setChecked(bool(scfg['backup'].get('enabled', True)))
+            self.backup_enable_checkbox.setChecked(bool(scfg['backup'].get('enabled', False)))
+            # Outbox semanal
+            outbox_w = scfg.get('outbox_flush_weekly', {})
+            t_outbox_w = QTime.fromString(str(outbox_w.get('time', '01:15')), "HH:mm")
+            if not t_outbox_w.isValid():
+                t_outbox_w = QTime(1, 15)
+            self.outbox_weekly_time_edit.setTime(t_outbox_w)
+            self.outbox_weekly_enable_checkbox.setChecked(bool(outbox_w.get('enabled', False)))
+            self.outbox_weekly_day_combo.setCurrentText(str(outbox_w.get('days', 'SUN')).upper())
+            # Salud replicación semanal
+            rep_w = scfg.get('replication_health_weekly', {})
+            t_rep_w = QTime.fromString(str(rep_w.get('time', '00:45')), "HH:mm")
+            if not t_rep_w.isValid():
+                t_rep_w = QTime(0, 45)
+            self.replication_health_weekly_time_edit.setTime(t_rep_w)
+            self.replication_health_weekly_enable_checkbox.setChecked(bool(rep_w.get('enabled', False)))
+            self.replication_health_weekly_day_combo.setCurrentText(str(rep_w.get('days', 'SUN')).upper())
+            # Verificación publicación semanal
+            pub_w = scfg.get('publication_verify_weekly', {})
+            t_pub_w = QTime.fromString(str(pub_w.get('time', '00:30')), "HH:mm")
+            if not t_pub_w.isValid():
+                t_pub_w = QTime(0, 30)
+            self.publication_verify_weekly_time_edit.setTime(t_pub_w)
+            self.publication_verify_weekly_enable_checkbox.setChecked(bool(pub_w.get('enabled', False)))
+            self.publication_verify_weekly_day_combo.setCurrentText(str(pub_w.get('days', 'SUN')).upper())
             # Aplicar estado master
             self._on_tasks_master_toggled(self.tasks_master_checkbox.isChecked())
+            # Aplicar exclusión si bidireccional activo
+            self._on_bidir_toggled(bool(self.reconcile_bidirectional_enable_checkbox.isChecked()))
         except Exception:
             pass
 
@@ -1662,6 +1783,10 @@ class DBConfigDialog(QDialog):
                 'enabled': bool(self.reconcile_l2r_enable_checkbox.isChecked()),
                 'time': fmt_time(self.reconcile_l2r_time_edit.time()),
             },
+            'reconcile_bidirectional': {
+                'enabled': bool(self.reconcile_bidirectional_enable_checkbox.isChecked()),
+                'time': fmt_time(self.reconcile_bidirectional_time_edit.time()),
+            },
             'cleanup': {
                 'enabled': bool(self.cleanup_enable_checkbox.isChecked()),
                 'time': fmt_time(self.cleanup_time_edit.time()),
@@ -1669,6 +1794,21 @@ class DBConfigDialog(QDialog):
             'backup': {
                 'enabled': bool(self.backup_enable_checkbox.isChecked()),
                 'time': fmt_time(self.backup_time_edit.time()),
+            },
+            'outbox_flush_weekly': {
+                'enabled': bool(self.outbox_weekly_enable_checkbox.isChecked()),
+                'time': fmt_time(self.outbox_weekly_time_edit.time()),
+                'days': str(self.outbox_weekly_day_combo.currentText()).upper(),
+            },
+            'replication_health_weekly': {
+                'enabled': bool(self.replication_health_weekly_enable_checkbox.isChecked()),
+                'time': fmt_time(self.replication_health_weekly_time_edit.time()),
+                'days': str(self.replication_health_weekly_day_combo.currentText()).upper(),
+            },
+            'publication_verify_weekly': {
+                'enabled': bool(self.publication_verify_weekly_enable_checkbox.isChecked()),
+                'time': fmt_time(self.publication_verify_weekly_time_edit.time()),
+                'days': str(self.publication_verify_weekly_day_combo.currentText()).upper(),
             },
         }
 
@@ -1678,10 +1818,68 @@ class DBConfigDialog(QDialog):
                 self.uploader_enable_checkbox, self.uploader_interval_spin,
                 self.reconcile_r2l_enable_checkbox, self.reconcile_r2l_interval_spin,
                 self.reconcile_l2r_enable_checkbox, self.reconcile_l2r_time_edit,
+                self.reconcile_bidirectional_enable_checkbox, self.reconcile_bidirectional_time_edit,
                 self.cleanup_enable_checkbox, self.cleanup_time_edit,
                 self.backup_enable_checkbox, self.backup_time_edit,
+                self.outbox_weekly_enable_checkbox, self.outbox_weekly_time_edit, self.outbox_weekly_day_combo,
+                self.replication_health_weekly_enable_checkbox, self.replication_health_weekly_time_edit, self.replication_health_weekly_day_combo,
+                self.publication_verify_weekly_enable_checkbox, self.publication_verify_weekly_time_edit, self.publication_verify_weekly_day_combo,
             ]:
                 w.setEnabled(checked)
+            # Si bidireccional está activo, mantén R→L y L→R bloqueados tras cambiar el master
+            self._on_bidir_toggled(bool(self.reconcile_bidirectional_enable_checkbox.isChecked()))
+        except Exception:
+            pass
+
+    def _on_bidir_toggled(self, checked: bool):
+        """Cuando se activa Bidireccional, desactiva R→L y L→R y bloquea sus controles."""
+        try:
+            # Estados
+            if checked:
+                # Desactivar individuales para evitar solapamientos
+                self.reconcile_r2l_enable_checkbox.setChecked(False)
+                self.reconcile_l2r_enable_checkbox.setChecked(False)
+                # Bloquear controles individuales
+                self.reconcile_r2l_enable_checkbox.setEnabled(False)
+                self.reconcile_r2l_interval_spin.setEnabled(False)
+                self.reconcile_l2r_enable_checkbox.setEnabled(False)
+                self.reconcile_l2r_time_edit.setEnabled(False)
+                try:
+                    QMessageBox.information(self, "Reconciliación Bidireccional", "Se desactivaron las tareas individuales R→L y L→R para evitar solapamientos.")
+                except Exception:
+                    pass
+            else:
+                # Rehabilitar controles individuales
+                self.reconcile_r2l_enable_checkbox.setEnabled(True)
+                self.reconcile_r2l_interval_spin.setEnabled(True)
+                self.reconcile_l2r_enable_checkbox.setEnabled(True)
+                self.reconcile_l2r_time_edit.setEnabled(True)
+        except Exception:
+            pass
+
+    def _on_individual_reconcile_toggled(self, checked: bool):
+        """Si se activa R→L o L→R, desactiva Bidireccional para mantener exclusión."""
+        try:
+            if checked and bool(self.reconcile_bidirectional_enable_checkbox.isChecked()):
+                # Evitar reentrada de señales al cambiar bidireccional
+                prev_block = False
+                try:
+                    prev_block = self.reconcile_bidirectional_enable_checkbox.blockSignals(True)
+                except Exception:
+                    pass
+                try:
+                    self.reconcile_bidirectional_enable_checkbox.setChecked(False)
+                finally:
+                    try:
+                        self.reconcile_bidirectional_enable_checkbox.blockSignals(prev_block)
+                    except Exception:
+                        pass
+                # Aplicar efectos de desactivar bidireccional
+                self._on_bidir_toggled(False)
+                try:
+                    QMessageBox.information(self, "Tareas de reconciliación", "Se desactivó la reconciliación bidireccional al activar R→L/L→R para evitar solapamientos.")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -2258,7 +2456,7 @@ class DBConfigDialog(QDialog):
     def _on_force_replication(self):
         """Force replication setup"""
         try:
-            from utils_modules.replication_setup import ensure_logical_replication
+            from utils_modules.replication_setup import ensure_bidirectional_replication
             
             # Load current config
             cfg = self._load_full_config()
@@ -2271,7 +2469,8 @@ class DBConfigDialog(QDialog):
             progress.show()
             QApplication.processEvents()
             
-            result = ensure_logical_replication(cfg)
+            # Bidireccional por defecto
+            result = ensure_bidirectional_replication(cfg)
             
             try:
                 progress.close()
@@ -2284,9 +2483,9 @@ class DBConfigDialog(QDialog):
                 pretty = str(result)
                 
             if result.get("ok"):
-                QMessageBox.information(self, "Replicación", f"Replicación configurada correctamente:\n{pretty}")
+                QMessageBox.information(self, "Replicación", f"Replicación bidireccional configurada correctamente:\n{pretty}")
             else:
-                QMessageBox.critical(self, "Replicación", f"Error al configurar replicación:\n{pretty}")
+                QMessageBox.critical(self, "Replicación", f"Error al configurar replicación bidireccional:\n{pretty}")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo al configurar replicación: {e}")
 

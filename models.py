@@ -22,7 +22,7 @@ class Asistencia:
 
 @dataclass
 class Ejercicio:
-    id: Optional[int] = None; nombre: str = ""; grupo_muscular: Optional[str] = None; descripcion: Optional[str] = None; objetivo: str = "general"
+    id: Optional[int] = None; nombre: str = ""; grupo_muscular: Optional[str] = None; descripcion: Optional[str] = None; objetivo: str = "general"; logical_ts: Optional[int] = None; last_op_id: Optional[str] = None
 
     def get(self, key, default=None):
         """Compatibilidad con acceso tipo diccionario (p. ej., obj.get('campo'))."""
@@ -30,7 +30,7 @@ class Ejercicio:
 
 @dataclass
 class Rutina:
-    id: Optional[int] = None; usuario_id: Optional[int] = None; nombre_rutina: str = ""; descripcion: Optional[str] = None; dias_semana: int = 1; categoria: str = "general"; fecha_creacion: Optional[str] = None; activa: bool = True; ejercicios: List['RutinaEjercicio'] = field(default_factory=list)
+    id: Optional[int] = None; usuario_id: Optional[int] = None; nombre_rutina: str = ""; descripcion: Optional[str] = None; dias_semana: int = 1; categoria: str = "general"; fecha_creacion: Optional[str] = None; activa: bool = True; ejercicios: List['RutinaEjercicio'] = field(default_factory=list); logical_ts: Optional[int] = None; last_op_id: Optional[str] = None
 
 @dataclass
 class RutinaEjercicio:

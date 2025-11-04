@@ -62,6 +62,31 @@ def run_auto_setup():
         log(f"Error running automatic setup: {e}")
         return False
 
+def run_admin_setup_vpn_postgres():
+    """Run elevated admin setup for VPN/PostgreSQL firewall."""
+    try:
+        script_path = PROJECT_ROOT / "scripts" / "admin_setup_vpn_postgres.ps1"
+        if not os.path.exists(script_path):
+            log(f"Admin setup script not found: {script_path}")
+            return False
+        log("Running admin setup for firewall/VPN…")
+        cmd = [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-NoLogo",
+            "-ExecutionPolicy", "Bypass", "-File", str(script_path)
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.stdout:
+            log(res.stdout.strip())
+        if res.returncode == 0:
+            log("Admin setup completed successfully")
+            return True
+        else:
+            log(f"Admin setup failed (code {res.returncode}): {res.stderr.strip()}")
+            return False
+    except Exception as e:
+        log(f"Error running admin setup: {e}")
+        return False
+
 def first_run_setup():
     """Perform first run setup if needed"""
     if not is_first_run():
@@ -72,6 +97,13 @@ def first_run_setup():
     # Run automatic setup
     if not run_auto_setup():
         log("Automatic setup failed, continuing anyway...")
+    
+    # Attempt admin-level setup for firewall/VPN on Windows
+    try:
+        if sys.platform.startswith("win"):
+            run_admin_setup_vpn_postgres()
+    except Exception:
+        pass
     
     # Mark first run as completed
     if mark_first_run_completed():

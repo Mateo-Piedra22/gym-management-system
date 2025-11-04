@@ -388,18 +388,18 @@ class PaymentManager:
                 except Exception:
                     base_date = date.today()
 
-            # Calcular próximo vencimiento
-            proximo_vencimiento = base_date + timedelta(days=duracion_dias)
+            # Calcular próximo vencimiento avanzando por ciclos completos hasta el próximo futuro
+            primer_vencimiento = base_date + timedelta(days=duracion_dias)
             hoy = date.today()
-
-            # Calcular cuotas_vencidas desde cero
-            if hoy <= proximo_vencimiento:
+            if hoy <= primer_vencimiento:
+                proximo_vencimiento = primer_vencimiento
                 nuevas_cuotas_vencidas = 0
             else:
-                dias_atraso = (hoy - proximo_vencimiento).days
-                # Al menos 1 cuota vencida si pasó el vencimiento; aumentar por cada ciclo completo
-                ciclos_vencidos = (dias_atraso // max(duracion_dias, 1))
-                nuevas_cuotas_vencidas = max(1 + ciclos_vencidos, 1)
+                # Ciclos vencidos completos desde el primer vencimiento
+                dias_desde_primer_venc = (hoy - primer_vencimiento).days
+                ciclos_vencidos = (dias_desde_primer_venc + max(duracion_dias, 1) - 1) // max(duracion_dias, 1)  # ceil
+                nuevas_cuotas_vencidas = max(ciclos_vencidos, 1)
+                proximo_vencimiento = primer_vencimiento + timedelta(days=duracion_dias * ciclos_vencidos)
 
             # Exención: dueños y profesores no acumulan cuotas vencidas ni se desactivan por morosidad
             if exento:
@@ -509,6 +509,27 @@ class PaymentManager:
             return False
         except Exception:
             return False
+
+    def recalcular_estado_usuario(self, usuario_id: int) -> Dict[str, Any]:
+        """Wrapper público para recalcular estado de usuario y refrescar cachés relacionadas.
+
+        - Llama al método interno para actualizar `fecha_proximo_vencimiento`, `ultimo_pago`, `cuotas_vencidas` y `activo`.
+        - Invalida caché de `usuarios` y `reportes` para asegurar que la UI obtenga datos frescos.
+        - Devuelve el resumen del recalculo.
+        """
+        try:
+            resumen = self._recalcular_estado_usuario(usuario_id)
+            # Invalidar caches relevantes para reflejar cambios inmediatos en UI
+            try:
+                if hasattr(self.db_manager, 'cache') and hasattr(self.db_manager.cache, 'invalidate'):
+                    self.db_manager.cache.invalidate('usuarios', usuario_id)
+                    self.db_manager.cache.invalidate('reportes')
+            except Exception as cache_err:
+                logging.warning(f"No se pudo invalidar caché tras recalculo de usuario {usuario_id}: {cache_err}")
+            return resumen
+        except Exception as e:
+            logging.error(f"Error recalculando estado de usuario {usuario_id}: {e}")
+            return {}
 
     # --- NUEVO: Historial de pagos por usuario ---
     def obtener_historial_pagos(self, usuario_id: int, limit: Optional[int] = None) -> List[Pago]:
@@ -650,7 +671,19 @@ class PaymentManager:
                     logging.error(f"Error ajustando estado de usuario tras pago avanzado: {e}")
 
                 conn.commit()
-                
+
+                # Invalidar caché tras registrar pago avanzado para reflejar datos actualizados en UI
+                try:
+                    if hasattr(self.db_manager, 'cache') and hasattr(self.db_manager.cache, 'invalidate'):
+                        # Usuario: refleja nuevo próximo vencimiento, último pago, activo y cuotas_vencidas
+                        self.db_manager.cache.invalidate('usuarios', usuario_id)
+                        # Pagos: historial y resúmenes
+                        self.db_manager.cache.invalidate('pagos')
+                        # Reportes: estadísticas agregadas
+                        self.db_manager.cache.invalidate('reportes')
+                except Exception as cache_err:
+                    logging.warning(f"No se pudo invalidar cache post-pago avanzado para usuario {usuario_id}: {cache_err}")
+
                 # Encolar sync: payment.update con claves naturales (upsert en servidor)
                 try:
                     if enqueue_operations and op_payment_update:

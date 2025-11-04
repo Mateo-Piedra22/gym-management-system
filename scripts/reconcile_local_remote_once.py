@@ -26,11 +26,12 @@ import os
 import json
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 import psycopg2
 import psycopg2.extras
 from psycopg2 import sql
+from psycopg2.extras import Json
 
 DEFAULT_TABLES = [
     'usuarios',
@@ -173,6 +174,27 @@ def get_pk_columns(conn, schema: str, table: str) -> List[str]:
         return [r[0] for r in rows]
 
 
+def table_exists(conn, schema: str, table: str) -> bool:
+    """Verifica si existe la tabla en el esquema dado.
+
+    Usa information_schema para evitar excepciones cuando la tabla no está presente.
+    """
+    q = """
+    SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = %s
+    )
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(q, (schema, table))
+            r = cur.fetchone()
+            return bool(r and r[0])
+    except Exception:
+        return False
+
+
 def table_columns(conn, schema: str, table: str) -> List[str]:
     q = """
     SELECT column_name
@@ -224,6 +246,50 @@ def fetch_rows_by_pk(local_conn, schema: str, table: str, pk_cols: List[str], pk
         return list(cur.fetchall())
 
 
+def get_column_types(conn, schema: str, table: str) -> Dict[str, str]:
+    """Obtiene tipos de columnas (udt_name/data_type) para castear adecuadamente JSON/JSONB."""
+    q = """
+    SELECT column_name, udt_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = %s AND table_name = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(q, (schema, table))
+        rows = cur.fetchall() or []
+    types: Dict[str, str] = {}
+    for name, udt, dt in rows:
+        t = (udt or dt or '').lower()
+        types[name] = t
+    return types
+
+
+def _adapt_value_for_column(val: Any, col_type: str) -> Any:
+    """Adapta valores Python: usa Json para json/jsonb; serializa dict/list a texto para text/varchar."""
+    t = (col_type or '').lower()
+    if t in ('json', 'jsonb'):
+        if isinstance(val, (dict, list)):
+            return Json(val)
+        return val
+    if t in ('text', 'varchar', 'character varying'):
+        if isinstance(val, (dict, list)):
+            import json as _json
+            return _json.dumps(val, ensure_ascii=False)
+        return val
+    return val
+
+
+def _build_placeholders_for_columns(cols: List[str], col_types: Dict[str, str]) -> List[sql.SQL]:
+    phs: List[sql.SQL] = []
+    for c in cols:
+        t = (col_types.get(c) or '').lower()
+        if t in ('json', 'jsonb'):
+            cast = 'jsonb' if t == 'jsonb' else 'json'
+            phs.append(sql.SQL('%s::') + sql.SQL(cast))
+        else:
+            phs.append(sql.Placeholder())
+    return phs
+
+
 def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], pk_cols: List[str], dry_run: bool = False) -> int:
     if not rows:
         return 0
@@ -234,9 +300,13 @@ def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], p
         omitted = original_count - len(rows)
         if omitted > 0:
             print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (inserción remoto)")
+        # Si el filtrado deja sin filas, no intentar armar columnas
+        if not rows:
+            return 0
     cols = list(rows[0].keys())
+    col_types = get_column_types(remote_conn, schema, table)
     col_idents = [sql.Identifier(c) for c in cols]
-    placeholders = [sql.Placeholder() for _ in cols]
+    placeholders = _build_placeholders_for_columns(cols, col_types)
     base_insert = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
         sql.Identifier(schema),
         sql.Identifier(table),
@@ -248,7 +318,7 @@ def insert_rows_remote(remote_conn, schema: str, table: str, rows: List[dict], p
     inserted = 0
     with remote_conn.cursor() as cur:
         for row in rows:
-            vals = [row[c] for c in cols]
+            vals = [_adapt_value_for_column(row[c], col_types.get(c)) for c in cols]
             if dry_run:
                 print(f"DRY-RUN: INSERT INTO {schema}.{table} ({', '.join(cols)}) VALUES ({vals})")
             else:
@@ -337,6 +407,7 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
     if not use_logical:
         return 0
     non_pk_cols = [c for c in local_cols if c not in pk_cols]
+    remote_col_types = get_column_types(remote_conn, schema, table)
 
     with local_conn.cursor() as cl, remote_conn.cursor() as cr:
         cl.execute(sql.SQL("SELECT {}, logical_ts, last_op_id FROM {}.{}").format(
@@ -358,9 +429,15 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
         omitted = original_count - len(rows)
         if omitted > 0:
             print(f"  Omitidas {omitted} filas de usuarios con rol 'dueño' (update remoto)")
-    set_clause = sql.SQL(', ').join(
-        sql.SQL("{} = %s").format(sql.Identifier(c)) for c in non_pk_cols
-    )
+    set_parts: List[sql.SQL] = []
+    for c in non_pk_cols:
+        t = (remote_col_types.get(c) or '').lower()
+        if t in ('json', 'jsonb'):
+            cast = 'jsonb' if t == 'jsonb' else 'json'
+            set_parts.append(sql.SQL("{} = ").format(sql.Identifier(c)) + sql.SQL('%s::') + sql.SQL(cast))
+        else:
+            set_parts.append(sql.SQL("{} = %s").format(sql.Identifier(c)))
+    set_clause = sql.SQL(', ').join(set_parts)
     where_clause = sql.SQL(' AND ').join(
         sql.SQL("{} = %s").format(sql.Identifier(c)) for c in pk_cols
     )
@@ -370,7 +447,7 @@ def reconcile_updates_remote(local_conn, remote_conn, schema: str, table: str, p
     updated = 0
     with remote_conn.cursor() as cur:
         for row in rows:
-            vals = [row[c] for c in non_pk_cols] + [row[c] for c in pk_cols]
+            vals = [_adapt_value_for_column(row[c], remote_col_types.get(c)) for c in non_pk_cols] + [row[c] for c in pk_cols]
             if dry_run:
                 print(f"DRY-RUN: UPDATE {schema}.{table} SET {', '.join(non_pk_cols)} WHERE PKs={to_update_keys}")
             else:
@@ -437,6 +514,14 @@ def run_once(*, subscription: str = 'gym_sub', schema: str = 'public', tables: L
     try:
         for table in tables_to_process:
             print(f"Procesando {schema}.{table}...")
+            # Bypass limpio si falta la tabla en local o remoto
+            exists_local = table_exists(local_conn, schema, table)
+            exists_remote = table_exists(remote_conn, schema, table)
+            if not exists_local or not exists_remote:
+                missing = 'local' if not exists_local else 'remote'
+                print(f"  [INFO] {schema}.{table}: tabla ausente en {missing}; bypass.")
+                result['tables'].append({'name': table, 'inserted': 0, 'updated': 0, 'deleted': 0, 'error': None})
+                continue
             pk_cols = get_pk_columns(local_conn, schema, table)
             local_keys = fetch_keys(local_conn, schema, table, pk_cols)
             remote_keys = fetch_keys(remote_conn, schema, table, pk_cols)

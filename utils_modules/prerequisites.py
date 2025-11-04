@@ -196,7 +196,8 @@ def create_database_from_config(required_major: int = 17) -> Tuple[bool, str]:
         env = os.environ.copy()
         if password:
             env["PGPASSWORD"] = password
-        args = [psql_exe, "-h", host, "-p", str(port), "-U", user, "-v", "ON_ERROR_STOP=1", "-c", f"CREATE DATABASE \"{dbname}\";"]
+        # Conectar explícitamente a la base 'postgres' para asegurar permisos de CREATE DATABASE
+        args = [psql_exe, "-h", host, "-p", str(port), "-U", user, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", f"CREATE DATABASE \"{dbname}\";"]
         code, out, err = run_cmd_capture(args, timeout=60)
         if code == 0:
             return True, out
@@ -807,21 +808,64 @@ def _create_task_schtasks(name: str, action_cmd: str, schedule: dict):
         "/TN", name,
         "/F",
     ]
+    # Preferir privilegios elevados; si falla por permisos, aplicar fallback a LIMITED
+    args.extend(["/RL", "HIGHEST"])
     sc = schedule.get("SC")
     mo = schedule.get("MO")
     st = schedule.get("ST")
+    dval = schedule.get("D")
+    ru = schedule.get("RU")
+    rp = schedule.get("RP")
     if sc:
         args.extend(["/SC", str(sc)])
     if mo is not None:
         args.extend(["/MO", str(mo)])
     if st:
         args.extend(["/ST", str(st)])
+    if dval:
+        args.extend(["/D", str(dval)])
+    if ru:
+        args.extend(["/RU", str(ru)])
+        # La cuenta SYSTEM no requiere contraseña
+        if rp and str(ru).upper() != "SYSTEM":
+            args.extend(["/RP", str(rp)])
     # Acción
     args.extend(["/TR", action_cmd])
-    code, out, err = run_cmd_capture(args, timeout=15)
+    code, out, err = run_cmd_capture(args, timeout=20)
     ok = (code == 0)
     msg = out or err
-    return ok, msg
+    if ok:
+        return True, msg
+    # Fallback automático si hay 'Access is denied'
+    combined = (out + "\n" + err).lower()
+    if "access is denied" in combined or "denied" in combined:
+        try:
+            args_fallback = [
+                "schtasks", "/Create",
+                "/TN", name,
+                "/F",
+                "/RL", "LIMITED",
+                "/TR", action_cmd,
+            ]
+            sc = schedule.get("SC")
+            mo = schedule.get("MO")
+            st = schedule.get("ST")
+            dval = schedule.get("D")
+            if sc:
+                args_fallback.extend(["/SC", str(sc)])
+            if mo is not None:
+                args_fallback.extend(["/MO", str(mo)])
+            if st:
+                args_fallback.extend(["/ST", str(st)])
+            if dval:
+                args_fallback.extend(["/D", str(dval)])
+            code2, out2, err2 = run_cmd_capture(args_fallback, timeout=20)
+            ok2 = (code2 == 0)
+            msg2 = out2 or err2
+            return ok2, msg + ("\n" + msg2 if msg2 else "")
+        except Exception as e:
+            return False, msg or str(e)
+    return False, msg
 
 # NUEVO: eliminar tarea si existe
 
@@ -849,6 +893,7 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
         cfg = _load_cfg()
         scfg = cfg.get("scheduled_tasks", {}) if isinstance(cfg.get("scheduled_tasks"), dict) else {}
         master_enabled = bool(scfg.get("enabled", False))
+        run_as_system = bool(scfg.get("run_as_system", False))
 
         scripts_dir = os.path.join(PROJECT_ROOT, "scripts")
         # Compatibilidad: si sólo existe 'reconcile', mapear a claves nuevas
@@ -867,14 +912,16 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 pass
 
         # Usar ruta absoluta de wscript.exe para evitar problemas de PATH en contexto del Programador de Tareas
-        wscript_exe = os.path.join(os.environ.get('WINDIR', 'C\\Windows'), 'System32', 'wscript.exe')
+        wscript_exe = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'System32', 'wscript.exe')
+        if not os.path.exists(wscript_exe):
+            wscript_exe = 'wscript.exe'
         # Definiciones de tareas con acciones totalmente silenciosas
         tasks_def = [
             {
                 "key": "uploader",
                 "name": "GymMS_Uploader",
                 "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_sync_uploader_hidden.vbs")}"',
-                "default": {"interval_minutes": 3},
+                "default": {"interval_minutes": 15},
                 "type": "minute",
             },
             {
@@ -892,6 +939,13 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 "type": "daily",
             },
             {
+                "key": "reconcile_bidirectional",
+                "name": "GymMS_ReconcileBidirectional",
+                "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_reconcile_bidirectional_scheduled_hidden.vbs")}"',
+                "default": {"time": "02:15"},
+                "type": "daily",
+            },
+            {
                 "key": "cleanup",
                 "name": "GymMS_DataCleanup",
                 "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_cleanup_scheduled.ps1")}"',
@@ -904,6 +958,27 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_backup_scheduled.ps1")}"',
                 "default": {"time": "02:30"},
                 "type": "daily",
+            },
+            {
+                "key": "outbox_flush_weekly",
+                "name": "GymMS_OutboxFlushWeekly",
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_outbox_flush_once.ps1")}"',
+                "default": {"time": "01:15", "days": "SUN"},
+                "type": "weekly",
+            },
+            {
+                "key": "replication_health_weekly",
+                "name": "GymMS_ReplicationHealthWeekly",
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_replication_health_check.ps1")}"',
+                "default": {"time": "00:45", "days": "SUN"},
+                "type": "weekly",
+            },
+            {
+                "key": "publication_verify_weekly",
+                "name": "GymMS_PublicationVerifyWeekly",
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_publication_verification.ps1")}"',
+                "default": {"time": "00:30", "days": "SUN"},
+                "type": "weekly",
             },
         ]
 
@@ -939,11 +1014,39 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 if iv < 1:
                     iv = td["default"]["interval_minutes"]
                 schedule = {"SC": "MINUTE", "MO": iv}
-            else:
+            elif td["type"] == "daily":
                 hhmm = str(tcfg.get("time", td["default"]["time"]))
                 if not hhmm or ":" not in hhmm:
                     hhmm = td["default"]["time"]
                 schedule = {"SC": "DAILY", "ST": hhmm}
+            elif td["type"] == "weekly":
+                hhmm = str(tcfg.get("time", td["default"].get("time", "01:15")))
+                if not hhmm or ":" not in hhmm:
+                    hhmm = td["default"].get("time", "01:15")
+                days_val = tcfg.get("days", td["default"].get("days", "SUN"))
+                if isinstance(days_val, list):
+                    tokens = [str(d).upper()[:3] for d in days_val]
+                else:
+                    tokens = [t.strip().upper() for t in str(days_val).split(',')]
+                valid = {"SUN","MON","TUE","WED","THU","FRI","SAT"}
+                filtered = [t for t in tokens if t in valid]
+                if not filtered:
+                    filtered = [str(td["default"].get("days", "SUN")).upper()[:3]]
+                # Unicos y orden estandar
+                uniq = []
+                for t in filtered:
+                    if t not in uniq:
+                        uniq.append(t)
+                schedule = {"SC": "WEEKLY", "ST": hhmm, "D": ",".join(uniq)}
+            else:
+                hhmm = str(tcfg.get("time", td["default"].get("time", "02:00")))
+                if not hhmm or ":" not in hhmm:
+                    hhmm = td["default"].get("time", "02:00")
+                schedule = {"SC": "DAILY", "ST": hhmm}
+
+            # Opcional: ejecutar como SYSTEM
+            if run_as_system:
+                schedule["RU"] = "SYSTEM"
 
             exists_before = _task_exists(name)
 
@@ -1098,14 +1201,32 @@ def _ensure_windows_firewall_postgres(port: int, ranges: List[str]) -> dict:
     if os.name != "nt":
         return {"ok": True, "message": "Firewall no aplica (no Windows)"}
     rule_name = f"GymMS-PostgreSQL-{port}"
-    addr = ",".join(ranges) if ranges else "Any"
+    # Sanear rangos: aceptar IPv4 CIDR válidos; si ninguno, usar 'Any'
+    valid_ranges: List[str] = []
+    try:
+        import re
+        cidr_v4 = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}/\d{1,2}$")
+        for r in ranges or []:
+            rr = str(r).strip()
+            if rr.lower() in ("any", "localsubnet"):
+                valid_ranges = []
+                break
+            if cidr_v4.match(rr):
+                valid_ranges.append(rr)
+        # Construir comando PS con array para RemoteAddress
+        if not valid_ranges:
+            addrs_ps = "@('Any')"
+        else:
+            addrs_ps = "@(" + ", ".join([f"'{a}'" for a in valid_ranges]) + ")"
+    except Exception:
+        addrs_ps = "@('Any')"
     ps_cmd = (
         "$n='" + rule_name + "';"
         "$p=" + str(port) + ";"
-        "$addr='" + addr + "';"
+        "$addrs=" + addrs_ps + ";"
         "$r=Get-NetFirewallRule -DisplayName $n -ErrorAction SilentlyContinue;"
-        "if(-not $r){ New-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private -RemoteAddress $addr }"
-        " else { Set-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private; Set-NetFirewallAddressFilter -DisplayName $n -RemoteAddress $addr }"
+        "if(-not $r){ New-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private -RemoteAddress $addrs }"
+        " else { Set-NetFirewallRule -DisplayName $n -Direction Inbound -Action Allow -Protocol TCP -LocalPort $p -Profile Domain,Private; Set-NetFirewallAddressFilter -DisplayName $n -RemoteAddress $addrs }"
     )
     code, out, err = run_cmd_capture(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd], timeout=60)
     return {"ok": code == 0, "message": out or err}

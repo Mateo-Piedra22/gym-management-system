@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QStringListModel
 from PyQt6.QtGui import QPixmap, QIcon
+from utils import resource_path
 from search_manager import SearchManager
 from typing import List, Dict, Any
 import logging
@@ -28,12 +29,39 @@ class SearchResultItem(QFrame):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(16)
         
-        # Icono del tipo de resultado
-        icon_label = QLabel(self.result_data.get('icon', '📄'))
+        # Icono del tipo de resultado (intenta usar imagen de assets)
+        icon_label = QLabel()
         icon_label.setObjectName("result_icon")
         icon_label.setProperty("class", "search_result_icon")
-        icon_label.setFixedSize(36, 36)
+        icon_label.setFixedSize(32, 32)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        icon_path = None
+        try:
+            # Permitir que 'icon' sea una ruta directa
+            raw_icon = self.result_data.get('icon')
+            if isinstance(raw_icon, str) and (raw_icon.lower().endswith('.png') or raw_icon.lower().endswith('.svg') or raw_icon.lower().endswith('.ico')):
+                icon_path = raw_icon
+            else:
+                t = str(self.result_data.get('type', '')).lower()
+                mapping = {
+                    'usuario': 'assets/users.png',
+                    'pago': 'assets/money.png',
+                    'clase': 'assets/classes.png',
+                    'profesor': 'assets/student_icon.png',
+                    'rutina': 'assets/routines.png',
+                    'ejercicio': 'assets/attendance.png',
+                }
+                icon_path = mapping.get(t, 'assets/icon.png')
+            pm = QPixmap(resource_path(icon_path))
+            if not pm.isNull():
+                pm = pm.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(pm)
+            else:
+                # Fallback a emoji si no hay imagen
+                icon_label.setText(self.result_data.get('icon', '📄'))
+        except Exception:
+            icon_label.setText(self.result_data.get('icon', '📄'))
         layout.addWidget(icon_label)
         
         # Contenido principal
@@ -44,6 +72,7 @@ class SearchResultItem(QFrame):
         title_label = QLabel(self.result_data.get('title', 'Sin título'))
         title_label.setObjectName("main_text")
         title_label.setProperty("class", "search_result_title")
+        title_label.setWordWrap(True)
         content_layout.addWidget(title_label)
         
         # Subtítulo
@@ -51,6 +80,7 @@ class SearchResultItem(QFrame):
             subtitle_label = QLabel(self.result_data['subtitle'])
             subtitle_label.setObjectName("secondary_text")
             subtitle_label.setProperty("class", "search_result_subtitle")
+            subtitle_label.setWordWrap(True)
             content_layout.addWidget(subtitle_label)
         
         # Descripción
@@ -337,11 +367,33 @@ class GlobalSearchWidget(QWidget):
             
             # Configurar tamaño dinámico sin afectar el widget principal
             suggested_height = min(350, 60 + self.results_frame.sizeHint().height())
-            self.results_frame.resize(max(280, self.width()), suggested_height)
+            # Aumentar el ancho para evitar cortes horizontales, dentro de límites de la ventana
+            desired_width = max(360, self.width() + 240)
+            try:
+                main_window = self.parent()
+                while main_window and not hasattr(main_window, 'geometry'):
+                    main_window = getattr(main_window, 'parent', lambda: None)()
+                if main_window:
+                    geo = main_window.geometry()
+                    max_width = max(280, geo.width() - 24)
+                    desired_width = min(desired_width, max_width)
+            except Exception:
+                pass
+            self.results_frame.resize(desired_width, suggested_height)
             
             # Mostrar el panel flotante
             self.results_frame.show()
             self.results_frame.raise_()
+
+            # Reposicionar botones flotantes de la ventana principal para evitar solapes
+            try:
+                main_window = self.parent()
+                while main_window and not hasattr(main_window, 'position_floating_button'):
+                    main_window = getattr(main_window, 'parent', lambda: None)()
+                if main_window and hasattr(main_window, 'position_floating_button'):
+                    main_window.position_floating_button()
+            except Exception:
+                pass
             
             # Mantener el tamaño original del widget principal
             self.setFixedHeight(32)
@@ -356,6 +408,16 @@ class GlobalSearchWidget(QWidget):
             self.results_frame.setParent(self)
             self.results_frame.setWindowFlags(Qt.WindowType.Widget)
             
+            # Reposicionar botones flotantes tras colapsar
+            try:
+                main_window = self.parent()
+                while main_window and not hasattr(main_window, 'position_floating_button'):
+                    main_window = getattr(main_window, 'parent', lambda: None)()
+                if main_window and hasattr(main_window, 'position_floating_button'):
+                    main_window.position_floating_button()
+            except Exception:
+                pass
+
             # Mantener el tamaño compacto del widget principal
             self.setFixedHeight(32)
     
@@ -371,6 +433,16 @@ class GlobalSearchWidget(QWidget):
             self.results_frame.setParent(self)
             self.results_frame.setWindowFlags(Qt.WindowType.Widget)
             
+            # Reposicionar botones flotantes tras colapsar inmediatamente
+            try:
+                main_window = self.parent()
+                while main_window and not hasattr(main_window, 'position_floating_button'):
+                    main_window = getattr(main_window, 'parent', lambda: None)()
+                if main_window and hasattr(main_window, 'position_floating_button'):
+                    main_window.position_floating_button()
+            except Exception:
+                pass
+
             # Mantener el tamaño compacto del widget principal
             self.setFixedHeight(32)
             
@@ -422,10 +494,14 @@ class GlobalSearchWidget(QWidget):
                 # Obtener geometría de la ventana principal
                 main_geometry = main_window.geometry()
                 
+                # Ajustar ancho si se excede el borde derecho
+                max_panel_width = max(280, main_geometry.width() - 20)
+                if self.results_frame.width() > max_panel_width:
+                    self.results_frame.resize(max_panel_width, self.results_frame.height())
                 # Verificar si el panel se sale por la derecha
                 if panel_x + self.results_frame.width() > main_geometry.right():
-                    panel_x = main_geometry.right() - self.results_frame.width() - 10
-                    
+                    panel_x = max(main_geometry.left() + 10, main_geometry.right() - self.results_frame.width() - 10)
+                
                 # Verificar si el panel se sale por abajo - agregar margen de seguridad
                 bottom_margin = 50  # Margen de seguridad para evitar que se corte
                 if panel_y + self.results_frame.height() > main_geometry.bottom() - bottom_margin:
@@ -440,6 +516,16 @@ class GlobalSearchWidget(QWidget):
                             self.results_frame.setMaximumHeight(max_height)
             
             self.results_frame.move(panel_x, panel_y)
+
+            # También pedir reposicionamiento de botones flotantes en la ventana principal
+            try:
+                main_window = self.parent()
+                while main_window and not hasattr(main_window, 'position_floating_button'):
+                    main_window = getattr(main_window, 'parent', lambda: None)()
+                if main_window and hasattr(main_window, 'position_floating_button'):
+                    main_window.position_floating_button()
+            except Exception:
+                pass
     
     def delayed_reposition(self):
         """Reposicionamiento con delay para evitar parpadeo durante scroll"""

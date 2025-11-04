@@ -5683,12 +5683,24 @@ class ConfigTabWidget(QWidget):
                 with self.db_manager.get_connection_context() as conn:
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                     cursor.execute("""
-                        SELECT p.id, u.nombre || ' ' || u.apellido as usuario,
-                               c.nombre as concepto, p.monto, p.fecha_pago,
-                               mp.nombre as metodo_pago, p.estado, p.observaciones
+                        SELECT p.id,
+                               u.nombre || ' ' || u.apellido AS usuario,
+                               COALESCE(c.nombre, 'Sin concepto') AS concepto,
+                               p.monto,
+                               p.fecha_pago,
+                               mp.nombre AS metodo_pago,
+                               p.estado,
+                               p.observaciones
                         FROM pagos p
                         JOIN usuarios u ON p.usuario_id = u.id
-                        JOIN conceptos_pago c ON p.concepto_id = c.id
+                        LEFT JOIN LATERAL (
+                            SELECT pd.concepto_id
+                            FROM pago_detalles pd
+                            WHERE pd.pago_id = p.id
+                            ORDER BY pd.id ASC
+                            LIMIT 1
+                        ) pd_first ON TRUE
+                        LEFT JOIN conceptos_pago c ON c.id = pd_first.concepto_id
                         LEFT JOIN metodos_pago mp ON p.metodo_pago_id = mp.id
                         ORDER BY p.fecha_pago DESC
                     """)

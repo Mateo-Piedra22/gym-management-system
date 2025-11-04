@@ -516,6 +516,8 @@ class UserTabWidget(QWidget):
 
             # Calcular próximo vencimiento según tipo de cuota (duración personalizada)
             proximo_vencimiento_display = 'No definido'
+            # Fallback auxiliar para el estado: último vencimiento pasado si corresponde
+            self._fallback_fecha_vencimiento_para_estado = None
             try:
                 from datetime import datetime, timedelta
                 fpv = getattr(user, 'fecha_proximo_vencimiento', None)
@@ -528,7 +530,7 @@ class UserTabWidget(QWidget):
                 if fpv_date:
                     proximo_vencimiento_display = fpv_date.strftime('%d/%m/%Y')
                 else:
-                    # Si no está precalculado, derivar desde último pago o registro + duracion_dias del tipo
+                    # Si no está precalculado, derivar desde último pago o registro y avanzar en ciclos hasta futuro
                     base_date = None
                     # Buscar último pago real
                     try:
@@ -538,7 +540,7 @@ class UserTabWidget(QWidget):
                             if isinstance(base_date, str):
                                 base_date = datetime.fromisoformat(base_date).date()
                         else:
-                            base_date = fecha_reg if isinstance(fecha_reg, date) else datetime.fromisoformat(fecha_reg).date() if fecha_reg else date.today()
+                            base_date = fecha_reg if isinstance(fecha_reg, date) else (datetime.fromisoformat(fecha_reg).date() if fecha_reg else date.today())
                     except Exception:
                         base_date = fecha_reg if isinstance(fecha_reg, date) else date.today()
 
@@ -554,7 +556,20 @@ class UserTabWidget(QWidget):
                         except Exception:
                             pass
 
-                    proximo = base_date + timedelta(days=duracion_dias)
+                    hoy_local = date.today()
+                    primera_cota = base_date + timedelta(days=duracion_dias)
+                    if hoy_local <= primera_cota:
+                        # Aún en el primer ciclo: próximo = primera cota, no hay vencimiento pasado
+                        proximo = primera_cota
+                    else:
+                        # Avanzar ciclos completos hasta que el próximo quede en el futuro
+                        dias_transcurridos = (hoy_local - base_date).days
+                        ciclos = (dias_transcurridos // duracion_dias) + 1
+                        proximo = base_date + timedelta(days=ciclos * duracion_dias)
+                        # Guardar el último vencimiento pasado para el estado
+                        ultimo_vencimiento_pasado = base_date + timedelta(days=(ciclos - 1) * duracion_dias)
+                        self._fallback_fecha_vencimiento_para_estado = ultimo_vencimiento_pasado
+
                     proximo_vencimiento_display = proximo.strftime('%d/%m/%Y')
             except Exception:
                 pass
@@ -617,6 +632,9 @@ class UserTabWidget(QWidget):
         # Lógica de estado de pago en pestaña Usuarios (vencida/pendiente/al día)
         hoy = date.today()
         fecha_venc = getattr(self.selected_user, 'fecha_proximo_vencimiento', None)
+        # Si no hay fecha de vencimiento guardada, usar la calculada para estado (último vencimiento pasado)
+        if not fecha_venc and hasattr(self, '_fallback_fecha_vencimiento_para_estado'):
+            fecha_venc = getattr(self, '_fallback_fecha_vencimiento_para_estado')
         fecha_venc_date = None
         if isinstance(fecha_venc, datetime):
             fecha_venc_date = fecha_venc.date()
@@ -729,6 +747,52 @@ class UserTabWidget(QWidget):
         self.reports_button.clicked.connect(self.show_reports_menu)
         
         # Las señales de cambio ahora se manejan desde el diálogo de gestión
+    def showEvent(self, event):
+        """Recalcula estado del usuario al mostrar la pestaña Usuarios para mantener vencimientos al día."""
+        try:
+            super().showEvent(event)
+        except Exception:
+            pass
+
+        try:
+            if self.selected_user:
+                current_selection = self.users_table.selectionModel().currentIndex()
+
+                def _recalc_and_fetch():
+                    try:
+                        self.payment_manager.recalcular_estado_usuario(self.selected_user.id)
+                    except Exception:
+                        pass
+                    return self.db_manager.obtener_usuario_por_id(self.selected_user.id)
+
+                def _on_done(fresh_user):
+                    try:
+                        if fresh_user:
+                            self.selected_user = fresh_user
+                    except Exception:
+                        pass
+                    try:
+                        if current_selection.isValid():
+                            self.update_details_panel(current_selection)
+                        else:
+                            # Si no hay selección válida, actualizar widgets de solo lectura
+                            self.load_current_user_info()
+                            pagos = self.payment_manager.obtener_historial_pagos(self.selected_user.id)
+                            self.payment_model.update_data(pagos)
+                    except Exception:
+                        pass
+
+                def _on_error(err):
+                    logging.warning(f"Error al recalcular al mostrar pestaña de usuarios: {err}")
+                    try:
+                        if current_selection.isValid():
+                            self.update_details_panel(current_selection)
+                    except Exception:
+                        pass
+
+                TaskThread(_recalc_and_fetch, on_success=_on_done, on_error=_on_error, parent=self).start()
+        except Exception as e:
+            logging.debug(f"showEvent en UserTabWidget no pudo ejecutar recalculo: {e}")
     def load_users(self, page=1, page_size=100, usar_cache=True, search_term="", role_filter="", active_only=None):
         """Carga usuarios de forma asíncrona con paginación inteligente, filtros y cache.
         Evita bloqueos de UI usando TaskThread para todas las consultas de usuarios."""
@@ -1598,12 +1662,53 @@ class UserTabWidget(QWidget):
         source_index = self.proxy_model.mapToSource(proxy_index)
         if source_index.isValid():
             self.selected_user = self.user_model._data[source_index.row()]
-            self.update_details_panel(proxy_index)
-            self.attendance_group.setVisible(True)
+            # Recalcular estado del usuario de forma asíncrona y refrescar objeto antes de pintar detalles
             try:
-                self.f1_hint_label.setVisible(True)
+                def _recalc_and_fetch():
+                    try:
+                        self.payment_manager.recalcular_estado_usuario(self.selected_user.id)
+                    except Exception:
+                        pass
+                    return self.db_manager.obtener_usuario_por_id(self.selected_user.id)
+
+                def _on_done(fresh_user):
+                    try:
+                        if fresh_user:
+                            self.selected_user = fresh_user
+                    except Exception:
+                        pass
+                    # Pintar detalles y mostrar controles
+                    try:
+                        self.update_details_panel(proxy_index)
+                        self.attendance_group.setVisible(True)
+                        try:
+                            self.f1_hint_label.setVisible(True)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                def _on_error(err):
+                    logging.warning(f"Error al recalcular al seleccionar usuario: {err}")
+                    try:
+                        self.update_details_panel(proxy_index)
+                        self.attendance_group.setVisible(True)
+                        try:
+                            self.f1_hint_label.setVisible(True)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                TaskThread(_recalc_and_fetch, on_success=_on_done, on_error=_on_error, parent=self).start()
             except Exception:
-                pass
+                # Fallback: si algo falla al iniciar hilo, al menos pintar detalles actuales
+                self.update_details_panel(proxy_index)
+                self.attendance_group.setVisible(True)
+                try:
+                    self.f1_hint_label.setVisible(True)
+                except Exception:
+                    pass
         else: 
             self.clear_details_panel()
             self.selected_user = None

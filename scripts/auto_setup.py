@@ -129,7 +129,7 @@ def setup_config_directory():
                 "enabled": True,
                 "uploader": {
                     "enabled": True,
-                    "interval_minutes": 3
+                    "interval_minutes": 15
                 },
                 "reconcile_r2l": {
                     "enabled": True,
@@ -146,6 +146,21 @@ def setup_config_directory():
                 "backup": {
                     "enabled": True,
                     "time": "02:30"
+                },
+                "outbox_flush_weekly": {
+                    "enabled": True,
+                    "time": "01:15",
+                    "days": "SUN"
+                },
+                "replication_health_weekly": {
+                    "enabled": True,
+                    "time": "00:45",
+                    "days": "SUN"
+                },
+                "publication_verify_weekly": {
+                    "enabled": True,
+                    "time": "00:30",
+                    "days": "SUN"
                 }
             },
             "vpn": {

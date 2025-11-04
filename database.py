@@ -5385,19 +5385,17 @@ class DatabaseManager:
                 nuevos_30_dias = cursor.fetchone()[0] or 0
                 
                 # Ingresos del mes actual
-                mes_actual, año_actual = datetime.now().month, datetime.now().year
                 cursor.execute(
                     """
                     SELECT COALESCE(SUM(monto), 0)
                     FROM pagos
-                    WHERE date_trunc('month', COALESCE(fecha_pago, make_date(año, mes, 1))) = date_trunc('month', make_date(%s, %s, 1))
-                    """,
-                    (año_actual, mes_actual)
+                    WHERE date_trunc('month', COALESCE(fecha_pago, make_date(año, mes, 1))) = date_trunc('month', CURRENT_DATE)
+                    """
                 )
                 ingresos_mes = cursor.fetchone()[0] or 0
                 
                 # Asistencias de hoy
-                cursor.execute("SELECT COUNT(*) FROM asistencias WHERE fecha = CURRENT_DATE")
+                cursor.execute("SELECT COUNT(*) FROM asistencias WHERE fecha = CURRENT_DATE OR (hora_registro IS NOT NULL AND hora_registro::date = CURRENT_DATE)")
                 asistencias_hoy = cursor.fetchone()[0] or 0
                 
                 return {
@@ -5783,6 +5781,16 @@ class DatabaseManager:
                     resultados['fallidos'] += 1
                     return
             
+            # Validar existencia de usuario antes de insertar estado
+            try:
+                if not self.usuario_id_existe(usuario_id):
+                    resultados['errores'].append(f'Usuario {usuario_id}: No existe en la tabla usuarios')
+                    resultados['fallidos'] += 1
+                    return
+            except Exception:
+                # Si falla la verificación, continuar con precaución
+                pass
+
             # Insertar nuevo estado
             from datetime import datetime, timedelta
             fecha_vencimiento = datetime.now() + timedelta(days=30)  # Estado válido por 30 días
@@ -6690,6 +6698,13 @@ class DatabaseManager:
         """Crea un nuevo estado temporal para un usuario y registra la creación en el historial."""
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
+                # Validar que el usuario exista para evitar violación de clave foránea
+                try:
+                    if not self.usuario_id_existe(estado.usuario_id):
+                        raise ValueError(f"Usuario {estado.usuario_id} no existe; no se puede crear estado")
+                except Exception:
+                    # Si falla la verificación, intentar insert y dejar que la FK lo bloquee
+                    pass
                 sql = """
                 INSERT INTO usuario_estados (usuario_id, estado, descripcion, fecha_vencimiento, creado_por)
                 VALUES (%s, %s, %s, %s, %s)
@@ -7384,6 +7399,12 @@ class DatabaseManager:
 
     def _cambiar_estado_usuario(self, cursor, usuario_id, nuevo_estado, descripcion):
         """Crea un nuevo estado para un usuario y retorna el ID del nuevo estado"""
+        # Verificar existencia de usuario para evitar error de clave foránea
+        try:
+            if not self.usuario_id_existe(usuario_id):
+                raise ValueError(f"Usuario {usuario_id} no existe; no se puede cambiar estado")
+        except Exception:
+            pass
         cursor.execute("""
             INSERT INTO usuario_estados (usuario_id, estado, descripcion, creado_por)
             VALUES (%s, %s, %s, %s)
@@ -11018,27 +11039,27 @@ class DatabaseManager:
                             SELECT id, estado FROM usuario_estados 
                             WHERE usuario_id = %s AND activo = true
                             ORDER BY fecha_creacion DESC LIMIT 1
-                        """, (usuario[0],))
+                        """, (usuario['usuario_id'],))
                         
                         estado_actual = cursor.fetchone()
-                        nuevo_estado = usuario[3]
+                        nuevo_estado = usuario['estado_calculado']
                         
-                        if not estado_actual or estado_actual[1] != nuevo_estado:
+                        if not estado_actual or estado_actual.get('estado') != nuevo_estado:
                             # Desactivar estado anterior si existe
                             if estado_actual:
                                 estados_a_desactivar.append({
-                                    'estado_id': estado_actual[0],
-                                    'usuario_id': usuario[0],
-                                    'estado': estado_actual[1]
+                                    'estado_id': estado_actual.get('id'),
+                                    'usuario_id': usuario['usuario_id'],
+                                    'estado': estado_actual.get('estado')
                                 })
                             
                             # Preparar nuevo estado
                             estados_a_insertar.append({
-                                'usuario_id': usuario[0],
+                                'usuario_id': usuario['usuario_id'],
                                 'estado': nuevo_estado,
                                 'fecha_creacion': datetime.now(),
                                 'activo': True,
-                                'observaciones': f'Generado automáticamente - Vencimiento: {usuario[2]}'
+                                'observaciones': f"Generado automáticamente - Vencimiento: {usuario['ultima_fecha_vencimiento']}"
                             })
                             
                             resultados['estados_actualizados'] += 1
@@ -11049,12 +11070,12 @@ class DatabaseManager:
                         
                         # Verificar si el usuario necesita reactivación
                         if (nuevo_estado == 'activo' and estado_actual and 
-                            estado_actual[1] in ['vencido', 'suspendido']):
+                            (estado_actual.get('estado') in ['vencido', 'suspendido'])):
                             usuarios_a_reactivar.append(usuario)
                             
                     except Exception as e:
                         resultados['errores'].append({
-                            'usuario_id': usuario[0],
+                            'usuario_id': usuario['usuario_id'],
                             'error': str(e),
                             'contexto': 'procesamiento_usuario'
                         })
@@ -11062,6 +11083,17 @@ class DatabaseManager:
                 # 3. Ejecutar operaciones en lotes
                 if estados_a_insertar:
                     for estado in estados_a_insertar:
+                        try:
+                            # Validar existencia antes de insertar
+                            if hasattr(self, 'usuario_id_existe') and not self.usuario_id_existe(estado['usuario_id']):
+                                resultados['errores'].append({
+                                    'usuario_id': estado['usuario_id'],
+                                    'error': 'Usuario no existe; se omite inserción de estado',
+                                    'contexto': 'batch_insert_usuario_estados'
+                                })
+                                continue
+                        except Exception:
+                            pass
                         cursor.execute("""
                             INSERT INTO usuario_estados (usuario_id, estado, fecha_creacion, activo, observaciones)
                             VALUES (%s, %s, %s, %s, %s)
@@ -11073,14 +11105,14 @@ class DatabaseManager:
                     try:
                         cursor.execute(
                             "UPDATE usuarios SET activo = true WHERE id = %s",
-                            (usuario[0],)
+                            (usuario['usuario_id'],)
                         )
                         
                         resultados['usuarios_reactivados'] += 1
                         
                     except Exception as e:
                         resultados['errores'].append({
-                            'usuario_id': usuario[0],
+                            'usuario_id': usuario['usuario_id'],
                             'error': str(e),
                             'contexto': 'reactivacion_usuario'
                         })

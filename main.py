@@ -99,11 +99,10 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QSpacerItem, QMenuBar, QGraphicsDropShadowEffect,
     QDialog, QProgressBar, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QPropertyAnimation, QEasingCurve, QProcess, QPoint, QRect
+from pathlib import Path
 from PyQt6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QAction, QCloseEvent, QPixmap, QColor
 from typing import Callable
-
-# --- NUEVA IMPORTACIÓN ---
 from widgets.custom_style import CustomProxyStyle
 
 from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled, safe_get
@@ -137,6 +136,43 @@ from utils_modules.preload_manager import PreloadManager
 from utils_modules.ui_profiler import profile
 from utils_modules.async_runner import TaskThread
 # Replicación lógica PostgreSQL: sin motores externos iniciados por la app.
+
+# Registro de limpieza a la salida del proceso
+try:
+    import atexit
+    def _atexit_cleanup():
+        try:
+            app = QApplication.instance()
+        except Exception:
+            app = None
+        try:
+            window_ref = getattr(app, '_main_window_ref', None) if app else None
+        except Exception:
+            window_ref = None
+        # Detener monitor de redes si existe
+        try:
+            from utils_modules.network_health_monitor import stop_network_health_monitor  # reutiliza import superior si está
+            monitor = getattr(window_ref, 'network_monitor', None) if window_ref else None
+            stop_network_health_monitor(monitor)
+        except Exception:
+            pass
+        # Terminar procesos de túnel y SSH residuales
+        try:
+            terminate_tunnel_processes()
+        except Exception:
+            pass
+        try:
+            from utils import terminate_ssh_processes as _term_ssh  # alias defensivo si import superior no disponible
+            _term_ssh()
+        except Exception:
+            try:
+                # Intento directo si ya fue importado arriba
+                terminate_ssh_processes()
+            except Exception:
+                pass
+    atexit.register(_atexit_cleanup)
+except Exception:
+    pass
 
 class StartupProgressDialog(QDialog):
     """Diálogo mejorado para el arranque con progreso determinista y acciones."""
@@ -714,6 +750,11 @@ class MainWindow(QMainWindow):
             
             # Crear botón flotante de cerrar sesión (posicionamiento absoluto)
             self.create_floating_logout_button()
+            # Crear botón flotante de configuración (cdbconfig)
+            try:
+                self.create_floating_config_button()
+            except Exception:
+                pass
             
             self.tabs = {}
             self.notification_counts = {}  # Para almacenar contadores de notificaciones
@@ -768,6 +809,19 @@ class MainWindow(QMainWindow):
                 self._ui_watchdog_timer = QTimer(self)
                 self._ui_watchdog_timer.setInterval(1000)
                 self._ui_watchdog_timer.timeout.connect(self._ui_watchdog_tick)
+                # Configurar umbrales y supresión inicial para evitar falsos positivos
+                try:
+                    self._ui_watchdog_expected_interval_s = float(self._ui_watchdog_timer.interval()) / 1000.0
+                except Exception:
+                    self._ui_watchdog_expected_interval_s = 1.0
+                # Umbral más permisivo para evitar advertencias espurias en arranque/cargas
+                self._ui_watchdog_threshold_s = max(3.0, 2.5 * self._ui_watchdog_expected_interval_s)
+                # Suprimir advertencias durante el arranque diferido
+                try:
+                    from datetime import timedelta as _Timedelta
+                    self._ui_watchdog_suppress_until = datetime.now() + _Timedelta(seconds=45)
+                except Exception:
+                    self._ui_watchdog_suppress_until = datetime.now()
                 self._ui_watchdog_timer.start()
                 logging.info("UI Watchdog iniciado")
             except Exception as e:
@@ -1274,11 +1328,31 @@ class MainWindow(QMainWindow):
         """Detecta si el event loop estuvo bloqueado y registra la latencia."""
         try:
             now = datetime.now()
+            # Suprimir durante arranque pesado/deferred startup
+            try:
+                sup_until = getattr(self, '_ui_watchdog_suppress_until', None)
+                if sup_until and now < sup_until:
+                    self._ui_watchdog_last_tick = now
+                    return
+            except Exception:
+                pass
             last = getattr(self, '_ui_watchdog_last_tick', now)
             delta = (now - last).total_seconds()
             self._ui_watchdog_last_tick = now
-            if delta > 2.0:
-                logging.warning(f"UI watchdog: event loop bloqueado ~{delta:.2f}s")
+            # Umbral adaptable según intervalo esperado del timer
+            try:
+                expected = float(getattr(self, '_ui_watchdog_expected_interval_s', 1.0))
+            except Exception:
+                expected = 1.0
+            threshold = float(getattr(self, '_ui_watchdog_threshold_s', 3.0))
+            if delta > threshold:
+                # Registrar como info si la demora es moderada; warning si es alta
+                level_msg = "warning" if delta >= max(threshold + 1.5, 4.0) else "info"
+                msg = f"UI watchdog: event loop bloqueado ~{delta:.2f}s (intervalo esperado {expected:.2f}s)"
+                if level_msg == "warning":
+                    logging.warning(msg)
+                else:
+                    logging.info(msg)
                 try:
                     os.makedirs('logs', exist_ok=True)
                     with open(os.path.join('logs', 'ui_watchdog.log'), 'a', encoding='utf-8') as f:
@@ -2450,6 +2524,17 @@ class MainWindow(QMainWindow):
     
     def _start_initial_reconciliation_thread(self):
         try:
+            # Evitar iniciar si la aplicación está en proceso de cierre
+            try:
+                if getattr(self, "_app_closing", False):
+                    try:
+                        logging.info("App closing: omitiendo inicio de reconciliación inicial")
+                    except Exception:
+                        pass
+                    return
+            except Exception:
+                pass
+
             import threading
             t = threading.Thread(target=self._auto_initial_reconciliation, daemon=True)
             t.start()
@@ -2466,12 +2551,25 @@ class MainWindow(QMainWindow):
         - Resuelve tablas dinámicamente desde config/sync_tables.json.
         - Soporta PK compuestas y actualiza filas por versión lógica (logical_ts/last_op_id).
         """
+        # Abort early si se está cerrando
         try:
-            QTimer.singleShot(0, lambda: self.show_sync_overlay("Reconciliando datos históricos…", detail="Preparando reconciliación local⇄remoto"))
+            if getattr(self, "_app_closing", False):
+                try:
+                    logging.info("App closing: abortando reconciliación inicial")
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        try:
+            if not getattr(self, "_app_closing", False):
+                QTimer.singleShot(0, lambda: self.show_sync_overlay("Reconciliando datos históricos…", detail="Preparando reconciliación local⇄remoto"))
         except Exception:
             pass
         # Local→Remoto para tablas transaccionales
         try:
+            if getattr(self, "_app_closing", False):
+                return
             from pathlib import Path
             import json
             from scripts import reconcile_local_remote_once as L2R
@@ -2501,6 +2599,8 @@ class MainWindow(QMainWindow):
                 total_inserted = 0
                 total_updated = 0
                 for table in tables_to_process:
+                    if getattr(self, "_app_closing", False):
+                        break
                     try:
                         pk_cols = L2R.get_pk_columns(local_conn, 'public', table)
                         # Inserciones: claves presentes en local y faltantes en remoto
@@ -2516,7 +2616,8 @@ class MainWindow(QMainWindow):
                         pass
                 try:
                     # Feedback discreto
-                    QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Local→Remoto: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
+                    if not getattr(self, "_app_closing", False):
+                        QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Local→Remoto: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
                 except Exception:
                     pass
             finally:
@@ -2539,6 +2640,8 @@ class MainWindow(QMainWindow):
                 pass
         # Remoto→Local para tablas puntuales excluidas de publicación
         try:
+            if getattr(self, "_app_closing", False):
+                return
             from pathlib import Path
             import json
             from scripts import reconcile_remote_to_local_once as R2L
@@ -2568,6 +2671,8 @@ class MainWindow(QMainWindow):
                 total_inserted = 0
                 total_updated = 0
                 for table in tables_to_process:
+                    if getattr(self, "_app_closing", False):
+                        break
                     try:
                         pk_cols = R2L.get_pk_columns(local_conn, 'public', table)
                         # Inserciones: claves presentes en remoto y faltantes en local
@@ -2582,7 +2687,8 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                 try:
-                    QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Remoto→Local: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
+                    if not getattr(self, "_app_closing", False):
+                        QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Remoto→Local: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
                 except Exception:
                     pass
             finally:
@@ -2605,17 +2711,20 @@ class MainWindow(QMainWindow):
                 pass
         # Actualizar UI y lanzar subida inmediata de outbox
         try:
-            QTimer.singleShot(0, lambda: self.status_bar.showMessage("Reconciliación inicial completada", 7000))
+            if not getattr(self, "_app_closing", False):
+                QTimer.singleShot(0, lambda: self.status_bar.showMessage("Reconciliación inicial completada", 7000))
         except Exception:
             pass
         try:
-            svc = getattr(self, 'sync_service', None)
-            if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
-                svc.flush_outbox_once_bg(delay_ms=0)
+            if not getattr(self, "_app_closing", False):
+                svc = getattr(self, 'sync_service', None)
+                if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
+                    svc.flush_outbox_once_bg(delay_ms=0)
         except Exception:
             pass
         try:
-            QTimer.singleShot(0, self.hide_sync_overlay)
+            if not getattr(self, "_app_closing", False):
+                QTimer.singleShot(0, self.hide_sync_overlay)
         except Exception:
             pass
 
@@ -2880,6 +2989,14 @@ class MainWindow(QMainWindow):
     def process_whatsapp_automation(self):
         """Lanza el procesamiento automático en segundo plano para no bloquear la UI."""
         import threading
+        # No ejecutar si la app se está cerrando
+        try:
+            from PyQt6.QtWidgets import QApplication  # type: ignore
+            if getattr(self, '_shutting_down', False) or (QApplication.instance() and QApplication.instance().closingDown()):
+                logging.info("Cierre en progreso; se omite procesamiento automático de WhatsApp")
+                return
+        except Exception:
+            pass
         if getattr(self, '_wa_auto_running', False):
             logging.info("Automatización WhatsApp ya en ejecución; se omite disparo simultáneo")
             return
@@ -3310,8 +3427,20 @@ class MainWindow(QMainWindow):
         # Solo mostrar en la pestaña de Configuración
         if widget == self.tabs.get('configuracion'):
             self.status_bar.show()
+            try:
+                if hasattr(self, 'config_button') and self.config_button:
+                    self.config_button.show()
+                    # Reposicionar por si el panel de búsqueda está visible
+                    self.position_floating_button()
+            except Exception:
+                pass
         else:
             self.status_bar.hide()
+            try:
+                if hasattr(self, 'config_button') and self.config_button:
+                    self.config_button.hide()
+            except Exception:
+                pass
         
         # Lógica existente para cada pestaña
         if widget == self.tabs.get('rutinas'):
@@ -5609,28 +5738,176 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error creando botón flotante: {e}")
     
+    def create_floating_config_button(self):
+        """Crea un botón flotante tipo FAB circular para abrir la configuración (cdbconfig)."""
+        try:
+            # Crear botón flotante de configuración (FAB circular)
+            self.config_button = QPushButton("⚙", self)
+            self.config_button.setToolTip("Abrir configuración de base de datos y tareas")
+            self.config_button.setObjectName("floating_config_button")
+            self.config_button.clicked.connect(self.open_config_dialog)
+
+            # Estilo del botón de configuración (FAB circular, pequeño)
+            self.config_button.setStyleSheet("""
+                QPushButton#floating_config_button {
+                    background-color: #3498db;
+                    color: white;
+                    border: none;
+                    padding: 0px;
+                    border-radius: 28px; /* círculo para botón de 56px */
+                    font-weight: bold;
+                    font-size: 22px;
+                    min-width: 56px;
+                    min-height: 56px;
+                }
+                QPushButton#floating_config_button:hover {
+                    background-color: #2e86c1;
+                }
+                QPushButton#floating_config_button:pressed {
+                    background-color: #2874a6;
+                }
+            """)
+            # Tamaño fijo para círculo consistente
+            try:
+                self.config_button.setFixedSize(56, 56)
+            except Exception:
+                pass
+
+            # Posicionar el FAB en esquina inferior derecha
+            self.position_floating_button()
+
+            # Por defecto oculto; se muestra solo en la pestaña de Configuración
+            self.config_button.raise_()
+            try:
+                self.config_button.hide()
+            except Exception:
+                pass
+
+            logging.info("Botón flotante de configuración creado exitosamente")
+        except Exception as e:
+            logging.error(f"Error creando botón flotante de configuración: {e}")
+    
     def position_floating_button(self):
-        """Posiciona el botón flotante en la esquina superior derecha"""
+        """Posiciona el botón de logout (arriba derecha) y el FAB de configuración (abajo derecha)."""
         try:
             # Obtener dimensiones de la ventana
             window_width = self.width()
             button_width = 140  # Ancho aproximado del botón
             button_height = 35  # Alto aproximado del botón
-            
+
             # Posicionar en esquina superior derecha con margen
             x = window_width - button_width - 20  # 20px de margen desde el borde
             y = 10  # 10px desde la parte superior
-            
-            self.logout_button.setGeometry(x, y, button_width, button_height)
-            
+
+            try:
+                if hasattr(self, 'logout_button') and self.logout_button:
+                    self.logout_button.setGeometry(x, y, button_width, button_height)
+            except Exception:
+                pass
+
+            # Posicionar botón de configuración si existe, como FAB en esquina inferior derecha
+            try:
+                if hasattr(self, 'config_button') and self.config_button:
+                    # Tamaño del FAB (coincide con estilo)
+                    cfg_w = 56
+                    cfg_h = 56
+                    cfg_x = self.width() - cfg_w - 20
+                    cfg_y = self.height() - cfg_h - 20
+
+                    # Evitar solape con el panel flotante de resultados de búsqueda
+                    try:
+                        if hasattr(self, 'search_widget') and self.search_widget:
+                            rf = getattr(self.search_widget, 'results_frame', None)
+                            if rf and rf.isVisible():
+                                main_top_left = self.mapToGlobal(self.rect().topLeft())
+                                cfg_global_x = main_top_left.x() + cfg_x
+                                cfg_global_y = main_top_left.y() + cfg_y
+                                cfg_rect_global = QRect(cfg_global_x, cfg_global_y, cfg_w, cfg_h)
+                                rf_geo = rf.geometry()
+                                # Si hay intersección, mover el FAB por encima del panel
+                                if cfg_rect_global.intersects(rf_geo):
+                                    new_cfg_y = rf_geo.top() - main_top_left.y() - cfg_h - 8
+                                    # Limitar dentro de la ventana
+                                    new_cfg_y = max(10, min(new_cfg_y, self.height() - cfg_h - 10))
+                                    cfg_y = new_cfg_y
+                    except Exception:
+                        pass
+
+                    self.config_button.setGeometry(cfg_x, cfg_y, cfg_w, cfg_h)
+            except Exception:
+                pass
+
         except Exception as e:
             logging.error(f"Error posicionando botón flotante: {e}")
     
     def resizeEvent(self, event):
         """Reposiciona el botón flotante cuando se redimensiona la ventana"""
         super().resizeEvent(event)
-        if hasattr(self, 'logout_button') and self.logout_button:
+        try:
             self.position_floating_button()
+        except Exception:
+            pass
+
+    def open_config_dialog(self):
+        """Abre el diálogo de configuración (DBConfigDialog) y propone reinicio si se guardan cambios."""
+        try:
+            from cdbconfig import DBConfigDialog
+        except Exception as e:
+            logging.error(f"No se pudo importar DBConfigDialog: {e}")
+            QMessageBox.critical(self, "Error", "No se pudo abrir la configuración.")
+            return
+
+        try:
+            dlg = DBConfigDialog(self)
+            result = dlg.exec()
+            accepted_code = int(getattr(QDialog, 'DialogCode', type('dc', (), {'Accepted': 1})).Accepted)
+            if int(result) == accepted_code:
+                # Cambios guardados: pedir confirmación para reiniciar
+                should_restart = self._ask_yes_no(
+                    "Reiniciar aplicación",
+                    "Se han aplicado cambios de configuración. Para que todos los componentes\n"
+                    "funcionen con la nueva configuración, es recomendable reiniciar.\n\n"
+                    "¿Deseas reiniciar la aplicación ahora?"
+                )
+                if should_restart:
+                    self.restart_application()
+            else:
+                # Cancelado o cerrado sin guardar
+                logging.info("Configuración cerrada sin cambios aplicados")
+        except Exception as e:
+            logging.error(f"Error ejecutando diálogo de configuración: {e}")
+            QMessageBox.critical(self, "Error", f"Ocurrió un error abriendo la configuración: {e}")
+
+    def restart_application(self):
+        """Reinicia la aplicación de forma segura: relanza proceso y cierra actual."""
+        try:
+            QMessageBox.information(
+                self,
+                "Reiniciando",
+                "La aplicación se cerrará y volverá a abrirse para aplicar los cambios."
+            )
+        except Exception:
+            pass
+
+        try:
+            if getattr(sys, 'frozen', False):
+                # Ejecutable empaquetado
+                QProcess.startDetached(sys.executable, [])
+            else:
+                python = sys.executable
+                script = str(Path(sys.argv[0]).resolve())
+                args = list(sys.argv[1:])
+                QProcess.startDetached(python, [script, *args])
+        except Exception as e:
+            logging.error(f"No se pudo re-lanzar la aplicación: {e}")
+        finally:
+            try:
+                QApplication.quit()
+            except Exception:
+                try:
+                    self.close()
+                except Exception:
+                    pass
     
     def setup_menu_bar(self):
         """Configura la barra de menús de la aplicación"""
@@ -5969,6 +6246,29 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         """Maneja el evento de cierre de la ventana"""
         try:
+            # Señalizar cierre y detener watchdog de UI para evitar registros espurios
+            try:
+                setattr(self, '_app_closing', True)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, '_ui_watchdog_timer') and getattr(self, '_ui_watchdog_timer', None):
+                    self._ui_watchdog_timer.stop()
+            except Exception:
+                pass
+            # Señalizar al gestor de WhatsApp que no continúe inicializando
+            try:
+                wm = getattr(self, 'whatsapp_manager', None) or getattr(getattr(self, 'payment_manager', None), 'whatsapp_manager', None)
+                if wm:
+                    setattr(wm, '_stop_init', True)
+            except Exception:
+                pass
+            # Detener monitor de redes si existiera
+            try:
+                from utils_modules.network_health_monitor import stop_network_health_monitor as _stop_mon
+                _stop_mon(getattr(self, 'network_monitor', None))
+            except Exception:
+                pass
             # Si es un logout, no mostrar diálogos de confirmación
             if getattr(self, 'is_logout', False):
                 try:
@@ -6057,6 +6357,23 @@ class MainWindow(QMainWindow):
             logging.info("Cerrando la aplicación.")
             # Detener timers de larga ejecución para evitar callbacks posteriores
             try:
+                # Señalar estado de cierre para que tareas en background se omitan
+                try:
+                    self._shutting_down = True
+                except Exception:
+                    pass
+                if hasattr(self, 'notification_timer') and getattr(self, 'notification_timer', None):
+                    try:
+                        self.notification_timer.stop()
+                        logging.info("Timer de notificaciones detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, 'whatsapp_timer') and getattr(self, 'whatsapp_timer', None):
+                    try:
+                        self.whatsapp_timer.stop()
+                        logging.info("Timer de WhatsApp detenido")
+                    except Exception:
+                        pass
                 if hasattr(self, 'whatsapp_sendall_timer') and getattr(self, 'whatsapp_sendall_timer', None):
                     try:
                         self.whatsapp_sendall_timer.stop()
@@ -6082,11 +6399,28 @@ class MainWindow(QMainWindow):
                 terminate_tunnel_processes()
             except Exception:
                 pass
+            # Detener servidor de webhook de WhatsApp si está activo
+            try:
+                if getattr(self, 'whatsapp_manager', None):
+                    self.whatsapp_manager.detener_servidor_webhook()
+            except Exception:
+                pass
             # Referencias legacy a download_sync_worker/proxy_watchdog removidas
             event.accept()
             # Intentar cierre limpio de todos los QThreads activos
             try:
                 self._shutdown_qthreads_guarded()
+            except Exception:
+                pass
+            # Forzar salida del loop principal para que no continúe ejecutando timers
+            try:
+                from PyQt6.QtWidgets import QApplication  # type: ignore
+                if QApplication.instance():
+                    try:
+                        QApplication.instance().setQuitOnLastWindowClosed(True)
+                    except Exception:
+                        pass
+                    QApplication.instance().quit()
             except Exception:
                 pass
             
@@ -6100,6 +6434,194 @@ class MainWindow(QMainWindow):
                 event.accept()
             else:
                 event.ignore()
+            # Señalizar cierre y detener watchdog de UI para evitar registros espurios
+            try:
+                setattr(self, '_app_closing', True)
+            except Exception:
+                pass
+            try:
+                if hasattr(self, '_ui_watchdog_timer') and getattr(self, '_ui_watchdog_timer', None):
+                    self._ui_watchdog_timer.stop()
+            except Exception:
+                pass
+            # Señalizar al gestor de WhatsApp que no continúe inicializando
+            try:
+                wm = getattr(self, 'whatsapp_manager', None) or getattr(getattr(self, 'payment_manager', None), 'whatsapp_manager', None)
+                if wm:
+                    setattr(wm, '_stop_init', True)
+            except Exception:
+                pass
+            # Detener monitor de redes si existiera
+            try:
+                from utils_modules.network_health_monitor import stop_network_health_monitor as _stop_mon
+                _stop_mon(getattr(self, 'network_monitor', None))
+            except Exception:
+                pass
+            # Si es un logout, no mostrar diálogos de confirmación
+            if getattr(self, 'is_logout', False):
+                try:
+                    terminate_tunnel_processes()
+                except Exception:
+                    pass
+                # Limpiar recursos modernos; referencias legacy eliminadas
+                event.accept()
+                return
+                
+            # Verificar sesiones abiertas antes de cerrar
+            sesiones_abiertas = self.db_manager.verificar_sesiones_abiertas()
+            
+            if sesiones_abiertas:
+                # Mostrar resumen de sesiones que se van a cerrar
+                mensaje = "Se cerrarán las siguientes sesiones de trabajo:\n\n"
+                for sesion in sesiones_abiertas:
+                    horas_transcurridas = float(sesion.get('horas_transcurridas', 0))
+                    mensaje += f"• {sesion['profesor_nombre']}: {horas_transcurridas:.1f} horas\n"
+                
+                mensaje += "\n¿Desea continuar?"
+                
+                respuesta = QMessageBox.question(
+                    self, "Cerrar Sesiones de Trabajo",
+                    mensaje,
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                
+                if respuesta == QMessageBox.StandardButton.No:
+                    event.ignore()
+                    return
+                
+                # Limpieza: eliminar salida de depuración al cerrar sesiones
+                
+                # Cerrar todas las sesiones abiertas
+                for sesion in sesiones_abiertas:
+                    try:
+                        profesor_id = sesion['profesor_id']
+                        profesor_nombre = sesion['profesor_nombre']
+                        horas_transcurridas = float(sesion.get('horas_transcurridas', 0))
+                        
+                        logging.info(f"Cerrando sesión de {profesor_nombre} (ID: {profesor_id}). Tiempo transcurrido: {horas_transcurridas:.2f} horas")
+                        
+                        # El método finalizar_sesion_trabajo_profesor ahora retorna dict
+                        resultado = self.db_manager.finalizar_sesion_trabajo_profesor(profesor_id)
+                        if resultado.get('success'):
+                            # Obtener datos de la sesión finalizada
+                            datos_sesion = resultado.get('datos', {})
+                            minutos_sesion = datos_sesion.get('minutos_totales', 0) or 0
+                            horas_sesion = minutos_sesion / 60.0 if minutos_sesion else 0
+                            
+                            logging.info(f"Sesión cerrada exitosamente. Duración: {minutos_sesion:.2f} minutos ({horas_sesion:.4f} horas)")
+                            
+                            # Obtener horas actualizadas del mes
+                            try:
+                                horas_mes = self.db_manager.obtener_horas_mes_actual_profesor(profesor_id)
+                                if horas_mes.get('success'):
+                                    # Usar claves actuales del backend
+                                    total_minutos = int(horas_mes.get('total_minutos', 0) or 0)
+                                    total_horas = int(horas_mes.get('horas_display', total_minutos // 60))
+                                    total_minutos_display = int(horas_mes.get('minutos_display', total_minutos % 60))
+                                    dias_trabajados = int(horas_mes.get('total_dias_trabajados', 0) or 0)
+                                    
+                                    logging.info(f"Horas del mes actualizadas: Total {total_horas}h {total_minutos_display}min, Días trabajados {dias_trabajados}")
+                                else:
+                                    logging.warning(f"No se pudieron obtener las horas del mes: {horas_mes.get('mensaje', 'Error desconocido')}")
+                            except Exception as e:
+                                logging.error(f"Error obteniendo horas del mes: {e}")
+                            
+                            logging.info(f"Sesión cerrada para {profesor_nombre}: {horas_sesion:.4f} horas")
+                        else:
+                            mensaje_error = resultado.get('mensaje', 'Error desconocido')
+                            logging.warning(f"No se pudo cerrar la sesión de {profesor_nombre}: {mensaje_error}")
+                    except Exception as e:
+                        logging.error(f"Error cerrando sesión de {profesor_nombre}: {e}")
+
+            else:
+                # No hay sesiones abiertas, confirmar cierre normal
+                if QMessageBox.question(self, 'Confirmar Salida', "¿Está seguro de que desea cerrar el programa?",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                    event.ignore()
+                    return
+            
+            # Continuar con el cierre normal
+            logging.info("Cerrando la aplicación.")
+            # Detener timers de larga ejecución para evitar callbacks posteriores
+            try:
+                # Señalar estado de cierre para que tareas en background se omitan
+                try:
+                    self._shutting_down = True
+                except Exception:
+                    pass
+                if hasattr(self, 'notification_timer') and getattr(self, 'notification_timer', None):
+                    try:
+                        self.notification_timer.stop()
+                        logging.info("Timer de notificaciones detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, 'whatsapp_timer') and getattr(self, 'whatsapp_timer', None):
+                    try:
+                        self.whatsapp_timer.stop()
+                        logging.info("Timer de WhatsApp detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, 'whatsapp_sendall_timer') and getattr(self, 'whatsapp_sendall_timer', None):
+                    try:
+                        self.whatsapp_sendall_timer.stop()
+                        logging.info("Timer de WhatsApp detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, '_timer_r2l') and getattr(self, '_timer_r2l', None):
+                    try:
+                        self._timer_r2l.stop()
+                        logging.info("Timer de Reconciliación R→L detenido")
+                    except Exception:
+                        pass
+                if hasattr(self, '_timer_l2r') and getattr(self, '_timer_l2r', None):
+                    try:
+                        self._timer_l2r.stop()
+                        logging.info("Timer de Reconciliación L→R detenido")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # Cerrar túnel público (ssh.exe) si estuviera activo
+            try:
+                terminate_tunnel_processes()
+            except Exception:
+                pass
+            # Detener servidor de webhook de WhatsApp si está activo
+            try:
+                if getattr(self, 'whatsapp_manager', None):
+                    self.whatsapp_manager.detener_servidor_webhook()
+            except Exception:
+                pass
+            # Referencias legacy a download_sync_worker/proxy_watchdog removidas
+            event.accept()
+            # Intentar cierre limpio de todos los QThreads activos
+            try:
+                self._shutdown_qthreads_guarded()
+            except Exception:
+                pass
+            # Forzar salida del loop principal para que no continúe ejecutando timers
+            try:
+                from PyQt6.QtWidgets import QApplication  # type: ignore
+                if QApplication.instance():
+                    try:
+                        QApplication.instance().setQuitOnLastWindowClosed(True)
+                    except Exception:
+                        pass
+                    QApplication.instance().quit()
+            except Exception:
+                pass
+            
+            except Exception as e:
+                logging.error(f"Error en closeEvent: {e}")
+                # Permitir cierre aunque haya error
+                if QMessageBox.question(self, 'Error al Cerrar', 
+                                        f"Ocurrió un error al cerrar la aplicación: {e}\n\n¿Desea forzar el cierre?",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                        QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                    event.accept()
+                else:
+                    event.ignore()
 
 def _ensure_windows_app_id():
     """En Windows, establece un AppUserModelID explícito para que la barra de tareas
@@ -6531,6 +7053,16 @@ def main():
             def _create_main_window():
                 nonlocal window
                 window = MainWindow(login_dialog.logged_in_role, db_manager_for_login, login_dialog.logged_in_user)
+                try:
+                    # Guardar referencia para limpieza en atexit
+                    QApplication.instance()._main_window_ref = window
+                except Exception:
+                    pass
+                # A partir de la ventana principal, permitir que la app termine al cerrar
+                try:
+                    QApplication.instance().setQuitOnLastWindowClosed(True)
+                except Exception:
+                    pass
 
                 # Conectar progreso de arranque al overlay integrado de MainWindow
                 try:
@@ -6602,6 +7134,16 @@ def main():
 
                     def _run_script_async(args: list, flag_attr: str):
                         def _worker():
+                            # Abort if application is closing
+                            try:
+                                if getattr(window, '_app_closing', False):
+                                    try:
+                                        logging.info("App closing: omitiendo ejecución de script de reconciliación")
+                                    except Exception:
+                                        pass
+                                    return
+                            except Exception:
+                                pass
                             try:
                                 subprocess.run(
                                     args,
@@ -6619,6 +7161,9 @@ def main():
                                 except Exception:
                                     pass
                         try:
+                            # Skip scheduling if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             if getattr(window, flag_attr, False):
                                 return
                             setattr(window, flag_attr, True)
@@ -6632,6 +7177,16 @@ def main():
                     # Ejecución en-proceso de reconciliaciones, compatible con ejecutable
                     def _run_r2l_inprocess(flag_attr: str):
                         def _worker():
+                            # Abort if application is closing
+                            try:
+                                if getattr(window, '_app_closing', False):
+                                    try:
+                                        logging.info("App closing: omitiendo reconciliación R→L in-process")
+                                    except Exception:
+                                        pass
+                                    return
+                            except Exception:
+                                pass
                             try:
                                 # Preferir importación por nombre para compatibilidad con ejecutables
                                 try:
@@ -6659,6 +7214,9 @@ def main():
                                 except Exception:
                                     pass
                         try:
+                            # Skip scheduling if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             if getattr(window, flag_attr, False):
                                 return
                             setattr(window, flag_attr, True)
@@ -6671,6 +7229,16 @@ def main():
 
                     def _run_l2r_inprocess(flag_attr: str):
                         def _worker():
+                            # Abort if application is closing
+                            try:
+                                if getattr(window, '_app_closing', False):
+                                    try:
+                                        logging.info("App closing: omitiendo reconciliación L→R in-process")
+                                    except Exception:
+                                        pass
+                                    return
+                            except Exception:
+                                pass
                             try:
                                 # Preferir importación por nombre para compatibilidad con ejecutables
                                 try:
@@ -6697,6 +7265,9 @@ def main():
                                 except Exception:
                                     pass
                         try:
+                            # Skip scheduling if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             if getattr(window, flag_attr, False):
                                 return
                             setattr(window, flag_attr, True)
@@ -6710,6 +7281,16 @@ def main():
                     # Disparo inicial R→L forzado para drenar pendientes a los 60s
                     def _run_r2l_initial_once():
                         def _worker():
+                            # Abort if application is closing
+                            try:
+                                if getattr(window, '_app_closing', False):
+                                    try:
+                                        logging.info("App closing: omitiendo reconciliación inicial R→L")
+                                    except Exception:
+                                        pass
+                                    return
+                            except Exception:
+                                pass
                             try:
                                 try:
                                     import importlib
@@ -6736,6 +7317,9 @@ def main():
                                 except Exception:
                                     pass
                         try:
+                            # Skip scheduling if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             if getattr(window, '_r2l_running', False):
                                 return
                             setattr(window, '_r2l_running', True)
@@ -6748,6 +7332,9 @@ def main():
 
                     def _start_r2l_timer():
                         try:
+                            # Do not start timers if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             # Remote→Local cada 5 minutos, con gating interno de threshold
                             r2l = QTimer(window)
                             r2l.setInterval(15 * 60 * 1000)
@@ -6760,6 +7347,9 @@ def main():
 
                     def _start_l2r_timer():
                         try:
+                            # Do not start timers if app is closing
+                            if getattr(window, '_app_closing', False):
+                                return
                             # Local→Remote cada 2 minutos
                             l2r = QTimer(window)
                             l2r.setInterval(15 * 60 * 1000)
@@ -6771,23 +7361,81 @@ def main():
                             logging.debug(f"No se pudo iniciar timer L→R: {e}")
 
                     # Arrancar ambos timers de forma diferida para no bloquear el render inicial
-                    QTimer.singleShot(1500, _start_r2l_timer)
-                    QTimer.singleShot(1500, _start_l2r_timer)
-
-                    # Programar primer disparo a los 15 segundos para drenar pendientes
                     try:
-                        QTimer.singleShot(15000, _run_r2l_initial_once)
-                        QTimer.singleShot(15000, lambda: _run_l2r_inprocess('_l2r_running'))
-                        logging.info("Primer disparo de reconciliación R→L y L→R programado a 15s")
+                        # Evitar arrancar timers si la aplicación está cerrándose
+                        if not getattr(window, '_app_closing', False):
+                            QTimer.singleShot(1500, _start_r2l_timer)
+                            QTimer.singleShot(1500, _start_l2r_timer)
                     except Exception:
                         pass
 
+                    # Programar primer disparo a los 15 segundos para drenar pendientes
+                    try:
+                        # No programar si la app ya está cerrándose
+                        if not getattr(window, '_app_closing', False):
+                            QTimer.singleShot(15000, _run_r2l_initial_once)
+                            QTimer.singleShot(15000, lambda: _run_l2r_inprocess('_l2r_running'))
+                            logging.info("Primer disparo de reconciliación R→L y L→R programado a 15s")
+                    except Exception:
+                        pass
+
+                    # Marcar bandera de cierre lo antes posible
+                    try:
+                        app.aboutToQuit.connect(lambda: setattr(window, '_app_closing', True))
+                    except Exception:
+                        pass
                     # Detener timers al salir
                     try:
                         app.aboutToQuit.connect(lambda: (
+                            setattr(window, '_r2l_running', False),
+                            setattr(window, '_l2r_running', False),
                             getattr(window, '_timer_r2l', None) and window._timer_r2l.stop(),
-                            getattr(window, '_timer_l2r', None) and window._timer_l2r.stop()
+                            setattr(window, '_timer_r2l', None),
+                            getattr(window, '_timer_l2r', None) and window._timer_l2r.stop(),
+                            setattr(window, '_timer_l2r', None)
                         ))
+                    except Exception:
+                        pass
+                    # Parada ordenada de servicios y monitores
+                    try:
+                        # Asegurar parada y unión breve de hilos del SyncService
+                        def _stop_sync_service():
+                            try:
+                                ss = getattr(window, 'sync_service', None)
+                                if ss:
+                                    try:
+                                        ss.stop()
+                                    except Exception:
+                                        pass
+                                    try:
+                                        # Esperar brevemente a hilos en background para evitar cuelgues
+                                        ss.wait_for_bg_threads(timeout_s=1.0)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        app.aboutToQuit.connect(_stop_sync_service)
+                    except Exception:
+                        pass
+                    try:
+                        app.aboutToQuit.connect(lambda: (
+                            getattr(window, 'replication_observer', None) and window.replication_observer.stop()
+                        ))
+                    except Exception:
+                        pass
+                    try:
+                        app.aboutToQuit.connect(lambda: (
+                            stop_network_health_monitor(getattr(window, 'network_monitor', None))
+                        ))
+                    except Exception:
+                        pass
+                    # Refuerzo: terminar procesos de túnel/SSH al cerrar
+                    try:
+                        app.aboutToQuit.connect(lambda: terminate_tunnel_processes())
+                    except Exception:
+                        pass
+                    try:
+                        app.aboutToQuit.connect(lambda: terminate_ssh_processes())
                     except Exception:
                         pass
                 except Exception:
