@@ -16,8 +16,9 @@ import socket
 try:
     from audit_logger import set_audit_context
 except Exception:
+    # Función eliminada - sin implementación: proveer stub para compatibilidad
     def set_audit_context(*args, **kwargs):
-        pass
+        return None
 
 class LoginDialog(QDialog):
     def __init__(self, db_manager: DatabaseManager, parent=None):

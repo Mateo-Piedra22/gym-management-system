@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from pathlib import Path
 
@@ -295,24 +295,17 @@ def check_remote_logical_capability(remote_params: dict) -> Dict[str, Any]:
 
 
 def ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub') -> Dict[str, Any]:
-    """Asegura PUBLICATION remoto basada en `publishes_remote_to_local`.
-    Si hay tablas listadas en `config/sync_tables.json` bajo `publishes_remote_to_local`,
-    publica sólo esas. Si no hay listas, hace fallback a `FOR ALL TABLES`.
+    """Asegura PUBLICATION en el servidor remoto.
+    Si existe una lista de tablas programática, la usa; de lo contrario publica
+    todas las tablas del esquema `public` (FOR ALL TABLES).
     """
     changed = False
     conn = None
     added_count = 0
     dropped_count = 0
     try:
-        # Cargar configuración de tablas a publicar desde el remoto hacia el local
-        try:
-            base_dir = Path(__file__).resolve().parent.parent
-            cfg_path = base_dir / 'config' / 'sync_tables.json'
-            with open(cfg_path, 'r', encoding='utf-8') as f:
-                cfg_tables = json.load(f) or {}
-            publishes_remote_to_local = list(cfg_tables.get('publishes_remote_to_local') or [])
-        except Exception:
-            publishes_remote_to_local = []
+        # Lista de tablas a publicar (si se define externamente); por defecto vacía.
+        publishes_remote_to_local: List[str] = []
 
         conn = _connect(remote_params)
         conn.autocommit = True
@@ -332,11 +325,10 @@ def ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub') 
                 remote_tables = []
 
             # Calcular la lista de tablas a publicar
-            if publishes_remote_to_local:
-                pub_tables = [t for t in remote_tables if t in publishes_remote_to_local]
-            else:
-                # Fallback: publicar todas las tablas del esquema
-                pub_tables = remote_tables
+            pub_tables = (
+                [t for t in remote_tables if t in publishes_remote_to_local]
+                if publishes_remote_to_local else remote_tables
+            )
 
             cur.execute("SELECT 1 FROM pg_publication WHERE pubname = %s", (pubname,))
             exists = bool(cur.fetchone())
@@ -639,23 +631,17 @@ def ensure_logical_replication(cfg: dict) -> Dict[str, Any]:
 
 
 def ensure_publication_on_local(local_params: dict, pubname: str = 'gym_pub_local') -> Dict[str, Any]:
-    """Asegura PUBLICATION local basada en `uploads_local_to_remote`.
-    Si hay tablas listadas en `config/sync_tables.json` bajo `uploads_local_to_remote`,
-    publica sólo esas. Si no hay listas, hace fallback a `FOR ALL TABLES`.
+    """Asegura PUBLICATION en el servidor local.
+    Si existe una lista de tablas programática, la usa; de lo contrario publica
+    todas las tablas del esquema `public` (FOR ALL TABLES).
     """
     changed = False
     conn = None
     added_count = 0
     dropped_count = 0
     try:
-        try:
-            base_dir = Path(__file__).resolve().parent.parent
-            cfg_path = base_dir / 'config' / 'sync_tables.json'
-            with open(cfg_path, 'r', encoding='utf-8') as f:
-                cfg_tables = json.load(f) or {}
-            uploads_local_to_remote = list(cfg_tables.get('uploads_local_to_remote') or [])
-        except Exception:
-            uploads_local_to_remote = []
+        # Lista de tablas a publicar (si se define externamente); por defecto vacía.
+        uploads_local_to_remote: List[str] = []
 
         conn = _connect(local_params)
         conn.autocommit = True
@@ -673,10 +659,10 @@ def ensure_publication_on_local(local_params: dict, pubname: str = 'gym_pub_loca
             except Exception:
                 local_tables = []
 
-            if uploads_local_to_remote:
-                pub_tables = [t for t in local_tables if t in uploads_local_to_remote]
-            else:
-                pub_tables = local_tables
+            pub_tables = (
+                [t for t in local_tables if t in uploads_local_to_remote]
+                if uploads_local_to_remote else local_tables
+            )
 
             cur.execute("SELECT 1 FROM pg_publication WHERE pubname = %s", (pubname,))
             exists = bool(cur.fetchone())

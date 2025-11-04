@@ -15,13 +15,16 @@ from PyQt6.QtGui import QFont
 class DeveloperManager:
     """Gestiona herramientas administrativas del Dueño y utilidades avanzadas."""
     
-    # Contraseña del Dueño (acceso administrativo)
-    DEV_PASSWORD = "Matute03"
+    # Contraseña del Dueño (acceso administrativo) - AHORA DESDE VARIABLE DE ENTORNO
+    # DEV_PASSWORD = "Matute03"  # ELIMINADO - Usar secure_config.get_dev_password()
     
     def __init__(self, parent_widget, db_manager):
         self.parent = parent_widget
         self.db_manager = db_manager
         self.is_dev_mode_active = False
+        # Importar aquí para evitar import circular
+        from secure_config import config as secure_config
+        self._dev_password = secure_config.get_dev_password()
 
     def check_password(self):
         """Solicita la contraseña del Dueño para acciones administrativas."""
@@ -32,7 +35,7 @@ class DeveloperManager:
             echo=QLineEdit.EchoMode.Password
         )
         
-        if ok and password == self.DEV_PASSWORD:
+        if ok and password == self._dev_password:
             self.is_dev_mode_active = True
             QMessageBox.information(self.parent, "Éxito", "Acceso de Dueño concedido.")
             return True
@@ -94,5 +97,10 @@ class DeveloperManager:
                 except Exception as e:
                     QMessageBox.critical(self.parent, "Error", f"No se pudo completar la limpieza: {e}")
 
-# Exponer DEV_PASSWORD para uso por componentes web (server.py)
-DEV_PASSWORD = DeveloperManager.DEV_PASSWORD
+# Exponer DEV_PASSWORD para uso por componentes web (server.py) - AHORA DESDE VARIABLE DE ENTORNO
+def get_dev_password():
+    """Obtiene la contraseña de desarrollador desde variable de entorno."""
+    from secure_config import config as secure_config
+    return secure_config.get_dev_password()
+
+DEV_PASSWORD = get_dev_password()

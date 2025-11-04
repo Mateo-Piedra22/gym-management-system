@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "nombre": "Efectivo",
+    "icono": "\ud83d\udcb5",
+    "color": "#27ae60",
+    "comision": "0.00",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 21:05:21.727011",
+    "descripcion": null,
+    "logical_ts": 857,
+    "last_op_id": "97bfd255-bbf1-4172-bf99-3554eec41e8e"
+  },
+  {
+    "id": 2,
+    "nombre": "Tarjeta de D\u00e9bito",
+    "icono": "\ud83d\udcb3",
+    "color": "#3498db",
+    "comision": "2.50",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 21:05:21.727011",
+    "descripcion": null,
+    "logical_ts": 858,
+    "last_op_id": "2c703a1b-9d2f-48b0-8b37-c74353798d23"
+  },
+  {
+    "id": 3,
+    "nombre": "Tarjeta de Cr\u00e9dito",
+    "icono": "\ud83d\udcb3",
+    "color": "#e74c3c",
+    "comision": "3.50",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 21:05:21.727011",
+    "descripcion": null,
+    "logical_ts": 859,
+    "last_op_id": "207229d2-2df9-443a-b3eb-ec4d3f9db0d4"
+  },
+  {
+    "id": 4,
+    "nombre": "Transferencia",
+    "icono": "\ud83c\udfe6",
+    "color": "#9b59b6",
+    "comision": "1.00",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 21:05:21.727011",
+    "descripcion": null,
+    "logical_ts": 860,
+    "last_op_id": "c226c242-0b95-4a9a-b470-ee5202e4a246"
+  },
+  {
+    "id": 5,
+    "nombre": "MercadoPago",
+    "icono": "\ud83d\udcb0",
+    "color": "#00b4d8",
+    "comision": "4.00",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 21:05:21.727011",
+    "descripcion": null,
+    "logical_ts": 861,
+    "last_op_id": "18454f29-398f-4e42-8ae1-91827e967739"
+  }
+]

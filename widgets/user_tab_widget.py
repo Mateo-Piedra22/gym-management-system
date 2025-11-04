@@ -5426,17 +5426,8 @@ class UserTabWidget(QWidget):
             # Preparar log y tablas objetivo
             tables_list = []
             self._reconcile_log = []
-            try:
-                import json, os
-                cfg_path = os.path.join('config', 'sync_tables.json')
-                with open(cfg_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                if isinstance(data, dict) and 'tables' in data:
-                    tables_list = list(data.get('tables') or [])
-                elif isinstance(data, list):
-                    tables_list = list(data)
-            except Exception:
-                tables_list = []
+            # Sin configuración legacy: reconciliación aplica a todas las tablas (tables=None)
+            tables_list = []
             try:
                 self._reconcile_log.append("Iniciando reconciliación bidireccional")
                 if tables_list:

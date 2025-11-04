@@ -36,13 +36,10 @@ except Exception:
     alert_manager = _StubAlertManager()
 from database import DatabaseManager, database_retry
 
-# Integración de sincronización: importar cliente de sync si está disponible
-try:
-    from sync_client import enqueue_operations, op_payment_update, op_payment_delete  # type: ignore
-except Exception:
-    enqueue_operations = None  # type: ignore
-    op_payment_update = None  # type: ignore
-    op_payment_delete = None  # type: ignore
+# Sistema outbox legacy eliminado - replicación nativa PostgreSQL
+enqueue_operations = None  # type: ignore
+op_payment_update = None  # type: ignore
+op_payment_delete = None  # type: ignore
 
 # Importar módulos WhatsApp (importación condicional para evitar errores si no están disponibles)
 try:

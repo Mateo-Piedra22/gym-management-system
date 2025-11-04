@@ -1,7 +1,27 @@
 import os
-from typing import Dict, Any
+import json
+import logging
 from pathlib import Path
+from typing import Dict, Any
 from utils import get_gym_name
+from secure_config import SecureConfig as SecureConfig
+
+logger = logging.getLogger(__name__)
+
+# Ruta base del proyecto
+BASE_DIR = Path(__file__).parent
+CONFIG_DIR = BASE_DIR / "config"
+
+# Cargar configuración desde JSON (para compatibilidad hacia atrás)
+config_path = CONFIG_DIR / "config.json"
+if config_path.exists():
+    with open(config_path, 'r', encoding='utf-8') as f:
+        CONFIG = json.load(f)
+else:
+    CONFIG = {}
+
+# IMPORTANTE: Las credenciales ahora deben obtenerse desde variables de entorno
+# usando el módulo secure_config. Los valores en config.json están obsoletos.
 
 # Nombre de servicio para el almacén seguro de credenciales (keyring)
 # Centraliza la etiqueta usada para guardar/leer contraseñas de DB
@@ -20,7 +40,12 @@ class Config:
     """
     
     # --- Configuración de la base de datos ---
-    DATABASE_PATH = "postgresql://localhost/gimnasio"  # PostgreSQL connection
+    # DSN dinámico derivado exclusivamente de .env
+    try:
+        _db = SecureConfig.get_db_config('local')
+        DATABASE_PATH = f"postgresql://{_db.get('user','postgres')}@{_db.get('host','localhost')}:{_db.get('port',5432)}/{_db.get('database','gimnasio')}"
+    except Exception:
+        DATABASE_PATH = "postgresql://localhost/gimnasio"
     
     # --- Configuración de directorios de archivos ---
     PDF_OUTPUT_DIR = "recibos"

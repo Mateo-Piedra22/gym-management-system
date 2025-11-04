@@ -620,21 +620,7 @@ def ensure_prerequisites(device_id: str) -> dict:
     except Exception:
         pass
 
-    # Instalar triggers de outbox de forma idempotente y sin depender de la UI
-    try:
-        logging.info("Prerequisitos: instalando triggers de outbox")
-    except Exception:
-        pass
-    try:
-        from scripts.install_outbox_triggers import run as install_outbox  # type: ignore
-        install_outbox()
-        result["outbox"] = {"ok": True, "installed": True}
-    except Exception as e:
-        result["outbox"] = {"ok": False, "error": str(e)}
-        try:
-            logging.warning(f"Prerequisitos: error instalando outbox -> {e}")
-        except Exception:
-            pass
+    # Replicación nativa PostgreSQL configurada - sin outbox legacy
 
     # Eliminado: aseguramiento de updated_at. El esquema ahora usa logical_ts/last_op_id.
 
@@ -730,23 +716,22 @@ def ensure_prerequisites(device_id: str) -> dict:
             except Exception:
                 pass
 
-        # Decidir flujo de replicación
-        sync_tables_path = os.path.join(CONFIG_DIR, "sync_tables.json")
-        if os.path.exists(sync_tables_path):
-            try:
-                # Configurar replicación bidireccional completa si VPN se unió o hay alcance
+        # Decidir flujo de replicación sin depender de archivos legacy
+        try:
+            rep_cfg = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
+            mode = str(rep_cfg.get('mode', '')).lower()
+            remote_can_reach_local = bool(rep_cfg.get('remote_can_reach_local'))
+            if mode.startswith('bidi') or remote_can_reach_local:
+                # Replicación bidireccional cuando el remoto puede acceder al local (VPN/túnel)
                 from utils_modules.replication_setup import ensure_bidirectional_replication  # type: ignore
                 rep_res = ensure_bidirectional_replication(cfg)
-                result["replication"] = rep_res
-            except Exception as e:
-                result["replication"] = {"ok": False, "error": str(e)}
-        else:
-            try:
+            else:
+                # Replicación remota→local por defecto
                 from utils_modules.replication_setup import ensure_logical_replication  # type: ignore
                 rep_res = ensure_logical_replication(cfg)
-                result["replication"] = rep_res
-            except Exception as e:
-                result["replication"] = {"ok": False, "error": str(e)}
+            result["replication"] = rep_res
+        except Exception as e:
+            result["replication"] = {"ok": False, "error": str(e)}
         try:
             logging.info(f"Prerequisitos: replicación -> ok={result.get('replication', {}).get('ok')}")
         except Exception:
@@ -959,13 +944,7 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
                 "default": {"time": "02:30"},
                 "type": "daily",
             },
-            {
-                "key": "outbox_flush_weekly",
-                "name": "GymMS_OutboxFlushWeekly",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_outbox_flush_once.ps1")}"',
-                "default": {"time": "01:15", "days": "SUN"},
-                "type": "weekly",
-            },
+            # Tarea legacy eliminada - replicación nativa PostgreSQL maneja sincronización automáticamente
             {
                 "key": "replication_health_weekly",
                 "name": "GymMS_ReplicationHealthWeekly",

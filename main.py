@@ -77,7 +77,7 @@ try:
     except Exception:
         _dev_id = os.getenv("DEVICE_ID") or "unknown"
     try:
-        # Ejecuta idempotentemente: instala PostgreSQL, outbox, tareas, red/VPN, replicación
+        # Ejecuta idempotentemente: instala PostgreSQL, tareas, red/VPN, replicación nativa
         _pr_res = ensure_prerequisites(_dev_id)
         try:
             logging.info("ensure_prerequisites: %s", json.dumps(_pr_res, ensure_ascii=False))
@@ -1428,13 +1428,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"No se pudo crear el token de check-in: {e}")
                 return
 
-            # Empujar subida inmediata del outbox para acortar ventana de sincronización
-            try:
-                svc = getattr(self, 'sync_service', None)
-                if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
-                    svc.flush_outbox_once_bg(delay_ms=0)
-            except Exception:
-                pass
+            # Replicación nativa PostgreSQL maneja sincronización automáticamente
 
             try:
                 if QRCheckinToast is None:
@@ -1493,12 +1487,7 @@ class MainWindow(QMainWindow):
                             self.db_manager.marcar_checkin_usado(token)
                     except Exception:
                         pass
-                    try:
-                        svc = getattr(self, 'sync_service', None)
-                        if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
-                            svc.flush_outbox_once_bg(delay_ms=0)
-                    except Exception:
-                        pass
+                    # Replicación nativa PostgreSQL maneja sincronización automáticamente
         except Exception:
             pass
 
@@ -2107,25 +2096,16 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # Instalar triggers de outbox en background (idempotente)
-        try:
-            QTimer.singleShot(2500, self._start_outbox_trigger_install_thread)
-        except Exception:
-            pass
+        # Sistema outbox legacy eliminado - replicación nativa PostgreSQL activa
 
-        # Servicio de sincronización: observar cola local y refrescar UI al cambiar
+        # Servicio de sincronización: monitorear replicación nativa PostgreSQL
         try:
             from utils_modules.sync_service import SyncService
-            self.sync_service = SyncService(poll_interval_ms=3000, db_manager=self.db_manager)
-            # Cuando cambian los pendientes, refrescar el indicador de conectividad
-            self.sync_service.on_pending_change = lambda count: self.update_connectivity_indicator()
-            # Cuando la cola queda vacía, actualizar indicadores de pestañas
-            self.sync_service.on_queue_empty = lambda: self.update_tab_notifications()
-            # Adjuntar estado del OutboxPoller para refrescar conectividad
-            try:
-                self.sync_service.attach_outbox_status_callback(lambda status: self.update_connectivity_indicator())
-            except Exception:
-                pass
+            self.sync_service = SyncService(poll_interval_ms=5000, db_manager=self.db_manager)
+            # Monitorear cambios en el estado de replicación
+            self.sync_service.on_replication_status_change = lambda status: self.update_connectivity_indicator()
+            # Monitorear cambios en conectividad
+            self.sync_service.on_connectivity_change = lambda connected: self.update_connectivity_indicator()
             self.sync_service.start()
             try:
                 # Parada limpia cuando se destruya la ventana
@@ -2229,12 +2209,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 whatsapp_ok = False
 
-            # Pendientes de replicación lógica (PostgreSQL) - obtener desde sync_client si disponible
-            try:
-                from sync_client import get_pending_count  # type: ignore
-                pending_ops = get_pending_count()
-            except Exception:
-                pending_ops = None
+            # Replicación nativa PostgreSQL - sin outbox legacy
+            pending_ops = 0  # Sistema outbox eliminado
 
             # Desglose mínimo para la UI (sin sistema legacy)
             pending_breakdown = {
@@ -2497,30 +2473,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _auto_install_outbox_triggers(self):
-        """Instala tabla/función/índices del outbox y triggers idempotentes."""
-        try:
-            from scripts.install_outbox_triggers import run as install_outbox
-            res = install_outbox()
-            try:
-                self._outbox_install_result = res
-            except Exception:
-                pass
-            # Notificar sin bloquear
-            try:
-                def _update_msg():
-                    # run() imprime; no devuelve dict, asumimos OK si no hubo excepción
-                    msg = "Outbox instalado"
-                    self.status_bar.showMessage(msg, 5000)
-                    self.update_connectivity_indicator()
-                QTimer.singleShot(0, _update_msg)
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                logging.warning(f"Auto-instalar outbox falló: {e}")
-            except Exception:
-                pass
+    # Función legacy eliminada - replicación nativa PostgreSQL ya configurada
     
     def _start_initial_reconciliation_thread(self):
         try:
@@ -2548,7 +2501,7 @@ class MainWindow(QMainWindow):
     def _auto_initial_reconciliation(self):
         """Ejecuta reconciliación inicial bidireccional sin bloquear la UI.
         - Usa nombres de suscripción/publicación desde config/replication.
-        - Resuelve tablas dinámicamente desde config/sync_tables.json.
+        - Replicación nativa PostgreSQL configurada - sin tablas de sincronización legacy.
         - Soporta PK compuestas y actualiza filas por versión lógica (logical_ts/last_op_id).
         """
         # Abort early si se está cerrando
@@ -2586,16 +2539,6 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 tables_to_process = list(getattr(L2R, 'DEFAULT_TABLES', []))
-                try:
-                    sync_path = Path(__file__).resolve().parent / 'config' / 'sync_tables.json'
-                    if sync_path.exists():
-                        with open(sync_path, 'r', encoding='utf-8') as f:
-                            sync_cfg = json.load(f) or {}
-                        uploads = sync_cfg.get('uploads_local_to_remote') or []
-                        if uploads:
-                            tables_to_process = uploads
-                except Exception:
-                    pass
                 total_inserted = 0
                 total_updated = 0
                 for table in tables_to_process:
@@ -2658,16 +2601,6 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 tables_to_process = list(getattr(R2L, 'DEFAULT_TABLES', []))
-                try:
-                    sync_path = Path(__file__).resolve().parent / 'config' / 'sync_tables.json'
-                    if sync_path.exists():
-                        with open(sync_path, 'r', encoding='utf-8') as f:
-                            sync_cfg = json.load(f) or {}
-                        publishes = sync_cfg.get('publishes_remote_to_local') or []
-                        if publishes:
-                            tables_to_process = publishes
-                except Exception:
-                    pass
                 total_inserted = 0
                 total_updated = 0
                 for table in tables_to_process:
@@ -2715,13 +2648,7 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(0, lambda: self.status_bar.showMessage("Reconciliación inicial completada", 7000))
         except Exception:
             pass
-        try:
-            if not getattr(self, "_app_closing", False):
-                svc = getattr(self, 'sync_service', None)
-                if svc is not None and hasattr(svc, 'flush_outbox_once_bg'):
-                    svc.flush_outbox_once_bg(delay_ms=0)
-        except Exception:
-            pass
+        # Replicación nativa PostgreSQL maneja sincronización automáticamente
         try:
             if not getattr(self, "_app_closing", False):
                 QTimer.singleShot(0, self.hide_sync_overlay)
@@ -3123,67 +3050,7 @@ class MainWindow(QMainWindow):
             self.update_monthly_hours()
         except Exception:
             pass
-        # Intentar vaciar outbox local tras cambios entrantes (no bloquea UI)
-        try:
-            from PyQt5.QtCore import QTimer
-            QTimer.singleShot(500, self._flush_sync_outbox_once_bg)
-        except Exception:
-            try:
-                self._flush_sync_outbox_once_bg()
-            except Exception:
-                pass
-    
-    def _flush_sync_outbox_once_bg(self):
-        """Vacía la outbox de sincronización en background sin bloquear la UI."""
-        try:
-            if getattr(self, '_sync_uploader_running', False):
-                return
-            self._sync_uploader_running = True
-            def _worker():
-                try:
-                    from sync_uploader import SyncUploader
-                    uploader = SyncUploader()
-                    sent, deleted = uploader.flush_once()
-                    try:
-                        logging.info(f"SyncUploader flush: enviadas={sent} borradas={deleted}")
-                    except Exception:
-                        pass
-                    try:
-                        from PyQt5.QtCore import QTimer
-                        # Refrescar indicador de conectividad en el hilo principal de Qt
-                        QTimer.singleShot(0, self.update_connectivity_indicator)
-                    except Exception:
-                        try:
-                            # Fallback si Qt no está disponible
-                            self.update_connectivity_indicator()
-                        except Exception:
-                            pass
-                    try:
-                        # Feedback opcional en barra de estado desde el hilo principal
-                        if hasattr(self, 'status_bar'):
-                            from PyQt5.QtCore import QTimer
-                            QTimer.singleShot(0, lambda: self.status_bar.showMessage(
-                                f"Outbox sincronizada: {sent} env., {deleted} elim.", 4000
-                            ))
-                    except Exception:
-                        pass
-                except Exception as e:
-                    try:
-                        logging.warning(f"Falló flush SyncUploader: {e}")
-                    except Exception:
-                        pass
-                finally:
-                    try:
-                        self._sync_uploader_running = False
-                    except Exception:
-                        pass
-            try:
-                import threading
-                threading.Thread(target=_worker, name="SyncUploaderFlush", daemon=True).start()
-            except Exception:
-                _worker()
-        except Exception:
-            pass
+        # Replicación nativa PostgreSQL maneja sincronización automáticamente - sin outbox legacy
 
     def count_overdue_payments(self) -> int:
         """Cuenta los pagos vencidos"""

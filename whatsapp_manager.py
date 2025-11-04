@@ -28,8 +28,9 @@ class WhatsAppManager:
         self.phone_number_id = "791155924083208"  # ID del teléfono WhatsApp Business
         self.whatsapp_business_account_id = "787533987071685"  # ID de la cuenta WhatsApp Business
         
-        # Token de acceso real de WhatsApp Business API desde SISTEMA WHATSAPP.txt
-        self.access_token = "EAFc4zmSDeIcBPkyEjkbO7FLad9wQJ3ZCEY7yZCZBxje8HWl7WZBAvzmgOTBZC9h1g3orNYieuZCASlfdqVP9j18NZBqxRGpZBk2uPEze00JHvPEMwYgdwMip3ZBIwrK6yJGSFqG1eeZCe04gZBZAdjyLt02Bb2D0UA3zAvTKZAYQXgwCDXdfZClu0Wz1TtZBVQQipK0HpwbNAZDZD"
+        # Token de acceso de WhatsApp Business API desde variable de entorno
+        from secure_config import config as secure_config
+        self.access_token = secure_config.get_whatsapp_access_token()
         
         self.db = database_manager
         self.template_processor = TemplateProcessor(database_manager)

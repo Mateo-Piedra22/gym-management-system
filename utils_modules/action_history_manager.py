@@ -323,13 +323,10 @@ class ActionHistoryManager(QObject):
         
         def execute_payment_action(data):
             from datetime import datetime
-            # Encolador de sync (lazy import para evitar ciclos)
-            try:
-                from sync_client import enqueue_operations, op_payment_update, op_payment_delete  # type: ignore
-            except Exception:
-                enqueue_operations = None  # type: ignore
-                op_payment_update = None  # type: ignore
-                op_payment_delete = None  # type: ignore
+            # Sistema outbox legacy eliminado - replicación nativa PostgreSQL
+            enqueue_operations = None  # type: ignore
+            op_payment_update = None  # type: ignore
+            op_payment_delete = None  # type: ignore
 
             if action_type == 'process_payment':
                 result = payment_manager.process_payment(
@@ -441,12 +438,10 @@ class ActionHistoryManager(QObject):
 
         def execute_attendance_action(data):
             from datetime import datetime
-            try:
-                from sync_client import enqueue_operations, op_attendance_update, op_attendance_delete  # type: ignore
-            except Exception:
-                enqueue_operations = None  # type: ignore
-                op_attendance_update = None  # type: ignore
-                op_attendance_delete = None  # type: ignore
+            # Sistema outbox legacy eliminado - replicación nativa PostgreSQL
+            enqueue_operations = None  # type: ignore
+            op_attendance_update = None  # type: ignore
+            op_attendance_delete = None  # type: ignore
 
             if action_type in ('mark_attendance', 'attendance_add', 'attendance_update'):
                 # Se asume que database_manager ya registró la asistencia

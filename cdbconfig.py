@@ -201,15 +201,7 @@ class DBConfigDialog(QDialog):
         self.tasks_master_checkbox = QCheckBox("Activar tareas programadas")
         form.addRow("", self.tasks_master_checkbox)
 
-        self.uploader_enable_checkbox = QCheckBox("Uploader periódico (outbox)")
-        self.uploader_interval_spin = QSpinBox()
-        self.uploader_interval_spin.setRange(1, 60)
-        up_row = QHBoxLayout()
-        up_row.addWidget(self.uploader_enable_checkbox)
-        up_row.addStretch()
-        up_row.addWidget(QLabel("Cada (min):"))
-        up_row.addWidget(self.uploader_interval_spin)
-        form.addRow("Uploader:", up_row)
+        # Replicación nativa PostgreSQL - sin uploader legacy
 
         # Reconciliación Remoto→Local (minutos)
         self.reconcile_r2l_enable_checkbox = QCheckBox("Reconciliación Remoto→Local")
@@ -264,21 +256,7 @@ class DBConfigDialog(QDialog):
         bkp_row.addWidget(self.backup_time_edit)
         form.addRow("Backup:", bkp_row)
 
-        # Tareas semanales
-        # Outbox Flush semanal
-        self.outbox_weekly_enable_checkbox = QCheckBox("Outbox Flush semanal")
-        self.outbox_weekly_time_edit = QTimeEdit()
-        self.outbox_weekly_time_edit.setDisplayFormat("HH:mm")
-        self.outbox_weekly_day_combo = QComboBox()
-        self.outbox_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
-        outbox_weekly_row = QHBoxLayout()
-        outbox_weekly_row.addWidget(self.outbox_weekly_enable_checkbox)
-        outbox_weekly_row.addStretch()
-        outbox_weekly_row.addWidget(QLabel("Hora:"))
-        outbox_weekly_row.addWidget(self.outbox_weekly_time_edit)
-        outbox_weekly_row.addWidget(QLabel("Día:"))
-        outbox_weekly_row.addWidget(self.outbox_weekly_day_combo)
-        form.addRow("Outbox semanal:", outbox_weekly_row)
+        # Tareas semanales - replicación nativa PostgreSQL
 
         # Salud de replicación semanal
         self.replication_health_weekly_enable_checkbox = QCheckBox("Salud de replicación semanal")
@@ -378,24 +356,20 @@ class DBConfigDialog(QDialog):
         form.addRow("", installers_label)
         self.install_wireguard_admin_button = QPushButton("Instalar WireGuard (Admin)")
         self.admin_vpn_postgres_button = QPushButton("VPN + Red PostgreSQL (Admin)")
-        self.install_outbox_triggers_button = QPushButton("Instalar triggers outbox")
         self.test_wireguard_button = QPushButton("Probar WireGuard/VPN")
         inst_row = QHBoxLayout()
         inst_row.addWidget(self.install_wireguard_admin_button)
         inst_row.addWidget(self.admin_vpn_postgres_button)
-        inst_row.addWidget(self.install_outbox_triggers_button)
         inst_row.addWidget(self.test_wireguard_button)
         form.addRow("", inst_row)
 
-        # Automatizaciones (operativas)
+        # Automatizaciones (operativas) - replicación nativa PostgreSQL
         autom_label = QLabel("Automatizaciones")
         autom_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
         form.addRow("", autom_label)
-        self.outbox_flush_button = QPushButton("Flush outbox puntual")
         self.reconcile_remote_to_local_button = QPushButton("Reconciliar remoto→local (puntual)")
         self.reconcile_local_to_remote_button = QPushButton("Reconciliar local→remoto (puntual)")
         autom_row = QHBoxLayout()
-        autom_row.addWidget(self.outbox_flush_button)
         autom_row.addWidget(self.reconcile_remote_to_local_button)
         autom_row.addWidget(self.reconcile_local_to_remote_button)
         form.addRow("", autom_row)
@@ -412,9 +386,11 @@ class DBConfigDialog(QDialog):
 
         self.ensure_prereq_button = QPushButton("Asegurar prerequisitos")
         self.full_bootstrap_button = QPushButton("Forzar instalación completa")
+        self.secure_cleanup_button = QPushButton("Limpieza segura (backup + reinit)")
         boot_row = QHBoxLayout()
         boot_row.addWidget(self.ensure_prereq_button)
         boot_row.addWidget(self.full_bootstrap_button)
+        boot_row.addWidget(self.secure_cleanup_button)
         form.addRow("", boot_row)
 
         # Advanced Setup Options
@@ -509,12 +485,11 @@ class DBConfigDialog(QDialog):
         # Instaladores
         self.install_wireguard_admin_button.clicked.connect(self._on_install_wireguard_admin)
         self.admin_vpn_postgres_button.clicked.connect(self._on_admin_vpn_postgres)
-        self.install_outbox_triggers_button.clicked.connect(self._on_install_outbox_triggers)
         self.test_wireguard_button.clicked.connect(self._on_test_wireguard)
-        # Automatizaciones
-        self.outbox_flush_button.clicked.connect(self._on_outbox_flush_once)
+        # Automatizaciones - replicación nativa PostgreSQL
         self.reconcile_remote_to_local_button.clicked.connect(self._on_reconcile_remote_to_local_once)
         self.reconcile_local_to_remote_button.clicked.connect(self._on_reconcile_local_to_remote_once)
+        self.secure_cleanup_button.clicked.connect(self._on_secure_cleanup)
         
         # Advanced setup connections
         self.force_dependencies_button.clicked.connect(self._on_force_dependencies)
@@ -1208,33 +1183,7 @@ class DBConfigDialog(QDialog):
         else:
             QMessageBox.critical(self, "VPN + PostgreSQL", msg)
 
-    def _on_install_outbox_triggers(self):
-        try:
-            # Ejecutar el instalador Python inline
-            import importlib
-            mod = importlib.import_module('scripts.install_outbox_triggers')
-            progress = QProgressDialog("Instalando triggers outbox…", None, 0, 0, self)
-            progress.setWindowTitle("Outbox")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            res = mod.run()
-            try:
-                progress.close()
-            except Exception:
-                pass
-            try:
-                pretty = json.dumps(res, ensure_ascii=False, indent=2, default=str)
-            except Exception:
-                pretty = str(res)
-            if res.get('ok'):
-                QMessageBox.information(self, "Outbox", pretty)
-            else:
-                QMessageBox.warning(self, "Outbox", pretty)
-        except Exception as e:
-            QMessageBox.critical(self, "Outbox", f"Fallo al instalar triggers: {e}")
+    # Función legacy eliminada - replicación nativa PostgreSQL ya configurada
 
     def _run_python_script(self, script_rel_path: str, args: list[str] | None = None) -> tuple[bool, str, str]:
         try:
@@ -1251,44 +1200,7 @@ class DBConfigDialog(QDialog):
         except Exception as e:
             return False, "", str(e)
 
-    def _on_outbox_flush_once(self):
-        # Ejecutar flush directamente con OutboxPoller para compatibilidad con ejecutables
-        try:
-            from database import DatabaseManager  # type: ignore
-            from utils_modules.outbox_poller import OutboxPoller  # type: ignore
-        except Exception as e:
-            QMessageBox.critical(self, "Flush outbox", f"Fallo importando módulos: {e}")
-            return
-        try:
-            progress = QProgressDialog("Flushing outbox…", None, 0, 0, self)
-            progress.setWindowTitle("Outbox")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            dbm = DatabaseManager()
-            poller = OutboxPoller(dbm)
-            res = poller.flush_once() or {}
-            try:
-                progress.close()
-            except Exception:
-                pass
-            out = {
-                "ok": True,
-                "pending": int(res.get("pending", 0)) if isinstance(res.get("pending"), int) else res.get("pending"),
-                "sent": int(res.get("sent", 0)) if isinstance(res.get("sent"), int) else res.get("sent"),
-                "acked": int(res.get("acked", 0)) if isinstance(res.get("acked"), int) else res.get("acked"),
-                "auth": res.get("auth"),
-                "error": res.get("error"),
-            }
-            try:
-                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
-            except Exception:
-                pretty = str(out)
-            QMessageBox.information(self, "Flush outbox", pretty)
-        except Exception as e:
-            QMessageBox.critical(self, "Flush outbox", f"Fallo ejecutando flush: {e}")
+    # Función legacy eliminada - replicación nativa PostgreSQL maneja sincronización automáticamente
 
     def _on_reconcile_remote_to_local_once(self):
         # Importar módulo y ejecutar run_once capturando stdout para mensajes claros
@@ -1680,12 +1592,7 @@ class DBConfigDialog(QDialog):
         backup.setdefault('enabled', False)
         backup.setdefault('time', '02:30')
         base['backup'] = backup
-        # Semanales
-        outbox_w = base.get('outbox_flush_weekly') if isinstance(base.get('outbox_flush_weekly'), dict) else {}
-        outbox_w.setdefault('enabled', False)
-        outbox_w.setdefault('time', '01:15')
-        outbox_w.setdefault('days', 'SUN')
-        base['outbox_flush_weekly'] = outbox_w
+        # Semanales - replicación nativa PostgreSQL
         rep_health_w = base.get('replication_health_weekly') if isinstance(base.get('replication_health_weekly'), dict) else {}
         rep_health_w.setdefault('enabled', False)
         rep_health_w.setdefault('time', '00:45')
@@ -1703,8 +1610,7 @@ class DBConfigDialog(QDialog):
             scfg = self._ensure_tasks_defaults(self.full_cfg.get('scheduled_tasks'))
             self.tasks_master_checkbox.setChecked(bool(scfg.get('enabled', False)))
             # Uploader
-            self.uploader_enable_checkbox.setChecked(bool(scfg['uploader'].get('enabled', False)))
-            self.uploader_interval_spin.setValue(int(scfg['uploader'].get('interval_minutes', 15)))
+            # Replicación nativa PostgreSQL - sin uploader legacy
             # Reconcile R→L
             r2l = scfg.get('reconcile_r2l', {})
             self.reconcile_r2l_enable_checkbox.setChecked(bool(r2l.get('enabled', False)))
@@ -1735,14 +1641,7 @@ class DBConfigDialog(QDialog):
                 t_backup = QTime(2, 30)
             self.backup_time_edit.setTime(t_backup)
             self.backup_enable_checkbox.setChecked(bool(scfg['backup'].get('enabled', False)))
-            # Outbox semanal
-            outbox_w = scfg.get('outbox_flush_weekly', {})
-            t_outbox_w = QTime.fromString(str(outbox_w.get('time', '01:15')), "HH:mm")
-            if not t_outbox_w.isValid():
-                t_outbox_w = QTime(1, 15)
-            self.outbox_weekly_time_edit.setTime(t_outbox_w)
-            self.outbox_weekly_enable_checkbox.setChecked(bool(outbox_w.get('enabled', False)))
-            self.outbox_weekly_day_combo.setCurrentText(str(outbox_w.get('days', 'SUN')).upper())
+            # Replicación nativa PostgreSQL - sin outbox legacy
             # Salud replicación semanal
             rep_w = scfg.get('replication_health_weekly', {})
             t_rep_w = QTime.fromString(str(rep_w.get('time', '00:45')), "HH:mm")
@@ -1771,10 +1670,7 @@ class DBConfigDialog(QDialog):
             return f"{qt.hour():02d}:{qt.minute():02d}"
         return {
             'enabled': bool(self.tasks_master_checkbox.isChecked()),
-            'uploader': {
-                'enabled': bool(self.uploader_enable_checkbox.isChecked()),
-                'interval_minutes': int(self.uploader_interval_spin.value()),
-            },
+            # Replicación nativa PostgreSQL - sin uploader legacy
             'reconcile_r2l': {
                 'enabled': bool(self.reconcile_r2l_enable_checkbox.isChecked()),
                 'interval_minutes': int(self.reconcile_r2l_interval_spin.value()),
@@ -1795,11 +1691,7 @@ class DBConfigDialog(QDialog):
                 'enabled': bool(self.backup_enable_checkbox.isChecked()),
                 'time': fmt_time(self.backup_time_edit.time()),
             },
-            'outbox_flush_weekly': {
-                'enabled': bool(self.outbox_weekly_enable_checkbox.isChecked()),
-                'time': fmt_time(self.outbox_weekly_time_edit.time()),
-                'days': str(self.outbox_weekly_day_combo.currentText()).upper(),
-            },
+            # Replicación nativa PostgreSQL - sin outbox legacy
             'replication_health_weekly': {
                 'enabled': bool(self.replication_health_weekly_enable_checkbox.isChecked()),
                 'time': fmt_time(self.replication_health_weekly_time_edit.time()),
@@ -1815,13 +1707,11 @@ class DBConfigDialog(QDialog):
     def _on_tasks_master_toggled(self, checked: bool):
         try:
             for w in [
-                self.uploader_enable_checkbox, self.uploader_interval_spin,
                 self.reconcile_r2l_enable_checkbox, self.reconcile_r2l_interval_spin,
                 self.reconcile_l2r_enable_checkbox, self.reconcile_l2r_time_edit,
                 self.reconcile_bidirectional_enable_checkbox, self.reconcile_bidirectional_time_edit,
                 self.cleanup_enable_checkbox, self.cleanup_time_edit,
                 self.backup_enable_checkbox, self.backup_time_edit,
-                self.outbox_weekly_enable_checkbox, self.outbox_weekly_time_edit, self.outbox_weekly_day_combo,
                 self.replication_health_weekly_enable_checkbox, self.replication_health_weekly_time_edit, self.replication_health_weekly_day_combo,
                 self.publication_verify_weekly_enable_checkbox, self.publication_verify_weekly_time_edit, self.publication_verify_weekly_day_combo,
             ]:
@@ -2550,3 +2440,59 @@ def main():
 
 if __name__ == '__main__':
     main()
+    def _on_secure_cleanup(self):
+        """Proceso de limpieza segura:
+        - Confirmación
+        - Backup automático
+        - Limpieza y reinicialización forzada
+        - Verificación de integridad
+        """
+        try:
+            from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
+        except Exception:
+            pass
+        # Confirmación
+        try:
+            ret = QMessageBox.question(self, "Limpieza segura", "¿Desea continuar? Se realizará backup y reinicialización completa.", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if ret != QMessageBox.StandardButton.Yes:
+                return
+        except Exception:
+            pass
+        # Progreso
+        try:
+            progress = QProgressDialog("Ejecutando limpieza segura…", None, 0, 0, self)
+            progress.setWindowTitle("Limpieza segura")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+        except Exception:
+            progress = None
+        # Backup
+        backup_ok, backup_out, backup_err = self._run_python_script('scripts/quick_backup_database.py')
+        # Limpieza
+        clean_ok, clean_out, clean_err = self._run_python_script('cleanup_and_reinitialize.py', ['--force', '--full-reset'])
+        # Verificación
+        verify_ok, verify_out, verify_err = self._run_python_script('verify_system_status.py')
+        try:
+            if progress:
+                progress.close()
+        except Exception:
+            pass
+        # Reporte
+        try:
+            ok = backup_ok and clean_ok and verify_ok
+            details = {
+                'backup': {'ok': backup_ok, 'stdout': backup_out, 'stderr': backup_err},
+                'cleanup': {'ok': clean_ok, 'stdout': clean_out, 'stderr': clean_err},
+                'verify': {'ok': verify_ok, 'stdout': verify_out, 'stderr': verify_err},
+            }
+            import json
+            pretty = json.dumps(details, ensure_ascii=False, indent=2, default=str)
+            if ok:
+                QMessageBox.information(self, "Limpieza segura", pretty)
+            else:
+                QMessageBox.warning(self, "Limpieza segura", pretty)
+        except Exception:
+            pass

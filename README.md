@@ -611,9 +611,9 @@ python build_installer.py --mode onefile
 - Al salir, se intenta terminar procesos del túnel público (`terminate_tunnel_processes`) y cualquier `ssh.exe` residual (`terminate_ssh_processes`).
 - Existe un cierre defensivo adicional reutilizado desde `main.py`.
 
-## 🔄 Sincronización bidireccional (Outbox + Replicación)
-- Replicación lógica Postgres (remoto → local) ya automatizada por el sistema.
-- Outbox con triggers (local → remoto) capturando cambios en todas las tablas listadas en `config/sync_tables.json`.
+## 🔄 Sincronización Nativa PostgreSQL
+- Replicación lógica nativa de PostgreSQL (bidireccional) completamente automatizada.
+- Sistema legacy de outbox y sincronización manual eliminado por completo.
 
 ### ⏱️ Versión lógica para reconciliación (`logical_ts`/`last_op_id`)
 - Las rutinas de reconciliación utilizan los campos `logical_ts` (entero monotónico) y `last_op_id` (UUID de la última operación) para decidir qué cambio es más reciente.
@@ -669,14 +669,13 @@ Notas:
   - Anti-reentradas (gate): `cleanup_retention` 30 min, `backup` 120 min. El uploader y reconciliaciones incluyen chequeos adicionales (p. ej. conectividad remota para reconciliaciones) y registro JSONL.
   - Por defecto corren en modo "Interactivo" del usuario actual. Para ejecutar sin sesión iniciada, recrea las tareas con `/RU` y `/RP`.
 
-#### Tareas semanales adicionales
-- `GymMS_OutboxFlushWeekly` (domingos 01:15): ejecuta `scripts/run_outbox_flush_once.ps1` para vaciar el outbox de forma controlada.
+#### Tareas semanales de replicación nativa
 - `GymMS_ReplicationHealthWeekly` (domingos 00:45): ejecuta `scripts/run_replication_health_check.ps1` y registra `replication_health.log`.
 - `GymMS_PublicationVerifyWeekly` (domingos 00:30): ejecuta `scripts/run_publication_verification.ps1` para revisar opciones de publicación remota.
 
 Para ajustar o verificar:
-- Ejecutar manualmente: `schtasks /Run /TN "GymMS_OutboxFlushWeekly"`, `schtasks /Run /TN "GymMS_ReplicationHealthWeekly"`, `schtasks /Run /TN "GymMS_PublicationVerifyWeekly"`.
-- Consultar detalle: `schtasks /Query /TN "GymMS_OutboxFlushWeekly" /V /FO LIST` (equivalente para las otras).
+- Ejecutar manualmente: `schtasks /Run /TN "GymMS_ReplicationHealthWeekly"`, `schtasks /Run /TN "GymMS_PublicationVerifyWeekly"`.
+- Consultar detalle: `schtasks /Query /TN "GymMS_ReplicationHealthWeekly" /V /FO LIST` (equivalente para las otras).
 
 ### Deprecated
 - `scripts/ensure_updated_at_triggers.py` y `scripts/test_updated_at_verification.py` quedan obsoletos tras la migración lógica.
@@ -704,10 +703,10 @@ setx SYNC_UPLOAD_TOKEN $token
 - En el panel del servicio web, añade una variable de entorno `SYNC_UPLOAD_TOKEN` con el mismo valor.
 - Reinicia el servicio para que tome el nuevo valor.
 
-#### Validación rápida
-- Ejecuta `python scripts/install_outbox_triggers.py` para asegurar la tabla `public.sync_outbox`, la función `public.sync_outbox_capture()` y los triggers.
-- Inserta/actualiza datos en alguna tabla incluida y verifica que aparezcan registros en `public.sync_outbox`.
-- Si la app está en ejecución, el `OutboxPoller` sube los cambios automáticamente. Manual: `python scripts/run_sync_uploader.py`.
+#### Validación de replicación nativa
+- La replicación nativa de PostgreSQL está configurada automáticamente.
+- Verifica el estado con: `python verify_system_status.py`
+- La sincronización ocurre en tiempo real sin intervención manual.
 
 #### Nota sobre URL del servidor
 Si el cliente no detecta automáticamente la URL del webapp, define `WEBAPP_BASE_URL`:

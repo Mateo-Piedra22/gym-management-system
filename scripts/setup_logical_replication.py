@@ -152,16 +152,8 @@ def _ensure_publication_on_remote(remote_params: dict, pubname: str = 'gym_pub')
         conn = _connect(remote_params)
         conn.autocommit = True
         with conn.cursor() as cur:
-            # Cargar lista de tablas a publicar (remoto→local) desde config
-            base_dir = Path(__file__).resolve().parent.parent
-            cfg_path = base_dir / 'config' / 'sync_tables.json'
+            # Configuración programática opcional; por defecto publica todas las tablas
             publishes_remote_to_local: list = []
-            try:
-                with open(cfg_path, 'r', encoding='utf-8') as f:
-                    cfg_tables = json.load(f) or {}
-                    publishes_remote_to_local = list(cfg_tables.get('publishes_remote_to_local') or [])
-            except Exception:
-                publishes_remote_to_local = []
 
             # Enumerar tablas reales en remoto (schema public)
             cur.execute(

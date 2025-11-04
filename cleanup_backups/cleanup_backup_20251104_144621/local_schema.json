@@ -1,0 +1,4321 @@
+{
+  "acciones_masivas_pendientes": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('acciones_masivas_pendientes_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "operation_id",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "tipo",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "usuario_ids",
+        "type": "ARRAY",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "parametros",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'pendiente'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "fecha_programada",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_ejecucion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "creado_por",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "resultado",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "error_message",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "asistencias": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('asistencias_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha",
+        "type": "date",
+        "nullable": "YES",
+        "default": "CURRENT_DATE",
+        "max_length": null
+      },
+      {
+        "name": "hora_registro",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "hora_entrada",
+        "type": "time without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      },
+      {
+        "name": "conflict_resolution_method",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "conflict_resolved_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "conflict_source_node",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "conflict_winner",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 10
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "audit_logs": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('audit_logs_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "user_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "action",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "table_name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "record_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "old_values",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "new_values",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "ip_address",
+        "type": "inet",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "user_agent",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "session_id",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "timestamp",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "auditoria": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('auditoria_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "tabla",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "operacion",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "timestamp",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "checkin_pending": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('checkin_pending_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "token",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 64
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "used",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clase_asistencia_historial": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('clase_asistencia_historial_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clase_horario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_clase",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado_asistencia",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'presente'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "hora_llegada",
+        "type": "time without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "observaciones",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "registrado_por",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_registro",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clase_ejercicios": {
+    "columns": [
+      {
+        "name": "clase_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "ejercicio_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clase_lista_espera": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('clase_lista_espera_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clase_horario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "posicion",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clase_usuarios": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('clase_usuarios_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clase_horario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_inscripcion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clases": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('clases_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activa",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "tipo_clase_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      },
+      {
+        "name": "conflict_resolution_method",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "conflict_resolved_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "conflict_source_node",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "conflict_winner",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 10
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "clases_horarios": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('clases_horarios_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clase_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dia_semana",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "hora_inicio",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "cupo_maximo",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "20",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "comprobantes_pago": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('comprobantes_pago_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "pago_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "numero_comprobante",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "tipo_comprobante",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'recibo'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "fecha_emision",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "monto",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "concepto",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "datos_cliente",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "datos_empresa",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'emitido'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "observaciones",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "archivo_pdf",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_modificacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "conceptos_pago": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('conceptos_pago_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "precio_base",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": "0.0",
+        "max_length": null
+      },
+      {
+        "name": "tipo",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'fijo'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "configuracion": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('configuracion_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clave",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "valor",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "tipo",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'string'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "configuracion_comprobantes": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('configuracion_comprobantes_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre_empresa",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 200
+      },
+      {
+        "name": "ruc_empresa",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "direccion_empresa",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "telefono_empresa",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "email_empresa",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "logo_empresa",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "formato_numero",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'REC-{:06d}'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "contador_actual",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "incluir_qr",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "plantilla_html",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_modificacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "custom_themes": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('custom_themes_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "data",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "colores",
+        "type": "jsonb",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "usuario_creador_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "ejercicio_grupo_items": {
+    "columns": [
+      {
+        "name": "grupo_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "ejercicio_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "ejercicio_grupos": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('ejercicio_grupos_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "ejercicios": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('ejercicios_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "grupo_muscular",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "objetivo",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'general'::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "especialidades": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('especialidades_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "categoria",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "estados_usuario": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('estados_usuario_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "fecha_inicio",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_fin",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "etiquetas": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('etiquetas_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "color",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'#3498db'::character varying",
+        "max_length": 7
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "historial_estados": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('historial_estados_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "accion",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "fecha_accion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "detalles",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "creado_por",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "horarios_profesores": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('horarios_profesores_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dia_semana",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "hora_inicio",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "disponible",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "metodos_pago": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('metodos_pago_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "icono",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 10
+      },
+      {
+        "name": "color",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'#3498db'::character varying",
+        "max_length": 7
+      },
+      {
+        "name": "comision",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": "0.0",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "node_state": {
+    "columns": [
+      {
+        "name": "key",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "value",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "notificaciones_cupos": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('notificaciones_cupos_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "clase_horario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "tipo_notificacion",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "mensaje",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "leida",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "activa",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_lectura",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "numeracion_comprobantes": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('numeracion_comprobantes_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "tipo_comprobante",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "prefijo",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "''::character varying",
+        "max_length": 10
+      },
+      {
+        "name": "numero_inicial",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "1",
+        "max_length": null
+      },
+      {
+        "name": "separador",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'-'::character varying",
+        "max_length": 5
+      },
+      {
+        "name": "reiniciar_anual",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "longitud_numero",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "8",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "pago_detalles": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('pago_detalles_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "pago_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "concepto_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "cantidad",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": "1",
+        "max_length": null
+      },
+      {
+        "name": "precio_unitario",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "subtotal",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "descuento",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "total",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "pagos": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('pagos_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "monto",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "mes",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "a\u00f1o",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_pago",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "metodo_pago_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "concepto_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      },
+      {
+        "name": "conflict_resolution_method",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "conflict_resolved_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "conflict_source_node",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "conflict_winner",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 10
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_certificaciones": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_certificaciones_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "nombre_certificacion",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 200
+      },
+      {
+        "name": "institucion_emisora",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 200
+      },
+      {
+        "name": "fecha_obtencion",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_vencimiento",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "numero_certificado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "archivo_adjunto",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 500
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'vigente'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_clase_asignaciones": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_clase_asignaciones_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clase_horario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_asignacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activa",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_disponibilidad": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_disponibilidad_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "tipo_disponibilidad",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "hora_inicio",
+        "type": "time without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "time without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_modificacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_especialidades": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_especialidades_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "especialidad_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_asignacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_evaluaciones": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_evaluaciones_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "puntuacion",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "comentario",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_evaluacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_horas_trabajadas": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_horas_trabajadas_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_inicio",
+        "type": "timestamp without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "minutos_totales",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "horas_totales",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "tipo_actividad",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "clase_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_suplencias": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_suplencias_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "asignacion_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "profesor_suplente_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_clase",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "motivo",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'Pendiente'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_resolucion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesor_suplencias_generales": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesor_suplencias_generales_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "horario_profesor_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "profesor_original_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "profesor_suplente_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_inicio",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "motivo",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'Pendiente'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_resolucion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesores": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesores_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "tipo",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'Musculaci\u00f3n'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "especialidades",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "certificaciones",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "experiencia_a\u00f1os",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "tarifa_por_hora",
+        "type": "numeric",
+        "nullable": "YES",
+        "default": "0.0",
+        "max_length": null
+      },
+      {
+        "name": "horario_disponible",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_contratacion",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'activo'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "biografia",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "foto_perfil",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "telefono_emergencia",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_actualizacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "profesores_horarios_disponibilidad": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('profesores_horarios_disponibilidad_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dia_semana",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_inicio",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "hora_fin",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "disponible",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "tipo_disponibilidad",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'regular'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_actualizacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "professor_availability": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('professor_availability_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "profesor_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "date",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "start_time",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "end_time",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "status",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "notes",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp without time zone",
+        "nullable": "NO",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "rutina_ejercicios": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('rutina_ejercicios_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "rutina_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "ejercicio_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dia_semana",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "series",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "repeticiones",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "orden",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "rutinas": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('rutinas_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "nombre_rutina",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dias_semana",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "categoria",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'general'::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activa",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "scheduling_config": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('scheduling_config_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "enabled",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "sync_outbox": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "nextval('sync_outbox_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "schema_name",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "table_name",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "op",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "pk",
+        "type": "jsonb",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "data",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "dedup_key",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "txid",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": "NO",
+        "default": "now()",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "theme_events": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('theme_events_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "evento",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "theme_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_inicio",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_fin",
+        "type": "date",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "NO",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": "NO",
+        "default": "now()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "theme_schedules": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('theme_schedules_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 200
+      },
+      {
+        "name": "theme_name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "theme_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "start_time",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "end_time",
+        "type": "time without time zone",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "monday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "tuesday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "wednesday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "thursday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "friday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "saturday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "sunday",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "false",
+        "max_length": null
+      },
+      {
+        "name": "is_active",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_inicio",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_fin",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "theme_scheduling_config": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('theme_scheduling_config_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "clave",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "valor",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "config_data",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "config_type",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'general'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_actualizacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "tipos_clases": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('tipos_clases_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "tipos_cuota": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('tipos_cuota_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "precio",
+        "type": "numeric",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "icono_path",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "duracion_dias",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "30",
+        "max_length": null
+      },
+      {
+        "name": "fecha_modificacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "usuario_estados": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('usuario_estados_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "estado",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "descripcion",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_inicio",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_vencimiento",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "creado_por",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "usuario_etiquetas": {
+    "columns": [
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "etiqueta_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_asignacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "asignado_por",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "usuario_notas": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('usuario_notas_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "usuario_id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "categoria",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'general'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "titulo",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "contenido",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "importancia",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'normal'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "fecha_creacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "fecha_modificacion",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activa",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "autor_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "usuarios": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('usuarios_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "nombre",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "dni",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "telefono",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "pin",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'1234'::character varying",
+        "max_length": 10
+      },
+      {
+        "name": "rol",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": "'socio'::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "notas",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_registro",
+        "type": "timestamp without time zone",
+        "nullable": "YES",
+        "default": "CURRENT_TIMESTAMP",
+        "max_length": null
+      },
+      {
+        "name": "activo",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "tipo_cuota",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'estandar'::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "ultimo_pago",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "fecha_proximo_vencimiento",
+        "type": "date",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "cuotas_vencidas",
+        "type": "integer",
+        "nullable": "YES",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      },
+      {
+        "name": "conflict_resolution_method",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 50
+      },
+      {
+        "name": "conflict_resolved_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "conflict_source_node",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 100
+      },
+      {
+        "name": "conflict_winner",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "NULL::character varying",
+        "max_length": 10
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "whatsapp_config": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('whatsapp_config_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "phone_id",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "waba_id",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "access_token",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "active",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": "now()",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "whatsapp_messages": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('whatsapp_messages_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "user_id",
+        "type": "integer",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "message_type",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 50
+      },
+      {
+        "name": "template_name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "phone_number",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 20
+      },
+      {
+        "name": "sent_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": "now()",
+        "max_length": null
+      },
+      {
+        "name": "status",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": "'sent'::character varying",
+        "max_length": 20
+      },
+      {
+        "name": "message_content",
+        "type": "text",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": "now()",
+        "max_length": null
+      },
+      {
+        "name": "message_id",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 100
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  },
+  "whatsapp_templates": {
+    "columns": [
+      {
+        "name": "id",
+        "type": "integer",
+        "nullable": "NO",
+        "default": "nextval('whatsapp_templates_id_seq'::regclass)",
+        "max_length": null
+      },
+      {
+        "name": "template_name",
+        "type": "character varying",
+        "nullable": "NO",
+        "default": null,
+        "max_length": 255
+      },
+      {
+        "name": "header_text",
+        "type": "character varying",
+        "nullable": "YES",
+        "default": null,
+        "max_length": 60
+      },
+      {
+        "name": "body_text",
+        "type": "text",
+        "nullable": "NO",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "variables",
+        "type": "jsonb",
+        "nullable": "YES",
+        "default": null,
+        "max_length": null
+      },
+      {
+        "name": "active",
+        "type": "boolean",
+        "nullable": "YES",
+        "default": "true",
+        "max_length": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "nullable": "YES",
+        "default": "now()",
+        "max_length": null
+      },
+      {
+        "name": "logical_ts",
+        "type": "bigint",
+        "nullable": "NO",
+        "default": "0",
+        "max_length": null
+      },
+      {
+        "name": "last_op_id",
+        "type": "uuid",
+        "nullable": "YES",
+        "default": "gen_random_uuid()",
+        "max_length": null
+      }
+    ],
+    "primary_key": null,
+    "indexes": [],
+    "constraints": []
+  }
+}

@@ -1987,15 +1987,16 @@ async def api_admin_secure_owner(request: Request, _=Depends(require_owner)):
                     )
                     """
                 )
-                env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
-                if not env_pwd:
-                    try:
-                        from managers import DeveloperManager  # type: ignore
-                        env_pwd = str(getattr(DeveloperManager, "DEV_PASSWORD", "") or "").strip()
-                    except Exception:
-                        env_pwd = ""
-                if not env_pwd:
-                    env_pwd = "2203"
+                # Obtener contraseña del owner desde variables de entorno
+                from secure_config import config as secure_config
+                try:
+                    env_pwd = secure_config.get_owner_password()
+                except ValueError:
+                    # Fallback a variables de entorno legacy
+                    env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
+                    if not env_pwd:
+                        logger.error("No se encontró contraseña de owner en variables de entorno")
+                        raise ValueError("Contraseña de owner no configurada")
                 cur.execute(
                     """
                     INSERT INTO configuracion (clave, valor)

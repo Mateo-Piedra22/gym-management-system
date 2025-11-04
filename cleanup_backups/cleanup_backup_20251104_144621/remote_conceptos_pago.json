@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "nombre": "Cuota Mensual",
+    "descripcion": "Pago mensual de cuota",
+    "precio_base": "0.00",
+    "tipo": "variable",
+    "activo": true,
+    "fecha_creacion": "2025-10-23 09:59:54.834963",
+    "logical_ts": 875,
+    "last_op_id": "57579a4e-448f-41c7-a725-57f3b9b94c19"
+  }
+]

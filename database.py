@@ -19,71 +19,32 @@ import json
 import functools
 import random
 import calendar
-# Habilitar cliente de sincronización local para observabilidad (no cambia flujo de datos)
-try:
-    from sync_client import (
-        enqueue_operations as _enqueue_ops_impl,
-        op_user_add as _op_user_add_impl,
-        op_user_update as _op_user_update_impl,
-        op_user_delete as _op_user_delete_impl,
-        op_payment_update as _op_payment_update_impl,
-        op_payment_delete as _op_payment_delete_impl,
-        op_tag_add as _op_tag_add_impl,
-        op_tag_update as _op_tag_update_impl,
-        op_tag_delete as _op_tag_delete_impl,
-        op_user_tag_add as _op_user_tag_add_impl,
-        op_user_tag_update as _op_user_tag_update_impl,
-        op_user_tag_delete as _op_user_tag_delete_impl,
-        op_note_add as _op_note_add_impl,
-        op_note_update as _op_note_update_impl,
-        op_note_delete as _op_note_delete_impl,
-        op_attendance_update as _op_attendance_update_impl,
-        op_attendance_delete as _op_attendance_delete_impl,
-    )
-    def enqueue_operations(*args, **kwargs):
-        try:
-            return _enqueue_ops_impl(*args, **kwargs)
-        except Exception:
-            return False
-    op_user_add = _op_user_add_impl
-    op_user_update = _op_user_update_impl
-    op_user_delete = _op_user_delete_impl
-    op_payment_update = _op_payment_update_impl
-    op_payment_delete = _op_payment_delete_impl
-    op_tag_add = _op_tag_add_impl
-    op_tag_update = _op_tag_update_impl
-    op_tag_delete = _op_tag_delete_impl
-    op_user_tag_add = _op_user_tag_add_impl
-    op_user_tag_update = _op_user_tag_update_impl
-    op_user_tag_delete = _op_user_tag_delete_impl
-    op_note_add = _op_note_add_impl
-    op_note_update = _op_note_update_impl
-    op_note_delete = _op_note_delete_impl
-    op_attendance_update = _op_attendance_update_impl
-    op_attendance_delete = _op_attendance_delete_impl
-except Exception:
-    # Fallback: mantener stubs no-op si sync_client no está disponible
-    def enqueue_operations(*args, **kwargs):
-        return False
-    def _noop(*args, **kwargs):
-        return {}
+# Sistema outbox legacy eliminado - reemplazado por replicación nativa PostgreSQL
+def enqueue_operations(*args, **kwargs):
+    """Legacy outbox system removed - use native PostgreSQL replication"""
+    return False
 
-    op_user_add = _noop
-    op_user_update = _noop
-    op_user_delete = _noop
-    op_payment_update = _noop
-    op_payment_delete = _noop
-    op_tag_add = _noop
-    op_tag_update = _noop
-    op_tag_delete = _noop
-    op_user_tag_add = _noop
-    op_user_tag_update = _noop
-    op_user_tag_delete = _noop
-    op_note_add = _noop
-    op_note_update = _noop
-    op_note_delete = _noop
-    op_attendance_update = _noop
-    op_attendance_delete = _noop
+def _noop(*args, **kwargs):
+    """Legacy outbox system removed - use native PostgreSQL replication"""
+    return {}
+
+# Stubs para operaciones legacy (todas deshabilitadas)
+op_user_add = _noop
+op_user_update = _noop
+op_user_delete = _noop
+op_payment_update = _noop
+op_payment_delete = _noop
+op_tag_add = _noop
+op_tag_update = _noop
+op_tag_delete = _noop
+op_user_tag_add = _noop
+op_user_tag_update = _noop
+op_user_tag_delete = _noop
+op_note_add = _noop
+op_note_update = _noop
+op_note_delete = _noop
+op_attendance_update = _noop
+op_attendance_delete = _noop
 
 # Mantener stubs para asistencia de clases (no hay helper en sync_client)
 def op_class_attendance_update(*args, **kwargs):
@@ -100,8 +61,9 @@ except ImportError:
     AUDIT_ENABLED = False
     def get_audit_logger(*args, **kwargs):
         return None
-    def set_audit_context(*args, **kwargs):
-        pass
+    # Función eliminada - sin implementación
+    # def set_audit_context(*args, **kwargs):
+    #     pass
 
 # Guards globales para inicialización única y creación de índices
 _INIT_ONCE_LOCK = threading.RLock()
@@ -1669,47 +1631,40 @@ class DatabaseManager:
         return None
     
     def _get_default_connection_params(self) -> dict:
-        """Obtiene parámetros de conexión por defecto.
-        Respeta `db_profile` (local/remoto) en config/config.json y permite override por variables de entorno.
+        """Obtiene parámetros de conexión por defecto únicamente desde .env.
+        Usa `DB_PROFILE` para elegir entre `DB_LOCAL_*` y `DB_REMOTE_*`. Como
+        fallback acepta `DB_HOST/PORT/NAME/USER/PASSWORD`.
         """
-        # Detectar directorio base (exe o script)
+        # Determinar perfil desde entorno (default: local)
         try:
-            base_dir = Path(getattr(sys, 'executable', __file__)).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
-        except Exception:
-            base_dir = Path(os.getcwd())
-
-        # Cargar config/config.json si existe
-        cfg = {}
-        try:
-            cfg_path = base_dir / 'config' / 'config.json'
-            if cfg_path.exists():
-                with open(cfg_path, 'r', encoding='utf-8') as f:
-                    cfg = json.load(f) or {}
-        except Exception:
-            cfg = {}
-
-        # Determinar perfil seleccionado: ENV > config.json > 'local'
-        try:
-            profile = str(os.getenv('DB_PROFILE', cfg.get('db_profile', 'local'))).lower()
+            profile = str(os.getenv('DB_PROFILE', 'local')).lower()
         except Exception:
             profile = 'local'
-        node = cfg.get('db_remote') if profile == 'remote' else (cfg.get('db_local') or {})
 
-        # PRIORIDAD: variables de entorno DB_* sobre perfil de config.json y luego top-level
-        host = str(os.getenv('DB_HOST', (node.get('host') or cfg.get('host') or 'localhost')))
+        # Resolver parámetros primarios desde secure_config
         try:
-            port = int(os.getenv('DB_PORT', (node.get('port') or cfg.get('port') or 5432)))
+            from secure_config import SecureConfig as _SC  # carga .env automáticamente
+            if profile in ('local', 'remote'):
+                base = _SC.get_db_config(profile)
+            else:
+                base = {}
         except Exception:
-            port = int(node.get('port') or cfg.get('port') or 5432)
-        database = str(os.getenv('DB_NAME', (node.get('database') or cfg.get('database') or 'gimnasio')))
-        user = str(os.getenv('DB_USER', (node.get('user') or cfg.get('user') or 'postgres')))
-        sslmode = str(os.getenv('DB_SSLMODE', (node.get('sslmode') or cfg.get('sslmode') or 'prefer')))
+            base = {}
+
+        # Fallbacks genéricos (DB_*) si faltan claves específicas
+        host = base.get('host') or str(os.getenv('DB_HOST', 'localhost'))
         try:
-            # Reducir timeout por defecto para evitar bloqueos prolongados en redes con alta latencia
-            connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', (node.get('connect_timeout') or cfg.get('connect_timeout') or 5)))
+            port = int(base.get('port') or os.getenv('DB_PORT', 5432))
         except Exception:
-            connect_timeout = int(node.get('connect_timeout') or cfg.get('connect_timeout') or 5)
-        application_name = str(os.getenv('DB_APPLICATION_NAME', (node.get('application_name') or cfg.get('application_name') or 'gym_management_system')))
+            port = 5432
+        database = base.get('database') or str(os.getenv('DB_NAME', 'gimnasio'))
+        user = base.get('user') or str(os.getenv('DB_USER', 'postgres'))
+        sslmode = base.get('sslmode') or str(os.getenv('DB_SSLMODE', 'prefer'))
+        try:
+            connect_timeout = int(base.get('connect_timeout') or os.getenv('DB_CONNECT_TIMEOUT', 5))
+        except Exception:
+            connect_timeout = 5
+        application_name = base.get('application_name') or str(os.getenv('DB_APPLICATION_NAME', 'gym_management_system'))
 
         # Opciones de sesión por conexión para evitar SET dentro de transacciones
         # Permite: statement_timeout, lock_timeout, idle_in_transaction_session_timeout y zona horaria
@@ -1742,7 +1697,7 @@ class DatabaseManager:
         options = " ".join(options_parts).strip()
 
         # Contraseña: ENV > perfil config.json > top-level > almacén seguro
-        password = str(os.getenv('DB_PASSWORD', (node.get('password') or cfg.get('password') or '')))
+        password = str(base.get('password') or os.getenv('DB_PASSWORD', ''))
         if not password:
             try:
                 import keyring
@@ -18027,10 +17982,19 @@ class DatabaseManager:
         """Obtiene la configuración completa de WhatsApp con datos hardcodeados"""
         try:
             # Datos hardcodeados del archivo SISTEMA WHATSAPP.txt
+            # Obtener token de acceso desde variable de entorno
+            from secure_config import config as secure_config
+            try:
+                access_token = secure_config.get_whatsapp_access_token()
+            except ValueError:
+                # Si no hay token configurado, usar valor temporal (no para producción)
+                logger.warning("No se encontró token de WhatsApp en variables de entorno")
+                access_token = 'placeholder_token'
+            
             config = {
                 'phone_id': '791155924083208',
                 'waba_id': '787533987071685', 
-                'access_token': 'EAFc4zmSDeIcBPSTd8lY9HMFzXmAmHtxZB39KlHKlZBJctVcAZBnHZCTwtl6BxdSvySPwIKRZAZBI9GY4z6c4iS4aACwMjhwkQ1oIoEmUCfSZC62l4aL3aP0y3RIYTzKGZBRZA7k9naEN9O0bZAPbmHJDLLfBDT8BZAY7PxLbmetLAwy2SEqmZCAoZAh1s97ghUD5jKZADCc945nWVpHVPAeisgJPMZBWZBWFdVakVVTO47e3sEpxcalNGwZDZD',
+                'access_token': access_token,
                 'phone_number': '+5491155924083',
                 'active': True
             }

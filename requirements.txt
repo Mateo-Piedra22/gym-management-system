@@ -18,6 +18,7 @@ starlette==0.37.2
 itsdangerous
 Jinja2
 python-multipart
+python-dotenv  # Para gestión segura de variables de entorno
 keyring
 requests
 
