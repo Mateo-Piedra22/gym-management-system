@@ -11474,8 +11474,6 @@ class DatabaseManager:
             logging.error(f"Error obteniendo usuarios para reporte completo: {e}")
             return []
     
-    # Método duplicado eliminado - usar la implementación principal en línea 1520
-    
     def obtener_asistencias_usuario(self, usuario_id, limit=None):
         """Obtiene las asistencias de un usuario específico con optimización PostgreSQL"""
         try:
@@ -11516,6 +11514,11 @@ class DatabaseManager:
                            user_agent: str = None, session_id: str = None):
         """Registra una entrada en el log de auditoría PostgreSQL"""
         try:
+            # Si user_id es 0, 1 (IDs comunes de sistema/dueño) o None, usar NULL
+            valid_user_id = user_id
+            if user_id is None or user_id <= 1: 
+                valid_user_id = None
+
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 # Obtener campos lógicos para esta operación
@@ -11531,7 +11534,7 @@ class DatabaseManager:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """
-                cursor.execute(sql, (user_id, action, table_name, record_id, old_values, new_values, 
+                cursor.execute(sql, (valid_user_id, action, table_name, record_id, old_values, new_values, # Usar valid_user_id
                                    ip_address, user_agent, session_id, logical_ts, last_op_id))
                 conn.commit()
                 return cursor.fetchone()['id']

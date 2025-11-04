@@ -588,7 +588,7 @@ class PaymentManager:
                 mes = fecha_pago.month
                 año = fecha_pago.year
                 
-                # Crear el pago principal con UPSERT idempotente
+# Crear el pago principal con UPSERT idempotente
                 cursor.execute(
                     """
                     INSERT INTO pagos (usuario_id, monto, mes, año, fecha_pago, metodo_pago_id)
@@ -612,7 +612,7 @@ class PaymentManager:
                     cursor.execute(
                         "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s)",
                         (pago_id, concepto['concepto_id'], concepto['cantidad'], concepto['precio_unitario'], subtotal, subtotal)
-                    )
+                    )   
                 # --- Ajuste de estado del usuario y contador de cuotas vencidas ---
                 try:
                     # Obtener duracion_dias desde el tipo de cuota del usuario (acepta nombre o id)
