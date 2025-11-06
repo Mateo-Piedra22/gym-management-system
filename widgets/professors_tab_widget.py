@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QCheckBox, QTimeEdit, QListWidget, QListWidgetItem,
     QAbstractItemView, QMenu, QSizePolicy, QProgressBar
 )
-from PyQt6.QtCore import Qt, QDate, QTime, pyqtSignal
+from PyQt6.QtCore import Qt, QDate, QTime, pyqtSignal, QThread, QObject, pyqtSlot
 import time
 from PyQt6.QtGui import QFont, QPixmap, QIcon, QColor, QAction
 from datetime import datetime, date, timedelta
@@ -16,6 +16,7 @@ import logging
 from database import DatabaseManager
 from validation_manager import FormValidator, FieldValidator, create_professor_validator, create_schedule_validator
 from widgets.unified_filter_widget import UnifiedFilterButton
+from widgets.loading_spinner import DatabaseLoadingManager
 from utils_modules.async_runner import TaskThread
 from utils_modules.async_utils import run_in_background
 from utils_modules.ui_constants import (
@@ -27,6 +28,24 @@ from utils_modules.ui_constants import (
 from widgets.professor_calendar_widget import ProfessorCalendarWidget
 from widgets.substitute_management_widget import SubstituteManagementWidget
 from widgets.conflict_notification_widget import ConflictNotificationWidget
+
+class _DBCallWorker(QObject):
+    success = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = self._fn(*self._args, **self._kwargs)
+            self.success.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class ProfessorScheduleWidget(QWidget):
     """Widget para gestionar horarios de profesores"""
@@ -113,6 +132,17 @@ class ProfessorScheduleWidget(QWidget):
         self.lista_horarios.itemClicked.connect(self.seleccionar_horario)
         layout.addWidget(QLabel("Horarios Configurados:"))
         layout.addWidget(self.lista_horarios)
+
+        # Indicadores de carga para horarios
+        self.schedule_loading_label = QLabel("")
+        self.schedule_loading_label.setVisible(False)
+        layout.addWidget(self.schedule_loading_label)
+
+        self.schedule_progress = QProgressBar()
+        self.schedule_progress.setRange(0, 0)
+        self.schedule_progress.setTextVisible(False)
+        self.schedule_progress.setVisible(False)
+        layout.addWidget(self.schedule_progress)
         
         # Botón eliminar
         self.btn_eliminar = QPushButton("Eliminar Horario")
@@ -241,33 +271,63 @@ class ProfessorScheduleWidget(QWidget):
     def cargar_horarios(self):
         if not self.profesor_id:
             return
-        
+
+        # Mostrar spinner antes de iniciar el hilo
+        self.schedule_loading_label.setText("Cargando horarios...")
+        self.schedule_loading_label.setVisible(True)
+        self.schedule_progress.setVisible(True)
+        self.lista_horarios.setEnabled(False)
         self.lista_horarios.clear()
-        horarios = self.db_manager.obtener_horarios_disponibilidad_profesor(self.profesor_id)
-        
-        # Ordenar horarios por día de la semana y hora
-        dias_orden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-        horarios_ordenados = sorted(horarios, key=lambda h: (dias_orden.index(h['dia_semana']), h['hora_inicio']))
-        
-        for horario in horarios_ordenados:
-            disponible_text = "✓ Disponible" if horario['disponible'] else "✗ No disponible"
-            texto = f"{horario['dia_semana']}: {horario['hora_inicio']} - {horario['hora_fin']} ({disponible_text})"
-            item = QListWidgetItem(texto)
-            item.setData(Qt.ItemDataRole.UserRole, horario)
-            
-            # Colorear según disponibilidad
-            if horario['disponible']:
-                item.setBackground(QColor(200, 255, 200))  # Verde claro
-            else:
-                item.setBackground(QColor(255, 200, 200))  # Rojo claro
-            
-            self.lista_horarios.addItem(item)
-            
-        # Mostrar mensaje si no hay horarios
-        if not horarios:
-            item = QListWidgetItem("No hay horarios configurados")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)  # No seleccionable
-            self.lista_horarios.addItem(item)
+
+        def _load():
+            return self.db_manager.obtener_horarios_disponibilidad_profesor(self.profesor_id)
+
+        def _on_success(horarios):
+            # Ordenar horarios por día de la semana y hora
+            dias_orden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+            horarios_ordenados = sorted(horarios, key=lambda h: (dias_orden.index(h['dia_semana']), h['hora_inicio']))
+
+            for horario in horarios_ordenados:
+                disponible_text = "✓ Disponible" if horario['disponible'] else "✗ No disponible"
+                texto = f"{horario['dia_semana']}: {horario['hora_inicio']} - {horario['hora_fin']} ({disponible_text})"
+                item = QListWidgetItem(texto)
+                item.setData(Qt.ItemDataRole.UserRole, horario)
+
+                # Colorear según disponibilidad
+                if horario['disponible']:
+                    item.setBackground(QColor(200, 255, 200))  # Verde claro
+                else:
+                    item.setBackground(QColor(255, 200, 200))  # Rojo claro
+
+                self.lista_horarios.addItem(item)
+
+            if not horarios:
+                item = QListWidgetItem("No hay horarios configurados")
+                item.setFlags(Qt.ItemFlag.NoItemFlags)
+                self.lista_horarios.addItem(item)
+
+            # Ocultar spinner dentro del slot
+            self.schedule_loading_label.setVisible(False)
+            self.schedule_progress.setVisible(False)
+            self.lista_horarios.setEnabled(True)
+
+        def _on_error(msg: str):
+            QMessageBox.critical(self, "Error", f"Error al cargar horarios: {msg}")
+            self.schedule_loading_label.setVisible(False)
+            self.schedule_progress.setVisible(False)
+            self.lista_horarios.setEnabled(True)
+
+        # Configurar QThread + Worker
+        self._horarios_thread = QThread(self)
+        self._horarios_worker = _DBCallWorker(_load)
+        self._horarios_worker.moveToThread(self._horarios_thread)
+        self._horarios_thread.started.connect(self._horarios_worker.run)
+        self._horarios_worker.success.connect(_on_success)
+        self._horarios_worker.error.connect(_on_error)
+        self._horarios_worker.success.connect(lambda _: self._horarios_thread.quit())
+        self._horarios_worker.error.connect(lambda _: self._horarios_thread.quit())
+        self._horarios_thread.finished.connect(self._horarios_thread.deleteLater)
+        self._horarios_thread.start()
     
     def seleccionar_horario(self, item):
         # Obtener el dict de horario de forma segura
@@ -766,6 +826,8 @@ class ProfessorFormWidget(QWidget):
         self.db_manager = db_manager
         self.profesor_actual = None
         self.validator = create_professor_validator(db_manager)
+        # Gestor de overlays de carga para operaciones del formulario
+        self.loading_manager = DatabaseLoadingManager(self)
         self.init_ui()
         self.setup_validation()
     
@@ -930,6 +992,19 @@ class ProfessorFormWidget(QWidget):
             self.usuario_combo.clear()
             self.usuario_combo.addItem(PLACEHOLDER_LOADING_USERS, None)
 
+            # Mostrar overlay de carga
+            try:
+                self.loading_manager.show_loading(
+                    operation_id="professor_form_users",
+                    message="Cargando usuarios disponibles...",
+                    spinner_type="dots",
+                    spinner_size=64,
+                    background_opacity=0.3,
+                    show_message=True,
+                )
+            except Exception:
+                pass
+
             def _load():
                 usuarios = self.db_manager.obtener_usuarios_por_rol('profesor')
                 profesores_existentes = self.db_manager.obtener_todos_profesores()
@@ -945,12 +1020,31 @@ class ProfessorFormWidget(QWidget):
             thread = TaskThread(_load)
             thread.success.connect(lambda items: self._populate_usuario_combo(items))
             thread.error.connect(lambda msg: self._populate_usuario_combo([], error=msg))
+            # Ocultar overlay al finalizar hilo
+            thread.finished.connect(lambda: self.loading_manager.hide_loading("professor_form_users"))
             thread.finished.connect(thread.deleteLater)
             thread.start()
         except Exception as e:
             logging.error(f"Error iniciando carga asíncrona de usuarios: {e}")
             # Fallback
-            self.cargar_usuarios_disponibles()
+            try:
+                self.loading_manager.show_loading(
+                    operation_id="professor_form_users",
+                    message="Cargando usuarios disponibles...",
+                    spinner_type="dots",
+                    spinner_size=64,
+                    background_opacity=0.3,
+                    show_message=True,
+                )
+            except Exception:
+                pass
+            try:
+                self.cargar_usuarios_disponibles()
+            finally:
+                try:
+                    self.loading_manager.hide_loading("professor_form_users")
+                except Exception:
+                    pass
 
     def _populate_usuario_combo(self, items, error: str | None = None):
         self.usuario_combo.clear()
@@ -1312,6 +1406,8 @@ class ProfessorsTabWidget(QWidget):
         # Tab de estadísticas
         self.stats_widget = self.crear_widget_estadisticas()
         right_panel.addTab(self.stats_widget, "Estadísticas")
+        # Gestor de overlay de estadísticas
+        self.stats_loading = DatabaseLoadingManager(self.stats_widget)
         
         
         # Tab de calendario de disponibilidad
@@ -1334,13 +1430,16 @@ class ProfessorsTabWidget(QWidget):
         right_panel.currentChanged.connect(self._on_tab_changed)
         
         splitter.addWidget(right_panel)
-        
+
         # Configurar proporciones del splitter
         # Proporciones optimizadas para ventana maximizada: lista y detalles
         splitter.setSizes([600, 1000])
         
         layout.addWidget(splitter)
-        
+
+        # Gestor de overlay principal para cargas generales (lista de profesores)
+        self.main_loading = DatabaseLoadingManager(self)
+
         self.profesor_seleccionado = None
         
         # Inicializar estadísticas vacías al crear el widget
@@ -2269,6 +2368,19 @@ class ProfessorsTabWidget(QWidget):
 
             self.setCursor(Qt.CursorShape.WaitCursor)
 
+            # Overlay de carga para la operación
+            try:
+                self.main_loading.show_loading(
+                    operation_id="profesores_carga",
+                    message="Cargando profesores...",
+                    spinner_type="dots",
+                    spinner_size=64,
+                    background_opacity=0.3,
+                    show_message=True,
+                )
+            except Exception:
+                pass
+
             def _load():
                 return self.db_manager.obtener_todos_profesores()
 
@@ -2277,6 +2389,10 @@ class ProfessorsTabWidget(QWidget):
                 self._profesores_cache_ts = time.time()
                 self.actualizar_tabla_profesores(profesores)
                 self.unsetCursor()
+                try:
+                    self.main_loading.hide_loading("profesores_carga")
+                except Exception:
+                    pass
 
             def _on_error(msg: str):
                 self.unsetCursor()
@@ -2290,18 +2406,29 @@ class ProfessorsTabWidget(QWidget):
                     self.professors_progress.setVisible(False)
                 if hasattr(self, 'tabla_profesores'):
                     self.tabla_profesores.setEnabled(True)
+                try:
+                    self.main_loading.hide_loading("profesores_carga")
+                except Exception:
+                    pass
 
-            run_in_background(
-                _load,
-                on_success=_on_success,
-                on_error=_on_error,
-                parent=self,
-                timeout_ms=6000,
-                description="Cargar profesores",
-            )
+            # QThread + Worker
+            self._profesores_thread = QThread(self)
+            self._profesores_worker = _DBCallWorker(_load)
+            self._profesores_worker.moveToThread(self._profesores_thread)
+            self._profesores_thread.started.connect(self._profesores_worker.run)
+            self._profesores_worker.success.connect(_on_success)
+            self._profesores_worker.error.connect(_on_error)
+            self._profesores_worker.success.connect(lambda _: self._profesores_thread.quit())
+            self._profesores_worker.error.connect(lambda _: self._profesores_thread.quit())
+            self._profesores_thread.finished.connect(self._profesores_thread.deleteLater)
+            self._profesores_thread.start()
         except Exception as e:
             self.unsetCursor()
             QMessageBox.critical(self, "Error", f"Error al iniciar carga de profesores: {e}")
+            try:
+                self.main_loading.hide_loading("profesores_carga")
+            except Exception:
+                pass
     
     def apply_professor_filters(self, filters):
         """Aplica filtros avanzados usando caché; si falta, cargar asíncrono y luego filtrar."""
@@ -2314,14 +2441,16 @@ class ProfessorsTabWidget(QWidget):
                     filtrados = self._filtrar_en_memoria(profesores, filters)
                     self.actualizar_tabla_profesores(filtrados)
 
-                run_in_background(
-                    lambda: self.db_manager.obtener_todos_profesores(),
-                    on_success=_on_success,
-                    on_error=lambda msg: QMessageBox.warning(self, "Advertencia", f"No se pudieron aplicar filtros: {msg}"),
-                    parent=self,
-                    timeout_ms=6000,
-                    description="Cargar profesores (para filtros)",
-                )
+                thread = QThread(self)
+                worker = _DBCallWorker(lambda: self.db_manager.obtener_todos_profesores())
+                worker.moveToThread(thread)
+                thread.started.connect(worker.run)
+                worker.success.connect(_on_success)
+                worker.error.connect(lambda msg: QMessageBox.warning(self, "Advertencia", f"No se pudieron aplicar filtros: {msg}"))
+                worker.success.connect(lambda _: thread.quit())
+                worker.error.connect(lambda _: thread.quit())
+                thread.finished.connect(thread.deleteLater)
+                thread.start()
                 return
 
             filtrados = self._filtrar_en_memoria(base, filters)
@@ -2553,6 +2682,7 @@ class ProfessorsTabWidget(QWidget):
     
     def cargar_estadisticas_profesor(self):
         """Carga las estadísticas básicas del profesor seleccionado de forma simplificada"""
+        self._show_stats_loading()
         try:
             if not self.profesor_seleccionado:
                 self.inicializar_estadisticas_vacias()
@@ -2698,6 +2828,9 @@ class ProfessorsTabWidget(QWidget):
         except Exception as e:
             print(f"Error cargando estadísticas del profesor: {e}")
             self.inicializar_estadisticas_vacias()
+        finally:
+            # Ocultar overlay de estadísticas
+            self._hide_stats_loading()
     
     def cargar_sesiones_recientes(self, profesor_id):
         """Carga las sesiones recientes del profesor en la lista"""
@@ -2962,4 +3095,25 @@ class ProfessorsTabWidget(QWidget):
                 self, "Error", 
                 f"Error al cambiar estado del profesor: {str(e)}"
             )
+
+    def _show_stats_loading(self, message: str = "Cargando estadísticas del profesor..."):
+        try:
+            if hasattr(self, 'stats_loading'):
+                self.stats_loading.show_loading(
+                    operation_id="stats",
+                    message=message,
+                    spinner_type="circular",
+                    spinner_size=72,
+                    background_opacity=0.35,
+                    show_message=True,
+                )
+        except Exception:
+            pass
+
+    def _hide_stats_loading(self):
+        try:
+            if hasattr(self, 'stats_loading'):
+                self.stats_loading.hide_loading("stats")
+        except Exception:
+            pass
 

@@ -18,7 +18,7 @@ Características principales:
 
 Autor: Sistema de Gestión de Gimnasio
 Fecha: 2025
-Versión: 2.0
+Versión: 60
 """
 
 import os
@@ -1006,7 +1006,7 @@ class RoutineTemplateManager:
         ejercicios_por_dia: Dict[int, List[Dict[str, Any]]] = {}
         puntero_por_dia: Dict[int, int] = {}
         for d in dias_list:
-            # Aceptar tanto 'numero' (actual) como 'dia' (legacy)
+            # Aceptar tanto 'numero' (actual) como 'dia' (anterior)
             day_num = d.get('numero') if isinstance(d, dict) else None
             if day_num is None:
                 day_num = d.get('dia') if isinstance(d, dict) else None
@@ -1357,7 +1357,7 @@ class RoutineTemplateManager:
 
     def _load_exercises_sequential(self, sheet, dias_data: List[Dict[str, Any]], current_week: Optional[int] = None):
         """
-        Rellena una tabla legacy sin placeholders Jinja buscando encabezados comunes
+        Rellena una tabla anterior sin placeholders Jinja buscando encabezados comunes
         (Ejercicio, Series, Repeticiones) y completando fila por fila.
         
         Args:
@@ -1411,7 +1411,7 @@ class RoutineTemplateManager:
                                 reps_week_cols[semana] = col_idx
                     break
             if header_row_idx is None or col_ejercicio is None:
-                self.logger.info("No se encontraron encabezados de tabla legacy (Ejercicio/Series/Repeticiones). Omitiendo secuencial.")
+                self.logger.info("No se encontraron encabezados de tabla anteriores (Ejercicio/Series/Repeticiones). Omitiendo secuencial.")
                 return
             start_row = header_row_idx + 1
             write_row = start_row
@@ -1509,7 +1509,7 @@ class RoutineTemplateManager:
                 if di < len(days_sorted) - 1:
                     write_row = _adjust_to_unmerged_row(write_row)
                     write_row += 1
-            self.logger.info(f"Tabla legacy completada desde fila {start_row} hasta {write_row-1}")
+            self.logger.info(f"Tabla anterior completada desde fila {start_row} hasta {write_row-1}")
         except Exception as e:
             self.logger.exception(f"Error en _load_exercises_sequential: {e}")
             # No relanzar para no romper exportación cuando este método no aplica

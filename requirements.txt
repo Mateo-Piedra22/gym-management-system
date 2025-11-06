@@ -21,6 +21,7 @@ python-multipart
 python-dotenv  # Para gestión segura de variables de entorno
 keyring
 requests
+bcrypt
 
 # Dependencias del sistema (no instalables por pip):
 # - OpenSSH Client (incluye `ssh` y `ssh-keygen`)

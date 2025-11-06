@@ -77,7 +77,7 @@ try:
     except Exception:
         _dev_id = os.getenv("DEVICE_ID") or "unknown"
     try:
-        # Ejecuta idempotentemente: instala PostgreSQL, tareas, red/VPN, replicación nativa
+        # Ejecuta idempotentemente: instala PostgreSQL y tareas
         _pr_res = ensure_prerequisites(_dev_id)
         try:
             logging.info("ensure_prerequisites: %s", json.dumps(_pr_res, ensure_ascii=False))
@@ -105,7 +105,7 @@ from PyQt6.QtGui import QFont, QIcon, QKeySequence, QShortcut, QAction, QCloseEv
 from typing import Callable
 from widgets.custom_style import CustomProxyStyle
 
-from utils import resource_path, terminate_tunnel_processes, get_public_tunnel_enabled, safe_get
+from utils import resource_path, safe_get, terminate_tunnel_processes
 from logger_config import setup_logging
 setup_logging()
 import threading
@@ -125,6 +125,7 @@ from widgets.professors_tab_widget import ProfessorsTabWidget
 from widgets.global_search_widget import GlobalSearchWidget
 from widgets.login_dialog import LoginDialog
 from widgets.alerts_widget import AlertsWidget
+from widgets.database_operation_widget import DatabaseOperationWidget, AsyncDatabaseHelper
 
 from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory
 from utils_modules.network_health_monitor import (
@@ -135,7 +136,7 @@ from utils_modules.network_health_monitor import (
 from utils_modules.preload_manager import PreloadManager
 from utils_modules.ui_profiler import profile
 from utils_modules.async_runner import TaskThread
-# Replicación lógica PostgreSQL: sin motores externos iniciados por la app.
+# Configuración de base de datos única Neon: sin replicación, VPN ni motores externos iniciados por la app.
 
 # Registro de limpieza a la salida del proceso
 try:
@@ -156,20 +157,7 @@ try:
             stop_network_health_monitor(monitor)
         except Exception:
             pass
-        # Terminar procesos de túnel y SSH residuales
-        try:
-            terminate_tunnel_processes()
-        except Exception:
-            pass
-        try:
-            from utils import terminate_ssh_processes as _term_ssh  # alias defensivo si import superior no disponible
-            _term_ssh()
-        except Exception:
-            try:
-                # Intento directo si ya fue importado arriba
-                terminate_ssh_processes()
-            except Exception:
-                pass
+        # Procesos de túnel y SSH eliminados - se usa base de datos única Neon
     atexit.register(_atexit_cleanup)
 except Exception:
     pass
@@ -238,6 +226,9 @@ class StartupProgressDialog(QDialog):
 
         self.detail_label = QLabel("")
         self.detail_label.setWordWrap(True)
+        self.detail_label.setMinimumHeight(50)  # Altura mínima para textos más largos
+        self.detail_label.setMaximumHeight(80)  # Altura máxima para evitar crecimiento excesivo
+        self.detail_label.setTextFormat(Qt.TextFormat.PlainText)  # Usar texto plano para evitar problemas con caracteres especiales
         try:
             f2 = self.detail_label.font()
             f2.setPointSize(max(f2.pointSize() - 2, 10))
@@ -296,7 +287,7 @@ class StartupProgressDialog(QDialog):
         except Exception:
             pass
         try:
-            self.setFixedSize(540, 200)
+            self.setFixedSize(540, 240)  # Aumentado a 240 para dar más espacio al detail_label
         except Exception:
             pass
 
@@ -359,10 +350,9 @@ class StartupProgressDialog(QDialog):
             except Exception:
                 pass
 # Diálogo de progreso de arranque: definir antes de su uso
-# Eliminado: clase duplicada StartupProgressDialog (definida arriba)
 
 class SyncProgressDialog(QDialog):
-    """Diálogo mejorado para la sincronización inicial con progreso y acciones."""
+    """Diálogo de estado del sistema con progreso y acciones."""
     def __init__(self):
         super().__init__(None)
         try:
@@ -408,7 +398,7 @@ class SyncProgressDialog(QDialog):
                 self.icon.setPixmap(pm)
         except Exception:
             pass
-        self.label = QLabel("Sincronización inicial en curso…")
+        self.label = QLabel("Preparando sistema…")
         try:
             f = self.label.font()
             f.setPointSize(max(f.pointSize() - 1, 11))
@@ -672,8 +662,15 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logging.error(f"Error al inicializar o vincular WhatsApp Manager: {e}")
                 self.whatsapp_manager = None
+            
+            # Inicializar helper de base de datos asíncrono para operaciones optimizadas
+            try:
+                self.async_db_helper = AsyncDatabaseHelper(self.db_manager, self)
+                logging.info("AsyncDatabaseHelper inicializado para operaciones asíncronas desde Argentina a São Paulo")
+            except Exception as e:
+                logging.warning(f"No se pudo inicializar AsyncDatabaseHelper: {e}")
+                self.async_db_helper = None
 
-            # Eliminado: inicialización del gestor de sincronización legacy y proxy local
 
             # Configuración inicial de fuente eliminada
 
@@ -826,6 +823,14 @@ class MainWindow(QMainWindow):
                 logging.info("UI Watchdog iniciado")
             except Exception as e:
                 logging.debug(f"No se pudo iniciar UI Watchdog: {e}")
+            
+            # Demostrar las nuevas operaciones asíncronas de base de datos
+            # Asegurar que se ejecute después de que el startup overlay se haya ocultado
+            try:
+                QTimer.singleShot(5000, self.demonstrate_async_database_operations)  # Aumentado de 3s a 5s
+                logging.info("Demostración de operaciones asíncronas programada para 5 segundos después del inicio")
+            except Exception as e:
+                logging.debug(f"No se pudo programar demostración de operaciones asíncronas: {e}")
 
             # Reducir márgenes internos del contenido de pestañas a 1px globalmente
             self._apply_global_tab_layout_margins(1)
@@ -878,6 +883,13 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             # Importante: no cerrar la ventana y no re-lanzar la excepción
+        
+        # Mecanismo de seguridad: temporizador global para cerrar cualquier loading colgado
+        try:
+            QTimer.singleShot(30000, self._ensure_all_loading_closed)  # 30 segundos
+            logging.info("Temporizador de seguridad para cerrar loading colgados activado (30s)")
+        except Exception:
+            pass
             
         # Bandera para distinguir entre logout y cierre de aplicación
         self.is_logout = False
@@ -885,7 +897,11 @@ class MainWindow(QMainWindow):
         # Configurar timer para actualizar título con contador de sesiones
         self.setup_title_update_timer()
 
-    # Eliminado: stub legacy de inicialización de OfflineSyncManager
+        try:
+            logging.info("MainWindow inicializada completamente (fin de __init__).")
+        except Exception:
+            pass
+
 
     def show_startup_overlay(self, title: str = "Cargando aplicación…", detail: str = "", percent: int | None = None):
         try:
@@ -952,9 +968,15 @@ class MainWindow(QMainWindow):
                 self._startup_overlay.bar.setValue(max(0, min(100, pct)))
             except Exception:
                 pass
-            # Detalle descriptivo
+            # Detalle descriptivo - asegurar que el texto se muestre correctamente
             try:
-                self._startup_overlay.detail_label.setText(label or "")
+                # Limitar longitud del texto para evitar overflow
+                display_label = label or ""
+                if len(display_label) > 80:
+                    display_label = display_label[:77] + "..."
+                # Reemplazar caracteres problemáticos para mejor visualización
+                display_label = display_label.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+                self._startup_overlay.detail_label.setText(display_label)
             except Exception:
                 pass
         except Exception:
@@ -968,6 +990,15 @@ class MainWindow(QMainWindow):
                 except Exception:
                     self._startup_overlay.close()
                     self._startup_overlay = None
+        except Exception:
+            pass
+        
+        # Asegurar que cualquier loading pendiente del DatabaseLoadingManager también se cierre
+        try:
+            if hasattr(self, 'async_db_helper') and self.async_db_helper:
+                self.async_db_helper.hide_loading("demo_usuarios")
+                self.async_db_helper.hide_loading("default")
+                self.async_db_helper.loading_manager.hide_all()
         except Exception:
             pass
 
@@ -1152,6 +1183,22 @@ class MainWindow(QMainWindow):
                         logging.info("Deferred startup: completado")
                     except Exception:
                         pass
+                    
+                    # Limpieza final: asegurar que todos los loading se cierren
+                    try:
+                        # Cerrar cualquier loading pendiente del DatabaseLoadingManager
+                        if hasattr(self, 'async_db_helper') and self.async_db_helper:
+                            self.async_db_helper.hide_loading("demo_usuarios")
+                            self.async_db_helper.hide_loading("default")
+                            self.async_db_helper.loading_manager.hide_all()
+                        
+                        # Cerrar startup overlay si aún está abierto
+                        QTimer.singleShot(500, self.hide_startup_overlay)
+                        
+                        logging.info("Limpieza final de loading completada")
+                    except Exception as e:
+                        logging.debug(f"Error en limpieza final: {e}")
+                    
                     return
                 label, fn = steps[i]
                 try:
@@ -1189,6 +1236,58 @@ class MainWindow(QMainWindow):
                 logging.error(f"Fallo en deferred startup: {e}")
             except Exception:
                 pass
+
+    def _ensure_all_loading_closed(self):
+        """Método de seguridad para cerrar TODOS los loading indicators."""
+        try:
+            logging.info("Ejecutando limpieza global de loading indicators")
+            
+            # 1. Cerrar startup overlay si existe
+            if hasattr(self, 'startup_overlay') and self.startup_overlay:
+                try:
+                    self.hide_startup_overlay()
+                except Exception as e:
+                    logging.debug(f"Error cerrando startup overlay: {e}")
+            
+            # 2. Cerrar sync overlay si existe
+            if hasattr(self, 'sync_overlay') and self.sync_overlay:
+                try:
+                    self.sync_overlay.hide()
+                    self.sync_overlay.deleteLater()
+                    self.sync_overlay = None
+                except Exception as e:
+                    logging.debug(f"Error cerrando sync overlay: {e}")
+            
+            # 3. Cerrar DatabaseLoadingManager
+            if hasattr(self, 'async_db_helper') and self.async_db_helper:
+                try:
+                    # Cerrar loading específicos
+                    self.async_db_helper.hide_loading("demo_usuarios")
+                    self.async_db_helper.hide_loading("default")
+                    # Cerrar todos los loading restantes
+                    if hasattr(self.async_db_helper, 'loading_manager'):
+                        self.async_db_helper.loading_manager.hide_all()
+                except Exception as e:
+                    logging.debug(f"Error cerrando DatabaseLoadingManager: {e}")
+            
+            # 4. Buscar y cerrar cualquier widget de loading visible
+            try:
+                for widget in QApplication.instance().allWidgets():
+                    if hasattr(widget, 'objectName'):
+                        name = widget.objectName()
+                        if name and ('loading' in name.lower() or 'spinner' in name.lower()):
+                            try:
+                                widget.hide()
+                                widget.deleteLater()
+                            except Exception:
+                                pass
+            except Exception as e:
+                logging.debug(f"Error buscando widgets de loading: {e}")
+                
+            logging.info("Limpieza global de loading completada")
+        except Exception as e:
+            logging.error(f"Error en limpieza global de loading: {e}")
+
     def verify_and_install_prereqs_step(self):
         """Lanza verificación/instalación de prerequisitos (PostgreSQL) en background para no bloquear la UI."""
         try:
@@ -1257,7 +1356,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.warning(f"No se pudo programar indexación: {e}")
 
-        # Eliminado: arranque de OfflineSyncManager legacy
 
         # Pequeño watchdog de UI para asegurar que no hay bloqueos
         try:
@@ -1322,7 +1420,6 @@ class MainWindow(QMainWindow):
             return thr
         except Exception:
             return None
-        # Eliminado: inicialización de OfflineSyncManager legacy en este punto
 
     def _ui_watchdog_tick(self):
         """Detecta si el event loop estuvo bloqueado y registra la latencia."""
@@ -1595,12 +1692,91 @@ class MainWindow(QMainWindow):
             logging.error(f"Error actualizando título de ventana: {e}")
             # Título de fallback
             self.setWindowTitle(f"Sistema de Gestión de {self.gym_name} - Modo: {self.user_role.capitalize()}")
+
+    def update_window_title_async(self):
+        """Calcula el título dinámico en background y lo aplica en el hilo principal."""
+        import threading
+        try:
+            if getattr(self, '_title_worker_running', False):
+                return
+            self._title_worker_running = True
+
+            def _worker():
+                try:
+                    # Datos básicos
+                    professor_name = ""
+                    profesor_id_real = None
+
+                    # Usuario logueado
+                    try:
+                        if self.logged_in_user and hasattr(self.logged_in_user, 'get'):
+                            professor_name = self.logged_in_user.get('nombre', '')
+                        elif hasattr(self, 'logged_in_user') and self.logged_in_user:
+                            professor_name = str(self.logged_in_user)
+                    except Exception:
+                        professor_name = ""
+
+                    # Resolver profesor_id real a partir de usuario_id
+                    if self.user_role == 'profesor':
+                        try:
+                            usuario_id_para_buscar = safe_get(self.logged_in_user, 'usuario_id') or safe_get(self.logged_in_user, 'id')
+                            info = self.db_manager.obtener_profesor_por_usuario_id(usuario_id_para_buscar)
+                            if info and hasattr(info, 'profesor_id'):
+                                profesor_id_real = info.profesor_id
+                        except Exception:
+                            profesor_id_real = None
+
+                    # Construir título dinámico
+                    title_parts = [f"Sistema de Gestión de {self.gym_name}"]
+                    if professor_name:
+                        title_parts.append(f"Modo: {self.user_role.capitalize()} ({professor_name})")
+                    else:
+                        title_parts.append(f"Modo: {self.user_role.capitalize()}")
+
+                    # Agregar duración de sesión si es profesor
+                    if self.user_role == 'profesor' and profesor_id_real:
+                        try:
+                            duracion_info = self.db_manager.obtener_duracion_sesion_actual_profesor(profesor_id_real)
+                            if duracion_info.get('success') and duracion_info.get('tiene_sesion_activa'):
+                                tiempo_formateado = duracion_info.get('tiempo_formateado', '0h 0m')
+                                title_parts.append(f"Sesión: {tiempo_formateado}")
+                            else:
+                                title_parts.append("Sesión: Sin sesión activa")
+                        except Exception:
+                            title_parts.append("Sesión: Error")
+
+                    full_title = " - ".join(title_parts)
+
+                    def _apply():
+                        try:
+                            self.setWindowTitle(full_title)
+                        finally:
+                            self._title_worker_running = False
+
+                    try:
+                        QTimer.singleShot(0, _apply)
+                    except Exception:
+                        _apply()
+                except Exception as e:
+                    logging.error(f"Error actualizando título (async): {e}")
+                    self._title_worker_running = False
+
+            try:
+                threading.Thread(target=_worker, name="TitleWorker", daemon=True).start()
+            except Exception as e:
+                logging.warning(f"No se pudo iniciar TitleWorker: {e}. Ejecutando inline.")
+                try:
+                    _worker()
+                except Exception:
+                    self._title_worker_running = False
+        except Exception:
+            self._title_worker_running = False
     
     
     def setup_title_update_timer(self):
         """Configura el timer para actualizar el título periódicamente"""
         self.title_timer = QTimer()
-        self.title_timer.timeout.connect(self.update_window_title)
+        self.title_timer.timeout.connect(self.update_window_title_async)
         self.title_timer.start(60000)  # Actualizar cada 60 segundos para reducir carga en BD
             
     def _apply_global_tab_layout_margins(self, margin: int = 1):
@@ -1675,6 +1851,15 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error creando ConfigTabWidget: {e}", exc_info=True)
         
+        # Agregar pestaña de operaciones de base de datos (solo para administradores)
+        if self.user_role in ['owner', 'admin']:
+            try:
+                with profile("setup_tabs: create db_operations"):
+                    from widgets.database_operation_widget import DatabaseOperationWidget
+                    self.tabs['db_operations'] = DatabaseOperationWidget(self.db_manager)
+            except Exception as e:
+                logging.error(f"Error creando DatabaseOperationWidget: {e}", exc_info=True)
+        
         # Reorganización de pestañas según requerimiento: Usuarios, Pagos, Rutinas, Clases, Profesores, Dashboard, Configuración
         self.tab_indices = {}
         
@@ -1725,6 +1910,12 @@ class MainWindow(QMainWindow):
         if 'configuracion' in self.tabs:
             with profile("setup_tabs: add configuracion"):
                 self.tab_indices['configuracion'] = self.tabWidget.addTab(self.tabs['configuracion'], QIcon(resource_path("assets/gear.png")), "⚙️ Configuración")
+        
+        # Agregar pestaña de operaciones de base de datos (solo para administradores)
+        if 'db_operations' in self.tabs:
+            with profile("setup_tabs: add db_operations"):
+                self.tab_indices['db_operations'] = self.tabWidget.addTab(self.tabs['db_operations'], QIcon(resource_path("assets/gear.png")), "🗄️ DB Operaciones")
+        
         self.setup_keyboard_shortcuts()
         self.connect_signals()
         self.update_tab_notifications()  # Actualizar notificaciones iniciales
@@ -1772,6 +1963,83 @@ class MainWindow(QMainWindow):
             logging.info("PreloadManager iniciado en segundo plano")
         except Exception as e:
             logging.debug(f"No se pudo iniciar PreloadManager: {e}")
+    
+    def demonstrate_async_database_operations(self):
+        """Demuestra las operaciones de base de datos asíncronas optimizadas"""
+        try:
+            if not hasattr(self, 'async_db_helper') or not self.async_db_helper:
+                logging.warning("AsyncDatabaseHelper no disponible para demostración")
+                return
+            
+            # Verificar que el startup haya terminado completamente
+            if hasattr(self, '_startup_overlay') and self._startup_overlay:
+                logging.info("Startup aún en progreso, posponiendo demostración...")
+                QTimer.singleShot(2000, self.demonstrate_async_database_operations)
+                return
+            
+            logging.info("Iniciando demostración de operaciones asíncronas de base de datos...")
+            
+            # Ejemplo 1: Obtener usuarios de manera asíncrona
+            def on_usuarios_loaded(result):
+                logging.info(f"Usuarios cargados asíncronamente: {len(result)} registros")
+                # Actualizar UI si es necesario
+                if hasattr(self, 'tabs') and 'usuarios' in self.tabs:
+                    # Actualizar la tabla de usuarios con los nuevos datos
+                    pass
+            
+            def on_usuarios_error(error):
+                logging.error(f"Error al cargar usuarios asíncronamente: {error}")
+            
+            # Ejecutar operación asíncrona con timeout corto
+            self.async_db_helper.execute_async(
+                "get_usuarios",
+                {"limit": 50, "offset": 0},
+                "Cargando usuarios desde São Paulo...",
+                "demo_usuarios",
+                timeout_ms=8000  # 8 segundos de timeout
+            )
+            
+            # Ejemplo 2: Obtener estadísticas de rendimiento
+            stats = self.db_manager.get_query_performance_stats()
+            logging.info(f"Estadísticas de rendimiento: {stats}")
+            
+            # Ejemplo 3: Crear índices optimizados si no existen
+            if hasattr(self.db_manager, 'create_optimized_indexes'):
+                indexes_created = self.db_manager.create_optimized_indexes()
+                logging.info(f"Índices optimizados creados: {indexes_created}")
+            
+            logging.info("Demostración de operaciones asíncronas completada")
+            
+        except Exception as e:
+            logging.error(f"Error en demostración de operaciones asíncronas: {e}", exc_info=True)
+    
+    def show_database_performance_stats(self):
+        """Muestra estadísticas de rendimiento de la base de datos"""
+        try:
+            if not hasattr(self, 'db_manager'):
+                return
+            
+            stats = self.db_manager.get_query_performance_stats()
+            
+            # Crear mensaje informativo
+            message = f"""
+            <h3>Estadísticas de Rendimiento de Base de Datos</h3>
+            <p><b>Conexión:</b> Argentina → São Paulo</p>
+            <ul>
+                <li>Consultas totales: {stats.get('total_queries', 0):,}</li>
+                <li>Consultas lentas (>2s): {stats.get('slow_queries', 0):,}</li>
+                <li>Porcentaje de consultas lentas: {stats.get('slow_query_percentage', 0):.1f}%</li>
+                <li>Tiempo promedio de consulta: {stats.get('average_query_time', 0):.2f} segundos</li>
+                <li>Ratio de caché: {stats.get('cache_hit_ratio', 0):.1f}%</li>
+            </ul>
+            <p><i>Estas optimizaciones mejoran la experiencia de usuario al reducir tiempos de carga.</i></p>
+            """
+            
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "Rendimiento de Base de Datos", message)
+            
+        except Exception as e:
+            logging.error(f"Error al mostrar estadísticas de rendimiento: {e}")
     
     def setup_keyboard_shortcuts(self):
         """Configura los shortcuts de teclado Ctrl+1-8 para navegación rápida entre pestañas"""
@@ -2020,12 +2288,7 @@ class MainWindow(QMainWindow):
             "QLabel { font-weight: bold; padding: 2px 8px; }"
         )
 
-        # Resumen breve de replicación en barra de estado
-        self.replication_status_label = QLabel("🛰️ Replicación: N/A")
-        self.replication_status_label.setToolTip("Estado de replicación lógica (PostgreSQL) — suscripción y pequeño lag")
-        self.replication_status_label.setStyleSheet(
-            "QLabel { color: #607D8B; font-weight: bold; padding: 2px 8px; }"
-        )
+        # Elemento de replicación eliminado - se usa base de datos única Neon
 
         # Advertencia visual separada para pendientes no accionables (ej. WhatsApp)
         self.whatsapp_pending_label = QLabel("")
@@ -2051,7 +2314,7 @@ class MainWindow(QMainWindow):
         self.status_bar.addPermanentWidget(self.warning_alerts_label)
         self.status_bar.addPermanentWidget(self.alerts_button)
         self.status_bar.addPermanentWidget(self.system_status_label)
-        self.status_bar.addPermanentWidget(self.replication_status_label)
+        # replication_status_label eliminado - se usa base de datos única Neon
         self.status_bar.addPermanentWidget(self.connectivity_label)
         self.status_bar.addPermanentWidget(self.whatsapp_pending_label)
         self.status_bar.addPermanentWidget(self.scheduled_pending_label)
@@ -2090,67 +2353,18 @@ class MainWindow(QMainWindow):
         self.connectivity_timer.start(5000)  # cada 5 segundos
         self.update_connectivity_indicator()
 
-        # Intentar auto-configurar replicación en background (idempotente)
-        try:
-            QTimer.singleShot(1500, self._start_replication_setup_thread)
-        except Exception:
-            pass
+        # Auto-configuración de replicación eliminada - se usa base de datos única Neon
 
-        # Sistema outbox legacy eliminado - replicación nativa PostgreSQL activa
+        # Replicación nativa PostgreSQL activa; sin cola local
 
-        # Servicio de sincronización: monitorear replicación nativa PostgreSQL
-        try:
-            from utils_modules.sync_service import SyncService
-            self.sync_service = SyncService(poll_interval_ms=5000, db_manager=self.db_manager)
-            # Monitorear cambios en el estado de replicación
-            self.sync_service.on_replication_status_change = lambda status: self.update_connectivity_indicator()
-            # Monitorear cambios en conectividad
-            self.sync_service.on_connectivity_change = lambda connected: self.update_connectivity_indicator()
-            self.sync_service.start()
-            try:
-                # Parada limpia cuando se destruya la ventana
-                self.destroyed.connect(self.sync_service.stop)
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                logging.warning(f"No se pudo iniciar SyncService: {e}")
-            except Exception:
-                pass
-
-        # Observador de replicación: refrescar UI cuando lleguen cambios entrantes
-        try:
-            from utils_modules.replication_observer import ReplicationObserver
-            self.replication_observer = ReplicationObserver(db_manager=self.db_manager, poll_interval_ms=5000)
-            self.replication_observer.on_inbound_change = self._on_replication_inbound_change
-            # Registrar callback de estado para usar métricas en el indicador de conectividad
-            try:
-                self._last_replication_metrics = {}
-            except Exception:
-                pass
-            try:
-                self.replication_observer.on_status_update = self._on_replication_status_update
-            except Exception:
-                pass
-            self.replication_observer.start()
-            try:
-                # Parada limpia cuando se destruya la ventana
-                self.destroyed.connect(self.replication_observer.stop)
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                logging.warning(f"No se pudo iniciar ReplicationObserver: {e}")
-            except Exception:
-                pass
+        # Servicios de replicación y VPN deshabilitados - se usa base de datos única Neon
 
     def _test_networks_from_status_bar(self):
-        """Prueba salud de red local y pública y reinicia automáticamente si fallan."""
+        """Prueba salud de red local y reinicia automáticamente si falla."""
         try:
             host = getattr(self, 'web_host', os.getenv("WEBAPP_HOST", "127.0.0.1"))
             port = int(getattr(self, 'web_port', int(os.getenv("WEBAPP_PORT", "8000"))))
-            public_url = getattr(self, 'public_url', None)
-            # Preparar callbacks de reinicio seguros
+            # Preparar callback de reinicio seguro
             def _restart_server():
                 try:
                     from webapp.server import start_web_server
@@ -2158,32 +2372,16 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-            def _restart_tunnel():
-                try:
-                    from webapp.server import start_public_tunnel
-                    start_public_tunnel(local_port=port)
-                except Exception:
-                    pass
-
+            # Prueba solo red local - túnel público eliminado
             res = test_networks_and_restart(
                 host=host,
                 port=port,
-                public_url=public_url,
                 restart_server_cb=_restart_server,
-                restart_tunnel_cb=_restart_tunnel,
             )
             # Feedback en barra de estado
             local_ok = res.get("local_ok", False)
-            public_ok = res.get("public_ok", False)
-            msg = []
-            msg.append(f"Local: {'OK' if local_ok else 'REINICIADA' if res.get('server_restarted') else 'ERROR'}")
-            # Solo mostrar pública si está habilitado el túnel
-            try:
-                if get_public_tunnel_enabled():
-                    msg.append(f"Público: {'OK' if public_ok else 'REINICIADA' if res.get('tunnel_restarted') else 'ERROR'}")
-            except Exception:
-                pass
-            self.status_bar.showMessage(" | ".join(msg), 8000)
+            msg = f"Local: {'OK' if local_ok else 'REINICIADA' if res.get('server_restarted') else 'ERROR'}"
+            self.status_bar.showMessage(msg, 8000)
         except Exception as e:
             logging.error(f"Error al testear/reiniciar redes desde barra de estado: {e}")
 
@@ -2209,10 +2407,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 whatsapp_ok = False
 
-            # Replicación nativa PostgreSQL - sin outbox legacy
-            pending_ops = 0  # Sistema outbox eliminado
+            # Replicación nativa PostgreSQL
+            pending_ops = 0  # Métrica de cola local no aplicable
 
-            # Desglose mínimo para la UI (sin sistema legacy)
+            # Desglose mínimo para la UI
             pending_breakdown = {
                 'actionable_whatsapp': 0,
                 'whatsapp': 0,
@@ -2234,80 +2432,39 @@ class MainWindow(QMainWindow):
                 self.connectivity_label.setStyleSheet("QLabel { color: #2ecc71; font-weight: bold; padding: 2px 8px; }")
             elif db_ok or internet_ok:
                 status_text = "🟡 Parcial"
-                if isinstance(pending_ops, int) and pending_ops:
-                    status_text += f" • cola {pending_ops}"
                 self.connectivity_label.setText(status_text)
                 self.connectivity_label.setStyleSheet("QLabel { color: #f1c40f; font-weight: bold; padding: 2px 8px; }")
             else:
                 status_text = "🔴 Sin conexión"
-                if isinstance(pending_ops, int) and pending_ops:
-                    status_text += f" • encoladas {pending_ops}"
                 self.connectivity_label.setText(status_text)
                 self.connectivity_label.setStyleSheet("QLabel { color: #e74c3c; font-weight: bold; padding: 2px 8px; }")
 
-            # Métricas de replicación lógica obtenidas del observador
-            repl = getattr(self, '_last_replication_metrics', {}) or {}
-            has_sub = bool(repl.get('has_subscription'))
-            apply_lag = repl.get('max_apply_lag_s')
-            sync_states = repl.get('sync_states') or []
-            lag_text = (f"{float(apply_lag):.1f}s" if isinstance(apply_lag, (int, float)) else "N/A")
-            sync_text = ", ".join(sync_states) if sync_states else "N/A"
-
-            # Razón técnica si no hay suscripción (de auto-setup)
-            setup_res = getattr(self, '_replication_setup_result', {}) or {}
+            # Métricas de replicación deshabilitadas - se usa base de datos única Neon
+            # Las variables se mantienen para compatibilidad pero con valores neutros
+            has_sub = False
+            apply_lag = None
+            sync_states = []
+            lag_text = "N/A"
+            sync_text = "N/A"
+            reason_text = ""
             remote_checks = None
-            try:
-                for step in setup_res.get('steps', []):
-                    if 'remote_checks' in step:
-                        remote_checks = step['remote_checks']
-                        break
-            except Exception:
-                remote_checks = None
-            reason_text = ''
-            if not has_sub and remote_checks and not remote_checks.get('ok'):
-                wl = remote_checks.get('wal_level')
-                slots = remote_checks.get('max_replication_slots')
-                senders = remote_checks.get('max_wal_senders')
-                reason_text = f" (remoto: wal_level={wl}, slots={slots}, senders={senders})"
 
-            # Tooltip detallado
+            # Tooltip detallado - sin referencias a replicación
             tooltip = (
                 f"Internet: {'OK' if internet_ok else 'FALLA'}\n"
                 f"Base de datos: {'OK' if db_ok else 'FALLA'}\n"
                 f"WhatsApp: {'OK' if whatsapp_ok else 'FALLA'}\n"
-                f"Replicación: {'OK' if has_sub else 'SIN SUSCRIPCIÓN'} | Lag: {lag_text} | Estado: {sync_text}{reason_text}\n"
+                f"Base de datos única Neon: {'OK' if db_ok else 'FALLA'}\n"
                 f"Cola local (pendientes): {'N/A' if pending_ops is None else pending_ops}\n"
                 f"Programados (backoff): {scheduled_total}"
             )
             self.connectivity_label.setToolTip(tooltip)
 
-            # Resumen breve en la barra de estado (no intrusivo)
-            try:
-                short = f"Rep: {'OK' if has_sub else 'SIN SUB'} • lag {lag_text} • {sync_text}"
-                self.replication_status_label.setText(f"🛰️ {short}")
-                self.replication_status_label.setStyleSheet(
-                    "QLabel { color: %s; font-weight: bold; padding: 2px 8px; }" % ("#2ecc71" if has_sub else "#e74c3c")
-                )
-                # Tooltip específico de replicación con razón técnica si aplica
-                self.replication_status_label.setToolTip(
-                    f"Replicación: {'OK' if has_sub else 'SIN SUSCRIPCIÓN'} • lag {lag_text} • {sync_text}{reason_text}"
-                )
-            except Exception:
-                pass
+            # Replicación deshabilitada - se usa base de datos única Neon
 
-            # Overlay de sincronización inicial: mostrar mientras haya tablas no listas
+            # Overlay de sincronización deshabilitado - se usa base de datos única Neon
             try:
-                if has_sub and not getattr(self, '_sync_dnd', False):
-                    prog = self._get_initial_sync_progress_counts()
-                    if prog and int(prog.get('total', 0)) > 0 and int(prog.get('ready', 0)) < int(prog.get('total', 0)):
-                        ready = int(prog.get('ready', 0))
-                        total = int(prog.get('total', 0))
-                        detail = f"Tablas listas: {ready}/{total} • lag {lag_text}"
-                        self.show_sync_overlay("Sincronizando datos iniciales…", ready=ready, total=total, detail=detail)
-                    else:
-                        self.hide_sync_overlay()
-                else:
-                    self.hide_sync_overlay()
+                self.hide_sync_overlay()
             except Exception:
                 # No romper si falla la detección
                 pass
@@ -2358,302 +2515,11 @@ class MainWindow(QMainWindow):
             # No romper UI por errores en el indicador
             logging.debug(f"Error actualizando indicador de conectividad: {e}")
 
-    def _on_replication_status_update(self, metrics: dict):
-        """Callback de estado del observador de replicación para refrescar la UI."""
-        try:
-            self._last_replication_metrics = metrics or {}
-            # Refrescar indicador para reflejar métricas recientes
-            self.update_connectivity_indicator()
-        except Exception:
-            pass
+    # Replicación nativa PostgreSQL en base de datos única Neon
 
-    def _is_initial_sync_in_progress(self) -> bool:
-        """Detecta si hay sincronización inicial en curso consultando pg_subscription_rel."""
-        try:
-            with self.db_manager.get_connection_context() as conn:
-                cur = conn.cursor()
-                # Contar tablas no listas (estados distintos de 'r' ready)
-                try:
-                    cur.execute("SELECT COUNT(*) FROM pg_subscription_rel WHERE srsubstate <> 'r'")
-                except Exception:
-                    # Fallback si columna/tabla no existe (versiones antiguas)
-                    return False
-                row = cur.fetchone()
-                pending = int(row[0]) if row and row[0] is not None else 0
-                return pending > 0
-        except Exception:
-            return False
-
-    def _get_initial_sync_progress_counts(self) -> dict | None:
-        """Devuelve dict con 'ready' y 'total' consultando pg_subscription_rel, o None si no disponible."""
-        try:
-            with self.db_manager.get_connection_context() as conn:
-                cur = conn.cursor()
-                try:
-                    cur.execute("""
-                        SELECT
-                            SUM(CASE WHEN srsubstate = 'r' THEN 1 ELSE 0 END) AS ready,
-                            COUNT(*) AS total
-                        FROM pg_subscription_rel
-                    """)
-                except Exception:
-                    return None
-                row = cur.fetchone() or (0, 0)
-                ready = int(row[0] or 0)
-                total = int(row[1] or 0)
-                return {"ready": ready, "total": total}
-        except Exception:
-            return None
-
-    def _start_replication_setup_thread(self):
-        """Inicia hilo ligero para auto-setup de replicación sin bloquear la UI."""
-        try:
-            import threading
-            t = threading.Thread(target=self._auto_setup_logical_replication, daemon=True)
-            t.start()
-            try:
-                self._replication_setup_thread = t
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _auto_setup_logical_replication(self):
-        """Asegura PUBLICATION/SUBSCRIPTION y siembra keyring usando config.json."""
-        try:
-            from pathlib import Path
-            from utils_modules.replication_setup import ensure_logical_replication_from_config_path
-
-            base_dir = Path(__file__).resolve().parent
-            cfg_path = base_dir / 'config' / 'config.json'
-            res = ensure_logical_replication_from_config_path(cfg_path)
-            try:
-                self._replication_setup_result = res
-            except Exception:
-                pass
-            # Si la suscripción fue creada, mostrar overlay de sincronización inicial
-            try:
-                for step in (res.get('steps') or []):
-                    sub = step.get('subscription') if isinstance(step, dict) else None
-                    if sub and sub.get('changed'):
-                        QTimer.singleShot(0, lambda: self.show_sync_overlay("Sincronizando datos iniciales…"))
-                        try:
-                            QTimer.singleShot(500, self._start_initial_reconciliation_thread)
-                        except Exception:
-                            pass
-                        break
-            except Exception:
-                pass
-            # Feedback no bloqueante en la barra de estado
-            try:
-                def _update_msg():
-                    ok = bool(res.get('ok'))
-                    msg = f"Replicación {'OK' if ok else 'FALLÓ'}"
-                    self.status_bar.showMessage(msg, 5000)
-                    # Refrescar indicador con métricas actuales
-                    self.update_connectivity_indicator()
-                QTimer.singleShot(0, _update_msg)
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                logging.warning(f"Auto-setup de replicación falló: {e}")
-            except Exception:
-                pass
-
-    def _start_outbox_trigger_install_thread(self):
-        try:
-            import threading
-            t = threading.Thread(target=self._auto_install_outbox_triggers, daemon=True)
-            t.start()
-            try:
-                self._outbox_install_thread = t
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    # Función legacy eliminada - replicación nativa PostgreSQL ya configurada
+    # (Eliminado) _start_outbox_trigger_install_thread: obsoleto; no se utiliza
     
-    def _start_initial_reconciliation_thread(self):
-        try:
-            # Evitar iniciar si la aplicación está en proceso de cierre
-            try:
-                if getattr(self, "_app_closing", False):
-                    try:
-                        logging.info("App closing: omitiendo inicio de reconciliación inicial")
-                    except Exception:
-                        pass
-                    return
-            except Exception:
-                pass
-
-            import threading
-            t = threading.Thread(target=self._auto_initial_reconciliation, daemon=True)
-            t.start()
-            try:
-                self._initial_recon_thread = t
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-    def _auto_initial_reconciliation(self):
-        """Ejecuta reconciliación inicial bidireccional sin bloquear la UI.
-        - Usa nombres de suscripción/publicación desde config/replication.
-        - Replicación nativa PostgreSQL configurada - sin tablas de sincronización legacy.
-        - Soporta PK compuestas y actualiza filas por versión lógica (logical_ts/last_op_id).
-        """
-        # Abort early si se está cerrando
-        try:
-            if getattr(self, "_app_closing", False):
-                try:
-                    logging.info("App closing: abortando reconciliación inicial")
-                except Exception:
-                    pass
-                return
-        except Exception:
-            pass
-        try:
-            if not getattr(self, "_app_closing", False):
-                QTimer.singleShot(0, lambda: self.show_sync_overlay("Reconciliando datos históricos…", detail="Preparando reconciliación local⇄remoto"))
-        except Exception:
-            pass
-        # Local→Remoto para tablas transaccionales
-        try:
-            if getattr(self, "_app_closing", False):
-                return
-            from pathlib import Path
-            import json
-            from scripts import reconcile_local_remote_once as L2R
-            cfg = L2R.load_config()
-            rep_cfg = (cfg.get('replication') or {})
-            subname = rep_cfg.get('subscription_name') or 'gym_sub'
-            local_params = L2R.build_conn_params('local', cfg)
-            remote_params = L2R.build_conn_params('remote', cfg)
-            local_conn = L2R.connect(local_params)
-            remote_conn = L2R.connect(remote_params)
-            try:
-                L2R.disable_subscription(local_conn, subname)
-            except Exception:
-                pass
-            try:
-                tables_to_process = list(getattr(L2R, 'DEFAULT_TABLES', []))
-                total_inserted = 0
-                total_updated = 0
-                for table in tables_to_process:
-                    if getattr(self, "_app_closing", False):
-                        break
-                    try:
-                        pk_cols = L2R.get_pk_columns(local_conn, 'public', table)
-                        # Inserciones: claves presentes en local y faltantes en remoto
-                        missing = L2R.fetch_missing_pks(local_conn, remote_conn, 'public', table, pk_cols)
-                        if missing:
-                            rows = L2R.fetch_rows_by_pk(local_conn, 'public', table, pk_cols, missing)
-                            inserted = L2R.insert_rows_remote(remote_conn, 'public', table, rows, pk_cols, dry_run=False)
-                            total_inserted += int(inserted or 0)
-                        # Actualizaciones: filas existentes con versión lógica más reciente en local
-                        updated = L2R.reconcile_updates_remote(local_conn, remote_conn, 'public', table, pk_cols, dry_run=False)
-                        total_updated += int(updated or 0)
-                    except Exception:
-                        pass
-                try:
-                    # Feedback discreto
-                    if not getattr(self, "_app_closing", False):
-                        QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Local→Remoto: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
-                except Exception:
-                    pass
-            finally:
-                try:
-                    L2R.enable_subscription(local_conn, subname)
-                except Exception:
-                    pass
-                try:
-                    local_conn.close()
-                except Exception:
-                    pass
-                try:
-                    remote_conn.close()
-                except Exception:
-                    pass
-        except Exception as e:
-            try:
-                logging.warning(f"Reconciliación local→remoto falló: {e}")
-            except Exception:
-                pass
-        # Remoto→Local para tablas puntuales excluidas de publicación
-        try:
-            if getattr(self, "_app_closing", False):
-                return
-            from pathlib import Path
-            import json
-            from scripts import reconcile_remote_to_local_once as R2L
-            cfg = R2L.load_config()
-            rep_cfg = (cfg.get('replication') or {})
-            subname = rep_cfg.get('subscription_name') or 'gym_sub'
-            local_params = R2L.build_conn_params('local', cfg)
-            remote_params = R2L.build_conn_params('remote', cfg)
-            local_conn = R2L.connect(local_params)
-            remote_conn = R2L.connect(remote_params)
-            try:
-                R2L.disable_subscription(local_conn, subname)
-            except Exception:
-                pass
-            try:
-                tables_to_process = list(getattr(R2L, 'DEFAULT_TABLES', []))
-                total_inserted = 0
-                total_updated = 0
-                for table in tables_to_process:
-                    if getattr(self, "_app_closing", False):
-                        break
-                    try:
-                        pk_cols = R2L.get_pk_columns(local_conn, 'public', table)
-                        # Inserciones: claves presentes en remoto y faltantes en local
-                        missing = R2L.fetch_missing_pks(remote_conn, local_conn, 'public', table, pk_cols)
-                        if missing:
-                            rows = R2L.fetch_rows_by_pk(remote_conn, 'public', table, pk_cols, missing)
-                            inserted = R2L.insert_rows_local(local_conn, 'public', table, rows, pk_cols, dry_run=False)
-                            total_inserted += int(inserted or 0)
-                        # Actualizaciones: filas existentes con versión lógica más reciente en remoto
-                        updated = R2L.reconcile_updates_local(remote_conn, local_conn, 'public', table, pk_cols, dry_run=False)
-                        total_updated += int(updated or 0)
-                    except Exception:
-                        pass
-                try:
-                    if not getattr(self, "_app_closing", False):
-                        QTimer.singleShot(0, lambda: self.status_bar.showMessage(f"Remoto→Local: insertadas {total_inserted}, actualizadas {total_updated}", 5000))
-                except Exception:
-                    pass
-            finally:
-                try:
-                    R2L.enable_subscription(local_conn, subname)
-                except Exception:
-                    pass
-                try:
-                    local_conn.close()
-                except Exception:
-                    pass
-                try:
-                    remote_conn.close()
-                except Exception:
-                    pass
-        except Exception as e:
-            try:
-                logging.warning(f"Reconciliación remoto→local falló: {e}")
-            except Exception:
-                pass
-        # Actualizar UI y lanzar subida inmediata de outbox
-        try:
-            if not getattr(self, "_app_closing", False):
-                QTimer.singleShot(0, lambda: self.status_bar.showMessage("Reconciliación inicial completada", 7000))
-        except Exception:
-            pass
-        # Replicación nativa PostgreSQL maneja sincronización automáticamente
-        try:
-            if not getattr(self, "_app_closing", False):
-                QTimer.singleShot(0, self.hide_sync_overlay)
-        except Exception:
-            pass
+    # Métodos de reconciliación eliminados - se usa base de datos única Neon
 
     def setup_alert_system(self):
         """Configura el sistema de alertas y sus conexiones"""
@@ -2665,11 +2531,12 @@ class MainWindow(QMainWindow):
             
             # Timer para verificar alertas periódicamente
             self.alert_check_timer = QTimer()
-            self.alert_check_timer.timeout.connect(self.check_system_alerts)
+            # Ejecutar verificación en background para no bloquear la UI
+            self.alert_check_timer.timeout.connect(self._check_system_alerts_async)
             self.alert_check_timer.start(60000)  # Verificar cada minuto
             
             # Verificación inicial
-            QTimer.singleShot(5000, self.check_system_alerts)  # Verificar después de 5 segundos
+            QTimer.singleShot(5000, self._check_system_alerts_async)  # Verificar después de 5 segundos
             
             # Actualizar indicadores iniciales
             self.update_alert_indicators()
@@ -2744,6 +2611,84 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             logging.error(f"Error verificando alertas del sistema: {e}")
+
+    def _check_system_alerts_async(self):
+        """Dispara la verificación de alertas en background para evitar bloquear la UI."""
+        import threading
+        try:
+            if getattr(self, '_alert_worker_running', False):
+                return
+            self._alert_worker_running = True
+
+            def _worker():
+                overdue_count = 0
+                inactive_count = 0
+                try:
+                    # Cálculos pesados en background (DB/IO)
+                    overdue_count = self.count_overdue_payments()
+                    inactive_count = self.count_inactive_users()
+                except Exception as e:
+                    logging.debug(f"_check_system_alerts_async worker error: {e}")
+
+                def _apply():
+                    try:
+                        # Aplicar alertas en el hilo principal
+                        try:
+                            # Mantenimiento (usa los conteos calculados)
+                            if overdue_count > 10:
+                                alert_manager.generate_alert(
+                                    AlertLevel.WARNING,
+                                    AlertCategory.MAINTENANCE,
+                                    "Muchos pagos vencidos",
+                                    f"Hay {overdue_count} usuarios con pagos vencidos que requieren atención.",
+                                    "MainWindow"
+                                )
+                            if inactive_count > 20:
+                                alert_manager.generate_alert(
+                                    AlertLevel.WARNING,
+                                    AlertCategory.MAINTENANCE,
+                                    "Muchos usuarios inactivos",
+                                    f"Hay {inactive_count} usuarios sin asistencia reciente.",
+                                    "MainWindow"
+                                )
+                        except Exception:
+                            pass
+
+                        # Base de datos y rendimiento (ligeros)
+                        try:
+                            self.check_database_alerts()
+                        except Exception:
+                            pass
+                        try:
+                            self.check_system_performance_alerts()
+                        except Exception:
+                            pass
+
+                        # Refrescar indicadores
+                        try:
+                            self.update_alert_indicators()
+                        except Exception:
+                            pass
+                    finally:
+                        self._alert_worker_running = False
+
+                # Encolar aplicación de resultados en el event loop
+                try:
+                    QTimer.singleShot(0, _apply)
+                except Exception:
+                    # Fallback: aplicar inline (menos seguro, pero evita perder resultados)
+                    _apply()
+
+            try:
+                threading.Thread(target=_worker, name="AlertWorker", daemon=True).start()
+            except Exception as e:
+                logging.warning(f"No se pudo iniciar AlertWorker: {e}. Ejecutando inline.")
+                try:
+                    _worker()
+                except Exception:
+                    self._alert_worker_running = False
+        except Exception:
+            self._alert_worker_running = False
     
     def check_maintenance_alerts(self):
         """Verifica alertas relacionadas con mantenimiento"""
@@ -2893,8 +2838,9 @@ class MainWindow(QMainWindow):
     def setup_notification_timer(self):
         """Configura un timer para actualizar las notificaciones periódicamente"""
         self.notification_timer = QTimer()
-        self.notification_timer.timeout.connect(self.update_tab_notifications)
-        self.notification_timer.start(30000)  # Actualizar cada 30 segundos
+        # Ejecutar actualización en background para no bloquear la UI
+        self.notification_timer.timeout.connect(self.update_tab_notifications_async)
+        self.notification_timer.start(45000)  # Actualizar cada 45 segundos para reducir carga
         
         # Timer para procesamiento automático de WhatsApp (recordatorios y cuotas vencidas)
         self.whatsapp_timer = QTimer()
@@ -3022,101 +2968,76 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logging.error(f"Error actualizando notificaciones: {e}")
 
-    def _on_replication_inbound_change(self):
-        """Callback de observador de replicación: refresca UI ante cambios entrantes."""
-        # Debounce para evitar ráfagas de refresco si hay avances rápidos
+    def update_tab_notifications_async(self):
+        """Calcula las notificaciones en background y aplica en el hilo principal."""
+        import threading
         try:
-            import time
-            now = time.time()
-            last = getattr(self, '_last_inbound_refresh_ts', 0)
-            debounce_ms = int(getattr(self, '_inbound_debounce_ms', 0))
-            if debounce_ms > 0 and (now - float(last)) * 1000 < debounce_ms:
+            if getattr(self, '_notif_worker_running', False):
                 return
-            self._last_inbound_refresh_ts = now
+            self._notif_worker_running = True
+
+            def _worker():
+                overdue_payments = 0
+                inactive_users = 0
+                low_enrollment_classes = 0
+                try:
+                    overdue_payments = self.count_overdue_payments()
+                    inactive_users = self.count_inactive_users()
+                    low_enrollment_classes = self.count_low_enrollment_classes()
+                except Exception as e:
+                    logging.debug(f"update_tab_notifications_async worker error: {e}")
+
+                def _apply():
+                    try:
+                        self.notification_counts['pagos'] = overdue_payments
+                        self.notification_counts['usuarios'] = inactive_users
+                        self.notification_counts['clases'] = low_enrollment_classes
+                        self.update_tab_text_with_notifications()
+                    finally:
+                        self._notif_worker_running = False
+
+                try:
+                    QTimer.singleShot(0, _apply)
+                except Exception:
+                    _apply()
+
+            try:
+                threading.Thread(target=_worker, name="NotifWorker", daemon=True).start()
+            except Exception as e:
+                logging.warning(f"No se pudo iniciar NotifWorker: {e}. Ejecutando inline.")
+                try:
+                    _worker()
+                except Exception:
+                    self._notif_worker_running = False
         except Exception:
-            pass
-        try:
-            self.update_tab_notifications()
-        except Exception:
-            pass
-        try:
-            # Emitir señal para forzar re-render en pestañas dependientes
-            usuarios_tab = self.tabs.get('usuarios')
-            if usuarios_tab and hasattr(usuarios_tab, 'usuarios_modificados'):
-                usuarios_tab.usuarios_modificados.emit()
-        except Exception:
-            pass
-        try:
-            self.update_monthly_hours()
-        except Exception:
-            pass
-        # Replicación nativa PostgreSQL maneja sincronización automáticamente - sin outbox legacy
+            self._notif_worker_running = False
+
+    
 
     def count_overdue_payments(self) -> int:
         """Cuenta los pagos vencidos"""
         try:
             from datetime import datetime, timedelta
             cutoff_date = datetime.now() - timedelta(days=30)
-            
-            # Obtener usuarios activos (socios y profesores)
-            usuarios_activos = (
-                self.db_manager.obtener_usuarios_por_rol('socio') +
-                self.db_manager.obtener_usuarios_por_rol('profesor')
-            )
-            usuarios_activos = [u for u in usuarios_activos if u.activo]
-            overdue_count = 0
-            
-            for usuario in usuarios_activos:
-                # Considerar usuarios SIN pagos: su cuota vence igual
-                ultimo_pago = self.payment_manager.obtener_ultimo_pago_usuario(usuario.id)
 
-                # Usar fecha de próximo vencimiento si está disponible en el usuario
-                fpv = getattr(usuario, 'fecha_proximo_vencimiento', None)
-                fecha_ref = None
-
-                if fpv:
-                    # Normalizar fecha_proximo_vencimiento a objeto date/datetime
-                    try:
-                        if isinstance(fpv, str):
-                            from datetime import date
-                            try:
-                                # Intentar ISO
-                                fecha_ref = datetime.fromisoformat(fpv)
-                            except Exception:
-                                # Intentar formato dd/mm/YYYY
-                                fecha_ref = datetime.strptime(fpv, '%d/%m/%Y')
-                        else:
-                            fecha_ref = fpv
-                    except Exception:
-                        fecha_ref = None
-
-                if not fecha_ref:
-                    # Si no hay fpv, caer al último pago (si existe)
-                    if ultimo_pago:
-                        fecha_ref = ultimo_pago.fecha_pago
-                        try:
-                            if isinstance(fecha_ref, str):
-                                fecha_ref = datetime.fromisoformat(fecha_ref)
-                        except Exception:
-                            pass
-                    else:
-                        # Sin pagos y sin fpv: considerar como vencido por defecto
-                        # para no excluirlos de los contadores
-                        fecha_ref = datetime.now() - timedelta(days=31)
-
-                # Si la fecha de referencia (vencimiento o último pago) es anterior al corte, contar como vencido
-                try:
-                    # Convertir a datetime si es date
-                    from datetime import date
-                    if isinstance(fecha_ref, date) and not isinstance(fecha_ref, datetime):
-                        fecha_ref = datetime.combine(fecha_ref, datetime.min.time())
-                except Exception:
-                    pass
-
-                if fecha_ref < cutoff_date:
-                    overdue_count += 1
-                
-            return overdue_count
+            # Consulta agregada para usuarios activos: último pago
+            with self.db_manager.get_connection_context() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM (
+                        SELECT u.id, MAX(p.fecha_pago) AS last_payment
+                        FROM usuarios u
+                        LEFT JOIN pagos p ON p.usuario_id = u.id
+                        WHERE u.activo = TRUE AND (u.rol = 'socio' OR u.rol = 'profesor')
+                        GROUP BY u.id
+                    ) t
+                    WHERE (t.last_payment IS NULL OR t.last_payment < %s)
+                    """,
+                    (cutoff_date,)
+                )
+                row = cursor.fetchone()
+                return (row[0] if row and len(row) > 0 else 0)
         except Exception as e:
             logging.error(f"Error contando pagos vencidos: {e}")
             return 0
@@ -3124,28 +3045,28 @@ class MainWindow(QMainWindow):
     def count_inactive_users(self) -> int:
         """Cuenta usuarios sin asistencia reciente"""
         try:
-            from datetime import datetime, timedelta, date
+            from datetime import datetime, timedelta
             cutoff_date = datetime.now() - timedelta(days=30)
-            
-            # Obtener usuarios activos (rol socio)
-            usuarios_activos = self.db_manager.obtener_usuarios_por_rol('socio')
-            usuarios_activos = [u for u in usuarios_activos if u.activo]
-            inactive_count = 0
-            
-            # Verificar asistencias recientes usando método existente
+
+            # Consulta agregada: socios activos sin asistencias en últimos 30 días
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor()
-                for usuario in usuarios_activos:
-                    cursor.execute(
-                        "SELECT COUNT(*) FROM asistencias WHERE usuario_id = %s AND fecha >= %s",
-                        (usuario.id, cutoff_date.date().isoformat())
-                    )
-                    result = cursor.fetchone()
-                    asistencias_count = result[0] if result and len(result) > 0 else 0
-                    if asistencias_count == 0:
-                        inactive_count += 1
-                    
-            return inactive_count
+                cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM (
+                        SELECT u.id
+                        FROM usuarios u
+                        LEFT JOIN asistencias a
+                          ON a.usuario_id = u.id AND a.fecha >= %s
+                        WHERE u.activo = TRUE AND u.rol = 'socio'
+                        GROUP BY u.id
+                        HAVING COUNT(a.usuario_id) = 0
+                    ) sub
+                    """,
+                    (cutoff_date.date().isoformat(),)
+                )
+                row = cursor.fetchone()
+                return (row[0] if row and len(row) > 0 else 0)
         except Exception as e:
             logging.error(f"Error contando usuarios inactivos: {e}")
             return 0
@@ -3153,27 +3074,43 @@ class MainWindow(QMainWindow):
     def count_low_enrollment_classes(self) -> int:
         """Cuenta clases con baja inscripción"""
         try:
-            # Obtener todas las clases
-            clases = self.db_manager.obtener_clases()
-            low_enrollment_count = 0
-            
+            # Intentar consulta agregada para contar clases con algún horario de baja inscripción (<3)
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor()
-                for clase in clases:
-                    # Obtener horarios de la clase y contar inscritos
-                    horarios = self.db_manager.obtener_horarios_de_clase(clase.id)
-                    for horario in horarios:
-                        cursor.execute(
-                            "SELECT COUNT(*) FROM clase_usuarios WHERE clase_horario_id = %s",
-                            (horario.id,)
-                        )
-                        result = cursor.fetchone()
-                        inscritos = result[0] if result and len(result) > 0 else 0
-                        if inscritos < 3:  # Menos de 3 inscritos se considera bajo
-                            low_enrollment_count += 1
-                            break  # Solo contar la clase una vez
-                    
-            return low_enrollment_count
+                try:
+                    cursor.execute(
+                        """
+                        SELECT COUNT(*) FROM (
+                            SELECT ch.clase_id
+                            FROM clase_horarios ch
+                            LEFT JOIN clase_usuarios cu ON cu.clase_horario_id = ch.id
+                            GROUP BY ch.clase_id, ch.id
+                            HAVING COUNT(cu.usuario_id) < 3
+                        ) t
+                        """
+                    )
+                    row = cursor.fetchone()
+                    return (row[0] if row and len(row) > 0 else 0)
+                except Exception:
+                    # Fallback si el esquema difiere
+                    try:
+                        clases = self.db_manager.obtener_clases()
+                        low_enrollment_count = 0
+                        for clase in clases:
+                            horarios = self.db_manager.obtener_horarios_de_clase(clase.id)
+                            for horario in horarios:
+                                cursor.execute(
+                                    "SELECT COUNT(*) FROM clase_usuarios WHERE clase_horario_id = %s",
+                                    (horario.id,)
+                                )
+                                result = cursor.fetchone()
+                                inscritos = result[0] if result and len(result) > 0 else 0
+                                if inscritos < 3:
+                                    low_enrollment_count += 1
+                                    break
+                        return low_enrollment_count
+                    except Exception:
+                        return 0
         except Exception as e:
             logging.error(f"Error contando clases con baja inscripción: {e}")
             return 0
@@ -3241,6 +3178,17 @@ class MainWindow(QMainWindow):
             
         if 'configuracion' in self.tabs and 'pagos' in self.tabs:
             self.tabs['configuracion'].precio_actualizado.connect(self.tabs['pagos'].load_defaults)
+            # Refrescar conceptos y métodos de pago ante cambios de configuración
+            if hasattr(self.tabs['configuracion'], 'conceptos_pago_modificados'):
+                self.tabs['configuracion'].conceptos_pago_modificados.connect(self.tabs['pagos'].refresh_payment_concepts_immediately)
+            if hasattr(self.tabs['configuracion'], 'metodos_pago_modificados'):
+                if hasattr(self.tabs['pagos'], 'refresh_payment_methods_debounced'):
+                    self.tabs['configuracion'].metodos_pago_modificados.connect(self.tabs['pagos'].refresh_payment_methods_debounced)
+                else:
+                    self.tabs['configuracion'].metodos_pago_modificados.connect(self.tabs['pagos'].load_payment_methods)
+            # También refrescar conceptos ante cambios de precios globales
+            if hasattr(self.tabs['pagos'], 'refresh_payment_concepts_immediately'):
+                self.tabs['configuracion'].precio_actualizado.connect(self.tabs['pagos'].refresh_payment_concepts_immediately)
             
         if 'configuracion' in self.tabs:
             self.tabs['configuracion'].feature_toggled.connect(self.update_tab_visibility)
@@ -3338,6 +3286,21 @@ class MainWindow(QMainWindow):
                     self.tabs['configuracion'].feature_toggled.connect(self.update_tab_visibility)
                     if 'usuarios' in self.tabs:
                         self.tabs['configuracion'].usuarios_modificados.connect(self.tabs['usuarios'].load_users)
+                    # Conexiones adicionales para Pagos si la pestaña existe
+                    if 'pagos' in self.tabs:
+                        try:
+                            self.tabs['configuracion'].precio_actualizado.connect(self.tabs['pagos'].load_defaults)
+                            if hasattr(self.tabs['pagos'], 'refresh_payment_concepts_immediately'):
+                                self.tabs['configuracion'].precio_actualizado.connect(self.tabs['pagos'].refresh_payment_concepts_immediately)
+                            if hasattr(self.tabs['configuracion'], 'conceptos_pago_modificados'):
+                                self.tabs['configuracion'].conceptos_pago_modificados.connect(self.tabs['pagos'].refresh_payment_concepts_immediately)
+                            if hasattr(self.tabs['configuracion'], 'metodos_pago_modificados'):
+                                if hasattr(self.tabs['pagos'], 'refresh_payment_methods_debounced'):
+                                    self.tabs['configuracion'].metodos_pago_modificados.connect(self.tabs['pagos'].refresh_payment_methods_debounced)
+                                else:
+                                    self.tabs['configuracion'].metodos_pago_modificados.connect(self.tabs['pagos'].load_payment_methods)
+                        except Exception:
+                            pass
                     if hasattr(self.tabs['configuracion'], 'branding_widget'):
                         self.tabs['configuracion'].branding_widget.branding_changed.connect(self.apply_branding_changes)
             elif tab_key == 'profesores':
@@ -6113,6 +6076,10 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         """Maneja el evento de cierre de la ventana"""
         try:
+            try:
+                logging.info("MainWindow.closeEvent invocado")
+            except Exception:
+                pass
             # Señalizar cierre y detener watchdog de UI para evitar registros espurios
             try:
                 setattr(self, '_app_closing', True)
@@ -6142,7 +6109,6 @@ class MainWindow(QMainWindow):
                     terminate_tunnel_processes()
                 except Exception:
                     pass
-                # Limpiar recursos modernos; referencias legacy eliminadas
                 event.accept()
                 return
                 
@@ -6272,7 +6238,6 @@ class MainWindow(QMainWindow):
                     self.whatsapp_manager.detener_servidor_webhook()
             except Exception:
                 pass
-            # Referencias legacy a download_sync_worker/proxy_watchdog removidas
             event.accept()
             # Intentar cierre limpio de todos los QThreads activos
             try:
@@ -6330,7 +6295,6 @@ class MainWindow(QMainWindow):
                     terminate_tunnel_processes()
                 except Exception:
                     pass
-                # Limpiar recursos modernos; referencias legacy eliminadas
                 event.accept()
                 return
                 
@@ -6460,7 +6424,6 @@ class MainWindow(QMainWindow):
                     self.whatsapp_manager.detener_servidor_webhook()
             except Exception:
                 pass
-            # Referencias legacy a download_sync_worker/proxy_watchdog removidas
             event.accept()
             # Intentar cierre limpio de todos los QThreads activos
             try:
@@ -6548,6 +6511,28 @@ def main():
     try:
         from PyQt6.QtCore import qInstallMessageHandler, QtMsgType, QCoreApplication  # type: ignore
         def _default_qt_handler(msg_type, context, message):
+            try:
+                lower = str(message).lower()
+            except Exception:
+                lower = ""
+            # Suprimir mensajes de QSS/Qt ruidosos
+            suppress_substrings = (
+                "unknown property box-shadow",
+                "unknown property transition",
+                "unknown property line-height",
+                "unknown property letter-spacing",
+                "unknown property text-transform",
+                "unknown property transform",
+                "unknown property opacity",
+                "unknown property cursor",
+                "declaration dropped",
+                "could not parse application stylesheet",
+            )
+            try:
+                if any(s in lower for s in suppress_substrings):
+                    return
+            except Exception:
+                pass
             try:
                 if msg_type == QtMsgType.QtDebugMsg:
                     logging.debug(message)
@@ -6710,8 +6695,8 @@ def main():
             except Exception:
                 pass
         os.environ["PATH"] = current_path
-        # Activar depuración de plugins para obtener logs útiles durante el arranque
-        os.environ["QT_DEBUG_PLUGINS"] = os.environ.get("QT_DEBUG_PLUGINS", "1")
+        # Reducir ruido en logs de plugins de Qt por defecto (se puede activar vía ENV)
+        os.environ["QT_DEBUG_PLUGINS"] = os.environ.get("QT_DEBUG_PLUGINS", "0")
     except Exception:
         pass
 
@@ -6781,7 +6766,6 @@ def main():
     except Exception:
         pass
 
-    # Eliminado: aseguramiento y watchdog del proxy local legacy
 
     # Aplicar timeout de conexión desde configuración antes de crear DB Manager
     try:
@@ -6811,7 +6795,17 @@ def main():
         try:
             from utils_modules.prerequisites import ensure_scheduled_tasks
             tasks_res = ensure_scheduled_tasks(device)
-            logging.info(f"Tareas programadas aseguradas: {tasks_res}")
+            # Reducir ruido en logs: eliminar campo 'message' y mostrar resumen
+            try:
+                tasks = tasks_res.get('tasks', {}) if isinstance(tasks_res, dict) else {}
+                clean = {}
+                for name, info in (tasks.items() if isinstance(tasks, dict) else []):
+                    if isinstance(info, dict):
+                        clean[name] = {k: v for k, v in info.items() if k in ('enabled','exists_before','created','schedule')}
+                summary = {'ok': tasks_res.get('ok', True) if isinstance(tasks_res, dict) else True, 'tasks': clean}
+                logging.info(f"Tareas programadas aseguradas: {summary}")
+            except Exception:
+                logging.info(f"Tareas programadas aseguradas")
         except Exception as te:
             logging.warning(f"No se pudieron asegurar tareas programadas: {te}")
     except Exception as e:
@@ -6836,667 +6830,143 @@ def main():
         login_dialog.web_base = public_url
     except Exception:
         pass
-    
+    # Importar PyQt6 widgets (solo PyQt6 se usa para desktop)
+    from PyQt6.QtWidgets import QDialog, QMessageBox
+
+    # Ejecutar flujo de login antes de crear ventana principal
+    login_attempts = 0
+    while True:
+        result = login_dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            break
+        login_attempts += 1
+        logging.warning("Login rechazado/cancelado (intento %s).", login_attempts)
+        # Si el diálogo indicó cierre explícito, salir sin confirmación adicional
+        try:
+            if getattr(login_dialog, "_closing_confirmed", False):
+                logging.info("Login cancelado por el usuario desde el diálogo. Cerrando aplicación.")
+                db_manager_for_login.close_connections()
+                try:
+                    wd = getattr(app, 'global_proxy_watchdog', None)
+                    if wd:
+                        wd.stop()
+                except Exception:
+                    pass
+                try:
+                    tmr = getattr(app, '_global_proxy_watchdog_timer', None)
+                    if tmr:
+                        tmr.stop()
+                except Exception:
+                    pass
+                try:
+                    terminate_tunnel_processes()
+                except Exception:
+                    pass
+                try:
+                    terminate_ssh_processes()
+                except Exception:
+                    pass
+                sys.exit(0)
+        except Exception:
+            pass
+        # Confirmar salida o reintentar tras el primer intento
+        if login_attempts >= 1:
+            reply = QMessageBox.question(
+                None,
+                "Login requerido",
+                "El inicio de sesión fue cancelado. ¿Desea cerrar la aplicación?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                logging.info("Login cancelado por el usuario. Cerrando aplicación.")
+                db_manager_for_login.close_connections()
+                try:
+                    wd = getattr(app, 'global_proxy_watchdog', None)
+                    if wd:
+                        wd.stop()
+                except Exception:
+                    pass
+                try:
+                    tmr = getattr(app, '_global_proxy_watchdog_timer', None)
+                    if tmr:
+                        tmr.stop()
+                except Exception:
+                    pass
+                try:
+                    terminate_tunnel_processes()
+                except Exception:
+                    pass
+                try:
+                    terminate_ssh_processes()
+                except Exception:
+                    pass
+                sys.exit(0)
+            else:
+                continue
+
+    # Crear y mostrar ventana principal después de login aceptado (PyQt6)
     try:
-        from PyQt6.QtWidgets import QDialog, QMessageBox
-        # En binarios compilados se ha observado cierre prematuro del diálogo.
-        # Reintentamos el login una vez antes de cerrar la aplicación.
-        login_attempts = 0
-        while True:
-            result = login_dialog.exec()
-            if result == QDialog.DialogCode.Accepted:
-                break
-            login_attempts += 1
-            logging.warning("Login rechazado/cancelado (intento %s).", login_attempts)
-            # Si el diálogo indicó cierre explícito, salir sin mostrar confirmación adicional
+        window = MainWindow(login_dialog.logged_in_role, db_manager_for_login, login_dialog.logged_in_user)
+        try:
+            QApplication.instance()._main_window_ref = window
+        except Exception:
+            pass
+        # Importante: mantener False para evitar salida inmediata tras cerrar el diálogo
+        # La lógica de cierre adecuado se maneja en closeEvent
+        # Refuerzo del icono tras login
+        try:
+            for candidate in ["assets/gym_logo.ico", "assets/gym_icon.ico", "assets/icon.png"]:
+                ip = resource_path(candidate)
+                if os.path.exists(ip):
+                    icon = QIcon(ip)
+                    QApplication.instance().setWindowIcon(icon)
+                    window.setWindowIcon(icon)
+                    break
+        except Exception:
+            pass
+        window.showMaximized()
+        # Restaurar cierre automático al quedar sin ventanas tras mostrar MainWindow
+        try:
+            QApplication.instance().setQuitOnLastWindowClosed(True)
             try:
-                if getattr(login_dialog, "_closing_confirmed", False):
-                    logging.info("Login cancelado por el usuario desde el diálogo. Cerrando aplicación.")
-                    db_manager_for_login.close_connections()
-                    try:
-                        wd = getattr(app, 'global_proxy_watchdog', None)
-                        if wd:
-                            wd.stop()
-                    except Exception:
-                        pass
-                    try:
-                        tmr = getattr(app, '_global_proxy_watchdog_timer', None)
-                        if tmr:
-                            tmr.stop()
-                    except Exception:
-                        pass
-                    try:
-                        terminate_tunnel_processes()
-                    except Exception:
-                        pass
-                    try:
-                        terminate_ssh_processes()
-                    except Exception:
-                        pass
-                    sys.exit(0)
+                logging.info("QuitOnLastWindowClosed restaurado a True tras mostrar MainWindow")
             except Exception:
                 pass
-            # Un reintento automático para cubrir cierre inesperado en el .exe
-            if login_attempts >= 1:
-                reply = QMessageBox.question(
-                    None,
-                    "Login requerido",
-                    "El inicio de sesión fue cancelado. ¿Desea cerrar la aplicación?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
-                    logging.info("Login cancelado por el usuario. Cerrando aplicación.")
-                    db_manager_for_login.close_connections()
-                    try:
-                        wd = getattr(app, 'global_proxy_watchdog', None)
-                        if wd:
-                            wd.stop()
-                    except Exception:
-                        pass
-                    try:
-                        tmr = getattr(app, '_global_proxy_watchdog_timer', None)
-                        if tmr:
-                            tmr.stop()
-                    except Exception:
-                        pass
-                    try:
-                        terminate_tunnel_processes()
-                    except Exception:
-                        pass
-                    try:
-                        terminate_ssh_processes()
-                    except Exception:
-                        pass
-                    sys.exit(0)
-                else:
-                    # Reintentar mostrando nuevamente el diálogo
-                    continue
-        if True:
-            # Mostrar ventana principal inmediatamente; el progreso se gestionará en overlay no bloqueante
-
-            # Crear la ventana principal de forma diferida para que el diálogo se pinte primero
-            window = None
-            def _create_main_window():
-                nonlocal window
-                window = MainWindow(login_dialog.logged_in_role, db_manager_for_login, login_dialog.logged_in_user)
-                try:
-                    # Guardar referencia para limpieza en atexit
-                    QApplication.instance()._main_window_ref = window
-                except Exception:
-                    pass
-                # A partir de la ventana principal, permitir que la app termine al cerrar
-                try:
-                    QApplication.instance().setQuitOnLastWindowClosed(True)
-                except Exception:
-                    pass
-
-                # Conectar progreso de arranque al overlay integrado de MainWindow
-                try:
-                    def _on_step(i: int, total: int, label: str):
-                        try:
-                            # Delegar al manejador interno del overlay
-                            if hasattr(window, 'update_startup_overlay'):
-                                window.update_startup_overlay(i, total, label)
-                            QApplication.processEvents()
-                        except Exception:
-                            pass
-                    window.startup_progress_step.connect(_on_step)
-                except Exception:
-                    pass
-
-                # Reforzar el icono tras el login
-                try:
-                    icon_candidates = ["assets/gym_logo.ico", "assets/gym_icon.ico", "assets/icon.png"]
-                    for candidate in icon_candidates:
-                        ip = resource_path(candidate)
-                        if os.path.exists(ip):
-                            icon = QIcon(ip)
-                            QApplication.instance().setWindowIcon(icon)
-                            window.setWindowIcon(icon)
-                            break
-                except Exception:
-                    pass
-                window.showMaximized()
-
-                # Replicación lógica PostgreSQL: no se inicia ningún proceso externo desde la app
-                # La replicación debe ser administrada por el servidor de base de datos
-
-                # Lanzar arranque diferido en segundo plano (hilo) para evitar bloqueo del UI
-                try:
-                    from PyQt6.QtCore import QThreadPool, QRunnable
-                    class _DeferredStartupRunnable(QRunnable):
-                        def __init__(self, _window):
-                            super().__init__()
-                            self._window = _window
-                            try:
-                                self.setAutoDelete(True)
-                            except Exception:
-                                pass
-                        def run(self):
-                            try:
-                                self._window._run_deferred_startup()
-                            except Exception as e:
-                                logging.debug(f"Error en deferred startup: {e}")
-                    QThreadPool.globalInstance().start(_DeferredStartupRunnable(window))
-                except Exception:
-                    # Fallback: ejecutar en el hilo principal si no está disponible QThreadPool
-                    try:
-                        QTimer.singleShot(0, window._run_deferred_startup)
-                    except Exception:
-                        pass
-
-                # Sincronización periódica L→R y R→L mientras la app está abierta
-                try:
-                    from PyQt6.QtCore import QTimer
-                    import sys, subprocess, os, threading
-                    window._r2l_running = False
-                    window._l2r_running = False
-
-                    def _repo_root():
-                        try:
-                            return os.path.dirname(os.path.abspath(__file__))
-                        except Exception:
-                            return os.getcwd()
-
-                    def _run_script_async(args: list, flag_attr: str):
-                        def _worker():
-                            # Abort if application is closing
-                            try:
-                                if getattr(window, '_app_closing', False):
-                                    try:
-                                        logging.info("App closing: omitiendo ejecución de script de reconciliación")
-                                    except Exception:
-                                        pass
-                                    return
-                            except Exception:
-                                pass
-                            try:
-                                subprocess.run(
-                                    args,
-                                    cwd=_repo_root(),
-                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-                                )
-                            except Exception as e:
-                                try:
-                                    logging.warning(f"Fallo al ejecutar {' '.join(map(str, args))}: {e}")
-                                except Exception:
-                                    pass
-                            finally:
-                                try:
-                                    setattr(window, flag_attr, False)
-                                except Exception:
-                                    pass
-                        try:
-                            # Skip scheduling if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            if getattr(window, flag_attr, False):
-                                return
-                            setattr(window, flag_attr, True)
-                            threading.Thread(target=_worker, daemon=True).start()
-                        except Exception:
-                            try:
-                                setattr(window, flag_attr, False)
-                            except Exception:
-                                pass
-
-                    # Ejecución en-proceso de reconciliaciones, compatible con ejecutable
-                    def _run_r2l_inprocess(flag_attr: str):
-                        def _worker():
-                            # Abort if application is closing
-                            try:
-                                if getattr(window, '_app_closing', False):
-                                    try:
-                                        logging.info("App closing: omitiendo reconciliación R→L in-process")
-                                    except Exception:
-                                        pass
-                                    return
-                            except Exception:
-                                pass
-                            try:
-                                # Preferir importación por nombre para compatibilidad con ejecutables
-                                try:
-                                    import importlib
-                                    mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
-                                except Exception:
-                                    from importlib.util import spec_from_file_location, module_from_spec
-                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py')
-                                    spec = spec_from_file_location('reconcile_remote_to_local_once', mod_path)
-                                    mod = module_from_spec(spec)  # type: ignore
-                                    spec.loader.exec_module(mod)  # type: ignore
-                                # Ejecutar con gating de 5 minutos
-                                try:
-                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=15, force=False, subscription='gym_sub')
-                                except Exception as e:
-                                    logging.warning(f"Fallo R→L in-process: {e}")
-                            except Exception as e:
-                                try:
-                                    logging.warning(f"No se pudo cargar módulo R→L: {e}")
-                                except Exception:
-                                    pass
-                            finally:
-                                try:
-                                    setattr(window, flag_attr, False)
-                                except Exception:
-                                    pass
-                        try:
-                            # Skip scheduling if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            if getattr(window, flag_attr, False):
-                                return
-                            setattr(window, flag_attr, True)
-                            threading.Thread(target=_worker, daemon=True).start()
-                        except Exception:
-                            try:
-                                setattr(window, flag_attr, False)
-                            except Exception:
-                                pass
-
-                    def _run_l2r_inprocess(flag_attr: str):
-                        def _worker():
-                            # Abort if application is closing
-                            try:
-                                if getattr(window, '_app_closing', False):
-                                    try:
-                                        logging.info("App closing: omitiendo reconciliación L→R in-process")
-                                    except Exception:
-                                        pass
-                                    return
-                            except Exception:
-                                pass
-                            try:
-                                # Preferir importación por nombre para compatibilidad con ejecutables
-                                try:
-                                    import importlib
-                                    mod = importlib.import_module('scripts.reconcile_local_remote_once')
-                                except Exception:
-                                    from importlib.util import spec_from_file_location, module_from_spec
-                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_local_remote_once.py')
-                                    spec = spec_from_file_location('reconcile_local_remote_once', mod_path)
-                                    mod = module_from_spec(spec)  # type: ignore
-                                    spec.loader.exec_module(mod)  # type: ignore
-                                try:
-                                    mod.run_once(subscription='gym_sub', schema='public', tables=None, dry_run=False)
-                                except Exception as e:
-                                    logging.warning(f"Fallo L→R in-process: {e}")
-                            except Exception as e:
-                                try:
-                                    logging.warning(f"No se pudo cargar módulo L→R: {e}")
-                                except Exception:
-                                    pass
-                            finally:
-                                try:
-                                    setattr(window, flag_attr, False)
-                                except Exception:
-                                    pass
-                        try:
-                            # Skip scheduling if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            if getattr(window, flag_attr, False):
-                                return
-                            setattr(window, flag_attr, True)
-                            threading.Thread(target=_worker, daemon=True).start()
-                        except Exception:
-                            try:
-                                setattr(window, flag_attr, False)
-                            except Exception:
-                                pass
-
-                    # Disparo inicial R→L forzado para drenar pendientes a los 60s
-                    def _run_r2l_initial_once():
-                        def _worker():
-                            # Abort if application is closing
-                            try:
-                                if getattr(window, '_app_closing', False):
-                                    try:
-                                        logging.info("App closing: omitiendo reconciliación inicial R→L")
-                                    except Exception:
-                                        pass
-                                    return
-                            except Exception:
-                                pass
-                            try:
-                                try:
-                                    import importlib
-                                    mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
-                                except Exception:
-                                    from importlib.util import spec_from_file_location, module_from_spec
-                                    mod_path = os.path.join(_repo_root(), 'scripts', 'reconcile_remote_to_local_once.py')
-                                    spec = spec_from_file_location('reconcile_remote_to_local_once', mod_path)
-                                    mod = module_from_spec(spec)  # type: ignore
-                                    spec.loader.exec_module(mod)  # type: ignore
-                                try:
-                                    # Forzar ejecución inicial ignorando umbral
-                                    mod.run_once(schema='public', tables=None, dry_run=False, threshold_minutes=15, force=True, subscription='gym_sub')
-                                except Exception as e:
-                                    logging.warning(f"Fallo R→L inicial forzado: {e}")
-                            except Exception as e:
-                                try:
-                                    logging.warning(f"No se pudo cargar módulo R→L inicial: {e}")
-                                except Exception:
-                                    pass
-                            finally:
-                                try:
-                                    setattr(window, '_r2l_running', False)
-                                except Exception:
-                                    pass
-                        try:
-                            # Skip scheduling if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            if getattr(window, '_r2l_running', False):
-                                return
-                            setattr(window, '_r2l_running', True)
-                            threading.Thread(target=_worker, daemon=True).start()
-                        except Exception:
-                            try:
-                                setattr(window, '_r2l_running', False)
-                            except Exception:
-                                pass
-
-                    def _start_r2l_timer():
-                        try:
-                            # Do not start timers if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            # Remote→Local cada 5 minutos, con gating interno de threshold
-                            r2l = QTimer(window)
-                            r2l.setInterval(15 * 60 * 1000)
-                            r2l.timeout.connect(lambda: _run_r2l_inprocess('_r2l_running'))
-                            r2l.start()
-                            window._timer_r2l = r2l
-                            logging.info("Timer R→L iniciado (cada 15 minutos)")
-                        except Exception as e:
-                            logging.debug(f"No se pudo iniciar timer R→L: {e}")
-
-                    def _start_l2r_timer():
-                        try:
-                            # Do not start timers if app is closing
-                            if getattr(window, '_app_closing', False):
-                                return
-                            # Local→Remote cada 2 minutos
-                            l2r = QTimer(window)
-                            l2r.setInterval(15 * 60 * 1000)
-                            l2r.timeout.connect(lambda: _run_l2r_inprocess('_l2r_running'))
-                            l2r.start()
-                            window._timer_l2r = l2r
-                            logging.info("Timer L→R iniciado (cada 15 minutos)")
-                        except Exception as e:
-                            logging.debug(f"No se pudo iniciar timer L→R: {e}")
-
-                    # Arrancar ambos timers de forma diferida para no bloquear el render inicial
-                    try:
-                        # Evitar arrancar timers si la aplicación está cerrándose
-                        if not getattr(window, '_app_closing', False):
-                            QTimer.singleShot(1500, _start_r2l_timer)
-                            QTimer.singleShot(1500, _start_l2r_timer)
-                    except Exception:
-                        pass
-
-                    # Programar primer disparo a los 15 segundos para drenar pendientes
-                    try:
-                        # No programar si la app ya está cerrándose
-                        if not getattr(window, '_app_closing', False):
-                            QTimer.singleShot(15000, _run_r2l_initial_once)
-                            QTimer.singleShot(15000, lambda: _run_l2r_inprocess('_l2r_running'))
-                            logging.info("Primer disparo de reconciliación R→L y L→R programado a 15s")
-                    except Exception:
-                        pass
-
-                    # Marcar bandera de cierre lo antes posible
-                    try:
-                        app.aboutToQuit.connect(lambda: setattr(window, '_app_closing', True))
-                    except Exception:
-                        pass
-                    # Detener timers al salir
-                    try:
-                        app.aboutToQuit.connect(lambda: (
-                            setattr(window, '_r2l_running', False),
-                            setattr(window, '_l2r_running', False),
-                            getattr(window, '_timer_r2l', None) and window._timer_r2l.stop(),
-                            setattr(window, '_timer_r2l', None),
-                            getattr(window, '_timer_l2r', None) and window._timer_l2r.stop(),
-                            setattr(window, '_timer_l2r', None)
-                        ))
-                    except Exception:
-                        pass
-                    # Parada ordenada de servicios y monitores
-                    try:
-                        # Asegurar parada y unión breve de hilos del SyncService
-                        def _stop_sync_service():
-                            try:
-                                ss = getattr(window, 'sync_service', None)
-                                if ss:
-                                    try:
-                                        ss.stop()
-                                    except Exception:
-                                        pass
-                                    try:
-                                        # Esperar brevemente a hilos en background para evitar cuelgues
-                                        ss.wait_for_bg_threads(timeout_s=1.0)
-                                    except Exception:
-                                        pass
-                            except Exception:
-                                pass
-                        app.aboutToQuit.connect(_stop_sync_service)
-                    except Exception:
-                        pass
-                    try:
-                        app.aboutToQuit.connect(lambda: (
-                            getattr(window, 'replication_observer', None) and window.replication_observer.stop()
-                        ))
-                    except Exception:
-                        pass
-                    try:
-                        app.aboutToQuit.connect(lambda: (
-                            stop_network_health_monitor(getattr(window, 'network_monitor', None))
-                        ))
-                    except Exception:
-                        pass
-                    # Refuerzo: terminar procesos de túnel/SSH al cerrar
-                    try:
-                        app.aboutToQuit.connect(lambda: terminate_tunnel_processes())
-                    except Exception:
-                        pass
-                    try:
-                        app.aboutToQuit.connect(lambda: terminate_ssh_processes())
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
-
-                # Definir host/port para escritorio (para monitor y toast)
-                try:
-                    host = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
-                    try:
-                        _port_env = os.getenv("WEBAPP_PORT") or os.getenv("PORT")
-                        port = int(_port_env) if _port_env else 8000
-                    except Exception:
-                        port = 8000
-                except Exception:
-                    host = "127.0.0.1"
-                    port = 8000
-
-                # Integrar monitor de salud de redes en background
-                try:
-                    try:
-                        window.web_host = host
-                        window.web_port = port
-                        try:
-                            window.public_subdomain = None
-                        except Exception:
-                            pass
-                    except Exception:
-                        pass
-
-                    def _start_monitor():
-                        try:
-                            sub = None
-                            window.network_monitor = start_network_health_monitor(
-                                host=host,
-                                port=port,
-                                subdomain=sub,
-                                public_url=None,
-                                restart_server_cb=None,
-                                restart_tunnel_cb=None,
-                            )
-                        except Exception:
-                            pass
-                    QTimer.singleShot(0, _start_monitor)
-                except Exception:
-                    pass
-
-            QTimer.singleShot(0, _create_main_window)
-            # Eliminar reconexión de túnel: sistema de túnel legacy retirado
-            # Mostrar toast de estado del servidor (top-centro) con estados WebApp/DB
-            try:
-                from widgets.server_status_toast import ServerStatusToast
-                import json as _json
-                from pathlib import Path as _Path
-                # URL local
-                local_url = f"http://127.0.0.1:{port}/"
-                # URL pública (Railway) desde config si existe
-                public_url_val = None
-                try:
-                    cfg_path = _Path(resource_path('config/config.json'))
-                    if not cfg_path.exists():
-                        cfg_path = _Path(__file__).resolve().parent / 'config' / 'config.json'
-                    if cfg_path.exists():
-                        with open(cfg_path, 'r', encoding='utf-8') as f:
-                            _cfg = _json.load(f) or {}
-                        public_url_val = _cfg.get('UPSTREAM_WEBAPP_BASE_URL') or _cfg.get('webapp_base_url')
-                except Exception:
-                        public_url_val = None
-
-            except Exception:
-                pass
-
-            # Probar salud de WebApp
-            webapp_ok = None
-            try:
-                import requests as _requests  # type: ignore
-                r = _requests.get(f"http://127.0.0.1:{port}/healthz", timeout=2.5)
-                webapp_ok = (r.status_code == 200)
-            except Exception:
-                webapp_ok = None
-
-            # Resolver perfiles de DB y probar conexión
-            db_local_ok = None
-            db_remote_ok = None
-            try:
-                from database import DatabaseManager as _DBM
-                cfg = {}
-                cfg_path = _Path(resource_path('config/config.json'))
-                if not cfg_path.exists():
-                    cfg_path = _Path(__file__).resolve().parent / 'config' / 'config.json'
-                if cfg_path.exists():
-                    with open(cfg_path, 'r', encoding='utf-8') as f:
-                        cfg = _json.load(f) or {}
-                local_prof = cfg.get('db_local', {}) or {}
-                remote_prof = cfg.get('db_remote', {}) or {}
-                db_local_ok = bool(_DBM.test_connection(local_prof)) if local_prof else None
-                db_remote_ok = bool(_DBM.test_connection(remote_prof)) if remote_prof else None
-            except Exception:
-                pass
-
-            try:
-                # Identificador externo: no disponible (replicación lógica administrada por PostgreSQL)
-                ext_id = None
-
-                toast = ServerStatusToast(
-                    window,
-                    local_url=local_url,
-                    public_url=public_url_val,
-                    webapp_ok=webapp_ok,
-                    db_local_ok=db_local_ok,
-                    db_remote_ok=db_remote_ok,
-                    external_id=ext_id,
-                )
-                toast.show_toast()
-            except Exception:
-                pass
-            except Exception:
-                pass
+        except Exception:
+            pass
+        try:
+            logging.info("Arrancando loop principal de Qt (app.exec())…")
+        except Exception:
+            pass
+        try:
             exit_code = app.exec()
-            # Cerrar conexiones al salir
-            db_manager_for_login.close_connections()
-            # Detener monitor de redes si estaba activo
-            try:
-                monitor = getattr(window, 'network_monitor', None)
-                stop_network_health_monitor(monitor)
-            except Exception:
-                pass
-            # Limpieza moderna: referencias legacy de sync/ProxyWatchdog eliminadas
-            # Cerrar túnel público como refuerzo adicional
-            try:
-                terminate_tunnel_processes()
-            except Exception:
-                pass
-            # Forzar cierre de cualquier proceso ssh.exe residual
-            try:
-                terminate_ssh_processes()
-            except Exception:
-                pass
-            sys.exit(exit_code)
-        else:
-            logging.info("Login cancelado. Cerrando aplicación.")
-            db_manager_for_login.close_connections()
-            # Detener watchdog global del proxy
-            try:
-                wd = getattr(app, 'global_proxy_watchdog', None)
-                if wd:
-                    wd.stop()
-            except Exception:
-                pass
-            try:
-                tmr = getattr(app, '_global_proxy_watchdog_timer', None)
-                if tmr:
-                    tmr.stop()
-            except Exception:
-                pass
-            try:
-                terminate_tunnel_processes()
-            except Exception:
-                pass
-            try:
-                terminate_ssh_processes()
-            except Exception:
-                pass
-            sys.exit(0)
+        except Exception:
+            exit_code = 1
+        try:
+            logging.info(f"Loop principal de Qt finalizado con exit_code={exit_code}")
+        except Exception:
+            pass
     except Exception as e:
-        logging.error(f"Error en función main: {e}")
+        # Registrar el error con traceback para diagnosticar el cierre tras el login
         try:
-            db_manager_for_login.close_connections()
-        except:
-            pass
-        # Detener watchdog global del proxy ante error
+            logging.exception(f"Error al crear/mostrar la ventana principal: {e}")
+        except Exception:
+            # Fallback básico si logging falla
+            print(f"Error al crear/mostrar la ventana principal: {e}")
+            import traceback
+            print(traceback.format_exc())
         try:
-            wd = getattr(app, 'global_proxy_watchdog', None)
-            if wd:
-                wd.stop()
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(None, "Error de arranque", f"Falló el inicio de la aplicación: {e}")
         except Exception:
             pass
-        try:
-            tmr = getattr(app, '_global_proxy_watchdog_timer', None)
-            if tmr:
-                tmr.stop()
-        except Exception:
-            pass
-        try:
-            terminate_tunnel_processes()
-        except Exception:
-            pass
-        try:
-            terminate_ssh_processes()
-        except Exception:
-            pass
-        sys.exit(1)
+        exit_code = 1
+
 
 if __name__ == "__main__":
     main()
+
 # --- Filtro de mensajes Qt para QSS y consola ---
 try:
     from PyQt6.QtCore import qInstallMessageHandler, QtMsgType
@@ -7518,6 +6988,7 @@ try:
             "unknown property opacity",
             "unknown property cursor",
             "declaration dropped",
+            "could not parse application stylesheet",
         )
 
         if any(s in lower for s in suppress_substrings):

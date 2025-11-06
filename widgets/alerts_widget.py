@@ -12,10 +12,60 @@ from PyQt6.QtWidgets import (
     QSplitter, QHeaderView, QAbstractItemView, QMessageBox, QProgressBar,
     QFrame, QGridLayout, QScrollArea, QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, pyqtSlot, QThread
 from PyQt6.QtGui import QColor, QFont, QIcon
 
 from utils_modules.alert_system import alert_manager, AlertLevel, AlertCategory, Alert
+
+
+class AlertsLoadThread(QThread):
+    """Hilo para cargar alertas aplicando filtros sin bloquear la UI"""
+    alerts_ready = pyqtSignal(list)
+    load_error = pyqtSignal(str)
+
+    def __init__(self, parent_widget, level=None, category=None, unresolved_only=False):
+        super().__init__()
+        self._parent_widget = parent_widget
+        self._level = level
+        self._category = category
+        self._unresolved_only = unresolved_only
+
+    def run(self):
+        try:
+            # Obtener alertas del sistema general (posible acceso a DB interno del gestor)
+            alerts = alert_manager.get_alerts(
+                level=self._level,
+                category=self._category,
+                unresolved_only=self._unresolved_only
+            )
+
+            # Agregar alertas de membresías si están disponibles en la ventana principal
+            try:
+                main_window = self._parent_widget.window()
+                if hasattr(main_window, 'tab_widget'):
+                    for i in range(main_window.tab_widget.count()):
+                        widget = main_window.tab_widget.widget(i)
+                        if hasattr(widget, 'obtener_alertas_membresías'):
+                            membership_alerts = widget.obtener_alertas_membresías(self._unresolved_only)
+                            # Aplicar filtros en el hilo para evitar trabajo en UI
+                            if self._level or self._category:
+                                filtered_membership = []
+                                for alert in membership_alerts:
+                                    if self._level and alert.level != self._level:
+                                        continue
+                                    if self._category and alert.category != self._category:
+                                        continue
+                                    filtered_membership.append(alert)
+                                membership_alerts = filtered_membership
+                            alerts.extend(membership_alerts)
+                            break
+            except Exception as e:
+                # No bloquear por errores secundarios, reportar y continuar
+                logging.warning(f"Error al obtener alertas de membresías: {e}")
+
+            self.alerts_ready.emit(alerts)
+        except Exception as e:
+            self.load_error.emit(str(e))
 
 
 class AlertSummaryWidget(QFrame):
@@ -307,9 +357,16 @@ class AlertsWidget(QWidget):
         super().__init__(parent)
         self.setup_ui()
         self.setup_connections()
+        self._loading_in_progress = False
+        self._loading_thread = None
+        self._destroyed = False
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.apply_filters)
         self.refresh_timer.start(30000)  # Actualizar cada 30 segundos
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         
         # Cargar alertas iniciales
         self.apply_filters()
@@ -408,43 +465,56 @@ class AlertsWidget(QWidget):
     
     def apply_filters(self):
         """Aplica los filtros seleccionados"""
+        # Evitar ejecutar si el widget no está visible o fue destruido
+        try:
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+        except RuntimeError:
+            return
+        # Evitar solapamiento de cargas si el temporizador dispara rápido
+        if self._loading_in_progress:
+            return
+
         level = self.level_filter.currentData()
         category = self.category_filter.currentData()
         unresolved_only = self.unresolved_only.isChecked()
-        
-        # Obtener alertas del sistema general
-        alerts = alert_manager.get_alerts(
-            level=level,
-            category=category,
-            unresolved_only=unresolved_only
-        )
-        
-        # Agregar alertas de membresías si están disponibles
+        # Lanzar la carga en segundo plano
+        self._loading_in_progress = True
+        self._loading_thread = AlertsLoadThread(self, level=level, category=category, unresolved_only=unresolved_only)
+        self._loading_thread.alerts_ready.connect(self._on_alerts_loaded)
+        self._loading_thread.load_error.connect(self._on_alerts_error)
+        self._loading_thread.finished.connect(self._on_alerts_finished)
+        self._loading_thread.start()
+
+    def _on_alerts_loaded(self, alerts):
+        """Actualiza la tabla y el resumen con resultados cargados"""
         try:
-            # Buscar el widget de usuarios en la aplicación principal
-            main_window = self.window()
-            if hasattr(main_window, 'tab_widget'):
-                for i in range(main_window.tab_widget.count()):
-                    widget = main_window.tab_widget.widget(i)
-                    if hasattr(widget, 'obtener_alertas_membresías'):
-                        membership_alerts = widget.obtener_alertas_membresías(unresolved_only)
-                        # Filtrar por nivel y categoría si es necesario
-                        if level or category:
-                            filtered_membership = []
-                            for alert in membership_alerts:
-                                if level and alert.level != level:
-                                    continue
-                                if category and alert.category != category:
-                                    continue
-                                filtered_membership.append(alert)
-                            membership_alerts = filtered_membership
-                        alerts.extend(membership_alerts)
-                        break
+            # No actualizar UI si el widget fue destruido o no es visible
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+            self.alerts_table.load_alerts(alerts)
+            # Resumen mediante el gestor (puede usar agregados internos)
+            self.summary_widget.update_summary()
         except Exception as e:
-            logging.warning(f"Error al obtener alertas de membresías: {e}")
-        
-        self.alerts_table.load_alerts(alerts)
-        self.summary_widget.update_summary()
+            logging.error(f"Error actualizando UI de alertas: {e}")
+
+    def _on_alerts_error(self, message):
+        """Notifica un error de carga"""
+        logging.error(f"Error cargando alertas: {message}")
+
+    def _on_alerts_finished(self):
+        """Marca fin de carga para permitir próximas actualizaciones"""
+        self._loading_in_progress = False
+        self._loading_thread = None
+
+    def _cleanup_on_destroy(self):
+        """Detiene el temporizador y marca el widget como destruido para evitar tareas tardías."""
+        try:
+            self._destroyed = True
+            if hasattr(self, 'refresh_timer') and self.refresh_timer is not None:
+                self.refresh_timer.stop()
+        except Exception:
+            pass
     
     def clear_old_alerts(self):
         """Limpia alertas antiguas"""

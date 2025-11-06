@@ -18,6 +18,22 @@
           } catch(e){ reject(e); }
         });
       }
+      // Cargador dinámico de SheetJS (XLSX)
+      async function loadSheetJSLib(){
+        if (window.XLSX) return true;
+        var sources = [
+          'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+          'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js',
+          '/static/libs/xlsx.full.min.js'
+        ];
+        for (var i=0; i<sources.length; i++){
+          try {
+            await loadScript(sources[i]);
+            if (window.XLSX) return true;
+          } catch(_){ }
+        }
+        return false;
+      }
       async function loadQRCodeLib(){
         if (window.QRCode) return true;
         var sources = [
@@ -34,7 +50,7 @@
         }
         return false;
       }
-      try { window.loadQRCodeLib = loadQRCodeLib; } catch(_){}
+      try { window.loadQRCodeLib = loadQRCodeLib; window.loadSheetJSLib = loadSheetJSLib; } catch(_){}
       // Intento inicial de carga (no bloqueante)
       try { loadQRCodeLib(); } catch(_){}
     })();
@@ -115,6 +131,8 @@
      .table-actions .btn { margin: 0; flex: 0 0 auto; }
     /* Modales */
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+    /* Elevar el modal de configuración de numeración por encima del de vista previa */
+    #modal-recibo-config { z-index: 110; }
     .modal { width: 640px; max-width: 95vw; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 30px rgba(0,0,0,0.35); overflow: hidden; display:flex; flex-direction:column; }
     .modal-header { display:flex; align-items:center; justify-content:space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
     .modal-body { padding: 16px; flex: 1 1 auto; overflow-y: auto; }
@@ -217,6 +235,7 @@
         {% endif %}
         <button class="tab" data-tab="pagos">Pagos</button>
         <button class="tab" data-tab="ejercicios">Ejercicios</button>
+        <button class="tab" data-tab="rutinas">Rutinas</button>
         <button class="tab" data-tab="configuracion">Configuración</button>
       </nav>
     </header>
@@ -242,7 +261,14 @@
               <button class="btn secondary" id="pagos-filtros-btn">Filtros avanzados</button>
               <button class="btn" id="pagos-new">Nuevo Pago</button>
               <button class="btn secondary" id="pagos-export-csv">Exportar CSV</button>
-              <span id="pagos-count" class="muted" style="margin-left:auto"></span>
+              <div id="recibo-controls" style="margin-left:auto; display:flex; align-items:center; gap:10px">
+                <span id="recibo-next" class="muted" title="Próximo número de recibo" style="padding:2px 8px; border:1px solid var(--border); border-radius:12px;">Recibo #—</span>
+                <button class="btn secondary" id="recibo-config-btn" title="Configurar numeración" style="padding:6px 10px; display:inline-flex; align-items:center; gap:8px">
+                  <img src="/assets/gear.png" alt="Configurar" style="width:16px; height:16px;" />
+                  <span style="font-size:12px">Numeración</span>
+                </button>
+                <span id="pagos-count" class="muted"></span>
+              </div>
             </div>
             <div class="cards" id="pagos-cards">
               <div class="card"><div class="card-title">Pagos mostrados</div><div class="card-value" id="pagos-card-count">0</div></div>
@@ -309,6 +335,7 @@
                 <div class="input-row">
                   <button class="btn" id="pago-side-ver-usuario">Ver usuario</button>
                   <button class="btn secondary" id="pago-side-ver-detalle">Ver detalle</button>
+                  <button class="btn" id="pago-side-recibo">Ver recibo</button>
                   <button class="btn" id="pago-side-editar">Editar pago</button>
                   <button class="btn secondary" id="pago-side-eliminar">Eliminar pago</button>
                 </div>
@@ -406,6 +433,88 @@
         <div class="block-header"><h3 style="margin:0; font-size:16px;">Variantes útiles</h3></div>
         <div class="block-body">
           <ul id="ejercicio-side-variantes" style="padding-left:18px; margin:0"><li class="muted">—</li></ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="panel-rutinas" class="panel">
+  <div class="split">
+    <div class="split-main">
+      <div class="panel-controls" id="rutinas-subtabs" style="margin-bottom:8px; display:flex; gap:8px; align-items:center">
+        <button class="btn small" data-rutinas-tab="plantillas" id="rutinas-tab-plantillas">Plantillas</button>
+        <button class="btn small secondary" data-rutinas-tab="usuario" id="rutinas-tab-usuario">Rutinas de usuario</button>
+      </div>
+      <div class="panel-controls">
+        <label for="rutinas-q">Búsqueda</label>
+        <input type="text" id="rutinas-q" placeholder="Nombre o descripción" />
+        <label for="rutinas-categoria">Categoría</label>
+        <select id="rutinas-categoria">
+          <option value="">Todas</option>
+          <option value="general" selected>General</option>
+          <option value="fuerza">Fuerza</option>
+          <option value="hipertrofia">Hipertrofia</option>
+          <option value="resistencia">Resistencia</option>
+          <option value="fullbody">Full body</option>
+        </select>
+        <label for="rutinas-usuario" id="rutinas-usuario-label">Usuario</label>
+        <select id="rutinas-usuario"><option value="">Todos</option></select>
+        <button class="btn" id="rutinas-refresh">Actualizar</button>
+        <button class="btn secondary" id="rutinas-export-csv">Exportar CSV</button>
+        <button class="btn" id="rutinas-new">Nueva Plantilla</button>
+        <span id="rutinas-count" class="muted" style="margin-left:auto"></span>
+      </div>
+      <div class="table-scroll row-selectable">
+        <table id="rutinas-table">
+          <thead>
+            <tr>
+              <th class="th-sortable" data-sort="nombre">Nombre</th>
+              <th class="th-sortable" data-sort="descripcion">Descripción</th>
+              <th class="th-sortable" data-sort="dias">Días</th>
+              <th class="th-sortable" data-sort="categoria">Categoría</th>
+              <th class="th-sortable" data-sort="ejercicios"># Ejercicios</th>
+              <th class="th-sortable" data-sort="asignado">Asignada a</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="block" id="rutinas-usuario-block" style="margin-top:12px; display:none">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Rutinas del usuario seleccionado</h3></div>
+        <div class="block-body">
+          <div class="table-scroll">
+            <table id="rutinas-usuario-table">
+              <thead>
+                <tr>
+                  <th>Rutina</th>
+                  <th>Días</th>
+                  <th>Categoría</th>
+                  <th>Activa</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <aside class="split-side">
+      <div class="block">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Resumen de rutina</h3></div>
+        <div class="block-body">
+          <div><strong>Nombre:</strong> <span id="rutina-side-nombre">—</span></div>
+          <div><strong>Descripción:</strong>
+            <div id="rutina-side-descripcion" class="muted">—</div>
+          </div>
+          <div style="margin-top:8px">
+            <button class="btn" id="rutina-side-edit" disabled>Abrir</button>
+            <button class="btn" id="rutina-side-delete" disabled>Eliminar</button>
+            <button class="btn" id="rutina-side-assign" disabled>Asignar a usuario</button>
+            <button class="btn secondary" id="rutina-side-unassign" disabled>Desasignar</button>
+          </div>
         </div>
       </div>
     </aside>
@@ -938,6 +1047,169 @@
       </div>
     </div>
 
+    <!-- Modal: Configuración de Numeración de Recibos -->
+    <div class="modal-backdrop" id="modal-recibo-config" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-config-title">
+        <div class="modal-header">
+          <h3 id="modal-recibo-config-title" style="margin:0; font-size:16px;">Numeración de recibos</h3>
+          <button class="btn icon-only" id="recibo-config-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="input-row">
+            <div style="flex:1">
+              <label class="muted" for="recibo-prefijo">Prefijo</label>
+              <input id="recibo-prefijo" type="text" placeholder="REC" style="width:100%" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="recibo-separador">Separador</label>
+              <input id="recibo-separador" type="text" placeholder="-" style="width:100%" />
+            </div>
+          </div>
+          <div class="input-row">
+            <div style="flex:1">
+              <label class="muted" for="recibo-numero-inicial">Número inicial</label>
+              <input id="recibo-numero-inicial" type="number" min="1" step="1" placeholder="1" style="width:100%" />
+            </div>
+            <div style="flex:1">
+              <label class="muted" for="recibo-longitud-numero">Longitud del número</label>
+              <input id="recibo-longitud-numero" type="number" min="1" step="1" placeholder="6" style="width:100%" />
+            </div>
+          </div>
+          <div class="input-row">
+            <div style="flex:1">
+              <label class="muted" for="recibo-reiniciar-anual">Reiniciar anual</label>
+              <input id="recibo-reiniciar-anual" type="checkbox" />
+            </div>
+            <div style="flex:1">
+              <label class="muted">Incluir fecha</label>
+              <div style="display:flex; gap:12px; align-items:center">
+                <label style="display:flex; align-items:center; gap:6px"><input id="recibo-incluir-anio" type="checkbox" /> <span>Año</span></label>
+                <label style="display:flex; align-items:center; gap:6px"><input id="recibo-incluir-mes" type="checkbox" /> <span>Mes</span></label>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:8px">
+            <div class="muted" id="recibo-config-preview">Próximo ejemplo: —</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="recibo-config-save">Guardar</button>
+          <button class="btn secondary" id="recibo-config-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Vista previa de Recibo -->
+    <div class="modal-backdrop" id="modal-recibo-preview" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-preview-title">
+        <div class="modal-header">
+          <h3 id="modal-recibo-preview-title" style="margin:0; font-size:16px;">Vista previa del recibo</h3>
+          <button class="btn icon-only" id="recibo-preview-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body" style="max-height:72vh; overflow-y:auto;">
+          <div class="input-row" style="align-items:flex-end">
+            <div style="flex:1">
+              <label class="muted" for="recibo-preview-numero">Número de recibo (opcional)</label>
+              <input id="recibo-preview-numero" type="text" placeholder="Ej: REC-2025-000123" style="width:100%" />
+              <div id="recibo-preview-periodo-label" class="muted" style="margin-top:6px; font-size:12px; display:none"></div>
+            </div>
+            <div>
+              <button class="btn" id="recibo-preview-apply" title="Actualizar vista previa">Aplicar</button>
+            </div>
+          </div>
+
+          <details id="recibo-advanced" style="border:1px solid var(--border); border-radius:6px; padding:10px;">
+            <summary style="cursor:pointer; user-select:none; font-weight:600">Opciones avanzadas del recibo</summary>
+            <div class="input-row">
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-titulo">Título</label>
+                <input id="recibo-preview-titulo" type="text" placeholder="RECIBO DE PAGO" style="width:100%" />
+              </div>
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-fecha">Fecha de emisión</label>
+                <input id="recibo-preview-fecha" type="date" style="width:100%" />
+              </div>
+            </div>
+            <div class="input-row">
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-gym-nombre">Nombre del gimnasio</label>
+                <input id="recibo-preview-gym-nombre" type="text" placeholder="Nombre del gimnasio" style="width:100%" />
+              </div>
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-gym-direccion">Dirección del gimnasio</label>
+                <input id="recibo-preview-gym-direccion" type="text" placeholder="Dirección" style="width:100%" />
+              </div>
+            </div>
+            <div class="input-row">
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-usuario-nombre">Facturar a</label>
+                <input id="recibo-preview-usuario-nombre" type="text" placeholder="Nombre del cliente" style="width:100%" />
+              </div>
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-usuario-dni">DNI (opcional)</label>
+                <input id="recibo-preview-usuario-dni" type="text" placeholder="DNI" style="width:100%" />
+              </div>
+            </div>
+            <div class="input-row" style="align-items:flex-end">
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-metodo">Método de pago (opcional)</label>
+                <input id="recibo-preview-metodo" type="text" placeholder="Efectivo / Tarjeta ..." style="width:100%" />
+              </div>
+              <div style="flex:1; display:flex; gap:16px; align-items:flex-end">
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input id="recibo-preview-mostrar-logo" type="checkbox" checked /> <span>Mostrar logo</span></label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input id="recibo-preview-mostrar-metodo" type="checkbox" checked /> <span>Mostrar método</span></label>
+                <label class="muted" style="display:flex; align-items:center; gap:6px"><input id="recibo-preview-mostrar-dni" type="checkbox" checked /> <span>Mostrar DNI</span></label>
+              </div>
+            </div>
+            <div class="input-row" style="align-items:flex-end">
+              <div style="flex:2">
+                <label class="muted" for="recibo-preview-observaciones">Observaciones (opcional)</label>
+                <input id="recibo-preview-observaciones" type="text" placeholder="Notas u observaciones" style="width:100%" />
+              </div>
+              <div style="flex:1">
+                <label class="muted" for="recibo-preview-emitidopor">Emitido por (opcional)</label>
+                <input id="recibo-preview-emitidopor" type="text" placeholder="Nombre del emisor" style="width:100%" />
+              </div>
+            </div>
+            <div class="input-row" style="align-items:flex-start">
+              <div style="flex:1">
+                <label class="muted">Ítems del recibo</label>
+                <div id="recibo-items-list" style="border:1px solid var(--border); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:8px">
+                  <div style="display:grid; grid-template-columns: 1fr 100px 140px 40px; gap:8px; align-items:center">
+                    <div class="muted">Descripción</div>
+                    <div class="muted">Cantidad</div>
+                    <div class="muted">Precio</div>
+                    <div></div>
+                  </div>
+                  <div id="recibo-items-rows" style="display:flex; flex-direction:column; gap:8px"></div>
+                  <div>
+                    <button class="btn secondary" id="recibo-item-add" type="button">Agregar ítem</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="input-row">
+              <div style="flex:1"><label class="muted" for="recibo-total-subtotal">Subtotal</label><input id="recibo-total-subtotal" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
+              <div style="flex:1"><label class="muted" for="recibo-total-comision">Comisión</label><input id="recibo-total-comision" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
+              <div style="flex:1"><label class="muted" for="recibo-total-total">Total</label><input id="recibo-total-total" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
+            </div>
+          </details>
+          <div class="input-row">
+              <div style="flex:1">
+                <div id="recibo-preview-frame-wrap" style="width:100%; height:72vh; max-height:640px; min-height:360px; border:1px solid var(--border); border-radius:6px; overflow:auto; position:relative">
+                  <iframe id="recibo-preview-frame" title="Vista previa del recibo" style="width:100%; height:100%; border:0; transform-origin: center top" src=""></iframe>
+                </div>
+              </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="recibo-preview-download">Descargar PDF</button>
+          <button class="btn secondary" id="recibo-preview-config">Configurar numeración</button>
+          <button class="btn secondary" id="recibo-preview-close-btn">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal: Detalle de Pago -->
     <div class="modal-backdrop" id="modal-pago-detalle" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pago-detalle-title">
@@ -1375,6 +1647,340 @@
   </div>
 </div>
 
+  <!-- Modales: Rutinas -->
+<div class="modal-backdrop" id="modal-rutina-form" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-title" style="width: 75vw; max-width: 900px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-title" style="margin:0; font-size:16px;">Rutina</h3>
+      <button class="modal-close" id="close-modal-rutina" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label for="rutina-nombre">Nombre</label>
+          <input id="rutina-nombre" type="text" placeholder="Ej. Rutina Full Body" />
+        </div>
+        <div class="form-row">
+          <label for="rutina-descripcion">Descripción</label>
+          <textarea id="rutina-descripcion" placeholder="Estructura, objetivos y notas"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="save-rutina">Guardar</button>
+      <button class="btn" id="cancel-rutina">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-rutina-delete" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-del-title" style="width: 65vw; max-width: 780px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-del-title" style="margin:0; font-size:16px;">Eliminar rutina</h3>
+      <button class="modal-close" id="rutina-delete-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <p>¿Seguro que deseas eliminar esta rutina?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="rutina-delete-confirm">Eliminar</button>
+      <button class="btn" id="rutina-delete-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-rutina-assign" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-assign-title" style="width: 70vw; max-width: 900px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-assign-title" style="margin:0; font-size:16px;">Asignar rutina a usuario</h3>
+      <button class="modal-close" id="rutina-assign-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow:auto">
+      <div class="form-grid">
+        <div class="form-row"><div id="rutina-assign-summary" style="font-size: 13px; color: var(--text-muted)">Rutina seleccionada: <span id="rutina-assign-rutina-name">—</span> • Usuario actual: <span id="rutina-assign-current-user">—</span></div></div>
+        <div class="form-row">
+          <label for="rutina-assign-search">Buscar usuario</label>
+          <input id="rutina-assign-search" type="text" placeholder="Nombre, DNI o teléfono" />
+        </div>
+        <div class="form-row">
+          <label for="rutina-assign-user">Usuario</label>
+          <select id="rutina-assign-user"></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="rutina-assign-confirm">Asignar</button>
+      <button class="btn" id="rutina-assign-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-rutina-unassign" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-unassign-title" style="width: 70vw; max-width: 900px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-unassign-title" style="margin:0; font-size:16px;">Desasignar rutina</h3>
+      <button class="modal-close" id="rutina-unassign-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow:auto">
+      <div class="form-grid">
+        <div class="form-row"><div id="rutina-unassign-summary" style="font-size: 13px; color: var(--text-muted)">Rutina seleccionada: <span id="rutina-unassign-rutina-name">—</span> • Usuario asignado: <span id="rutina-unassign-current-user">—</span></div></div>
+        <div class="form-row">
+          <label for="rutina-unassign-search">Buscar usuario</label>
+          <input id="rutina-unassign-search" type="text" placeholder="Nombre, DNI o teléfono" />
+        </div>
+        <div class="form-row">
+          <label for="rutina-unassign-user">Usuario</label>
+          <select id="rutina-unassign-user"></select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="rutina-unassign-confirm">Desasignar</button>
+      <button class="btn" id="rutina-unassign-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Previsualización y edición avanzada de Rutina -->
+<div class="modal-backdrop" id="modal-rutina-preview" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-preview-title" style="width: 99vw; max-width: 1600px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-preview-title" style="margin:0; font-size:16px;">Vista previa de rutina</h3>
+      <div id="rutina-preview-status" class="muted" aria-live="polite" style="margin-left:auto; margin-right:8px"></div>
+      <button class="modal-close" id="rutina-preview-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" style="max-height: 82vh; overflow:auto">
+      <div class="form-grid" id="rutina-preview-form" style="margin-bottom:8px">
+        <div class="form-row" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
+          <div style="display:flex; gap:8px; align-items:center; flex:2; min-width:280px">
+            <label for="rutina-preview-nombre" style="white-space:nowrap">Nombre</label>
+            <input id="rutina-preview-nombre" type="text" placeholder="Nombre de la rutina" style="flex:1" />
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <label for="rutina-preview-dias" style="white-space:nowrap">Días</label>
+            <select id="rutina-preview-dias">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center">
+            <label for="rutina-preview-semanas" style="white-space:nowrap">Semana</label>
+            <select id="rutina-preview-semanas">
+              <option value="1" selected>1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </div>
+        </div>
+        <div id="rutina-preview-advanced" style="margin-top:4px">
+          <div class="form-row">
+            <label for="rutina-preview-descripcion">Descripción</label>
+            <textarea id="rutina-preview-descripcion" placeholder="Estructura y objetivos"></textarea>
+          </div>
+          <div class="form-row">
+            <label for="rutina-preview-categoria">Categoría</label>
+            <select id="rutina-preview-categoria">
+              <option value="general">General</option>
+              <option value="fuerza">Fuerza</option>
+              <option value="hipertrofia">Hipertrofia</option>
+              <option value="resistencia">Resistencia</option>
+              <option value="fullbody">Full body</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <label for="rutina-preview-add-ej">Agregar ejercicio</label>
+          <div style="display:grid; grid-template-columns: 1fr; gap:8px">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <input id="rutina-preview-ejercicio-search" type="text" placeholder="Buscar ejercicio..." aria-label="Buscar ejercicio" style="flex:2; min-width:220px" />
+              <select id="rutina-preview-filter-group" title="Filtrar por grupo" aria-label="Filtrar por grupo" style="min-width:180px">
+                <option value="">Grupo: Todos</option>
+              </select>
+              <select id="rutina-preview-filter-objetivo" title="Filtrar por objetivo" aria-label="Filtrar por objetivo" style="min-width:180px">
+                <option value="">Objetivo: Todos</option>
+              </select>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <select id="rutina-preview-ejercicio" aria-label="Ejercicio" style="flex:2; min-width:240px"></select>
+              <select id="rutina-preview-dia" aria-label="Día">
+                <option value="1">Día 1</option>
+                <option value="2">Día 2</option>
+                <option value="3">Día 3</option>
+                <option value="4">Día 4</option>
+                <option value="5">Día 5</option>
+              </select>
+              <button class="btn" id="rutina-preview-add">Agregar</button>
+              <button class="btn secondary sm" id="rutina-preview-new-ej" title="Crear nuevo ejercicio">Nuevo</button>
+              <button class="btn secondary sm" id="rutina-preview-edit-ej" title="Editar ejercicio seleccionado">Editar</button>
+              <button class="btn secondary sm" id="rutina-preview-toggle-advanced">Opciones avanzadas</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="rutina-preview-tools" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px">
+        <label style="display:flex; gap:6px; align-items:center"><input id="rutina-preview-select-mode" type="checkbox" /> <span>Selección múltiple</span></label>
+        <button class="btn secondary sm" id="rutina-preview-select-all">Seleccionar todo</button>
+        <button class="btn secondary" id="rutina-preview-collapse-days">Colapsar días</button>
+      </div>
+
+        <div id="rutina-preview-columns" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start">
+          <div>
+            <div id="rutina-preview-grid" class="grid" style="display:grid; gap:8px"></div>
+          </div>
+          <div>
+            <!-- Vista previa PDF integrada -->
+            <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
+              <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
+              <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa PDF guardando la rutina o modifica para que se actualice automáticamente.</div>
+              <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
+            </div>
+          </div>
+        </div>
+      <div id="rutina-preview-float" class="floating-panel" style="position:absolute; display:none; z-index:1000; background:#fff; border:1px solid #ddd; border-radius:8px; padding:12px; box-shadow:0 8px 24px rgba(0,0,0,0.22); min-width:560px">
+        <div style="display:flex; flex-direction:column; gap:6px">
+          <div><strong id="rutina-preview-float-title">Ejercicio</strong></div>
+          <div id="rutina-preview-float-weekly-inputs" style="display:block">
+            <table id="rutina-preview-weekly-table" style="width:100%; border-collapse:collapse;">
+              <thead>
+                <tr>
+                  <th class="muted" style="text-align:left; padding:6px; border-bottom:1px solid #eee">&nbsp;</th>
+                  <th style="padding:6px; border-bottom:1px solid #eee">Semana 1</th>
+                  <th style="padding:6px; border-bottom:1px solid #eee">Semana 2</th>
+                  <th style="padding:6px; border-bottom:1px solid #eee">Semana 3</th>
+                  <th style="padding:6px; border-bottom:1px solid #eee">Semana 4</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="muted" style="padding:6px">Repeticiones</td>
+                  <td style="padding:6px"><input id="rutina-preview-float-r1" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-r2" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-r3" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-r4" type="number" min="1" style="width:100%" /></td>
+                </tr>
+                <tr>
+                  <td class="muted" style="padding:6px">Series</td>
+                  <td style="padding:6px"><input id="rutina-preview-float-s1" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-s2" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-s3" type="number" min="1" style="width:100%" /></td>
+                  <td style="padding:6px"><input id="rutina-preview-float-s4" type="number" min="1" style="width:100%" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+            <label style="display:flex; gap:8px; align-items:center; justify-content:space-between"><span>Orden</span><input id="rutina-preview-float-orden" type="number" min="1" max="8" style="width:120px" /></label>
+            <label style="display:flex; gap:8px; align-items:center; justify-content:space-between"><span>Día</span>
+              <select id="rutina-preview-float-dia">
+                <option value="1">Día 1</option>
+                <option value="2">Día 2</option>
+                <option value="3">Día 3</option>
+                <option value="4">Día 4</option>
+                <option value="5">Día 5</option>
+              </select>
+            </label>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:6px; align-items:center; flex-wrap:wrap">
+            <button class="btn" id="rutina-preview-float-up" title="Subir orden">↑</button>
+            <button class="btn" id="rutina-preview-float-down" title="Bajar orden">↓</button>
+            <button class="btn secondary" id="rutina-preview-float-dup" title="Duplicar ejercicio">Duplicar</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
+            <button class="btn" id="rutina-preview-float-apply">Aplicar</button>
+            <button class="btn secondary" id="rutina-preview-float-remove">Eliminar</button>
+            <button class="btn" id="rutina-preview-float-close">Cerrar</button>
+          </div>
+        </div>
+      </div>
+        <div class="table-scroll" id="rutina-preview-excel" style="margin-top:12px">
+          <table id="rutina-preview-excel-table">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Ejercicio</th>
+              <th>Series</th>
+              <th>Repeticiones</th>
+              <th>Orden</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+        <button class="btn" id="rutina-preview-save">Guardar cambios</button>
+        <button class="btn secondary" id="rutina-preview-export">Exportar Excel</button>
+        <button class="btn" id="rutina-preview-cancel">Cancelar</button>
+    </div>
+  </div>
+  
+</div>
+
+<!-- Modal: Exportar Excel de Rutina (previsualización y edición rápida) -->
+<div class="modal-backdrop" id="modal-rutina-export" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-export-title" style="width: 95vw; max-width: 1200px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-export-title" style="margin:0; font-size:16px;">Exportar a Excel</h3>
+      <button class="modal-close" id="rutina-export-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow:auto">
+      <div class="form-grid" style="margin-bottom:8px">
+        <div class="form-row">
+          <label for="rutina-export-filename">Nombre de archivo</label>
+          <input id="rutina-export-filename" type="text" placeholder="rutina.xlsx" />
+        </div>
+        <div class="form-row">
+          <label for="rutina-export-weeks">Semanas a exportar (1-4)</label>
+          <input id="rutina-export-weeks" type="number" min="1" max="4" value="1" aria-describedby="rutina-export-weeks-help" />
+          <small id="rutina-export-weeks-help" class="muted">Elige cuántas semanas incluir en el Excel.</small>
+        </div>
+      </div>
+      <div class="form-grid" style="margin:8px 0;">
+        <div class="form-row">
+          <label>Aplicar a todas</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="rutina-export-all-series" type="number" min="1" placeholder="Series" style="width:120px" />
+            <input id="rutina-export-all-reps" type="number" min="1" placeholder="Repeticiones" style="width:140px" />
+            <button class="btn secondary" id="rutina-export-apply-all">Aplicar a todas</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="rutina-export-table">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Ejercicio</th>
+              <th>Series</th>
+              <th>Repeticiones</th>
+              <th>Orden</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="muted">Puedes editar Series y Repeticiones directamente en la tabla. La previsualización se genera desde el archivo final del backend.</p>
+      <div style="margin-top:12px">
+        <div style="display:flex; align-items:center; gap:8px; justify-content:space-between; flex-wrap:wrap">
+          <span class="muted">Vista previa literal del Excel generado</span>
+          <div style="display:flex; gap:8px; align-items:center">
+            <button class="btn secondary" id="rutina-export-preview-btn">Actualizar vista previa</button>
+            <button class="btn" id="rutina-export-save-btn">Guardar cambios</button>
+          </div>
+        </div>
+        <div id="rutina-export-preview" class="table-scroll" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="rutina-export-download">Descargar Excel</button>
+      <button class="btn" id="rutina-export-close-btn">Cerrar</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="modal-ejercicio-delete" style="display:none" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-del-title">
     <div class="modal-header">
@@ -1444,7 +2050,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {} };
+const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
 
     function fmtDate(d){
       if(!d) return '';
@@ -1475,7 +2081,21 @@
       if(panel) panel.classList.add('active');
     }
 
-    function openModal(id){ const el = document.getElementById(id); if(el){ el.classList.add('active'); el.style.display = 'flex'; el.setAttribute('aria-hidden','false'); const modalEl = el.querySelector('.modal'); if(modalEl){ const labelId = modalEl.getAttribute('aria-labelledby'); if(labelId){ const labelEl = document.getElementById(labelId); if(labelEl){ labelEl.setAttribute('tabindex','-1'); labelEl.focus(); } } } } }
+    function openModal(id){
+      const el = document.getElementById(id);
+      if(el){
+        // Asegurar stacking por z-index incremental para evitar que quede debajo de otros modales
+        try { state._modalZBase = (state._modalZBase || 1000) + 1; el.style.zIndex = String(state._modalZBase); } catch(_){ }
+        el.classList.add('active');
+        el.style.display = 'flex';
+        el.setAttribute('aria-hidden','false');
+        const modalEl = el.querySelector('.modal');
+        if(modalEl){
+          const labelId = modalEl.getAttribute('aria-labelledby');
+          if(labelId){ const labelEl = document.getElementById(labelId); if(labelEl){ labelEl.setAttribute('tabindex','-1'); labelEl.focus(); } }
+        }
+      }
+    }
     function closeModal(id){
       const el = document.getElementById(id);
       if(!el) return;
@@ -1636,7 +2256,7 @@
             <td>${concepto}</td>
             <td>${monto}</td>
             <td class="table-actions">
-              <button class="btn secondary" data-action="ver" data-index="${idx}">Ver</button>
+              <button class="btn" data-action="recibo" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Recibo</button>
               <button class="btn" data-action="editar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Editar</button>
               <button class="btn secondary" data-action="eliminar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Borrar</button>
             </td>
@@ -1777,6 +2397,8 @@
         document.getElementById('usuarios-count').textContent = `${(Array.isArray(rows) ? rows.length : 0)} usuarios`;
         updateUsuariosCards(rows);
         try { populatePagosUsuarioSelector(); } catch {}
+        // Actualizar selector de usuario en Rutinas
+        try { renderRutinasUsuarioFilter(); } catch {}
       } catch(err){
         console.error('Error cargando usuarios:', err);
       }
@@ -2016,6 +2638,12 @@
             openModal('modal-pagos-delete');
             return;
           }
+          if(action === 'recibo'){
+            const id = btn.getAttribute('data-id');
+            if(!id){ showToast('Pago inválido', 'error', 4500); return; }
+            openReciboPreview(id);
+            return;
+          }
         }
         const tr = ev.target.closest('tr');
         if(!tr) return;
@@ -2058,6 +2686,43 @@
           showPagoForm(p);
         }
       });
+      const reciboBtn = document.getElementById('pago-side-recibo');
+      if(reciboBtn) reciboBtn.addEventListener('click', () => {
+        const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { showToast('Selecciona un pago válido', 'warning', 4000); return; }
+        const id = p.id || p.pago_id;
+        openReciboPreview(id);
+      });
+      // Modal recibo preview controls
+      const reciboPrevClose = document.getElementById('recibo-preview-close'); if(reciboPrevClose) reciboPrevClose.addEventListener('click', () => closeModal('modal-recibo-preview'));
+      const reciboPrevCloseBtn = document.getElementById('recibo-preview-close-btn'); if(reciboPrevCloseBtn) reciboPrevCloseBtn.addEventListener('click', () => closeModal('modal-recibo-preview'));
+      const reciboPrevDownload = document.getElementById('recibo-preview-download'); if(reciboPrevDownload) reciboPrevDownload.addEventListener('click', () => {
+        const id = state.previewPagoId; if(!id) { showToast('No hay recibo para descargar', 'warning', 3500); return; }
+        const params = buildReciboParams();
+        const url = `/api/pagos/${id}/recibo.pdf${params.toString() ? ('?' + params.toString()) : ''}`;
+        try { window.open(url, '_blank'); } catch(_) { showToast('No se pudo descargar el recibo', 'error', 4500); }
+      });
+      const reciboPrevConfig = document.getElementById('recibo-preview-config'); if(reciboPrevConfig) reciboPrevConfig.addEventListener('click', async () => {
+        await loadReciboConfig();
+        openModal('modal-recibo-config');
+      });
+      const fechaEl = document.getElementById('recibo-preview-fecha'); if(fechaEl){
+        const handler = () => updatePeriodoLabel();
+        fechaEl.addEventListener('input', handler);
+        fechaEl.addEventListener('change', handler);
+      }
+      const reciboPrevApply = document.getElementById('recibo-preview-apply'); if(reciboPrevApply) reciboPrevApply.addEventListener('click', () => {
+        const id = state.previewPagoId; if(!id) { showToast('No hay pago seleccionado', 'warning', 3500); return; }
+        const frame = document.getElementById('recibo-preview-frame');
+        if(frame){
+          const params = buildReciboParams();
+          params.set('preview','1');
+          const url = `/api/pagos/${id}/recibo.pdf?${params.toString()}#toolbar=0&navpanes=0`;
+          frame.src = url;
+          try{ attachWheelZoom('recibo-preview-frame-wrap','recibo-preview-frame'); }catch(_){ }
+        }
+      });
+      const itemAddBtn = document.getElementById('recibo-item-add'); if(itemAddBtn) itemAddBtn.addEventListener('click', () => { addItemRow({ descripcion:'', cantidad:1, precio_unitario:0 }); recalcTotalsFromItems(); });
+      const comInput = document.getElementById('recibo-total-comision'); if(comInput) comInput.addEventListener('input', recalcTotalsFromItems);
       const eliminarPagoBtn = document.getElementById('pago-side-eliminar');
       if(eliminarPagoBtn) eliminarPagoBtn.addEventListener('click', () => {
         const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { showToast('Selecciona un pago válido', 'warning', 4000); return; }
@@ -3315,7 +3980,8 @@
       if(objetivo && objetivo !== 'Todos') params.append('objetivo', objetivo);
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
-      fetch(url, { headers: { 'Accept': 'application/json' } })
+      // Retornar la promesa para permitir await loadEjercicios()
+      return fetch(url, { headers: { 'Accept': 'application/json' } })
         .then(async (r) => {
           if(!r.ok){
             if(r.status === 401){
@@ -3334,10 +4000,1729 @@
           updateEjerciciosTable(); 
           const sel = state.selectedEjercicio ? (state.ejercicios || []).find(x => String(x.id) === String(state.selectedEjercicio.id)) : null;
           updateEjercicioSidePanel(sel || null);
+          return state.ejercicios;
         })
-        .catch(() => showToast('No se pudieron cargar ejercicios', 'error', 4500));
+        .catch(() => { showToast('No se pudieron cargar ejercicios', 'error', 4500); return []; });
     }
 
+    // ===== Rutinas: funciones =====
+    function renderRutinasUsuarioFilter(){
+      const sel = document.getElementById('rutinas-usuario'); if(!sel) return;
+      const items = Array.isArray(state.usuarios) ? state.usuarios : [];
+      const current = sel.value || '';
+      sel.innerHTML = '<option value="">Todos</option>';
+      items.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = String(u.id);
+        opt.textContent = u.nombre || u.email || `Usuario ${u.id}`;
+        sel.appendChild(opt);
+      });
+      if(current){ sel.value = current; }
+    }
+
+    function loadRutinas(){
+      // Mantener para compatibilidad cuando se necesite ver todas (no default)
+      const q = (document.getElementById('rutinas-q') || {}).value || '';
+      fetch('/api/rutinas', { headers: { 'Accept': 'application/json' } })
+        .then(async (r) => {
+          if(!r.ok){
+            if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
+            const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar rutinas', 'error', 4500); return [];
+          }
+          return r.json().catch(() => []);
+        })
+        .then(items => {
+          const arr = Array.isArray(items) ? items : [];
+          // Filtro simple por nombre
+          const ql = q.trim().toLowerCase();
+          state.rutinas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')) .toLowerCase().includes(ql)) : arr;
+          updateRutinasTable();
+          const sel = state.selectedRutina ? (state.rutinas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
+          updateRutinaSidePanel(sel || null);
+        })
+        .catch(() => showToast('No se pudieron cargar rutinas', 'error', 4500));
+    }
+
+    function loadRutinasPlantillas(){
+      const q = (document.getElementById('rutinas-q') || {}).value || '';
+      fetch('/api/rutinas/plantillas', { headers: { 'Accept': 'application/json' } })
+        .then(async (r) => {
+          if(!r.ok){
+            if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
+            const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar plantillas', 'error', 4500); return [];
+          }
+          return r.json().catch(() => []);
+        })
+        .then(items => {
+          const arr = Array.isArray(items) ? items : [];
+          const ql = q.trim().toLowerCase();
+          state.plantillas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')).toLowerCase().includes(ql)) : arr;
+          // En vista de plantillas, actualizar tabla con plantillas
+          updateRutinasTable();
+          const sel = state.selectedRutina ? (state.plantillas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
+          updateRutinaSidePanel(sel || null);
+        })
+        .catch(() => showToast('No se pudieron cargar plantillas', 'error', 4500));
+    }
+
+    function applyRutinasFilters(){
+      const cat = ((document.getElementById('rutinas-categoria')||{}).value || '').toLowerCase();
+      const rows = document.querySelectorAll('#rutinas-table tbody tr');
+      rows.forEach(r => {
+        const rc = (r.querySelector('td[data-col="categoria"]')?.textContent || '').toLowerCase();
+        const catOk = !cat || rc === cat;
+        r.style.display = catOk ? '' : 'none';
+      });
+      const countEl = document.getElementById('rutinas-count'); if(countEl){
+        const visibleRows = Array.from(document.querySelectorAll('#rutinas-table tbody tr')).filter(tr => tr.style.display !== 'none').length;
+        countEl.textContent = `${visibleRows} mostradas`;
+      }
+    }
+
+    function updateRutinasTable(){
+      const tbody = document.querySelector('#rutinas-table tbody'); if(!tbody) return;
+      tbody.innerHTML = '';
+      const itemsBase = Array.isArray(state.plantillas) ? state.plantillas : [];
+      // Sorting
+      const sortKey = state.rutinasSortKey || (typeof localStorage !== 'undefined' ? (localStorage.getItem('rutinas-sort-key') || '') : '') || 'nombre';
+      const sortDir = state.rutinasSortDir || (typeof localStorage !== 'undefined' ? (localStorage.getItem('rutinas-sort-dir') || '') : '') || 'asc';
+      const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+      const decorated = (Array.isArray(itemsBase) ? itemsBase : []).map((r) => {
+        const diasStr = r.dias_semana != null ? String(r.dias_semana) : (r.dias != null ? String(r.dias) : '0');
+        const categoriaStr = r.categoria ? String(r.categoria) : 'general';
+        const ejerciciosCountNum = Array.isArray(r.ejercicios) ? r.ejercicios.length : Number(r.ejercicios_count || 0) || 0;
+        const assignedStr = (() => {
+          const uid = r.usuario_id;
+          if(uid == null) return '—';
+          const u = users.find(x => String(x.id) === String(uid));
+          return u ? (u.nombre || u.email || `Usuario ${u.id}`) : `ID ${uid}`;
+        })();
+        return {
+          r,
+          nombre: String(r.nombre || r.nombre_rutina || ''),
+          descripcion: String(r.descripcion || ''),
+          dias: Number(diasStr) || 0,
+          categoria: String(categoriaStr || ''),
+          ejercicios: Number(ejerciciosCountNum) || 0,
+          asignado: String(assignedStr || '')
+        };
+      });
+      const cmp = (a, b) => {
+        const key = String(sortKey || 'nombre');
+        let va = a[key]; let vb = b[key];
+        const isNum = typeof va === 'number' && typeof vb === 'number';
+        if(!isNum){ va = String(va || '').toLowerCase(); vb = String(vb || '').toLowerCase(); return sortDir === 'desc' ? vb.localeCompare(va) : va.localeCompare(vb); }
+        return sortDir === 'desc' ? (vb - va) : (va - vb);
+      };
+      const items = decorated.sort(cmp).map(d => d.r);
+      // Update sort header styles
+      try{
+        const ths = document.querySelectorAll('#rutinas-table thead th.th-sortable');
+        ths.forEach(th => {
+          const k = th.getAttribute('data-sort') || '';
+          th.classList.toggle('th-sorted-asc', k === sortKey && sortDir === 'asc');
+          th.classList.toggle('th-sorted-desc', k === sortKey && sortDir === 'desc');
+        });
+      }catch(_){ }
+      items.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-index', String(idx));
+        tr.setAttribute('data-id', String(r.id || ''));
+        const dias = r.dias_semana != null ? String(r.dias_semana) : (r.dias != null ? String(r.dias) : '—');
+        const categoria = r.categoria ? String(r.categoria) : 'general';
+        const ejerciciosCount = Array.isArray(r.ejercicios) ? r.ejercicios.length : (r.ejercicios_count != null ? String(r.ejercicios_count) : '—');
+        const assigned = (() => {
+          const uid = r.usuario_id;
+          if(uid == null) return '—';
+          const u = users.find(x => String(x.id) === String(uid));
+          return u ? (u.nombre || u.email || `Usuario ${u.id}`) : `ID ${uid}`;
+        })();
+        const actionsHTML = `<button class="btn" data-action="preview" data-id="${r.id}">Abrir</button>
+             <button class="btn" data-action="assign-template" data-id="${r.id}">Asignar a usuario</button>
+             <button class="btn" data-action="delete" data-id="${r.id}">Eliminar</button>`;
+        const catBadge = `<span class="badge" data-cat="${categoria}" style="display:inline-block;padding:2px 8px;border-radius:12px;background:#eef;color:#334">${categoria}</span>`;
+        tr.innerHTML = `
+          <td data-col="nombre">${r.nombre || r.nombre_rutina || ''}</td>
+          <td data-col="descripcion">${r.descripcion || ''}</td>
+          <td data-col="dias">${dias}</td>
+          <td data-col="categoria">${catBadge}</td>
+          <td data-col="ejercicios">${ejerciciosCount}</td>
+          <td data-col="asignado">${assigned}</td>
+          <td>${actionsHTML}</td>`;
+        tr.addEventListener('click', (ev) => {
+          const isBtn = !!ev.target.closest('button'); if(isBtn) return;
+          state.selectedRutina = r; updateRutinaSidePanel(r);
+        });
+        tbody.appendChild(tr);
+      });
+      applyRutinasFilters();
+      const countEl = document.getElementById('rutinas-count'); if(countEl) {
+        const visibleRows = Array.from(document.querySelectorAll('#rutinas-table tbody tr')).filter(tr => tr.style.display !== 'none').length;
+        countEl.textContent = `${visibleRows} mostradas`;
+      }
+    }
+
+    function bindRutinasEvents(){
+      if(!document.getElementById('panel-rutinas')) return;
+      renderRutinasUsuarioFilter();
+      const btnRefresh = document.getElementById('rutinas-refresh'); if(btnRefresh) btnRefresh.addEventListener('click', () => { loadRutinasPlantillas(); if(state.activeRutinaTab==='usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); } });
+      const qInput = document.getElementById('rutinas-q'); if(qInput) qInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') { loadRutinasPlantillas(); if(state.activeRutinaTab==='usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); } } });
+      const uSel = document.getElementById('rutinas-usuario'); if(uSel) uSel.addEventListener('change', () => {
+        applyRutinasFilters();
+        const uid = uSel.value || '';
+        loadRutinasPorUsuario(uid);
+      });
+      const catSel = document.getElementById('rutinas-categoria'); if(catSel) catSel.addEventListener('change', () => { applyRutinasFilters(); });
+      const btnNew = document.getElementById('rutinas-new'); if(btnNew) btnNew.addEventListener('click', () => { if(state.activeRutinaTab==='plantillas') openRutinaBuilderNew(); else showRutinaForm(null); });
+
+      // Persist and restore filters
+      try{
+        const qInput2 = document.getElementById('rutinas-q'); if(qInput2){ const prevQ = localStorage.getItem('rutinas-q') || ''; if(prevQ) qInput2.value = prevQ; qInput2.addEventListener('input', () => { localStorage.setItem('rutinas-q', qInput2.value || ''); }); }
+        const catSel2 = document.getElementById('rutinas-categoria'); if(catSel2){ const prevC = localStorage.getItem('rutinas-categoria'); if(prevC != null) catSel2.value = prevC; catSel2.addEventListener('change', () => { localStorage.setItem('rutinas-categoria', catSel2.value || ''); }); }
+        const uSel3 = document.getElementById('rutinas-usuario'); if(uSel3){ const prevU = localStorage.getItem('rutinas-usuario'); if(prevU != null) uSel3.value = prevU; uSel3.addEventListener('change', () => { localStorage.setItem('rutinas-usuario', uSel3.value || ''); }); }
+      }catch(_){ }
+
+      // Subtabs toggling
+      function applyRutinasTabUI(){
+        const isPlant = state.activeRutinaTab === 'plantillas';
+        const lab = document.getElementById('rutinas-usuario-label'); if(lab) lab.style.display = isPlant ? 'none' : '';
+        const uSel2 = document.getElementById('rutinas-usuario'); if(uSel2) uSel2.style.display = isPlant ? 'none' : '';
+        const tbl = document.getElementById('rutinas-table'); if(tbl) tbl.parentElement.style.display = '';
+        const block = document.getElementById('rutinas-usuario-block'); if(block) block.style.display = isPlant ? 'none' : '';
+        const btnNewEl = document.getElementById('rutinas-new'); if(btnNewEl) btnNewEl.textContent = isPlant ? 'Nueva Plantilla' : 'Nueva Rutina';
+        // Cargar datos: siempre plantillas; añadir rutinas por usuario si corresponde
+        loadRutinasPlantillas();
+        if(!isPlant){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); }
+        // Update subtabs visual state
+        const bPlant = document.getElementById('rutinas-tab-plantillas'); const bUser = document.getElementById('rutinas-tab-usuario');
+        if(bPlant) bPlant.classList.toggle('secondary', !isPlant);
+        if(bUser) bUser.classList.toggle('secondary', isPlant);
+        applyRutinasFilters();
+      }
+      const tabBar = document.getElementById('rutinas-subtabs');
+      if(tabBar){
+        tabBar.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const tab = btn.getAttribute('data-rutinas-tab'); if(!tab) return;
+          state.activeRutinaTab = tab === 'usuario' ? 'usuario' : 'plantillas';
+          applyRutinasTabUI();
+        });
+        // Apply default
+        applyRutinasTabUI();
+      }
+
+      // Header sorting events
+      const sortHeaders = document.querySelectorAll('#rutinas-table thead th.th-sortable');
+      sortHeaders.forEach(th => {
+        th.addEventListener('click', () => {
+          const key = th.getAttribute('data-sort') || 'nombre';
+          const curKey = state.rutinasSortKey || (localStorage.getItem('rutinas-sort-key') || 'nombre');
+          const curDir = state.rutinasSortDir || (localStorage.getItem('rutinas-sort-dir') || 'asc');
+          const nextDir = (key === curKey) ? (curDir === 'asc' ? 'desc' : 'asc') : 'asc';
+          state.rutinasSortKey = key; state.rutinasSortDir = nextDir;
+          try{ localStorage.setItem('rutinas-sort-key', key); localStorage.setItem('rutinas-sort-dir', nextDir); }catch(_){ }
+          updateRutinasTable();
+        });
+      });
+
+      const tbody = document.querySelector('#rutinas-table tbody');
+      if(tbody){
+        tbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const action = btn.getAttribute('data-action');
+          if(action === 'edit'){
+            const idx = parseInt(btn.getAttribute('data-index') || '0', 10);
+            const row = (state.rutinas || [])[idx]; showRutinaForm(row || null);
+          } else if(action === 'builder'){
+            const id = btn.getAttribute('data-id'); if(id) openRutinaPreview(Number(id));
+          } else if(action === 'preview'){
+            const id = btn.getAttribute('data-id'); if(id) openRutinaPreview(Number(id));
+          } else if(action === 'delete'){
+            const id = btn.getAttribute('data-id'); deleteRutina(id);
+          } else if(action === 'assign-template'){
+            const id = btn.getAttribute('data-id'); openAssignPlantilla(id);
+          } else if(action === 'assign'){
+            const id = btn.getAttribute('data-id'); openAssignRutina(id);
+          } else if(action === 'unassign'){
+            const id = btn.getAttribute('data-id'); openUnassignRutina(id);
+          }
+        });
+      }
+
+      // Modal form bindings
+      const btnSave = document.getElementById('save-rutina'); if(btnSave) btnSave.addEventListener('click', saveRutina);
+      const btnCancel = document.getElementById('cancel-rutina'); if(btnCancel) btnCancel.addEventListener('click', hideRutinaForm);
+      const btnClose = document.getElementById('close-modal-rutina'); if(btnClose) btnClose.addEventListener('click', hideRutinaForm);
+
+      // Delete modal bindings
+      const delCancel = document.getElementById('rutina-delete-cancel'); if(delCancel) delCancel.addEventListener('click', () => closeModal('modal-rutina-delete'));
+      const delConfirm = document.getElementById('rutina-delete-confirm'); if(delConfirm) delConfirm.addEventListener('click', confirmDeleteRutina);
+      const delClose = document.getElementById('rutina-delete-close'); if(delClose) delClose.addEventListener('click', () => closeModal('modal-rutina-delete'));
+
+      // Assign modal bindings
+      const asClose = document.getElementById('rutina-assign-close'); if(asClose) asClose.addEventListener('click', () => closeModal('modal-rutina-assign'));
+      const asCancel = document.getElementById('rutina-assign-cancel'); if(asCancel) asCancel.addEventListener('click', () => closeModal('modal-rutina-assign'));
+      const asConfirm = document.getElementById('rutina-assign-confirm'); if(asConfirm) asConfirm.addEventListener('click', performAssignRutina);
+
+      // Unassign modal bindings
+      const unClose = document.getElementById('rutina-unassign-close'); if(unClose) unClose.addEventListener('click', () => closeModal('modal-rutina-unassign'));
+      const unCancel = document.getElementById('rutina-unassign-cancel'); if(unCancel) unCancel.addEventListener('click', () => closeModal('modal-rutina-unassign'));
+      const unConfirm = document.getElementById('rutina-unassign-confirm'); if(unConfirm) unConfirm.addEventListener('click', performUnassignRutina);
+
+      // Side actions
+      const sEdit = document.getElementById('rutina-side-edit'); if(sEdit) sEdit.addEventListener('click', () => { if(state.selectedRutina) openRutinaPreview(Number(state.selectedRutina.id)); });
+      const sPrev = document.getElementById('rutina-side-preview'); if(sPrev) sPrev.addEventListener('click', () => { if(state.selectedRutina) openRutinaPreview(Number(state.selectedRutina.id)); });
+      const sDel = document.getElementById('rutina-side-delete'); if(sDel) sDel.addEventListener('click', () => { if(state.selectedRutina) deleteRutina(state.selectedRutina.id); });
+      const sAssign = document.getElementById('rutina-side-assign'); if(sAssign) sAssign.addEventListener('click', () => { if(state.selectedRutina) openAssignPlantilla(state.selectedRutina.id); });
+      const sUnassign = document.getElementById('rutina-side-unassign'); if(sUnassign) sUnassign.addEventListener('click', () => { if(state.selectedRutina) openUnassignRutina(state.selectedRutina.id); });
+
+      // CSV export of visible routines
+      const btnCsv = document.getElementById('rutinas-export-csv');
+      if(btnCsv){
+        btnCsv.addEventListener('click', () => {
+          try{
+            const rows = Array.from(document.querySelectorAll('#rutinas-table tbody tr')).filter(tr => tr.style.display !== 'none');
+            const headers = ['Nombre','Descripcion','Dias','Categoria','#Ejercicios','Asignada a'];
+            const lines = [headers.join(',')];
+            rows.forEach(tr => {
+              const cNombre = tr.querySelector('td[data-col="nombre"]')?.textContent || '';
+              const cDesc = tr.querySelector('td[data-col="descripcion"]')?.textContent || '';
+              const cDias = tr.querySelector('td[data-col="dias"]')?.textContent || '';
+              const cCat = tr.querySelector('td[data-col="categoria"]')?.textContent || '';
+              const cEjs = tr.querySelector('td[data-col="ejercicios"]')?.textContent || '';
+              const cAsign = tr.querySelector('td[data-col="asignado"]')?.textContent || '';
+              const esc = (s) => {
+                const t = String(s || '');
+                if(/[",\n]/.test(t)) return '"' + t.replace(/"/g,'""') + '"';
+                return t;
+              };
+              lines.push([esc(cNombre), esc(cDesc), esc(cDias), esc(cCat), esc(cEjs), esc(cAsign)].join(','));
+            });
+            const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'rutinas.csv';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            showToast('CSV exportado', 'success', 2500);
+          }catch(_){ showToast('No se pudo exportar CSV', 'error', 3000); }
+        });
+      }
+
+      // Preview modal extra actions
+      const btnPrevNewEj = document.getElementById('rutina-preview-new-ej'); if(btnPrevNewEj) btnPrevNewEj.addEventListener('click', () => { try{ showEjercicioForm(null); }catch(_){ showToast('No se pudo abrir el formulario', 'error', 3000); } });
+      const btnPrevEditEj = document.getElementById('rutina-preview-edit-ej'); if(btnPrevEditEj) btnPrevEditEj.addEventListener('click', () => {
+        const float = document.getElementById('rutina-preview-float');
+        let eid = float ? (float.dataset.eid || '') : '';
+        if(!eid){
+          const selIds = Array.isArray(state.rutinaSelected) ? state.rutinaSelected : [];
+          if(selIds.length > 0) eid = String(selIds[0]).split('#')[0];
+        }
+        if(!eid){
+          const sel = document.getElementById('rutina-preview-ejercicio');
+          const val = sel ? String(sel.value||'') : '';
+          if(val) eid = val;
+        }
+        if(!eid){
+          showToast('Selecciona un ejercicio con clic, en la lista o activa selección múltiple', 'info', 3000);
+          return;
+        }
+        const ej = (Array.isArray(state.ejercicios) ? state.ejercicios : []).find(x => String(x.id) === String(eid));
+        if(!ej){ showToast('Ejercicio no encontrado', 'warning', 2500); return; }
+        try{ showEjercicioForm(ej); }catch(_){ showToast('No se pudo abrir edición', 'error', 3000); }
+      });
+      const btnPrevToggle = document.getElementById('rutina-preview-toggle-advanced'); if(btnPrevToggle) btnPrevToggle.addEventListener('click', () => {
+        const adv = document.getElementById('rutina-preview-advanced'); if(!adv) return;
+        const hidden = !!state.rutinaPreviewAdvancedHidden;
+        adv.style.display = hidden ? '' : 'none';
+        state.rutinaPreviewAdvancedHidden = !hidden;
+        btnPrevToggle.textContent = state.rutinaPreviewAdvancedHidden ? 'Mostrar opciones avanzadas' : 'Ocultar opciones avanzadas';
+      });
+      const btnPrevExport = document.getElementById('rutina-preview-export'); if(btnPrevExport) btnPrevExport.addEventListener('click', directExportExcelFromPreview);
+    }
+
+    function showRutinaForm(r){
+      state.editingRutinaId = r && r.id ? Number(r.id) : null;
+      openModal('modal-rutina-form');
+      const nombreEl = document.getElementById('rutina-nombre'); if(nombreEl) nombreEl.value = r && (r.nombre || r.nombre_rutina) ? String(r.nombre || r.nombre_rutina) : '';
+      const descEl = document.getElementById('rutina-descripcion'); if(descEl) descEl.value = r && r.descripcion ? String(r.descripcion) : '';
+    }
+    function hideRutinaForm(){ closeModal('modal-rutina-form'); }
+
+    async function saveRutina(){
+      const nombre = (document.getElementById('rutina-nombre') || {}).value || '';
+      const descripcion = (document.getElementById('rutina-descripcion') || {}).value || '';
+      if(!nombre.trim()){ showToast('El nombre es obligatorio', 'warning', 3000); return; }
+      const body = { nombre_rutina: nombre, descripcion };
+      let url = '/api/rutinas'; let method = 'POST';
+      if(state.editingRutinaId){ url = `/api/rutinas/${state.editingRutinaId}`; method = 'PUT'; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar', 'error', 4500); return; }
+        closeModal('modal-rutina-form');
+        showToast('Rutina guardada', 'success', 2500);
+        await loadRutinas();
+      }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
+    }
+
+    function deleteRutina(id){
+      if(!id){ showToast('Rutina no encontrada', 'warning', 3000); return; }
+      state.deleteRutinaId = Number(id);
+      openModal('modal-rutina-delete');
+    }
+    async function confirmDeleteRutina(){
+      const id = state.deleteRutinaId; if(!id) return;
+      try{
+        const res = await fetch(`/api/rutinas/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok){ showToast(data.detail || data.error || 'No se pudo eliminar', 'error', 4500); return; }
+        closeModal('modal-rutina-delete');
+        showToast('Rutina eliminada', 'success', 2500);
+        await loadRutinas();
+      }catch(e){ showToast('Error de red al eliminar', 'error', 4500); }
+    }
+
+function openAssignRutina(id){
+  state.editingRutinaId = id ? Number(id) : null;
+  renderRutinasUsuarioFilter();
+  const sel = document.getElementById('rutina-assign-user');
+  const search = document.getElementById('rutina-assign-search');
+  const summaryName = document.getElementById('rutina-assign-rutina-name');
+  const summaryUser = document.getElementById('rutina-assign-current-user');
+  if(summaryName){
+    const r = state.selectedRutina; summaryName.textContent = r ? (r.nombre || r.nombre_rutina || `Rutina ${r.id}`) : '—';
+  }
+  if(sel){
+    sel.innerHTML = '';
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'Selecciona usuario'; sel.appendChild(def);
+    const fill = (users) => { (Array.isArray(users) ? users : []).forEach(u => { const opt = document.createElement('option'); opt.value = String(u.id); opt.textContent = u.nombre || u.email || `Usuario ${u.id}`; sel.appendChild(opt); }); };
+    const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+    if(users.length){
+      fill(users);
+    } else {
+      try{ loadUsers().then(() => { const u2 = Array.isArray(state.usuarios) ? state.usuarios : []; fill(u2); }).catch(() => {}); }catch(_){ }
+    }
+    // Preseleccionar el usuario actualmente seleccionado en la vista
+    try{ const cur = (document.getElementById('rutinas-usuario')||{}).value || ''; if(cur){ sel.value = String(cur); } }catch(_){ }
+    // Mostrar usuario actual de la rutina
+    if(summaryUser){
+      const r = state.selectedRutina;
+      const uid = r && r.usuario_id != null ? Number(r.usuario_id) : null;
+      let name = '—';
+      if(uid){
+        const arr = Array.isArray(state.usuarios) ? state.usuarios : [];
+        const u = arr.find(x => Number(x.id) === Number(uid));
+        if(u) name = u.nombre || `Usuario ${uid}`;
+        else name = String(uid);
+      }
+      summaryUser.textContent = name;
+    }
+    // Filtro de búsqueda por texto
+    if(search){
+      search.oninput = () => {
+        const q = (search.value || '').toLowerCase();
+        Array.from(sel.options).forEach(opt => {
+          if(!opt.value) return; // deja 'Selecciona usuario'
+          opt.hidden = q.length > 0 && !(opt.textContent || '').toLowerCase().includes(q);
+        });
+      };
+    }
+  }
+  openModal('modal-rutina-assign');
+}
+function openAssignPlantilla(id){
+  state.assignPlantillaId = id ? Number(id) : null;
+  renderRutinasUsuarioFilter();
+  const sel = document.getElementById('rutina-assign-user');
+  const search = document.getElementById('rutina-assign-search');
+  const summaryName = document.getElementById('rutina-assign-rutina-name');
+  const summaryUser = document.getElementById('rutina-assign-current-user');
+  if(summaryName){
+    // Cargar detalle de plantilla para mostrar nombre
+    try{
+      fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } })
+        .then(r => r.ok ? r.json() : {})
+        .then(data => { summaryName.textContent = data && (data.nombre_rutina || data.nombre) ? String(data.nombre_rutina || data.nombre) : `Rutina ${id}`; })
+        .catch(()=>{ summaryName.textContent = `Rutina ${id}`; });
+    }catch(_){ summaryName.textContent = `Rutina ${id}`; }
+  }
+  if(sel){
+    sel.innerHTML = '';
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'Selecciona usuario'; sel.appendChild(def);
+    const fill = (users) => { (Array.isArray(users) ? users : []).forEach(u => { const opt = document.createElement('option'); opt.value = String(u.id); opt.textContent = u.nombre || u.email || `Usuario ${u.id}`; sel.appendChild(opt); }); };
+    const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+    if(users.length){
+      fill(users);
+    } else {
+      try{ loadUsers().then(() => { const u2 = Array.isArray(state.usuarios) ? state.usuarios : []; fill(u2); }).catch(() => {}); }catch(_){ }
+    }
+    // Preseleccionar el usuario actualmente seleccionado en la vista
+    try{ const cur = (document.getElementById('rutinas-usuario')||{}).value || ''; if(cur){ sel.value = String(cur); } }catch(_){ }
+    // Mostrar usuario actual (no aplica para plantilla, deja en —)
+    if(summaryUser){ summaryUser.textContent = '—'; }
+    // Filtro de búsqueda
+    if(search){
+      search.oninput = () => {
+        const q = (search.value || '').toLowerCase();
+        Array.from(sel.options).forEach(opt => {
+          if(!opt.value) return;
+          opt.hidden = q.length > 0 && !(opt.textContent || '').toLowerCase().includes(q);
+        });
+      };
+    }
+  }
+  openModal('modal-rutina-assign');
+}
+    async function performAssignRutina(){
+      const plantillaId = state.assignPlantillaId;
+      const id = state.editingRutinaId;
+      const userSel = document.getElementById('rutina-assign-user'); const userId = userSel ? (userSel.value || '') : '';
+      if(!userId){ showToast('Selecciona usuario', 'warning', 3000); return; }
+      try{
+        if(plantillaId){
+          // Clonar plantilla para el usuario
+          const detRes = await fetch(`/api/rutinas/${plantillaId}`, { headers:{ 'Accept':'application/json' } });
+          const det = await detRes.json().catch(() => ({}));
+          if(!detRes.ok){ showToast(det.detail || det.error || 'No se pudo cargar plantilla', 'error', 4500); return; }
+          const payload = {
+            usuario_id: Number(userId),
+            nombre_rutina: det.nombre_rutina || det.nombre || 'Rutina',
+            descripcion: det.descripcion || null,
+            dias_semana: Math.max(2, Math.min(5, Number(det.dias_semana || 3))),
+            categoria: det.categoria || 'general',
+            ejercicios: (Array.isArray(det.ejercicios)? det.ejercicios: []).map(x => {
+              const diasMax = Math.max(2, Math.min(5, Number(det.dias_semana || 3)));
+              const dia = Number(x.dia_semana || 1);
+              const diaClamped = Math.max(1, Math.min(diasMax, dia));
+              return { ejercicio_id: Number(x.ejercicio_id), dia_semana: diaClamped, series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) };
+            })
+          };
+          const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+          const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo asignar plantilla', 'error', 4500); return; }
+          closeModal('modal-rutina-assign'); state.assignPlantillaId = null; showToast('Plantilla clonada y asignada', 'success', 2500);
+          // Refrescar vista de usuario si está activa, si no, las plantillas
+          if(state.activeRutinaTab === 'usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; await loadRutinasPorUsuario(uid); } else { await loadRutinasPlantillas(); }
+        } else if(id){
+          // Asignar rutina existente
+          const res = await fetch(`/api/rutinas/${id}/assign`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: Number(userId) }) });
+          if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+          const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo asignar', 'error', 4500); return; }
+          closeModal('modal-rutina-assign'); showToast('Rutina asignada', 'success', 2500);
+          if(state.activeRutinaTab === 'usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; await loadRutinasPorUsuario(uid); } else { await loadRutinasPlantillas(); }
+        } else {
+          showToast('Acción no válida', 'warning', 2500);
+        }
+      }catch(e){ showToast('Error de red al asignar', 'error', 4500); }
+    }
+
+function openUnassignRutina(id){
+  state.editingRutinaId = id ? Number(id) : null;
+  const sel = document.getElementById('rutina-unassign-user');
+  const search = document.getElementById('rutina-unassign-search');
+  const summaryName = document.getElementById('rutina-unassign-rutina-name');
+  const summaryUser = document.getElementById('rutina-unassign-current-user');
+  if(summaryName){
+    try{
+      fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } })
+        .then(r => r.ok ? r.json() : {})
+        .then(data => { summaryName.textContent = data && (data.nombre_rutina || data.nombre) ? String(data.nombre_rutina || data.nombre) : `Rutina ${id}`; })
+        .catch(()=>{ summaryName.textContent = `Rutina ${id}`; });
+    }catch(_){ summaryName.textContent = `Rutina ${id}`; }
+  }
+  if(sel){
+    sel.innerHTML = '';
+    const def = document.createElement('option'); def.value = ''; def.textContent = 'Selecciona usuario'; sel.appendChild(def);
+    const fill = (users) => { (Array.isArray(users) ? users : []).forEach(u => { const opt = document.createElement('option'); opt.value = String(u.id); opt.textContent = u.nombre || u.email || `Usuario ${u.id}`; sel.appendChild(opt); }); };
+    const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+    if(users.length){
+      fill(users);
+    } else {
+      try{ loadUsers().then(() => { const u2 = Array.isArray(state.usuarios) ? state.usuarios : []; fill(u2); }).catch(() => {}); }catch(_){ }
+    }
+    // Preseleccionar por defecto el usuario seleccionado en la vista
+    try{ const cur = (document.getElementById('rutinas-usuario')||{}).value || ''; if(cur){ sel.value = String(cur); } }catch(_){ }
+    // Intentar preseleccionar el usuario asignado a la rutina
+    if(id){
+      try{
+        fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } })
+          .then(r => r.ok ? r.json() : {})
+          .then(data => { const uid = data && data.usuario_id != null ? String(data.usuario_id) : ''; if(uid){ sel.value = uid; if(summaryUser){ summaryUser.textContent = data.nombre_usuario || uid; } } })
+          .catch(()=>{});
+      }catch(_){ }
+    }
+    // Filtro de búsqueda
+    if(search){
+      search.oninput = () => {
+        const q = (search.value || '').toLowerCase();
+        Array.from(sel.options).forEach(opt => {
+          if(!opt.value) return;
+          opt.hidden = q.length > 0 && !(opt.textContent || '').toLowerCase().includes(q);
+        });
+      };
+    }
+  }
+  openModal('modal-rutina-unassign');
+}
+    async function performUnassignRutina(){
+      const id = state.editingRutinaId; const userSel = document.getElementById('rutina-unassign-user'); const userId = userSel ? (userSel.value || '') : '';
+      if(!id || !userId){ showToast('Selecciona usuario', 'warning', 3000); return; }
+      try{
+        const res = await fetch(`/api/rutinas/${id}/unassign`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: Number(userId) }) });
+        if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo desasignar', 'error', 4500); return; }
+        closeModal('modal-rutina-unassign'); showToast('Rutina desasignada', 'success', 2500);
+        // Refrescar según pestaña activa
+        if(state.activeRutinaTab === 'usuario'){
+          const uid = (document.getElementById('rutinas-usuario')||{}).value || '';
+          await loadRutinasPorUsuario(uid);
+        } else {
+          await loadRutinas();
+        }
+      }catch(e){ showToast('Error de red al desasignar', 'error', 4500); }
+    }
+
+    // ===== Previsualización avanzada de Rutina =====
+    function _deepCopy(obj){ try{ return JSON.parse(JSON.stringify(obj)); }catch(_){ return obj; } }
+    function populateEjercicioSelectForPreview(){
+      const sel = document.getElementById('rutina-preview-ejercicio'); if(!sel) return;
+      sel.innerHTML = '';
+      const def = document.createElement('option'); def.value = ''; def.textContent = 'Selecciona ejercicio'; sel.appendChild(def);
+      const items = Array.isArray(state.ejerciciosFiltered) ? state.ejerciciosFiltered : (Array.isArray(state.ejercicios) ? state.ejercicios : []);
+      const filter = state.ejFilter || {};
+      const byGroup = new Map();
+      items.forEach(e => { const g = String(e.grupo_muscular||'Generales'); const arr = byGroup.get(g) || []; arr.push(e); byGroup.set(g, arr); });
+      if(filter.group){
+        const groupLabel = Array.from(byGroup.keys()).find(k => String(k).toLowerCase() === String(filter.group||'').toLowerCase());
+        const arr = groupLabel ? (byGroup.get(groupLabel)||[]) : [];
+        arr.forEach(e => { const opt = document.createElement('option'); opt.value = String(e.id); opt.textContent = e.nombre || `Ejercicio ${e.id}`; sel.appendChild(opt); });
+      } else {
+        Array.from(byGroup.entries()).forEach(([label, arr]) => {
+          const og = document.createElement('optgroup'); og.label = String(label);
+          arr.forEach(e => { const opt = document.createElement('option'); opt.value = String(e.id); opt.textContent = e.nombre || `Ejercicio ${e.id}`; og.appendChild(opt); });
+          sel.appendChild(og);
+        });
+      }
+      // Seleccionar automáticamente el primer resultado cuando hay filtro activo
+      try {
+        const filtered = Array.isArray(state.ejerciciosFiltered) ? state.ejerciciosFiltered : null;
+        if(filtered && filtered.length > 0){ sel.value = String(filtered[0].id); }
+      } catch(_){ }
+    }
+    function filterEjerciciosForPreview(query){
+      const base = Array.isArray(state.ejercicios) ? state.ejercicios : [];
+      state.ejFilter = state.ejFilter || { q:'', group:'', objetivo:'' };
+      state.ejFilter.q = String(query||'');
+      const q = state.ejFilter.q.toLowerCase();
+      const group = String(state.ejFilter.group||'').toLowerCase();
+      const objetivo = String(state.ejFilter.objetivo||'').toLowerCase();
+      const hasAny = !!q || !!group || !!objetivo;
+      if(!hasAny){ state.ejerciciosFiltered = null; return; }
+      state.ejerciciosFiltered = base.filter(e => {
+        const name = String(e.nombre||'').toLowerCase();
+        const gm = String(e.grupo_muscular||'').toLowerCase();
+        const obj = String(e.objetivo||'').toLowerCase();
+        const qOk = q ? (name.includes(q) || gm.includes(q) || obj.includes(q)) : true;
+        const gOk = group ? (gm === group) : true;
+        const oOk = objetivo ? (obj === objetivo) : true;
+        return qOk && gOk && oOk;
+      });
+    }
+    function populateEjercicioFilters(){
+      const grpSel = document.getElementById('rutina-preview-filter-group');
+      const objSel = document.getElementById('rutina-preview-filter-objetivo');
+      const base = Array.isArray(state.ejercicios) ? state.ejercicios : [];
+      const groups = Array.from(new Set(base.map(e => String(e.grupo_muscular||'').trim()).filter(Boolean)));
+      const objetivos = Array.from(new Set(base.map(e => String(e.objetivo||'').trim()).filter(Boolean)));
+      if(grpSel){ const cur = grpSel.value; grpSel.innerHTML = '<option value="">Grupo: Todos</option>'; groups.forEach(g => { const opt=document.createElement('option'); opt.value=String(g); opt.textContent=String(g); grpSel.appendChild(opt); }); grpSel.value = cur || ''; }
+      if(objSel){ const cur = objSel.value; objSel.innerHTML = '<option value="">Objetivo: Todos</option>'; objetivos.forEach(o => { const opt=document.createElement('option'); opt.value=String(o); opt.textContent=String(o); objSel.appendChild(opt); }); objSel.value = cur || ''; }
+    }
+function renderRutinaPreview(){
+  const cont = document.getElementById('rutina-preview-grid'); if(!cont) return;
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  const diasRaw = Number(d.dias_semana || 3);
+  const dias = Math.max(2, Math.min(5, diasRaw));
+  cont.style.gridTemplateColumns = `repeat(${Math.max(1, dias)}, 1fr)`;
+  cont.innerHTML = '';
+  const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+  const selectedSet = new Set(Array.isArray(state.rutinaSelected) ? state.rutinaSelected.map(String) : []);
+  // Helpers para valores semanales
+  const sumSeries = (val) => {
+    if(val == null) return 0;
+    if(typeof val === 'string'){
+      const parts = val.split(',').map(x => Math.max(0, Number(x.trim())||0));
+      return parts.reduce((a,b)=>a+b,0);
+    }
+    return Math.max(0, Number(val)||0);
+  };
+  const fmtWeekly = (val) => {
+    if(val == null) return '';
+    if(typeof val === 'string'){
+      return val.split(',').map(x => String(x.trim())).join('-');
+    }
+    return String(val);
+  };
+  for(let dia=1; dia<=dias; dia++){
+    const col = document.createElement('div'); col.className = 'day-col';
+    const header = document.createElement('div'); header.className = 'day-header';
+    const items = ejs.filter(x => Number(x.dia_semana||1) === dia).sort((a,b) => Number(a.orden||0) - Number(b.orden||0));
+    const vol = items.reduce((sum,it)=> sum + sumSeries(it.series), 0);
+    const collapsed = !!(state.rutinaDayCollapsed && state.rutinaDayCollapsed[dia]);
+    header.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px"><strong>Día ${dia}</strong></div>
+      <div class="muted" style="margin-top:4px">Volumen: ${vol} series</div>
+      <div style="margin-top:4px"><a href="#" data-day-act="dup" data-day="${dia}">Duplicar a…</a> · <a href="#" data-day-act="clear" data-day="${dia}">Vaciar</a></div>
+    `;
+    col.appendChild(header);
+    const list = document.createElement('div'); list.className = 'day-list'; list.style.display = collapsed ? 'none' : 'flex'; list.style.flexDirection='column'; list.style.gap='6px'; list.style.minHeight='64px';
+    // Zona de drop al inicio (ampliada)
+    const topDrop = document.createElement('div'); topDrop.style.height='28px'; topDrop.style.border='1px dashed #ddd'; topDrop.style.borderRadius='6px'; topDrop.style.opacity='0.7'; topDrop.style.marginBottom='6px'; topDrop.style.display='flex'; topDrop.style.alignItems='center'; topDrop.style.justifyContent='center'; topDrop.textContent = 'Soltar aquí para el inicio'; topDrop.style.fontSize='12px'; topDrop.style.color='#667';
+    topDrop.addEventListener('dragover', (ev) => { ev.preventDefault(); topDrop.style.borderColor = '#59a0ff'; });
+    topDrop.addEventListener('dragleave', () => { topDrop.style.borderColor = '#ddd'; });
+    topDrop.addEventListener('drop', (ev) => { ev.preventDefault(); const drag = state.dragEj||{}; if(drag.eid){ moveOrReorderEjercicio(drag.eid, dia, '__TOP__'); state.dragEj=null; } topDrop.style.borderColor = '#ddd'; });
+    list.appendChild(topDrop);
+    items.forEach(item => {
+      const tile = document.createElement('div'); tile.className = 'ejercicio-tile';
+      const key = `${String(item.ejercicio_id)}#${Number(dia)}#${Number(item.orden||1)}`;
+      tile.style.border='1px solid var(--border)'; tile.style.borderRadius='10px'; tile.style.padding= state.rutinaCompact ? '6px 8px' : '10px 12px'; tile.style.cursor='pointer'; tile.style.background = selectedSet.has(key) ? 'rgba(89,160,255,0.12)' : 'var(--card)'; tile.style.borderColor = selectedSet.has(key) ? 'rgba(89,160,255,0.8)' : 'var(--border)'; tile.style.boxShadow='0 1px 2px rgba(0,0,0,0.06)'; tile.style.transition='background 0.2s ease, box-shadow 0.2s ease';
+      tile.setAttribute('draggable', 'true'); tile.dataset.eid = String(item.ejercicio_id); tile.dataset.day = String(dia);
+      const name = (item.ejercicio && item.ejercicio.nombre) ? item.ejercicio.nombre : `Ejercicio ${item.ejercicio_id}`;
+      const series = item.series != null ? item.series : '';
+      const reps = item.repeticiones != null ? item.repeticiones : '';
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const S = (typeof series === 'string') ? series.split(',').map(x=>String(x).trim()) : [String(series||'')];
+      const R = (typeof reps === 'string') ? reps.split(',').map(x=>String(x).trim()) : [String(reps||'')];
+      const pairs = [];
+      for(let i=0;i<weeks;i++){
+        const rr = (R[i] != null && R[i] !== '') ? R[i] : (R[0]||'');
+        const ss = (S[i] != null && S[i] !== '') ? S[i] : (S[0]||'');
+        if(rr || ss){ pairs.push(`${rr}x${ss}`); }
+      }
+      const pairsTxt = pairs.join(', ');
+      tile.innerHTML = state.rutinaCompact ? `<div><strong>${name}</strong> <span class="muted">(${pairsTxt})</span></div>` : `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px"><strong>${name}</strong><span style="font-size:12px; color:#667">#${Number(item.orden||1)}</span></div><div class="muted" style="margin-top:2px; font-size:12px">${pairsTxt}</div>`;
+      tile.addEventListener('mouseenter', () => { tile.style.boxShadow='0 2px 6px rgba(0,0,0,0.12)'; });
+      tile.addEventListener('mouseleave', () => { tile.style.boxShadow='0 1px 2px rgba(0,0,0,0.06)'; });
+      tile.addEventListener('click', (ev) => {
+        if(state.rutinaSelectMode){
+          if(selectedSet.has(key)){ selectedSet.delete(key); state.rutinaSelected = Array.from(selectedSet); tile.style.background='var(--card)'; tile.style.borderColor='var(--border)'; }
+          else { selectedSet.add(key); state.rutinaSelected = Array.from(selectedSet); tile.style.background='rgba(89,160,255,0.12)'; tile.style.borderColor='rgba(89,160,255,0.8)'; }
+        } else {
+          showRutinaPreviewFloat(item, ev.currentTarget);
+        }
+      });
+      tile.addEventListener('dragstart', (ev) => { try{ state.dragEj = { eid: String(item.ejercicio_id), fromDay: Number(item.dia_semana||dia), order: Number(item.orden||1) }; ev.dataTransfer && ev.dataTransfer.setData('text/plain', String(item.ejercicio_id)); }catch(_){ state.dragEj = { eid: String(item.ejercicio_id), fromDay: Number(item.dia_semana||dia), order: Number(item.orden||1) }; } });
+      tile.addEventListener('dragover', (ev) => { ev.preventDefault(); });
+      tile.addEventListener('drop', (ev) => { ev.preventDefault(); const drag = state.dragEj || {}; if(drag.eid){ const beforeKey = `${String(item.ejercicio_id)}#${Number(item.orden||1)}`; moveOrReorderEjercicio(drag.eid, dia, beforeKey); state.dragEj = null; } });
+      list.appendChild(tile);
+    });
+    list.addEventListener('dragover', (ev) => { ev.preventDefault(); list.style.border='1px dashed #59a0ff'; list.style.borderRadius='6px'; });
+    list.addEventListener('drop', (ev) => { ev.preventDefault(); const drag = state.dragEj||{}; if(drag.eid){ moveOrReorderEjercicio(drag.eid, dia, null); state.dragEj = null; } list.style.border=''; });
+    col.appendChild(list);
+    // Bind acciones de día
+    header.querySelectorAll('a[data-day-act]').forEach(a => {
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const act = a.getAttribute('data-day-act');
+        const dnum = Number(a.getAttribute('data-day')||'1')||1;
+        if(act==='clear'){ clearRutinaDay(dnum); }
+        if(act==='dup'){ openDuplicateDayPopover(dnum, a); }
+        // Colapsar individual removido: usar solo el botón general
+      });
+    });
+    cont.appendChild(col);
+  }
+  // Sincronizar selects de día con número de días actual
+  refreshPreviewDayOptions(dias);
+  // Renderizar también la vista tipo Excel (tabla editable)
+  renderRutinaExcelView();
+  // Si la vista avanzada está visible, refrescar su HTML
+  const adv = document.getElementById('rutina-preview-excel-advanced');
+  if(adv && adv.style.display !== 'none'){ renderRutinaSheetJSView(); }
+}
+    function clearRutinaDay(dia){
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      const remaining = ejs.filter(x => Number(x.dia_semana||1) !== Number(dia));
+      d.ejercicios = remaining; state.rutinaPreviewDraft = d;
+      markRutinaDirty(); renderRutinaPreview(); showToast(`Día ${dia} vaciado`, 'info', 1800);
+    }
+    function duplicateRutinaDay(dia){
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+      const target = Math.min(diasMax, Number(dia)+1);
+      if(target === Number(dia)){ showToast('No hay día destino para duplicar', 'warning', 2500); return; }
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      const srcItems = ejs.filter(x => Number(x.dia_semana||1) === Number(dia));
+      const destItems = ejs.filter(x => Number(x.dia_semana||1) === Number(target));
+      if(destItems.length + srcItems.length > 8){ showToast('No se puede duplicar: supera 8 ejercicios', 'warning', 2800); return; }
+      const baseOrder = destItems.length ? Math.max(...destItems.map(x => Number(x.orden||1))) : 0;
+      const copies = srcItems.map((it, idx) => ({ ejercicio_id: Number(it.ejercicio_id), dia_semana: Number(target), series: (it.series!=null?it.series:3), repeticiones: (it.repeticiones!=null?it.repeticiones:10), orden: Number(baseOrder + idx + 1), ejercicio: it.ejercicio ? _deepCopy(it.ejercicio) : { id: Number(it.ejercicio_id) } }));
+      d.ejercicios = ejs.concat(copies); state.rutinaPreviewDraft = d;
+      markRutinaDirty(); renderRutinaPreview(); showToast(`Día ${dia} duplicado a Día ${target}`, 'success', 2000);
+    }
+function duplicateRutinaDayTo(srcDay, destDay){
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+      const target = Math.max(1, Math.min(diasMax, Number(destDay||srcDay+1)));
+      if(target === Number(srcDay)){ showToast('Elige un día distinto para duplicar', 'warning', 2500); return; }
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      const srcItems = ejs.filter(x => Number(x.dia_semana||1) === Number(srcDay));
+      const destItems = ejs.filter(x => Number(x.dia_semana||1) === Number(target));
+      if(destItems.length + srcItems.length > 8){ showToast('No se puede duplicar: supera 8 ejercicios', 'warning', 2800); return; }
+      const baseOrder = destItems.length ? Math.max(...destItems.map(x => Number(x.orden||1))) : 0;
+      const copies = srcItems.map((it, idx) => ({ ejercicio_id: Number(it.ejercicio_id), dia_semana: Number(target), series: (it.series!=null?it.series:3), repeticiones: (it.repeticiones!=null?it.repeticiones:10), orden: Number(baseOrder + idx + 1), ejercicio: it.ejercicio ? _deepCopy(it.ejercicio) : { id: Number(it.ejercicio_id) } }));
+      d.ejercicios = ejs.concat(copies); state.rutinaPreviewDraft = d;
+      markRutinaDirty(); renderRutinaPreview(); showToast(`Día ${srcDay} duplicado a Día ${target}`, 'success', 2000);
+}
+function openDuplicateDayPopover(dia, anchor){
+      try{ const prev = document.getElementById('rutina-dup-popover'); if(prev) prev.remove(); }catch(_){ }
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+      const pop = document.createElement('div'); pop.id='rutina-dup-popover'; pop.style.position='absolute'; pop.style.background='#fff'; pop.style.border='1px solid #ddd'; pop.style.borderRadius='6px'; pop.style.padding='8px'; pop.style.boxShadow='0 4px 14px rgba(0,0,0,0.2)'; pop.style.zIndex='1001';
+      const rect = anchor.getBoundingClientRect(); const modal = anchor.closest('.modal'); const mrect = modal ? modal.getBoundingClientRect() : {left:0, top:0};
+      pop.style.left = `${rect.left - mrect.left + 8}px`; pop.style.top = `${rect.top - mrect.top + 20}px`;
+      const sel = document.createElement('select'); sel.style.marginRight='8px'; for(let i=1;i<=diasMax;i++){ if(i===Number(dia)) continue; const opt=document.createElement('option'); opt.value=String(i); opt.textContent=`Día ${i}`; sel.appendChild(opt); }
+      const ok = document.createElement('button'); ok.className='btn'; ok.textContent='Duplicar'; ok.onclick = () => { const dest = Number(sel.value||dia+1)||dia+1; duplicateRutinaDayTo(Number(dia), dest); try{ pop.remove(); }catch(_){ } };
+      const cancel = document.createElement('button'); cancel.className='btn secondary'; cancel.textContent='Cancelar'; cancel.style.marginLeft='6px'; cancel.onclick = () => { try{ pop.remove(); }catch(_){ } };
+      pop.appendChild(sel); pop.appendChild(ok); pop.appendChild(cancel);
+      const cont = document.getElementById('modal-rutina-preview'); if(cont){ cont.appendChild(pop); } else { document.body.appendChild(pop); }
+}
+function toggleDayCollapse(dnum){
+  state.rutinaDayCollapsed = state.rutinaDayCollapsed || {};
+  state.rutinaDayCollapsed[Number(dnum)] = !state.rutinaDayCollapsed[Number(dnum)];
+  renderRutinaPreview();
+}
+function refreshPreviewDayOptions(dias){
+  const clampDias = Math.max(2, Math.min(5, Number(dias || 3)));
+  const makeOpts = (sel) => {
+    if(!sel) return;
+    sel.innerHTML = '';
+    for(let i=1;i<=clampDias;i++){ const opt=document.createElement('option'); opt.value=String(i); opt.textContent=`Día ${i}`; sel.appendChild(opt); }
+  };
+  makeOpts(document.getElementById('rutina-preview-dia'));
+  makeOpts(document.getElementById('rutina-preview-float-dia'));
+}
+    function showRutinaPreviewFloat(item, anchor){
+      const float = document.getElementById('rutina-preview-float'); if(!float) return;
+      const rect = anchor.getBoundingClientRect(); const modal = float.closest('.modal'); const mrect = modal ? modal.getBoundingClientRect() : {left:0, top:0, width: (window.innerWidth||800), height: (window.innerHeight||600)};
+      // Mostrar primero para medir dimensiones
+      float.style.display = 'block';
+      const fw = float.offsetWidth || 360; const fh = float.offsetHeight || 240;
+      const mw = (mrect.width != null) ? mrect.width : (modal ? modal.clientWidth : 800);
+      const mh = (mrect.height != null) ? mrect.height : (modal ? modal.clientHeight : 600);
+      let x = (rect.left - mrect.left) + 8;
+      let y = (rect.top - mrect.top) + 8;
+      // Si se cortaría por abajo, intentar ubicar arriba del tile
+      if(y + fh + 8 > mh){ y = (rect.top - mrect.top) - fh - 8; }
+      // Clampeo para mantener dentro del modal
+      const maxX = Math.max(8, mw - fw - 8);
+      const maxY = Math.max(8, mh - fh - 8);
+      x = Math.max(8, Math.min(x, maxX));
+      y = Math.max(8, Math.min(y, maxY));
+      float.style.left = `${x}px`; float.style.top = `${y}px`;
+      const t = document.getElementById('rutina-preview-float-title'); if(t) t.textContent = (item.ejercicio && item.ejercicio.nombre) ? item.ejercicio.nombre : `Ejercicio ${item.ejercicio_id}`;
+      const s = document.getElementById('rutina-preview-float-series'); if(s) s.value = (typeof item.series === 'string' ? '' : (item.series || ''));
+      const r = document.getElementById('rutina-preview-float-reps'); if(r) r.value = (typeof item.repeticiones === 'string' ? '' : (item.repeticiones || ''));
+      const o = document.getElementById('rutina-preview-float-orden'); if(o) o.value = item.orden || 1;
+      const dsel = document.getElementById('rutina-preview-float-dia'); if(dsel) dsel.value = String(item.dia_semana || 1);
+      const weeklyToggle = document.getElementById('rutina-preview-float-weekly');
+      const singleWrap = document.getElementById('rutina-preview-float-single');
+      const weeklyWrap = document.getElementById('rutina-preview-float-weekly-inputs');
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const sInputs = ['s1','s2','s3','s4'].map(id => document.getElementById(`rutina-preview-float-${id}`));
+      const rInputs = ['r1','r2','r3','r4'].map(id => document.getElementById(`rutina-preview-float-${id}`));
+      const S = typeof item.series === 'string' ? item.series.split(',').map(x=>String(x).trim()) : [];
+      const R = typeof item.repeticiones === 'string' ? item.repeticiones.split(',').map(x=>String(x).trim()) : [];
+      const hasWeekly = (S.length || R.length) > 0;
+      if(weeklyToggle){ weeklyToggle.checked = hasWeekly; }
+      if(singleWrap && weeklyWrap){ singleWrap.style.display = hasWeekly ? 'none' : '';
+        weeklyWrap.style.display = hasWeekly ? 'block' : 'none'; }
+      for(let i=0;i<4;i++){
+        if(sInputs[i]){ sInputs[i].style.display = (i<weeks) ? '' : 'none'; sInputs[i].value = S[i] ? S[i] : ''; }
+        if(rInputs[i]){ rInputs[i].style.display = (i<weeks) ? '' : 'none'; rInputs[i].value = R[i] ? R[i] : ''; }
+      }
+      if(weeklyToggle){ weeklyToggle.onchange = () => {
+        const useWeekly = !!weeklyToggle.checked;
+        if(singleWrap && weeklyWrap){ singleWrap.style.display = useWeekly ? 'none' : '';
+          weeklyWrap.style.display = useWeekly ? 'block' : 'none'; }
+      }; }
+      float.dataset.eid = String(item.ejercicio_id);
+      // Identidad exacta de la instancia para evitar editar otro duplicado
+      try {
+        float.dataset.srcDay = String(item.dia_semana || 1);
+        float.dataset.srcOrder = String(item.orden || 0);
+      } catch(_){ float.dataset.srcDay = String(item.dia_semana || 1); float.dataset.srcOrder = String(item.orden || 0); }
+      // Cierre por click fuera del editor flotante (solo dentro del modal)
+      try {
+        const onOutsideClick = (ev) => {
+          const tgt = ev.target;
+          const isInside = float.contains(tgt);
+          const isTile = !!(tgt && (tgt.closest && tgt.closest('.ejercicio-tile')));
+          if(float.style.display === 'block' && !isInside && !isTile){ try{ applyRutinaPreviewFloat(true); }catch(_){ hideRutinaPreviewFloat(); } }
+        };
+        state._floatOutsideHandler && modal && modal.removeEventListener('mousedown', state._floatOutsideHandler);
+        state._floatOutsideHandler = onOutsideClick;
+        modal && modal.addEventListener('mousedown', onOutsideClick);
+        // Cierre con Escape para accesibilidad
+        const onKey = (ev) => { if(ev.key === 'Escape'){ try{ applyRutinaPreviewFloat(true); }catch(_){ hideRutinaPreviewFloat(); } } };
+        state._floatKeyHandler && document.removeEventListener('keydown', state._floatKeyHandler);
+        state._floatKeyHandler = onKey;
+        document.addEventListener('keydown', onKey);
+      } catch(_){ }
+    }
+    function hideRutinaPreviewFloat(){
+      const float = document.getElementById('rutina-preview-float');
+      if(float){
+        float.style.display='none';
+        float.dataset.eid='';
+        try{
+          const modal = float.closest('.modal');
+          if(state._floatOutsideHandler && modal){ modal.removeEventListener('mousedown', state._floatOutsideHandler); }
+          state._floatOutsideHandler = null;
+          if(state._floatKeyHandler){ document.removeEventListener('keydown', state._floatKeyHandler); }
+          state._floatKeyHandler = null;
+        }catch(_){ }
+      }
+    }
+    function applyRutinaPreviewFloat(silent){
+      const float = document.getElementById('rutina-preview-float'); if(!float) return;
+      const eid = float.dataset.eid; if(!eid) return;
+      const srcDayF = Number(float.dataset.srcDay||1);
+      const srcOrderF = Number(float.dataset.srcOrder||0);
+      // Siempre tomar los valores semanales mostrados en el panel flotante
+      // (los inputs individuales no existen en el DOM de esta vista)
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const sVals = [];
+      const rVals = [];
+      for(let i=1;i<=weeks;i++){
+        const sVal = Math.max(1, Number((document.getElementById(`rutina-preview-float-s${i}`)||{}).value || 1));
+        const rVal = Math.max(1, Number((document.getElementById(`rutina-preview-float-r${i}`)||{}).value || 1));
+        sVals.push(String(sVal)); rVals.push(String(rVal));
+      }
+      const s = sVals.join(',');
+      const r = rVals.join(',');
+      const o = Math.max(1, Number((document.getElementById('rutina-preview-float-orden')||{}).value || 1));
+      const dMax = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || 3)));
+      let dsel = Number((document.getElementById('rutina-preview-float-dia')||{}).value || 1) || 1; dsel = Math.max(1, Math.min(dMax, dsel));
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      // Buscar la instancia exacta por id + día + orden
+      let item = ejs.find(x => String(x.ejercicio_id) === String(eid) && Number(x.dia_semana||1) === srcDayF && Number(x.orden||0) === srcOrderF);
+      if(!item){ if(!silent){ try{ showToast('No se encontró la instancia seleccionada', 'warning', 2000); }catch(_){ } } hideRutinaPreviewFloat(); return; }
+      if(item){
+        // Límite: máximo 8 ejercicios por día al mover
+        const currentDay = Number(item.dia_semana||1);
+        if(dsel !== currentDay){
+          const destCount = ejs.filter(x => Number(x.dia_semana||1)===dsel && String(x.ejercicio_id)!==String(eid)).length;
+          if(destCount >= 8){
+            item.series = s; item.repeticiones = r; item.orden = o;
+            showToast(`Día ${dsel} ya tiene 8 ejercicios. No se movió.`, 'warning', 2800);
+          } else {
+            item.series = s; item.repeticiones = r; item.orden = o; item.dia_semana = dsel;
+          }
+        } else {
+          item.series = s; item.repeticiones = r; item.orden = o; item.dia_semana = dsel;
+        }
+      }
+      markRutinaDirty(); renderRutinaPreview(); hideRutinaPreviewFloat(); if(!silent){ try{ showToast('Cambios aplicados', 'success', 1800); }catch(_){ } }
+    }
+    function removeRutinaPreviewItem(){
+      const float = document.getElementById('rutina-preview-float'); if(!float) return;
+      const eid = float.dataset.eid; if(!eid) return;
+      const srcDayF = Number(float.dataset.srcDay||1);
+      const srcOrderF = Number(float.dataset.srcOrder||0);
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      let ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      // Eliminar sólo la instancia exacta
+      ejs = ejs.filter(x => !(String(x.ejercicio_id) === String(eid) && Number(x.dia_semana||1) === srcDayF && Number(x.orden||0) === srcOrderF));
+      d.ejercicios = ejs; state.rutinaPreviewDraft = d;
+      markRutinaDirty(); renderRutinaPreview(); hideRutinaPreviewFloat();
+    }
+    function duplicateRutinaPreviewItem(){
+      const float = document.getElementById('rutina-preview-float'); if(!float) return;
+      const eid = float.dataset.eid; if(!eid) return;
+      const srcDayF = Number(float.dataset.srcDay||1);
+      const srcOrderF = Number(float.dataset.srcOrder||0);
+      const dsel = Number((document.getElementById('rutina-preview-float-dia')||{}).value || 1) || 1;
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      const src = ejs.find(x => String(x.ejercicio_id) === String(eid) && Number(x.dia_semana||1) === srcDayF && Number(x.orden||0) === srcOrderF); if(!src){ try{ showToast('No se encontró la instancia seleccionada', 'warning', 2000); }catch(_){ } return; }
+      const dayItems = ejs.filter(x => Number(x.dia_semana||1) === Number(dsel));
+      if(dayItems.length >= 8){ showToast('Máximo 8 ejercicios por día', 'warning', 2500); return; }
+      const maxOrder = dayItems.length ? Math.max(...dayItems.map(x => Number(x.orden||1))) : 0;
+      const copy = { ejercicio_id: Number(src.ejercicio_id), dia_semana: Number(dsel), series: (src.series!=null?src.series:3), repeticiones: (src.repeticiones!=null?src.repeticiones:10), orden: Number(maxOrder+1), ejercicio: src.ejercicio ? _deepCopy(src.ejercicio) : { id: Number(src.ejercicio_id) } };
+      ejs.push(copy); d.ejercicios = ejs; state.rutinaPreviewDraft = d; markRutinaDirty(); renderRutinaPreview(); showToast('Ejercicio duplicado', 'success', 1800);
+    }
+    function reorderRutinaPreviewItem(direction){
+      const float = document.getElementById('rutina-preview-float'); if(!float) return;
+      const eid = float.dataset.eid; if(!eid) return;
+      const srcDayF = Number(float.dataset.srcDay||1);
+      const srcOrderF = Number(float.dataset.srcOrder||0);
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+      const item = ejs.find(x => String(x.ejercicio_id) === String(eid) && Number(x.dia_semana||1) === srcDayF && Number(x.orden||0) === srcOrderF); if(!item){ try{ showToast('No se encontró la instancia seleccionada', 'warning', 2000); }catch(_){ } return; }
+      const day = Number(item.dia_semana||1);
+      const dayItems = ejs.filter(x => Number(x.dia_semana||1) === day).sort((a,b) => Number(a.orden||1) - Number(b.orden||1));
+      const idx = dayItems.findIndex(x => String(x.ejercicio_id) === String(eid) && Number(x.orden||1) === Number(item.orden||1)); if(idx < 0) return;
+      if(direction === 'up' && idx > 0){ const tmp = dayItems[idx-1]; dayItems[idx-1] = dayItems[idx]; dayItems[idx] = tmp; }
+      if(direction === 'down' && idx < dayItems.length - 1){ const tmp = dayItems[idx+1]; dayItems[idx+1] = dayItems[idx]; dayItems[idx] = tmp; }
+      // Reindex orders
+      dayItems.forEach((x,i) => { x.orden = i+1; });
+      d.ejercicios = ejs; state.rutinaPreviewDraft = d; markRutinaDirty(); renderRutinaPreview(); showToast('Orden actualizado', 'info', 1500);
+    }
+function moveOrReorderEjercicio(eid, toDay, beforeEid){
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  let ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+  const drag = state.dragEj || {};
+  const bulk = state.bulkMoveHint || {};
+  const srcDayHint = Number((drag.fromDay != null ? drag.fromDay : bulk.fromDay) || 0) || null;
+  const srcOrderHint = Number((drag.order != null ? drag.order : bulk.order) || 0) || null;
+  let src = ejs.find(x => String(x.ejercicio_id) === String(eid) && (srcDayHint==null || Number(x.dia_semana||1)===srcDayHint) && (srcOrderHint==null || Number(x.orden||0)===srcOrderHint));
+  if(!src){ src = ejs.find(x => String(x.ejercicio_id) === String(eid)); }
+  if(!src) return;
+  const fromDay = Number(src.dia_semana||1);
+  const tDay = Number(toDay||fromDay) || fromDay;
+  // Si se suelta en el mismo día, solo reordenar dentro del día sin duplicar listas
+  if(fromDay === tDay){
+    const dayList = ejs.filter(x => Number(x.dia_semana||1)===fromDay && x !== src);
+    let insertIndex = -1;
+    if(String(beforeEid) === '__TOP__'){ insertIndex = 0; }
+    else if(beforeEid != null){
+      const parts = String(beforeEid).split('#');
+      const beid = parts[0]; const bord = parts[1] != null ? Number(parts[1]) : null;
+      insertIndex = dayList.findIndex(x => String(x.ejercicio_id) === String(beid) && (bord==null || Number(x.orden||0)===bord));
+    }
+    src.dia_semana = fromDay;
+    if(insertIndex >= 0){ dayList.splice(insertIndex, 0, src); } else { dayList.push(src); }
+    dayList.forEach((x,i)=>{ x.orden = i+1; x.dia_semana = fromDay; });
+    const others = ejs.filter(x => Number(x.dia_semana||1)!==fromDay);
+    d.ejercicios = others.concat(dayList);
+    state.rutinaPreviewDraft = d; markRutinaDirty(); renderRutinaPreview(); showToast('Ejercicio reordenado', 'success', 1500);
+    return;
+  }
+  const fromList = ejs.filter(x => Number(x.dia_semana||1)===fromDay && x !== src);
+  const toList = ejs.filter(x => Number(x.dia_semana||1)===tDay);
+  const others = ejs.filter(x => Number(x.dia_semana||1)!==fromDay && Number(x.dia_semana||1)!==tDay);
+  // Límite de 8 por día al mover entre días
+  if(fromDay !== tDay && toList.length >= 8){ showToast('Máximo 8 ejercicios por día', 'warning', 2500); return; }
+  let insertIndex = -1;
+  if(String(beforeEid) === '__TOP__'){ insertIndex = 0; }
+  else if(beforeEid != null){
+    const parts = String(beforeEid).split('#');
+    const beid = parts[0]; const bord = parts[1] != null ? Number(parts[1]) : null;
+    insertIndex = toList.findIndex(x => String(x.ejercicio_id) === String(beid) && (bord==null || Number(x.orden||0)===bord));
+  }
+  src.dia_semana = tDay;
+  if(insertIndex >= 0){ toList.splice(insertIndex, 0, src); } else { toList.push(src); }
+  fromList.forEach((x,i)=>{ x.orden = i+1; x.dia_semana = fromDay; });
+  toList.forEach((x,i)=>{ x.orden = i+1; x.dia_semana = tDay; });
+  d.ejercicios = others.concat(fromList).concat(toList);
+  state.rutinaPreviewDraft = d; markRutinaDirty(); renderRutinaPreview(); showToast('Ejercicio movido', 'success', 1500);
+}
+
+function bulkMoveSelected(destDay){
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  const keys = Array.isArray(state.rutinaSelected) ? state.rutinaSelected.map(String) : [];
+  const ejs = Array.isArray(d.ejercicios)? d.ejercicios: [];
+  const destItems = ejs.filter(x => Number(x.dia_semana||1) === Number(destDay));
+  if(destItems.length + keys.length > 8){ showToast('No se puede mover: supera 8 ejercicios', 'warning', 2800); return; }
+  keys.forEach(k => {
+    const parts = String(k).split('#');
+    const eid = parts[0]; const sday = parts[1] != null ? Number(parts[1]) : null; const sorder = parts[2] != null ? Number(parts[2]) : null;
+    state.bulkMoveHint = { fromDay: sday, order: sorder };
+    moveOrReorderEjercicio(String(eid), Number(destDay), null);
+    state.bulkMoveHint = null;
+  });
+  markRutinaDirty(); renderRutinaPreview(); showToast('Seleccionados movidos', 'success', 1800);
+}
+function bulkDuplicateSelected(destDay){
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  const ejs = Array.isArray(d.ejercicios)? d.ejercicios: [];
+  const ids = new Set(Array.isArray(state.rutinaSelected) ? state.rutinaSelected.map(String) : []);
+  const destItems = ejs.filter(x => Number(x.dia_semana||1) === Number(destDay));
+  let baseOrder = destItems.length ? Math.max(...destItems.map(x => Number(x.orden||1))) : 0;
+  const toCopy = ejs.filter(x => ids.has(`${String(x.ejercicio_id)}#${Number(x.dia_semana||1)}#${Number(x.orden||1)}`));
+  if(destItems.length + toCopy.length > 8){ showToast('No se puede duplicar: supera 8 ejercicios', 'warning', 2800); return; }
+  toCopy.forEach((src) => {
+    const copy = { ejercicio_id: Number(src.ejercicio_id), dia_semana: Number(destDay), series: (src.series!=null?src.series:3), repeticiones: (src.repeticiones!=null?src.repeticiones:10), orden: Number(++baseOrder), ejercicio: src.ejercicio ? _deepCopy(src.ejercicio) : { id: Number(src.ejercicio_id) } };
+    ejs.push(copy);
+  });
+  d.ejercicios = ejs; state.rutinaPreviewDraft = d;
+  markRutinaDirty(); renderRutinaPreview(); showToast('Seleccionados duplicados', 'success', 1800);
+}
+function bulkDeleteSelected(){
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  let ejs = Array.isArray(d.ejercicios)? d.ejercicios: [];
+  const ids = new Set(Array.isArray(state.rutinaSelected) ? state.rutinaSelected.map(String) : []);
+  ejs = ejs.filter(x => !ids.has(`${String(x.ejercicio_id)}#${Number(x.dia_semana||1)}#${Number(x.orden||1)}`));
+  d.ejercicios = ejs; state.rutinaPreviewDraft = d; state.rutinaSelected = [];
+  markRutinaDirty(); renderRutinaPreview(); showToast('Seleccionados eliminados', 'info', 1800);
+}
+function openBulkDayPopover(kind, anchor){
+  try{ const prev = document.getElementById('rutina-bulk-popover'); if(prev) prev.remove(); }catch(_){ }
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+  const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+  const pop = document.createElement('div'); pop.id='rutina-bulk-popover'; pop.style.position='absolute'; pop.style.background='#fff'; pop.style.border='1px solid #ddd'; pop.style.borderRadius='6px'; pop.style.padding='8px'; pop.style.boxShadow='0 4px 14px rgba(0,0,0,0.2)'; pop.style.zIndex='1001';
+  const rect = anchor.getBoundingClientRect(); const modal = anchor.closest('.modal'); const mrect = modal ? modal.getBoundingClientRect() : {left:0, top:0};
+  pop.style.left = `${rect.left - mrect.left + 8}px`; pop.style.top = `${rect.top - mrect.top + 20}px`;
+  const sel = document.createElement('select'); sel.style.marginRight='8px'; for(let i=1;i<=diasMax;i++){ const opt=document.createElement('option'); opt.value=String(i); opt.textContent=`Día ${i}`; sel.appendChild(opt); }
+  const ok = document.createElement('button'); ok.className='btn'; ok.textContent= kind==='move' ? 'Mover' : 'Duplicar'; ok.onclick = () => { const dest = Number(sel.value||1)||1; if(kind==='move') bulkMoveSelected(dest); else bulkDuplicateSelected(dest); try{ pop.remove(); }catch(_){ } };
+  const cancel = document.createElement('button'); cancel.className='btn secondary'; cancel.textContent='Cancelar'; cancel.style.marginLeft='6px'; cancel.onclick = () => { try{ pop.remove(); }catch(_){ } };
+  pop.appendChild(sel); pop.appendChild(ok); pop.appendChild(cancel);
+  const cont = document.getElementById('modal-rutina-preview'); if(cont){ cont.appendChild(pop); } else { document.body.appendChild(pop); }
+}
+
+function markRutinaDirty(){
+  state.rutinaPreviewDirty = true;
+  try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Editado'; }catch(_){ }
+  try { if(state.rutinaAutoSaveImmediateTimer){ clearTimeout(state.rutinaAutoSaveImmediateTimer); } } catch(_){ }
+  try {
+    state.rutinaAutoSaveImmediateTimer = setTimeout(() => { try{ autoSaveRutinaDraft(); }catch(_){ } }, 800);
+  } catch(_){ }
+}
+function ensureRutinaAutoSave(){
+  try{ if(state.rutinaAutoSaveTimer) return; }catch(_){ }
+  state.rutinaAutoSaveTimer = setInterval(autoSaveRutinaDraft, 5000);
+}
+function stopRutinaAutoSave(){ try{ if(state.rutinaAutoSaveTimer){ clearInterval(state.rutinaAutoSaveTimer); state.rutinaAutoSaveTimer = null; } }catch(_){ } }
+async function autoSaveRutinaDraft(){
+  try{
+    if(!state.rutinaPreviewDirty) return;
+    const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+    if(!d || !d.id) return; // solo auto-guardar para rutinas existentes
+    try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Guardando…'; }catch(_){ }
+    const payload = {
+      nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
+      descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
+      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+      categoria: d.categoria || 'general',
+      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+    };
+    const putRes = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    if(putRes.ok){
+      state.rutinaPreviewDirty = false; state.lastAutoSaveTs = Date.now();
+      try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Guardado'; }catch(_){ }
+      try{ updateRutinaPDFPreview(); }catch(_){ }
+    } else {
+      try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Error al guardar'; }catch(_){ }
+    }
+  }catch(_){ /* silencioso */ }
+}
+
+// Descarga directa de Excel desde la vista previa (sin modal)
+async function directExportExcelFromPreview(){
+  try{
+    const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+    if(!d || !d.id){ showToast('Primero guarda o crea la rutina', 'warning', 3000); return; }
+    const payload = {
+      nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
+      descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
+      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+      categoria: d.categoria || 'general',
+      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+    };
+    const putRes = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de exportar', 'error', 4500); return; }
+    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
+    const r = await fetch(url);
+    if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
+    const blob = await r.blob();
+    const fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    const dlUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = dlUrl; a.download = fname2; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
+    showToast('Excel descargado', 'success', 2500);
+  }catch(_){ showToast('No se pudo exportar Excel', 'error', 4500); }
+}
+
+// Previsualización PDF integrada mediante iframe
+async function updateRutinaPDFPreview(){
+  try{
+    const cont = document.getElementById('rutina-preview-pdf'); const frame = document.getElementById('rutina-preview-frame'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
+    if(!cont || !frame || !empty) return;
+    const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+    if(!d || !d.id){ empty.style.display='block'; frame.style.display='none'; return; }
+    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+    const urlP = `/api/rutinas/${d.id}/export/pdf?weeks=${encodeURIComponent(String(weeks))}&ts=${Date.now()}#toolbar=0&navpanes=0`;
+    empty.style.display='none';
+    if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
+    frame.style.display='block';
+    try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
+    frame.src = urlP;
+    // Adjuntar zoom con rueda
+    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
+  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
+}
+// Zoom con rueda para iframes PDF (aplica escala CSS al iframe)
+function attachWheelZoom(containerId, frameId){
+  try {
+    const cont = document.getElementById(containerId);
+    const frame = document.getElementById(frameId);
+    if(!cont || !frame) return;
+    // Asegurar comportamiento correcto
+    cont.style.overflow = cont.style.overflow || 'auto';
+    frame.style.transformOrigin = frame.style.transformOrigin || 'center top';
+    if(!state._wheelZoom) state._wheelZoom = {};
+    if(!state._wheelZoomBound) state._wheelZoomBound = new Set();
+    if(!state._wheelZoom[frameId]) state._wheelZoom[frameId] = { scale: 1.0 };
+    if(state._wheelZoomBound.has(frameId)) return;
+    const zoom = state._wheelZoom[frameId];
+    cont.addEventListener('wheel', (ev) => {
+      try {
+        if(ev.ctrlKey) return; // Mantener zoom nativo del navegador con Ctrl
+        ev.preventDefault();
+        const delta = ev.deltaY < 0 ? 0.1 : -0.1;
+        const next = Math.max(0.5, Math.min(3.0, (zoom.scale || 1.0) + delta));
+        zoom.scale = next;
+        const rect = cont.getBoundingClientRect();
+        const ox = (ev.clientX - rect.left);
+        const oy = (ev.clientY - rect.top);
+        frame.style.transformOrigin = `${ox}px ${oy}px`;
+        frame.style.transform = `scale(${zoom.scale})`;
+      } catch(_){ /* noop */ }
+    }, { passive: false });
+    state._wheelZoomBound.add(frameId);
+  } catch(_){ }
+}
+    async function openRutinaPreview(id){
+      try{
+        // Asegurar ejercicios cargados para los selects de agregar
+        async function ensureEjerciciosLoaded(){
+          if(Array.isArray(state.ejercicios) && state.ejercicios.length){ return; }
+          try{
+            const r = await fetch('/api/ejercicios', { headers:{ 'Accept':'application/json' } });
+            if(r.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+            const arr = await r.json().catch(()=>[]);
+            state.ejercicios = Array.isArray(arr) ? arr : [];
+          }catch(_){ state.ejercicios = []; }
+        }
+        await ensureEjerciciosLoaded();
+        if(id != null){
+          const res = await fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } });
+          if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+          const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo cargar rutina', 'error', 4500); return; }
+          state.rutinaPreview = data; state.rutinaPreviewDraft = _deepCopy(data);
+          const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl) nameEl.value = (data.nombre_rutina || data.nombre || '') || '';
+          const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = data.descripcion || '';
+          const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
+          const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){
+            const isPlantilla = (data.usuario_id == null) || (state.activeRutinaTab === 'plantillas');
+            catEl.value = String(isPlantilla ? 'general' : (data.categoria || 'general'));
+            catEl.disabled = !!isPlantilla;
+            // Ocultar la tabla de ejercicios en rutinas de usuario (solo mostrar en plantillas)
+            try{
+              const excelTable = document.getElementById('rutina-preview-excel');
+              if(excelTable){ excelTable.style.display = isPlantilla ? '' : 'none'; }
+            }catch(_){ }
+          }
+          refreshPreviewDayOptions(Number(diasEl ? diasEl.value : 3));
+        } else {
+          const base = { id: null, usuario_id: null, nombre_rutina: '', descripcion: '', dias_semana: 3, categoria: 'general', ejercicios: [] };
+          state.rutinaPreview = base; state.rutinaPreviewDraft = _deepCopy(base);
+          const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl) nameEl.value = '';
+          const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = '';
+          const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = '3';
+          const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){ catEl.value = 'general'; catEl.disabled = true; }
+          refreshPreviewDayOptions(Number(diasEl ? diasEl.value : 3));
+        }
+        // Asegurar que los ejercicios estén cargados antes de poblar filtros y select
+        (async () => {
+          try {
+            if(!Array.isArray(state.ejercicios) || state.ejercicios.length === 0){ await loadEjercicios(); }
+          } catch(_){ }
+          populateEjercicioFilters();
+          const qvInit = (document.getElementById('rutina-preview-ejercicio-search')||{}).value || '';
+          filterEjerciciosForPreview(qvInit);
+          populateEjercicioSelectForPreview();
+          renderRutinaPreview();
+        })();
+        openModal('modal-rutina-preview');
+        try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent=''; const ps = document.getElementById('rutina-preview-pdf-status'); if(ps) ps.style.display='none'; }catch(_){ }
+        ensureRutinaAutoSave();
+        // Colapsar inputs por defecto y primera carga de PDF
+        try{
+          const adv = document.getElementById('rutina-preview-advanced'); const btnPrevToggle = document.getElementById('rutina-preview-toggle-advanced');
+          if(adv){ adv.style.display = 'none'; state.rutinaPreviewAdvancedHidden = true; }
+          if(btnPrevToggle) btnPrevToggle.textContent = 'Mostrar opciones avanzadas';
+        }catch(_){ }
+        try{ updateRutinaPDFPreview(); }catch(_){ }
+        // Bind inline once modal opens
+        const closeBtn = document.getElementById('rutina-preview-close');
+        const cancelBtn = document.getElementById('rutina-preview-cancel');
+        const fApply = document.getElementById('rutina-preview-float-apply');
+        function onKeyDown(ev){
+          try{
+            if(ev.key === 'Escape'){ ev.preventDefault(); closeModal('modal-rutina-preview'); cleanupKeys(); }
+            else if((ev.ctrlKey || ev.metaKey) && String(ev.key||'').toLowerCase() === 's'){ ev.preventDefault(); const saveBtn = document.getElementById('rutina-preview-save'); if(saveBtn){ saveBtn.click(); } }
+            else if(ev.key === 'Enter'){
+              const float = document.getElementById('rutina-preview-float'); if(float && float.style.display === 'block' && fApply){ ev.preventDefault(); fApply.click(); }
+            }
+          }catch(_){ }
+        }
+        function cleanupKeys(){ document.removeEventListener('keydown', onKeyDown); }
+        document.addEventListener('keydown', onKeyDown);
+        if(closeBtn) closeBtn.onclick = async () => {
+          try {
+            const float = document.getElementById('rutina-preview-float');
+            if(float && float.style.display === 'block') { try{ applyRutinaPreviewFloat(true); }catch(_){ } }
+            if(state.rutinaPreviewDirty){ try{ await autoSaveRutinaDraft(); }catch(_){ } }
+          } catch(_){ }
+          cleanupKeys(); stopRutinaAutoSave(); closeModal('modal-rutina-preview');
+        };
+        if(cancelBtn) cancelBtn.onclick = async () => {
+          try {
+            const float = document.getElementById('rutina-preview-float');
+            if(float && float.style.display === 'block') { try{ applyRutinaPreviewFloat(true); }catch(_){ } }
+            if(state.rutinaPreviewDirty){ try{ await autoSaveRutinaDraft(); }catch(_){ } }
+          } catch(_){ }
+          cleanupKeys(); stopRutinaAutoSave(); closeModal('modal-rutina-preview');
+        };
+        const searchEl = document.getElementById('rutina-preview-ejercicio-search'); if(searchEl){
+          const doFilter = () => { filterEjerciciosForPreview(searchEl.value || ''); populateEjercicioSelectForPreview(); };
+          let qTimer = null;
+          const debounced = () => { try{ if(qTimer) clearTimeout(qTimer); }catch(_){ }
+            qTimer = setTimeout(() => { try{ doFilter(); }catch(_){ } }, 200);
+          };
+          searchEl.oninput = debounced;
+          searchEl.onkeyup = debounced;
+        }
+        const grpSel = document.getElementById('rutina-preview-filter-group'); if(grpSel){ grpSel.onchange = () => { state.ejFilter = Object.assign({ q:'', group:'', objetivo:'' }, state.ejFilter||{}); state.ejFilter.group = String(grpSel.value||''); const qv = (document.getElementById('rutina-preview-ejercicio-search')||{}).value || ''; filterEjerciciosForPreview(qv); populateEjercicioSelectForPreview(); }; }
+        const objSel = document.getElementById('rutina-preview-filter-objetivo'); if(objSel){ objSel.onchange = () => { state.ejFilter = Object.assign({ q:'', group:'', objetivo:'' }, state.ejFilter||{}); state.ejFilter.objetivo = String(objSel.value||''); const qv = (document.getElementById('rutina-preview-ejercicio-search')||{}).value || ''; filterEjerciciosForPreview(qv); populateEjercicioSelectForPreview(); }; }
+        const addBtn = document.getElementById('rutina-preview-add'); if(addBtn) addBtn.onclick = () => {
+          const esel = document.getElementById('rutina-preview-ejercicio'); const dsel = document.getElementById('rutina-preview-dia');
+          const eid = esel ? (esel.value||'') : ''; const dia = dsel ? Number(dsel.value||'1') : 1;
+          if(!eid) { showToast('Selecciona ejercicio', 'warning', 2500); return; }
+          const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+          const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+          const destItems = ejs.filter(x => Number(x.dia_semana||1) === Number(dia));
+          if(destItems.length >= 8){ showToast('Máximo 8 ejercicios por día', 'warning', 2500); return; }
+          const existsInDay = destItems.some(x => String(x.ejercicio_id) === String(eid));
+          if(existsInDay){ showToast('El ejercicio ya está en este día', 'info', 2500); return; }
+          const baseOrder = destItems.length ? Math.max(...destItems.map(x => Number(x.orden||1))) : 0;
+          const ejMeta = (state.ejercicios||[]).find(x => String(x.id)===String(eid)) || { id: Number(eid) };
+          ejs.push({ ejercicio_id: Number(eid), dia_semana: Number(dia), series: 3, repeticiones: 10, orden: Number(baseOrder+1), ejercicio: ejMeta });
+          d.ejercicios = ejs; state.rutinaPreviewDraft = d; renderRutinaPreview(); markRutinaDirty();
+        };
+        const diasSel = document.getElementById('rutina-preview-dias'); if(diasSel) diasSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.dias_semana = Number(diasSel.value||3); state.rutinaPreviewDraft = d; refreshPreviewDayOptions(Number(diasSel.value||3)); renderRutinaPreview(); markRutinaDirty(); };
+        const weeksSel = document.getElementById('rutina-preview-semanas'); if(weeksSel) weeksSel.onchange = () => {
+          try{ updateRutinaPDFPreview(); }catch(_){ }
+          // Sincronizar inputs semanales en el editor flotante si está abierto
+          try {
+            const float = document.getElementById('rutina-preview-float');
+            if(float && float.style.display === 'block'){
+              const weeks = Math.max(1, Math.min(4, Number(weeksSel.value || 1)));
+              ['s1','s2','s3','s4'].forEach((id, i) => { const el = document.getElementById(`rutina-preview-float-${id}`); if(el){ el.style.display = (i < weeks) ? '' : 'none'; } });
+              ['r1','r2','r3','r4'].forEach((id, i) => { const el = document.getElementById(`rutina-preview-float-${id}`); if(el){ el.style.display = (i < weeks) ? '' : 'none'; } });
+            }
+          } catch(_){ }
+        };
+        const catSel = document.getElementById('rutina-preview-categoria'); if(catSel) catSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.categoria = String(catSel.value || 'general'); state.rutinaPreviewDraft = d; renderRutinaPreview(); markRutinaDirty(); };
+        const nameEl2 = document.getElementById('rutina-preview-nombre'); if(nameEl2) nameEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.nombre_rutina = String(nameEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
+        const descEl2 = document.getElementById('rutina-preview-descripcion'); if(descEl2) descEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.descripcion = String(descEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
+        if(fApply) fApply.onclick = () => applyRutinaPreviewFloat(false);
+        const fRemove = document.getElementById('rutina-preview-float-remove'); if(fRemove) fRemove.onclick = removeRutinaPreviewItem;
+        const fClose = document.getElementById('rutina-preview-float-close'); if(fClose) fClose.onclick = () => applyRutinaPreviewFloat(true);
+        const fDup = document.getElementById('rutina-preview-float-dup'); if(fDup) fDup.onclick = duplicateRutinaPreviewItem;
+        const fUp = document.getElementById('rutina-preview-float-up'); if(fUp) fUp.onclick = () => reorderRutinaPreviewItem('up');
+        const fDown = document.getElementById('rutina-preview-float-down'); if(fDown) fDown.onclick = () => reorderRutinaPreviewItem('down');
+        // Barra de herramientas de selección y vista
+        const selMode = document.getElementById('rutina-preview-select-mode'); if(selMode){ selMode.checked = !!state.rutinaSelectMode; selMode.onchange = () => { state.rutinaSelectMode = !!selMode.checked; renderRutinaPreview(); }; }
+        const selAll = document.getElementById('rutina-preview-select-all'); if(selAll){ selAll.onclick = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : []; state.rutinaSelected = ejs.map(x => `${String(x.ejercicio_id)}#${Number(x.dia_semana||1)}#${Number(x.orden||1)}`); renderRutinaPreview(); showToast('Todos seleccionados', 'info', 1500); }; }
+        const bulkMoveBtn = document.getElementById('rutina-preview-bulk-move'); if(bulkMoveBtn){ bulkMoveBtn.onclick = (ev) => openBulkDayPopover('move', ev.currentTarget); }
+        const bulkDupBtn = document.getElementById('rutina-preview-bulk-dup'); if(bulkDupBtn){ bulkDupBtn.onclick = (ev) => openBulkDayPopover('dup', ev.currentTarget); }
+        const bulkDelBtn = document.getElementById('rutina-preview-bulk-delete'); if(bulkDelBtn){ bulkDelBtn.onclick = () => bulkDeleteSelected(); }
+        const compactBtn = document.getElementById('rutina-preview-toggle-compact'); if(compactBtn){ compactBtn.onclick = () => { state.rutinaCompact = !state.rutinaCompact; renderRutinaPreview(); compactBtn.textContent = state.rutinaCompact ? 'Vista normal' : 'Vista compacta'; }; }
+        const collapseBtn = document.getElementById('rutina-preview-collapse-days'); if(collapseBtn){ collapseBtn.onclick = () => {
+          const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+          const collapsed = state.rutinaDayCollapsed || {}; let anyExpanded = false; for(let i=1;i<=diasMax;i++){ if(!collapsed[i]) { anyExpanded = true; break; } }
+          const next = anyExpanded ? true : false; state.rutinaDayCollapsed = {}; for(let i=1;i<=diasMax;i++){ state.rutinaDayCollapsed[i] = next; }
+          renderRutinaPreview();
+          // Expandir PDF a ancho completo si todos los días están colapsados
+          const cols = document.getElementById('rutina-preview-columns');
+          const grid = document.getElementById('rutina-preview-grid');
+          if(cols){ cols.style.gridTemplateColumns = next ? '1fr' : '1.5fr 1fr'; }
+          if(grid){ grid.parentElement.style.display = next ? 'none' : ''; }
+        }; }
+        const advBtn = document.getElementById('rutina-preview-excel-advanced-btn');
+        if(advBtn){
+          advBtn.onclick = async () => {
+            try{ await (window.loadSheetJSLib ? window.loadSheetJSLib() : Promise.resolve(false)); }catch(_){ }
+            const cont = document.getElementById('rutina-preview-excel-advanced');
+            const simple = document.getElementById('rutina-preview-excel');
+            if(cont && simple){
+              const showingAdv = cont.style.display === '';
+              const nextShowAdv = !showingAdv;
+              cont.style.display = nextShowAdv ? '' : 'none';
+              simple.style.display = nextShowAdv ? 'none' : '';
+              advBtn.textContent = nextShowAdv ? 'Vista simple' : 'Vista Excel (SheetJS)';
+              if(nextShowAdv){ renderRutinaSheetJSView(); }
+            }
+          };
+        }
+        const saveBtn = document.getElementById('rutina-preview-save'); if(saveBtn) saveBtn.onclick = async () => {
+          const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+          const payloadBase = {
+            nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
+            descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
+            dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+            categoria: ((d.usuario_id == null) || (state.activeRutinaTab==='plantillas')) ? 'general' : (d.categoria || 'general'),
+            ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+          };
+          try{
+            if(d.id){
+              const res = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payloadBase) });
+              const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar rutina', 'error', 4500); return; }
+              closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Rutina actualizada', 'success', 2500);
+              if(state.activeRutinaTab==='plantillas') await loadRutinasPlantillas(); else await loadRutinas();
+            } else {
+              // Crear como plantilla (usuario_id null)
+              const payload = Object.assign({}, payloadBase, { usuario_id: null });
+              const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+              const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear plantilla', 'error', 4500); return; }
+              closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Plantilla creada', 'success', 2500); await loadRutinasPlantillas();
+            }
+          }catch(e){ showToast('Error de red al guardar rutina', 'error', 4500); }
+        };
+      }catch(e){ showToast('Error de red al cargar rutina', 'error', 4500); }
+    }
+
+    // Vista tipo Excel dentro del preview: render y edición en tiempo real
+    function renderRutinaExcelView(){
+      const table = document.querySelector('#rutina-preview-excel-table tbody'); if(!table) return;
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios.slice() : [];
+      ejs.sort((a,b) => (Number(a.dia_semana||1) - Number(b.dia_semana||1)) || (Number(a.orden||1) - Number(b.orden||1)));
+      table.innerHTML = '';
+      const fmtEdit = (val) => {
+        if(val == null) return '';
+        if(typeof val === 'string') return val;
+        return String(val);
+      };
+      ejs.forEach(item => {
+        const tr = document.createElement('tr'); tr.setAttribute('data-ej-id', String(item.ejercicio_id));
+        tr.innerHTML = `
+          <td>${Number(item.dia_semana||1)}</td>
+          <td>${(item.ejercicio && item.ejercicio.nombre) ? String(item.ejercicio.nombre) : ('Ejercicio ' + item.ejercicio_id)}</td>
+          <td contenteditable="true">${fmtEdit(item.series!=null?item.series:3)}</td>
+          <td contenteditable="true">${fmtEdit(item.repeticiones!=null?item.repeticiones:10)}</td>
+          <td>${Number(item.orden||1)}</td>`;
+        table.appendChild(tr);
+      });
+      // Edición en tiempo real: actualizar series/reps al escribir
+      const tbl = document.getElementById('rutina-preview-excel-table');
+      if(tbl){
+        tbl.oninput = (ev) => {
+          const cell = ev.target.closest('td'); if(!cell) return;
+          const row = cell.parentElement; const eid = row ? row.getAttribute('data-ej-id') : '';
+          if(!eid) return;
+          const tds = row.querySelectorAll('td');
+          const rawS = (tds[2]?.textContent || '').trim();
+          const rawR = (tds[3]?.textContent || '').trim();
+          const parseField = (raw) => {
+            if(raw.includes(',')){
+              return raw.split(',').map(p => String(Math.max(1, Number(p.trim())||1))).join(',');
+            }
+            return Math.max(1, Number(raw)||1);
+          };
+          const series = parseField(rawS);
+          const reps = parseField(rawR);
+          const d2 = state.rutinaPreviewDraft || state.rutinaPreview || {};
+          const ejs2 = Array.isArray(d2.ejercicios) ? d2.ejercicios : [];
+          const it = ejs2.find(x => String(x.ejercicio_id) === String(eid)); if(it){ it.series = series; it.repeticiones = reps; }
+          // Mantener la grilla sincronizada
+          markRutinaDirty(); renderRutinaPreview();
+        };
+      }
+    }
+
+    // Vista avanzada con SheetJS (HTML de hoja de cálculo, sin progresión por semanas)
+    async function renderRutinaSheetJSView(){
+      const cont = document.getElementById('rutina-preview-excel-advanced'); if(!cont) return;
+      // Asegurar librería
+      try { if(!window.XLSX){ await (window.loadSheetJSLib ? window.loadSheetJSLib() : Promise.resolve(false)); } } catch(_){ }
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      const ejs = Array.isArray(d.ejercicios) ? d.ejercicios.slice() : [];
+      ejs.sort((a,b) => (Number(a.dia_semana||1) - Number(b.dia_semana||1)) || (Number(a.orden||1) - Number(b.orden||1)));
+      const aoa = [['Día','Ejercicio','Series','Repeticiones','Orden']];
+      ejs.forEach(it => {
+        aoa.push([
+          Number(it.dia_semana||1),
+          (it.ejercicio && it.ejercicio.nombre) ? String(it.ejercicio.nombre) : ('Ejercicio ' + it.ejercicio_id),
+          Number(it.series||3),
+          Number(it.repeticiones||10),
+          Number(it.orden||1)
+        ]);
+      });
+      if(window.XLSX){
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        const html = XLSX.utils.sheet_to_html(ws, { id: 'rutina-sheetjs-html', editable: false });
+        cont.innerHTML = html;
+      } else {
+        // Fallback manual sin SheetJS
+        const table = document.createElement('table');
+        table.id = 'rutina-sheetjs-html';
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        ['Día','Ejercicio','Series','Repeticiones','Orden'].forEach(h => { const th=document.createElement('th'); th.textContent=h; trh.appendChild(th); });
+        thead.appendChild(trh);
+        const tbody = document.createElement('tbody');
+        aoa.slice(1).forEach(row => {
+          const tr = document.createElement('tr');
+          row.forEach(val => { const td=document.createElement('td'); td.textContent=String(val); tr.appendChild(td); });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(thead); table.appendChild(tbody);
+        cont.innerHTML = ''; cont.appendChild(table);
+      }
+      const tbl = cont.querySelector('table'); if(tbl){ tbl.style.width = 'max-content'; tbl.style.minWidth = '100%'; tbl.style.borderCollapse = 'collapse'; }
+      const ths = cont.querySelectorAll('th, td'); ths.forEach(el => { el.style.padding = '10px'; el.style.borderBottom = '1px solid var(--border)'; el.style.textAlign = 'left'; });
+    }
+
+    // ===== Exportar Excel desde preview =====
+    function openRutinaExportModal(){
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+      if(!d || !d.id){ showToast('Guarda la rutina/plantilla antes de exportar', 'warning', 3500); return; }
+      const fname = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+      const fEl = document.getElementById('rutina-export-filename'); if(fEl) fEl.value = fname;
+      const tbody = document.querySelector('#rutina-export-table tbody'); if(tbody){
+        const ejs = Array.isArray(d.ejercicios) ? d.ejercicios.slice() : [];
+        ejs.sort((a,b) => (Number(a.dia_semana||1) - Number(b.dia_semana||1)) || (Number(a.orden||1) - Number(b.orden||1)));
+        tbody.innerHTML = '';
+        ejs.forEach(item => {
+          const tr = document.createElement('tr');
+          tr.setAttribute('data-ej-id', String(item.ejercicio_id));
+          tr.innerHTML = `
+            <td>${Number(item.dia_semana||1)}</td>
+            <td>${(item.ejercicio && item.ejercicio.nombre) ? String(item.ejercicio.nombre) : ('Ejercicio ' + item.ejercicio_id)}</td>
+            <td contenteditable="true">${(item.series!=null? (typeof item.series==='string'? item.series : String(item.series)) : '3')}</td>
+            <td contenteditable="true">${(item.repeticiones!=null? (typeof item.repeticiones==='string'? item.repeticiones : String(item.repeticiones)) : '10')}</td>
+            <td>${Number(item.orden||1)}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+      const c1 = document.getElementById('rutina-export-close'); if(c1) c1.onclick = () => closeModal('modal-rutina-export');
+      const c2 = document.getElementById('rutina-export-close-btn'); if(c2) c2.onclick = () => closeModal('modal-rutina-export');
+      const applyAllBtn = document.getElementById('rutina-export-apply-all');
+      if(applyAllBtn){
+        applyAllBtn.onclick = () => {
+          const sVal = Number((document.getElementById('rutina-export-all-series')||{}).value || '');
+          const rVal = Number((document.getElementById('rutina-export-all-reps')||{}).value || '');
+          const tbody3 = document.querySelector('#rutina-export-table tbody');
+          if(tbody3){
+            Array.from(tbody3.querySelectorAll('tr')).forEach(tr => {
+              const tds = tr.querySelectorAll('td');
+              if(!isNaN(sVal) && sVal > 0){ const tdS = tds[2]; if(tdS) tdS.textContent = String(sVal); }
+              if(!isNaN(rVal) && rVal > 0){ const tdR = tds[3]; if(tdR) tdR.textContent = String(rVal); }
+            });
+          }
+          // Actualizar previsualización tras aplicar
+          const prevBtn = document.getElementById('rutina-export-preview-btn'); if(prevBtn) prevBtn.click();
+        };
+      }
+      // Helper: construir payload desde la tabla para guardar
+      function buildPayloadFromTable(){
+        const dInner = state.rutinaPreviewDraft || state.rutinaPreview || {};
+        const tbody2 = document.querySelector('#rutina-export-table tbody');
+        const rows = Array.from(tbody2 ? tbody2.querySelectorAll('tr') : []);
+        const map = new Map();
+        rows.forEach(tr => {
+          const eid = tr.getAttribute('data-ej-id'); if(!eid) return;
+          const tds = tr.querySelectorAll('td');
+          const rawS = (tds[2]?.textContent || '').trim();
+          const rawR = (tds[3]?.textContent || '').trim();
+          const parseField = (raw) => {
+            if(raw.includes(',')){
+              return raw.split(',').map(p => String(Math.max(1, Number(p.trim())||1))).join(',');
+            }
+            return Math.max(1, Number(raw)||1);
+          };
+          const series = parseField(rawS);
+          const reps = parseField(rawR);
+          map.set(String(eid), { series, repeticiones: reps });
+        });
+        const ejs = Array.isArray(dInner.ejercicios) ? dInner.ejercicios : [];
+        ejs.forEach(item => { const m = map.get(String(item.ejercicio_id)); if(m){ item.series = m.series; item.repeticiones = m.repeticiones; } });
+        const payload = {
+          nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (dInner.nombre_rutina||''),
+          descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || dInner.descripcion || null,
+          dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
+          categoria: dInner.categoria || 'general',
+          ejercicios: ejs.map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+        };
+        return { dInner, payload };
+      }
+
+      // Guardar cambios explícitamente
+      const saveBtn = document.getElementById('rutina-export-save-btn'); if(saveBtn){
+        saveBtn.onclick = async () => {
+          try{
+            const { dInner, payload } = buildPayloadFromTable();
+            const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar', 'error', 4500); return; }
+            showToast('Cambios guardados', 'success', 2000);
+          }catch(_){ showToast('Error guardando cambios', 'error', 4500); }
+        };
+      }
+
+      // Previsualización literal: guarda y renderiza desde backend XLSX
+      async function updateExcelPreview(){
+        try{
+          const previewEl = document.getElementById('rutina-export-preview'); if(!previewEl) return;
+          const { dInner, payload } = buildPayloadFromTable();
+          // Guardar cambios para asegurar que el XLSX refleje exactamente la vista
+          const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+          const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de previsualizar', 'error', 4500); return; }
+          // Obtener XLSX del backend
+          const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
+          const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
+          const r = await fetch(url);
+          if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
+          const blob = await r.blob();
+          // Renderizar con SheetJS
+          try{ await (window.loadSheetJSLib ? window.loadSheetJSLib() : Promise.resolve(false)); }catch(_){ }
+          if(!window.XLSX){ previewEl.innerHTML = '<p class="muted">No se pudo cargar la librería de previsualización.</p>'; return; }
+          const buf = await blob.arrayBuffer();
+          let wb; try{ wb = XLSX.read(buf, { type:'array' }); }catch(_){ wb = null; }
+          if(!wb || !wb.SheetNames || !wb.SheetNames.length){ previewEl.innerHTML = '<p class="muted">No se pudo interpretar el Excel.</p>'; return; }
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const html = XLSX.utils.sheet_to_html(ws, { id:'rutina-export-preview-table', editable:false });
+          previewEl.innerHTML = html;
+          const tbl = previewEl.querySelector('table'); if(tbl){ tbl.style.width = 'max-content'; tbl.style.minWidth = '100%'; tbl.style.borderCollapse = 'collapse'; }
+          const cells = previewEl.querySelectorAll('th, td'); cells.forEach(el => { el.style.padding = '10px'; el.style.borderBottom = '1px solid var(--border)'; el.style.textAlign = 'left'; });
+          showToast('Vista previa actualizada', 'success', 1200);
+        }catch(_){ showToast('No se pudo generar la vista previa', 'error', 4500); }
+      }
+
+      const prevBtn = document.getElementById('rutina-export-preview-btn'); if(prevBtn){ prevBtn.onclick = updateExcelPreview; }
+      const weeksEl = document.getElementById('rutina-export-weeks'); if(weeksEl){ weeksEl.onchange = updateExcelPreview; }
+      const dBtn = document.getElementById('rutina-export-download'); if(dBtn){
+        dBtn.onclick = async () => {
+          try{
+            const { dInner, payload } = buildPayloadFromTable();
+            const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar cambios antes de exportar', 'error', 4500); return; }
+            // Exportar Excel desde backend (con selección de semanas)
+            const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
+            const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
+            const r = await fetch(url);
+            if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
+            const blob = await r.blob();
+            const fname2 = (document.getElementById('rutina-export-filename')||{}).value || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx');
+            const dlUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = dlUrl; a.download = fname2;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
+            showToast('Excel descargado', 'success', 2500);
+            closeModal('modal-rutina-export');
+          }catch(_){ showToast('No se pudo exportar Excel', 'error', 4500); }
+        };
+      }
+      
+      openModal('modal-rutina-export');
+      // Opcional: cargar una previsualización inicial
+      const prevBtn2 = document.getElementById('rutina-export-preview-btn'); if(prevBtn2){ prevBtn2.click(); }
+    }
+
+    function openRutinaBuilderNew(){
+      // Abrir el builder en blanco para crear una plantilla nueva
+      openRutinaPreview(null);
+    }
+
+    // ===== Rutinas por usuario =====
+    async function loadRutinasPorUsuario(uid){
+      const block = document.getElementById('rutinas-usuario-block'); const tbody = document.querySelector('#rutinas-usuario-table tbody');
+      if(!block || !tbody){ return; }
+      if(!uid){ block.style.display='none'; tbody.innerHTML=''; return; }
+      try{
+        const res = await fetch(`/api/rutinas?usuario_id=${encodeURIComponent(String(uid))}`, { headers:{ 'Accept':'application/json' } });
+        const arr = await res.json().catch(()=>[]);
+        tbody.innerHTML = '';
+        (Array.isArray(arr)? arr: []).forEach(r => {
+          const tr = document.createElement('tr'); tr.setAttribute('data-id', String(r.id));
+          const acciones = `
+            <button class="btn" data-action="preview" data-id="${r.id}">Abrir</button>
+            <button class="btn" data-action="assign" data-id="${r.id}">Asignar</button>
+            <button class="btn secondary" data-action="unassign" data-id="${r.id}">Desasignar</button>
+            <button class="btn" data-action="delete" data-id="${r.id}">Eliminar</button>`;
+          tr.innerHTML = `<td>${r.nombre_rutina || r.nombre || ''}</td><td>${r.dias_semana || ''}</td><td>${r.categoria || ''}</td><td>${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
+          tr.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('button');
+            if(btn){
+              const action = btn.getAttribute('data-action'); const id = btn.getAttribute('data-id');
+              if(action==='preview'){ if(id) openRutinaPreview(Number(id)); }
+              else if(action==='assign'){ if(id) openAssignRutina(Number(id)); }
+              else if(action==='unassign'){ if(id) openUnassignRutina(Number(id)); }
+              else if(action==='delete'){ if(id) deleteRutina(Number(id)); }
+            } else {
+              // Seleccionar fila para actualizar panel lateral
+              state.selectedRutina = r; updateRutinaSidePanel(r);
+            }
+          });
+          tbody.appendChild(tr);
+        });
+        // Selección inicial para panel lateral
+        if(Array.isArray(arr) && arr.length){
+          state.selectedRutina = arr[0];
+          updateRutinaSidePanel(arr[0]);
+        } else {
+          updateRutinaSidePanel(null);
+        }
+        block.style.display='';
+      }catch(e){ block.style.display='none'; }
+    }
+
+    function updateRutinaSidePanel(r){
+      const nombreEl = document.getElementById('rutina-side-nombre');
+      const descEl = document.getElementById('rutina-side-descripcion');
+      const btnEdit = document.getElementById('rutina-side-edit');
+      const btnPrev = document.getElementById('rutina-side-preview');
+      const btnDel = document.getElementById('rutina-side-delete');
+      const btnAsn = document.getElementById('rutina-side-assign');
+      const btnUn = document.getElementById('rutina-side-unassign');
+      const none = '—';
+      if(!nombreEl) return;
+      if(r){
+        nombreEl.textContent = r.nombre || r.nombre_rutina || none;
+        descEl.textContent = r.descripcion || none;
+        if(btnEdit) { btnEdit.disabled = false; btnEdit.textContent = 'Abrir'; btnEdit.onclick = () => openRutinaPreview(Number(r.id)); }
+        if(btnPrev) { btnPrev.disabled = false; btnPrev.onclick = () => openRutinaPreview(Number(r.id)); }
+        if(btnDel) { btnDel.disabled = false; btnDel.onclick = () => deleteRutina(r.id); }
+        if(btnAsn) {
+          btnAsn.disabled = false;
+          if(state.activeRutinaTab === 'plantillas'){
+            btnAsn.onclick = () => openAssignPlantilla(r.id);
+            btnAsn.textContent = 'Asignar a usuario';
+          } else {
+            btnAsn.onclick = () => openAssignRutina(r.id);
+            btnAsn.textContent = 'Asignar';
+          }
+        }
+        if(btnUn) {
+          const canUnassign = r.usuario_id != null;
+          btnUn.disabled = !canUnassign;
+          btnUn.onclick = canUnassign ? (() => openUnassignRutina(r.id)) : null;
+        }
+      } else {
+        nombreEl.textContent = none;
+        descEl.textContent = none;
+        if(btnEdit) { btnEdit.disabled = true; btnEdit.onclick = null; }
+        if(btnPrev) { btnPrev.disabled = true; btnPrev.onclick = null; }
+        if(btnDel) { btnDel.disabled = true; btnDel.onclick = null; }
+        if(btnAsn) { btnAsn.disabled = true; btnAsn.onclick = null; }
+        if(btnUn) { btnUn.disabled = true; btnUn.onclick = null; }
+      }
+      // Bind de captura para ajustar la asignación según pestaña activa (una sola vez)
+      const asnEl = document.getElementById('rutina-side-assign');
+      if(asnEl && !state.__assignHandlerBound){
+        asnEl.addEventListener('click', function(ev){
+          ev.stopImmediatePropagation();
+          if(state.selectedRutina){
+            if(state.activeRutinaTab === 'plantillas'){ openAssignPlantilla(state.selectedRutina.id); }
+            else { openAssignRutina(state.selectedRutina.id); }
+          }
+        }, true);
+        state.__assignHandlerBound = true;
+      }
+    }
     function updateEjerciciosTable(){
       const tbody = document.querySelector('#ejercicios-table tbody');
       if(!tbody) return;
@@ -3650,6 +6035,7 @@
           if(tab === 'usuarios') loadUsers();
           if(tab === 'profesores') loadProfesoresPanel();
           if(tab === 'ejercicios') loadEjercicios();
+          if(tab === 'rutinas') loadRutinas();
           if(tab === 'configuracion') loadConfigData();
         });
       });
@@ -3679,6 +6065,7 @@
       bindUsuariosEvents();
       bindConfiguracionEvents();
       bindEjerciciosEvents();
+      bindRutinasEvents();
       bindProfesoresEvents();
       renderLoginInfo();
       refreshTopBarSesion();
@@ -4597,8 +6984,303 @@
     }catch(_){}
   }
 
+  // --- Numeración de recibos (UI + API) ---
+  async function updateReciboNextNumber(){
+    try{
+      const el = document.getElementById('recibo-next');
+      if(!el) return;
+      el.textContent = 'Recibo #…';
+      const r = await fetch('/api/recibos/numero-proximo', { headers: { 'Accept': 'application/json' } });
+      if(r.ok){
+        let j = null; try{ j = await r.json(); }catch(_){}
+        const num = (j && (j.numero || j.next || j.number)) ? (j.numero || j.next || j.number) : null;
+        if(num){ el.textContent = `Recibo #${num}`; }
+        else { el.textContent = 'Recibo #—'; }
+      } else {
+        el.textContent = 'Recibo #—';
+      }
+    }catch(_){
+      const el = document.getElementById('recibo-next');
+      if(el) el.textContent = 'Recibo #—';
+    }
+  }
+
+  function _padLeft(n, len){ try{ const s = String(n||''); return s.length>=len ? s : ('0'.repeat(Math.max(0, len-s.length))+s); }catch(_){ return String(n||''); } }
+  function computeReciboPreview(){
+    try{
+      const prefijo = document.getElementById('recibo-prefijo')?.value || 'REC';
+      const sep = document.getElementById('recibo-separador')?.value || '-';
+      const n0 = parseInt(document.getElementById('recibo-numero-inicial')?.value || '1', 10) || 1;
+      const llen = parseInt(document.getElementById('recibo-longitud-numero')?.value || '6', 10) || 6;
+      const y = document.getElementById('recibo-incluir-anio')?.checked ? (new Date().getFullYear()) : null;
+      const m = document.getElementById('recibo-incluir-mes')?.checked ? (String(new Date().getMonth()+1).padStart(2,'0')) : null;
+      const parts = [];
+      if(prefijo) parts.push(prefijo);
+      if(y || m){
+        const dt = [];
+        if(y) dt.push(String(y));
+        if(m) dt.push(String(m));
+        parts.push(dt.join(sep));
+      }
+      parts.push(_padLeft(n0, llen));
+      const preview = parts.join(sep);
+      const el = document.getElementById('recibo-config-preview');
+      if(el) el.textContent = `Próximo ejemplo: ${preview}`;
+    }catch(_){}
+  }
+
+  async function loadReciboConfig(){
+    try{
+      const r = await fetch('/api/recibos/config', { headers: { 'Accept': 'application/json' } });
+      let j = null; try{ j = await r.json(); }catch(_){}
+      const cfg = j && typeof j === 'object' ? j : {};
+      const setVal = (id, v) => { const el = document.getElementById(id); if(el) el.value = (v ?? el.value ?? ''); };
+      const setChk = (id, v) => { const el = document.getElementById(id); if(el) el.checked = !!v; };
+      setVal('recibo-prefijo', (cfg.prefijo ?? 'REC'));
+      setVal('recibo-separador', (cfg.separador ?? '-'));
+      setVal('recibo-numero-inicial', (cfg.numero_inicial ?? 1));
+      setVal('recibo-longitud-numero', (cfg.longitud_numero ?? 6));
+      setChk('recibo-reiniciar-anual', (cfg.reiniciar_anual ?? false));
+      setChk('recibo-incluir-anio', (cfg.incluir_año ?? true));
+      setChk('recibo-incluir-mes', (cfg.incluir_mes ?? false));
+      computeReciboPreview();
+    }catch(_){ computeReciboPreview(); }
+  }
+
+  // --- Recibo preview helpers ---
+  function addItemRow(data){
+    try{
+      const rows = document.getElementById('recibo-items-rows');
+      if(!rows) return;
+      const row = document.createElement('div');
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '1fr 100px 140px 40px';
+      row.style.gap = '8px';
+      row.style.alignItems = 'center';
+      const desc = document.createElement('input'); desc.type='text'; desc.placeholder='Descripción'; desc.style.width='100%'; desc.value = (data && (data.descripcion || data.concepto_nombre)) || '';
+      desc.className = 'recibo-item-desc';
+      const qty = document.createElement('input'); qty.type='number'; qty.step='1'; qty.inputMode='numeric'; qty.placeholder='1'; qty.value = (data && (data.cantidad != null) ? data.cantidad : 1);
+      qty.className = 'recibo-item-cantidad';
+      const price = document.createElement('input'); price.type='number'; price.step='0.01'; price.inputMode='decimal'; price.placeholder='0.00'; price.value = (data && (data.precio_unitario != null ? data.precio_unitario : (data.precio ?? 0))) || 0;
+      price.className = 'recibo-item-precio';
+      const del = document.createElement('button'); del.type='button'; del.className='btn icon-only recibo-item-del'; del.textContent='×'; del.title='Quitar';
+      row.appendChild(desc); row.appendChild(qty); row.appendChild(price); row.appendChild(del);
+      rows.appendChild(row);
+      const onChange = () => { recalcTotalsFromItems(); };
+      desc.oninput = onChange; qty.oninput = onChange; price.oninput = onChange;
+      del.onclick = () => { try{ rows.removeChild(row); }catch(_){} recalcTotalsFromItems(); };
+    }catch(_){ /* noop */ }
+  }
+
+  function getItemsArray(){
+    try{
+      const rows = document.getElementById('recibo-items-rows');
+      if(!rows) return [];
+      const arr = [];
+      Array.from(rows.children || []).forEach((row) => {
+        try{
+          const inputs = row.querySelectorAll('input');
+          const desc = (inputs[0]?.value || '').trim();
+          const qty = parseFloat(inputs[1]?.value || '1');
+          const price = parseFloat(inputs[2]?.value || '0');
+          if(desc){ arr.push({ descripcion: desc, cantidad: isNaN(qty)?1:qty, precio_unitario: isNaN(price)?0:price }); }
+        }catch(_){ /* skip row */ }
+      });
+      return arr;
+    }catch(_){ return []; }
+  }
+
+  function recalcTotalsFromItems(){
+    try{
+      const items = getItemsArray();
+      let subtotal = 0.0;
+      for(const it of items){ subtotal += ((it.cantidad||1) * (it.precio_unitario||0)); }
+      const subEl = document.getElementById('recibo-total-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2);
+      const comEl = document.getElementById('recibo-total-comision'); const com = parseFloat(comEl?.value || '0');
+      const totalEl = document.getElementById('recibo-total-total'); if(totalEl) totalEl.value = Number((subtotal||0) + (isNaN(com)?0:com)).toFixed(2);
+    }catch(_){ /* noop */ }
+  }
+
+  function buildReciboParams(){
+    const params = new URLSearchParams();
+    const setIf = (k, v) => { try{ const s = String(v||'').trim(); if(s) params.set(k, s); }catch(_){ /* ignore */ } };
+    setIf('numero', document.getElementById('recibo-preview-numero')?.value);
+    setIf('observaciones', document.getElementById('recibo-preview-observaciones')?.value);
+    setIf('emitido_por', document.getElementById('recibo-preview-emitidopor')?.value);
+    setIf('titulo', document.getElementById('recibo-preview-titulo')?.value);
+    // Fecha: enviar YYYY-MM-DD (backend convierte)
+    setIf('fecha', document.getElementById('recibo-preview-fecha')?.value);
+    setIf('gym_name', document.getElementById('recibo-preview-gym-nombre')?.value);
+    setIf('gym_address', document.getElementById('recibo-preview-gym-direccion')?.value);
+    setIf('usuario_nombre', document.getElementById('recibo-preview-usuario-nombre')?.value);
+    setIf('usuario_dni', document.getElementById('recibo-preview-usuario-dni')?.value);
+    setIf('metodo', document.getElementById('recibo-preview-metodo')?.value);
+    // Tipo de cuota y periodo
+    try{
+      const fechaStr = document.getElementById('recibo-preview-fecha')?.value || '';
+      if(fechaStr){
+        const d = new Date(fechaStr);
+        const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        const per = `${meses[d.getMonth()]} ${d.getFullYear()}`;
+        setIf('periodo', per);
+      } else if(state.previewPeriodo){ setIf('periodo', state.previewPeriodo); }
+    }catch(_){}
+    if(state.previewTipoCuota){ setIf('tipo_cuota', state.previewTipoCuota); }
+    try{ params.set('mostrar_logo', document.getElementById('recibo-preview-mostrar-logo')?.checked ? '1':'0'); }catch(_){}
+    try{ params.set('mostrar_metodo', document.getElementById('recibo-preview-mostrar-metodo')?.checked ? '1':'0'); }catch(_){}
+    try{ params.set('mostrar_dni', document.getElementById('recibo-preview-mostrar-dni')?.checked ? '1':'0'); }catch(_){}
+    try{
+      const items = getItemsArray();
+      if(Array.isArray(items) && items.length){ params.set('items', JSON.stringify(items)); }
+    }catch(_){}
+    try{
+      const sv = document.getElementById('recibo-total-subtotal')?.value || '';
+      const cv = document.getElementById('recibo-total-comision')?.value || '';
+      const tv = document.getElementById('recibo-total-total')?.value || '';
+      if(sv) params.set('subtotal', sv);
+      if(cv) params.set('comision', cv);
+      if(tv) params.set('total', tv);
+    }catch(_){}
+    return params;
+  }
+
+  function updatePeriodoLabel(){
+    try{
+      const lbl = document.getElementById('recibo-preview-periodo-label');
+      if(!lbl) return;
+      const fechaStr = document.getElementById('recibo-preview-fecha')?.value || '';
+      let per = '';
+      if(fechaStr){
+        const d = new Date(fechaStr);
+        if(!isNaN(d.getTime())){
+          const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+          per = `${meses[d.getMonth()]} ${d.getFullYear()}`;
+        }
+      }
+      if(!per){ per = state.previewPeriodo || ''; }
+      const tipo = (state.previewTipoCuota || '').trim();
+      const parts = [];
+      if(per) parts.push(`Periodo: ${per}`);
+      if(tipo) parts.push(`Tipo: ${tipo}`);
+      const text = parts.join(' · ');
+      lbl.textContent = text;
+      lbl.style.display = text ? 'block' : 'none';
+      state.previewPeriodo = per || null;
+    }catch(_){ /* noop */ }
+  }
+
+  async function saveReciboConfig(){
+    try{
+      const payload = {
+        prefijo: document.getElementById('recibo-prefijo')?.value || 'REC',
+        separador: document.getElementById('recibo-separador')?.value || '-',
+        numero_inicial: parseInt(document.getElementById('recibo-numero-inicial')?.value || '1', 10) || 1,
+        longitud_numero: parseInt(document.getElementById('recibo-longitud-numero')?.value || '6', 10) || 6,
+        reiniciar_anual: !!document.getElementById('recibo-reiniciar-anual')?.checked,
+        incluir_año: !!document.getElementById('recibo-incluir-anio')?.checked,
+        incluir_mes: !!document.getElementById('recibo-incluir-mes')?.checked,
+      };
+      const r = await fetch('/api/recibos/config', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
+      let j = null; try{ j = await r.json(); }catch(_){}
+      if(r.ok && j && (j.ok || j.success)){
+        if (typeof showToast==='function') showToast('Configuración guardada', 'success');
+        closeModal('modal-recibo-config');
+        updateReciboNextNumber();
+      } else {
+        if (typeof showToast==='function') showToast(j?.detail || j?.error || 'No se pudo guardar la configuración', 'warning');
+      }
+    }catch(_){ if (typeof showToast==='function') showToast('Error guardando la configuración', 'error'); }
+  }
+
+  function bindReciboConfigEvents(){
+    try{
+      const btn = document.getElementById('recibo-config-btn');
+      const closeBtn = document.getElementById('recibo-config-close');
+      const cancelBtn = document.getElementById('recibo-config-cancel');
+      const saveBtn = document.getElementById('recibo-config-save');
+      const inputs = ['recibo-prefijo','recibo-separador','recibo-numero-inicial','recibo-longitud-numero','recibo-reiniciar-anual','recibo-incluir-anio','recibo-incluir-mes'];
+      if(btn) btn.onclick = async () => { await loadReciboConfig(); openModal('modal-recibo-config'); };
+      if(closeBtn) closeBtn.onclick = () => { closeModal('modal-recibo-config'); };
+      if(cancelBtn) cancelBtn.onclick = () => { closeModal('modal-recibo-config'); };
+      if(saveBtn) saveBtn.onclick = () => { saveReciboConfig(); };
+      inputs.forEach(id => { const el = document.getElementById(id); if(el){ el.oninput = computeReciboPreview; el.onchange = computeReciboPreview; } });
+    }catch(_){}
+  }
+
+  // Abrir modal de vista previa de recibo
+  async function openReciboPreview(id){
+    try {
+      state.previewPagoId = id;
+      const frame = document.getElementById('recibo-preview-frame');
+      const numEl = document.getElementById('recibo-preview-numero');
+      // Precargar el número sugerido manteniendo el placeholder
+      if(numEl){
+        try {
+          const r = await fetch('/api/recibos/numero-proximo', { headers: { 'Accept': 'application/json' } });
+          let j = null; try{ j = await r.json(); }catch(_){}
+          const next = j && (j.numero || j.next || j.number);
+          if(next) numEl.value = next;
+        } catch(_){ /* mantener valor actual/placeholder */ }
+      }
+      // Prefill de branding del gimnasio y título por defecto
+      try{
+        const rg = await fetch('/api/gym/data', { headers: { 'Accept': 'application/json' } });
+        let jg = null; try{ jg = await rg.json(); }catch(_){}
+        if(rg.ok && jg){
+          const gnameEl = document.getElementById('recibo-preview-gym-nombre'); if(gnameEl) gnameEl.value = (jg.gym_name || '').trim();
+          const gaddrEl = document.getElementById('recibo-preview-gym-direccion'); if(gaddrEl) gaddrEl.value = (jg.gym_address || '').trim();
+        }
+      }catch(_){ /* continuar */ }
+      try{ const titEl = document.getElementById('recibo-preview-titulo'); if(titEl && !titEl.value) titEl.value = 'RECIBO DE PAGO'; }catch(_){}
+      // Prefill desde el pago: usuario, fecha y detalles
+      try{
+        const r2 = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
+        let j2 = null; try{ j2 = await r2.json(); }catch(_){}
+        if(r2.ok && j2 && typeof j2 === 'object'){
+          const pago = j2.pago || {};
+          const detalles = Array.isArray(j2.detalles) ? j2.detalles : [];
+          const nombreEl = document.getElementById('recibo-preview-usuario-nombre'); if(nombreEl) nombreEl.value = pago.usuario_nombre || '';
+          const dniEl = document.getElementById('recibo-preview-usuario-dni'); if(dniEl) dniEl.value = pago.dni || '';
+          const fechaEl = document.getElementById('recibo-preview-fecha'); if(fechaEl){ const f = String(pago.fecha_pago || '').slice(0,10); if(f) fechaEl.value = f; }
+          // Método de pago nombre
+          try{
+            const metodoId = String(pago.metodo_pago_id || pago.metodo_id || '').trim();
+            if(metodoId){ const m = state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null; const metEl = document.getElementById('recibo-preview-metodo'); if(metEl) metEl.value = m ? (m.nombre || '') : (metodoId || ''); }
+          }catch(_){ /* continuar */ }
+          // Tipo de cuota y periodo en estado
+          try{
+            const u = (state.usuarios || []).find(x => Number(x.id) === Number(pago.usuario_id));
+            state.previewTipoCuota = u ? (u.tipo_cuota || null) : null;
+          }catch(_){ state.previewTipoCuota = null; }
+          try{
+            const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+            const per = `${meses[(pago.mes||1)-1]} ${pago.año||new Date().getFullYear()}`;
+            state.previewPeriodo = per;
+          }catch(_){ state.previewPeriodo = null; }
+          // Limpiar ítems y precargar desde detalles
+          const rows = document.getElementById('recibo-items-rows'); if(rows) rows.innerHTML = '';
+          if(detalles.length){
+            detalles.forEach(d => { addItemRow({ descripcion: d.concepto_nombre, cantidad: d.cantidad, precio_unitario: d.precio_unitario }); });
+          } else {
+            // Si no hay detalles, agregar un ítem vacío para edición rápida
+            addItemRow({ descripcion: '', cantidad: 1, precio_unitario: Number(pago.monto||0) });
+          }
+          recalcTotalsFromItems();
+        }
+      }catch(_){ /* continuar */ }
+      if(frame) { frame.src = `/api/pagos/${id}/recibo.pdf?preview=1#toolbar=0&navpanes=0`; try{ attachWheelZoom('recibo-preview-frame-wrap','recibo-preview-frame'); }catch(_){ } }
+      updatePeriodoLabel();
+      openModal('modal-recibo-preview');
+    } catch(_){
+      if (typeof showToast==='function') showToast('No se pudo abrir el recibo', 'error', 4500);
+    }
+  }
+
     document.addEventListener('DOMContentLoaded', () => {
       init();
+      // Inicializar numeración de recibos (indicador y eventos)
+      updateReciboNextNumber();
+      bindReciboConfigEvents();
       try {
         const logoutLink = document.querySelector('a[href="/gestion/logout"]');
         if (logoutLink) {

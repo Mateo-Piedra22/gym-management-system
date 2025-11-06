@@ -1,12 +1,13 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
     QListWidget, QListWidgetItem, QLabel, QFrame, QScrollArea,
-    QCompleter, QApplication
+    QCompleter, QApplication, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QStringListModel
 from PyQt6.QtGui import QPixmap, QIcon
 from utils import resource_path
 from search_manager import SearchManager
+from widgets.loading_spinner import DatabaseLoadingManager
 from typing import List, Dict, Any
 import logging
 
@@ -131,11 +132,23 @@ class GlobalSearchWidget(QWidget):
         self.search_manager = search_manager
         self.current_results = []
         self.is_expanded = False
+        # Marcar destrucción para gating y cleanup seguro
+        self._destroyed = False
         # Permitir que el stylesheet global aplique reglas específicas y colores dinámicos
         self.setObjectName("global_search_widget")
         self.setProperty("dynamic_css", "true")
         self.setup_ui()
+        # Gestor de overlay de carga sobre el panel de resultados
+        try:
+            self.loading_manager = DatabaseLoadingManager(self.results_frame)
+        except Exception:
+            self.loading_manager = None
         self.connect_signals()
+        # Conectar limpieza segura al destruir el widget
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         
         # Timer para ocultar resultados automáticamente
         self.hide_timer = QTimer()
@@ -207,6 +220,21 @@ class GlobalSearchWidget(QWidget):
         self.results_header.setObjectName("results_header")
         self.results_header.setProperty("class", "search_results_header")
         results_layout.addWidget(self.results_header)
+
+        # Indicadores de carga
+        self.loading_label = QLabel("Buscando...")
+        self.loading_label.setObjectName("search_loading_label")
+        self.loading_label.setProperty("class", "search_loading_label")
+        self.loading_label.hide()
+        results_layout.addWidget(self.loading_label)
+
+        self.loading_progress = QProgressBar()
+        self.loading_progress.setObjectName("search_progress")
+        self.loading_progress.setProperty("class", "search_progress")
+        self.loading_progress.setRange(0, 0)  # Indeterminado
+        self.loading_progress.setTextVisible(False)
+        self.loading_progress.hide()
+        results_layout.addWidget(self.loading_progress)
         
         # Área de scroll para resultados
         self.results_scroll = QScrollArea()
@@ -258,6 +286,8 @@ class GlobalSearchWidget(QWidget):
         self.clear_button.clicked.connect(self.clear_search)
         
         # Conectar señales del search manager
+        if hasattr(self.search_manager, 'search_started'):
+            self.search_manager.search_started.connect(self.on_search_started)
         self.search_manager.search_completed.connect(self.display_results)
         
         # Eventos de foco
@@ -266,6 +296,8 @@ class GlobalSearchWidget(QWidget):
     
     def on_text_changed(self, text: str):
         """Maneja cambios en el texto de búsqueda"""
+        if getattr(self, '_destroyed', False):
+            return
         if text.strip():
             self.clear_button.show()
             if len(text.strip()) >= 2:
@@ -276,20 +308,75 @@ class GlobalSearchWidget(QWidget):
     
     def perform_search(self):
         """Realiza búsqueda inmediata"""
+        if getattr(self, '_destroyed', False):
+            return
+        if hasattr(self, 'isVisible') and not self.isVisible():
+            return
         query = self.search_input.text().strip()
         if query:
             self.search_manager.search(query, delay=False)
             self.search_requested.emit(query)
+
+    def on_search_started(self, query: str):
+        """Muestra spinner y bloquea la UI mientras se busca"""
+        try:
+            if getattr(self, '_destroyed', False):
+                return
+            if hasattr(self, 'isVisible') and not self.isVisible():
+                return
+            # Mostrar indicadores de carga
+            self.loading_label.setText(f"Buscando '{query}'...")
+            self.loading_label.show()
+            self.loading_progress.show()
+            # Mostrar overlay de carga
+            if self.loading_manager:
+                self.loading_manager.show_loading(
+                    operation_id="global_search",
+                    message=f"Buscando '{query}'...",
+                    spinner_type="dots",
+                    spinner_size=80,
+                    background_opacity=0.5,
+                    show_message=True,
+                )
+
+            # Deshabilitar interacción
+            self.search_input.setEnabled(False)
+            self.clear_button.setEnabled(False)
+            self.results_container.setEnabled(False)
+
+            # Asegurar que el panel esté visible y posicionado
+            self.expand_results()
+            self.reposition_floating_panel()
+        except Exception:
+            pass
     
     def clear_search(self):
         """Limpia la búsqueda"""
+        if getattr(self, '_destroyed', False):
+            return
         self.search_input.clear()
         self.collapse_results()
         self.search_input.setFocus()
     
     def display_results(self, query: str, results: List[Dict[str, Any]]):
         """Muestra los resultados de búsqueda"""
+        if getattr(self, '_destroyed', False):
+            return
+        if hasattr(self, 'isVisible') and not self.isVisible():
+            return
         self.current_results = results
+
+        # Ocultar indicadores de carga y reactivar UI
+        try:
+            self.loading_label.hide()
+            self.loading_progress.hide()
+            self.search_input.setEnabled(True)
+            self.clear_button.setEnabled(True)
+            self.results_container.setEnabled(True)
+            if self.loading_manager:
+                self.loading_manager.hide_loading("global_search")
+        except Exception:
+            pass
         
         # Limpiar resultados anteriores
         for i in reversed(range(self.results_layout.count())):
@@ -320,6 +407,8 @@ class GlobalSearchWidget(QWidget):
     
     def on_result_selected(self, result_data: Dict[str, Any]):
         """Maneja selección de resultado"""
+        if getattr(self, '_destroyed', False):
+            return
         # Marcar que estamos en proceso de navegación
         self._navigation_in_progress = True
         
@@ -354,6 +443,8 @@ class GlobalSearchWidget(QWidget):
     
     def expand_results(self):
         """Expande el panel de resultados de forma flotante"""
+        if getattr(self, '_destroyed', False):
+            return
         if not self.is_expanded:
             self.is_expanded = True
             
@@ -400,8 +491,16 @@ class GlobalSearchWidget(QWidget):
     
     def collapse_results(self):
         """Colapsa el panel de resultados flotante"""
+        if getattr(self, '_destroyed', False):
+            return
         if self.is_expanded:
             self.is_expanded = False
+            # Asegurar ocultar overlay si estaba activo
+            try:
+                if self.loading_manager:
+                    self.loading_manager.hide_loading("global_search")
+            except Exception:
+                pass
             self.results_frame.hide()
             
             # Restaurar el panel como hijo del widget principal
@@ -423,8 +522,16 @@ class GlobalSearchWidget(QWidget):
     
     def collapse_results_immediate(self):
         """Colapsa el panel de resultados inmediatamente sin efectos"""
+        if getattr(self, '_destroyed', False):
+            return
         if self.is_expanded:
             self.is_expanded = False
+            # Asegurar ocultar overlay si estaba activo
+            try:
+                if self.loading_manager:
+                    self.loading_manager.hide_loading("global_search")
+            except Exception:
+                pass
             
             # Ocultar inmediatamente sin procesamiento de eventos
             self.results_frame.setVisible(False)
@@ -453,6 +560,8 @@ class GlobalSearchWidget(QWidget):
     
     def on_focus_in(self, event):
         """Maneja evento de foco entrante"""
+        if getattr(self, '_destroyed', False):
+            return
         self.hide_timer.stop()
         
         # Solo expandir si no estamos en proceso de navegación
@@ -467,6 +576,8 @@ class GlobalSearchWidget(QWidget):
     
     def on_focus_out(self, event):
         """Maneja evento de foco saliente"""
+        if getattr(self, '_destroyed', False):
+            return
         # Solo iniciar timer si no estamos navegando
         if not getattr(self, '_navigation_in_progress', False):
             # Delay para permitir clicks en resultados
@@ -480,6 +591,10 @@ class GlobalSearchWidget(QWidget):
     
     def reposition_floating_panel(self):
         """Reposiciona el panel flotante si está visible"""
+        if getattr(self, '_destroyed', False):
+            return
+        if hasattr(self, 'isVisible') and not self.isVisible():
+            return
         if self.is_expanded and self.results_frame.isVisible():
             search_pos = self.mapToGlobal(self.rect().bottomLeft())
             panel_x = search_pos.x()
@@ -529,11 +644,15 @@ class GlobalSearchWidget(QWidget):
     
     def delayed_reposition(self):
         """Reposicionamiento con delay para evitar parpadeo durante scroll"""
+        if getattr(self, '_destroyed', False):
+            return
         if self.results_frame.isVisible():
             self.reposition_floating_panel()
     
     def eventFilter(self, obj, event):
         """Filtro de eventos para manejar clics fuera del panel flotante"""
+        if getattr(self, '_destroyed', False):
+            return super().eventFilter(obj, event)
         if event.type() == event.Type.MouseButtonPress:
             if (self.is_expanded and self.results_frame.isVisible() and 
                 not getattr(self, '_navigation_in_progress', False)):
@@ -547,6 +666,42 @@ class GlobalSearchWidget(QWidget):
                 not getattr(self, '_navigation_in_progress', False)):
                 self.scroll_timer.start()  # Reiniciar timer de scroll
         return super().eventFilter(obj, event)
+
+    def _cleanup_on_destroy(self):
+        """Detiene timers, oculta overlays y marca destrucción"""
+        try:
+            self._destroyed = True
+        except Exception:
+            pass
+        # Parar timers
+        try:
+            if hasattr(self, 'hide_timer'):
+                self.hide_timer.stop()
+            if hasattr(self, 'reposition_timer'):
+                self.reposition_timer.stop()
+            if hasattr(self, 'scroll_timer'):
+                self.scroll_timer.stop()
+        except Exception:
+            pass
+        # Ocultar y limpiar overlay de carga
+        try:
+            if getattr(self, 'loading_manager', None):
+                self.loading_manager.hide_loading("global_search")
+        except Exception:
+            pass
+        # Asegurar que el panel de resultados esté oculto
+        try:
+            if hasattr(self, 'results_frame'):
+                self.results_frame.hide()
+        except Exception:
+            pass
+        # Remover filtro de eventos si está instalado
+        try:
+            app = QApplication.instance()
+            if app:
+                app.removeEventFilter(self)
+        except Exception:
+            pass
     
     # Métodos responsivos eliminados - usando tamaños fijos
     

@@ -57,8 +57,8 @@ def _get_current_params() -> dict:
         'port': int(cfg.get('port', os.getenv('DB_PORT', 5432))),
         'database': str(cfg.get('database', os.getenv('DB_NAME', 'gimnasio'))),
         'user': str(cfg.get('user', os.getenv('DB_USER', 'postgres'))),
-        # Primero config.json, luego entorno; keyring más abajo
-        'password': str(cfg.get('password', os.getenv('DB_PASSWORD', ''))),
+        # Solo entorno; keyring más abajo
+        'password': str(os.getenv('DB_PASSWORD') or os.getenv('DB_LOCAL_PASSWORD') or os.getenv('PGPASSWORD') or ''),
         'sslmode': str(cfg.get('sslmode', os.getenv('DB_SSLMODE', 'prefer'))),
         'connect_timeout': int(cfg.get('connect_timeout', os.getenv('DB_CONNECT_TIMEOUT', 10))),
         'application_name': str(cfg.get('application_name', os.getenv('DB_APPLICATION_NAME', 'gym_management_system'))),
@@ -71,7 +71,7 @@ def _get_current_params() -> dict:
         try:
             # Intentar primero por la etiqueta actual
             saved_pwd = keyring.get_password(KEYRING_SERVICE_NAME, defaults['user'])
-            # Migración automática desde etiquetas legacy si no existe en la actual
+            # Migración automática desde etiquetas anteriores si no existe en la actual
             if not saved_pwd:
                 for old_service in LEGACY_KEYRING_SERVICE_NAMES:
                     if not old_service or old_service == KEYRING_SERVICE_NAME:
@@ -118,8 +118,7 @@ class DBConfigDialog(QDialog):
 
         # Cargar configuración completa del archivo para manejar perfiles
         self.full_cfg = self._load_full_config()
-        self.db_local_cfg = self._ensure_db_local_defaults(self.full_cfg.get('db_local'))
-        self.db_remote_cfg = self._ensure_db_remote_defaults(self.full_cfg.get('db_remote'))
+        self.db_connection_cfg = self._ensure_db_connection_defaults(self.full_cfg.get('db_connection'))
         # Perfil seleccionado (por archivo o heurística)
         self.selected_profile = str(self.full_cfg.get('db_profile', '') or '').lower()
         if self.selected_profile not in ('local', 'remoto', 'remote'):
@@ -138,9 +137,13 @@ class DBConfigDialog(QDialog):
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        # Selector de perfil (Local / Remoto)
+        # Selector de perfil (solo una base de datos)
         self.profile_combo = QComboBox()
-        self.profile_combo.addItems(["Local", "Remoto"])
+        self.profile_combo.addItems(["Local"])  # Operamos sobre una sola DB
+        try:
+            self.profile_combo.setEnabled(False)
+        except Exception:
+            pass
 
         # Campo DSN y botón de importación
         self.dsn_edit = QLineEdit()
@@ -201,7 +204,7 @@ class DBConfigDialog(QDialog):
         self.tasks_master_checkbox = QCheckBox("Activar tareas programadas")
         form.addRow("", self.tasks_master_checkbox)
 
-        # Replicación nativa PostgreSQL - sin uploader legacy
+        # Replicación nativa PostgreSQL - sin uploader anterior
 
         # Reconciliación Remoto→Local (minutos)
         self.reconcile_r2l_enable_checkbox = QCheckBox("Reconciliación Remoto→Local")
@@ -258,35 +261,23 @@ class DBConfigDialog(QDialog):
 
         # Tareas semanales - replicación nativa PostgreSQL
 
-        # Salud de replicación semanal
-        self.replication_health_weekly_enable_checkbox = QCheckBox("Salud de replicación semanal")
-        self.replication_health_weekly_time_edit = QTimeEdit()
-        self.replication_health_weekly_time_edit.setDisplayFormat("HH:mm")
-        self.replication_health_weekly_day_combo = QComboBox()
-        self.replication_health_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
-        rep_health_weekly_row = QHBoxLayout()
-        rep_health_weekly_row.addWidget(self.replication_health_weekly_enable_checkbox)
-        rep_health_weekly_row.addStretch()
-        rep_health_weekly_row.addWidget(QLabel("Hora:"))
-        rep_health_weekly_row.addWidget(self.replication_health_weekly_time_edit)
-        rep_health_weekly_row.addWidget(QLabel("Día:"))
-        rep_health_weekly_row.addWidget(self.replication_health_weekly_day_combo)
-        form.addRow("Salud replicación:", rep_health_weekly_row)
-
-        # Verificación de publicación semanal
-        self.publication_verify_weekly_enable_checkbox = QCheckBox("Verificación de publicación semanal")
-        self.publication_verify_weekly_time_edit = QTimeEdit()
-        self.publication_verify_weekly_time_edit.setDisplayFormat("HH:mm")
-        self.publication_verify_weekly_day_combo = QComboBox()
-        self.publication_verify_weekly_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
-        pub_verify_weekly_row = QHBoxLayout()
-        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_enable_checkbox)
-        pub_verify_weekly_row.addStretch()
-        pub_verify_weekly_row.addWidget(QLabel("Hora:"))
-        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_time_edit)
-        pub_verify_weekly_row.addWidget(QLabel("Día:"))
-        pub_verify_weekly_row.addWidget(self.publication_verify_weekly_day_combo)
-        form.addRow("Verificación publicación:", pub_verify_weekly_row)
+        # Tareas de mantenimiento semanal (deshabilitadas - sistema usa base de datos única Neon)
+        self.weekly_maintenance_enable_checkbox = QCheckBox("Mantenimiento semanal")
+        self.weekly_maintenance_enable_checkbox.setEnabled(False)
+        self.weekly_maintenance_time_edit = QTimeEdit()
+        self.weekly_maintenance_time_edit.setDisplayFormat("HH:mm")
+        self.weekly_maintenance_time_edit.setEnabled(False)
+        self.weekly_maintenance_day_combo = QComboBox()
+        self.weekly_maintenance_day_combo.addItems(["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]) 
+        self.weekly_maintenance_day_combo.setEnabled(False)
+        weekly_maintenance_row = QHBoxLayout()
+        weekly_maintenance_row.addWidget(self.weekly_maintenance_enable_checkbox)
+        weekly_maintenance_row.addStretch()
+        weekly_maintenance_row.addWidget(QLabel("Hora:"))
+        weekly_maintenance_row.addWidget(self.weekly_maintenance_time_edit)
+        weekly_maintenance_row.addWidget(QLabel("Día:"))
+        weekly_maintenance_row.addWidget(self.weekly_maintenance_day_combo)
+        form.addRow("Mantenimiento:", weekly_maintenance_row)
 
         # --- Sección de Configuración General ---
         gen_label = QLabel("Configuración general")
@@ -295,84 +286,70 @@ class DBConfigDialog(QDialog):
 
         self.webapp_base_url_edit = QLineEdit()
         self.client_base_url_edit = QLineEdit()
-        self.sync_upload_token_edit = QLineEdit()
-        self.sync_upload_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.webapp_session_secret_edit = QLineEdit()
         self.webapp_session_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        # Túnel público
-        self.tunnel_enabled_checkbox = QCheckBox("Activar túnel público")
-        self.tunnel_subdomain_edit = QLineEdit()
-        tun_row = QHBoxLayout()
-        tun_row.addWidget(self.tunnel_enabled_checkbox)
-        tun_row.addStretch()
-        tun_row.addWidget(QLabel("Subdominio:"))
-        tun_row.addWidget(self.tunnel_subdomain_edit)
 
         form.addRow("Webapp base URL:", self.webapp_base_url_edit)
         form.addRow("Client base URL:", self.client_base_url_edit)
-        form.addRow("Token de subida:", self.sync_upload_token_edit)
         form.addRow("Session secret:", self.webapp_session_secret_edit)
-        form.addRow("Túnel público:", tun_row)
 
-        # --- Sección de Replicación y Automatización ---
-        rep_label = QLabel("Replicación y automatización")
-        rep_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
-        form.addRow("", rep_label)
+        # --- Sección de Variables de Entorno (.env) ---
+        env_label = QLabel("Variables de entorno (.env)")
+        env_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
+        form.addRow("", env_label)
 
-        # Nombres de publicación/suscripción
-        self.publication_name_edit = QLineEdit()
-        self.subscription_name_edit = QLineEdit()
-        rep_names_row = QHBoxLayout()
-        rep_names_row.addWidget(QLabel("Publication:"))
-        rep_names_row.addWidget(self.publication_name_edit)
-        rep_names_row.addStretch()
-        rep_names_row.addWidget(QLabel("Subscription:"))
-        rep_names_row.addWidget(self.subscription_name_edit)
-        form.addRow("Replicación:", rep_names_row)
+        # Perfil de DB en .env (fijado a 'local')
+        self.env_db_profile_combo = QComboBox()
+        self.env_db_profile_combo.addItems(["local"])
+        self.env_db_profile_combo.setEnabled(False)
+        form.addRow("DB_PROFILE:", self.env_db_profile_combo)
 
-        # Modo + alcance remoto
-        self.replication_mode_combo = QComboBox()
-        self.replication_mode_combo.addItems(["Remoto → Local", "Bidireccional"])
-        self.remote_can_reach_local_checkbox = QCheckBox("Remoto puede acceder al local (VPN/Túnel)")
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(self.replication_mode_combo)
-        mode_row.addStretch()
-        mode_row.addWidget(self.remote_can_reach_local_checkbox)
-        form.addRow("Modo:", mode_row)
+        # Campos DB_LOCAL_*
+        self.env_local_host_edit = QLineEdit()
+        self.env_local_port_spin = QSpinBox(); self.env_local_port_spin.setRange(1, 65535)
+        self.env_local_db_edit = QLineEdit()
+        self.env_local_user_edit = QLineEdit()
+        self.env_local_password_edit = QLineEdit(); self.env_local_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.env_local_sslmode_combo = QComboBox(); self.env_local_sslmode_combo.addItems(['disable','allow','prefer','require','verify-ca','verify-full'])
+        self.env_local_timeout_spin = QSpinBox(); self.env_local_timeout_spin.setRange(1, 600)
+        self.env_local_app_name_edit = QLineEdit()
 
-        # Acciones de replicación
-        self.setup_replication_button = QPushButton("Configurar replicación")
-        self.health_check_button = QPushButton("Verificar salud replicación")
-        self.test_remote_button = QPushButton("Probar conexión remota")
-        rep_btns = QHBoxLayout()
-        rep_btns.addWidget(self.setup_replication_button)
-        rep_btns.addWidget(self.health_check_button)
-        rep_btns.addWidget(self.test_remote_button)
-        form.addRow("", rep_btns)
+        form.addRow("DB_LOCAL_HOST:", self.env_local_host_edit)
+        form.addRow("DB_LOCAL_PORT:", self.env_local_port_spin)
+        form.addRow("DB_LOCAL_DATABASE:", self.env_local_db_edit)
+        form.addRow("DB_LOCAL_USER:", self.env_local_user_edit)
+        form.addRow("DB_LOCAL_PASSWORD:", self.env_local_password_edit)
+        form.addRow("DB_LOCAL_SSLMODE:", self.env_local_sslmode_combo)
+        form.addRow("DB_LOCAL_CONNECT_TIMEOUT:", self.env_local_timeout_spin)
+        form.addRow("DB_LOCAL_APPLICATION_NAME:", self.env_local_app_name_edit)
 
-        # Instaladores (requieren Admin)
-        installers_label = QLabel("Instaladores (requieren Admin)")
-        installers_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
-        form.addRow("", installers_label)
-        self.install_wireguard_admin_button = QPushButton("Instalar WireGuard (Admin)")
-        self.admin_vpn_postgres_button = QPushButton("VPN + Red PostgreSQL (Admin)")
-        self.test_wireguard_button = QPushButton("Probar WireGuard/VPN")
-        inst_row = QHBoxLayout()
-        inst_row.addWidget(self.install_wireguard_admin_button)
-        inst_row.addWidget(self.admin_vpn_postgres_button)
-        inst_row.addWidget(self.test_wireguard_button)
-        form.addRow("", inst_row)
+        # Campos de secretos y URLs
+        self.env_webapp_session_secret_edit = QLineEdit(); self.env_webapp_session_secret_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.env_dev_password_edit = QLineEdit(); self.env_dev_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.env_owner_password_edit = QLineEdit(); self.env_owner_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.env_webapp_base_url_edit = QLineEdit()
+        self.env_client_base_url_edit = QLineEdit()
+        self.env_server_public_ip_edit = QLineEdit()
 
-        # Automatizaciones (operativas) - replicación nativa PostgreSQL
-        autom_label = QLabel("Automatizaciones")
-        autom_label.setStyleSheet("font-weight: bold; padding-top: 8px;")
-        form.addRow("", autom_label)
-        self.reconcile_remote_to_local_button = QPushButton("Reconciliar remoto→local (puntual)")
-        self.reconcile_local_to_remote_button = QPushButton("Reconciliar local→remoto (puntual)")
-        autom_row = QHBoxLayout()
-        autom_row.addWidget(self.reconcile_remote_to_local_button)
-        autom_row.addWidget(self.reconcile_local_to_remote_button)
-        form.addRow("", autom_row)
+        form.addRow("WEBAPP_SESSION_SECRET:", self.env_webapp_session_secret_edit)
+        form.addRow("DEV_PASSWORD:", self.env_dev_password_edit)
+        form.addRow("OWNER_PASSWORD:", self.env_owner_password_edit)
+        form.addRow("WEBAPP_BASE_URL:", self.env_webapp_base_url_edit)
+        form.addRow("CLIENT_BASE_URL:", self.env_client_base_url_edit)
+        form.addRow("SERVER_PUBLIC_IP:", self.env_server_public_ip_edit)
+
+        # Botones .env
+        self.env_load_button = QPushButton("Cargar .env")
+        self.env_save_button = QPushButton("Guardar .env")
+        self.env_create_button = QPushButton("Crear .env")
+        env_btn_row = QHBoxLayout()
+        env_btn_row.addWidget(self.env_load_button)
+        env_btn_row.addWidget(self.env_save_button)
+        env_btn_row.addWidget(self.env_create_button)
+        form.addRow("", env_btn_row)
+
+
+
 
         # Prerequisitos/Bootstrap
         self.device_id_edit = QLineEdit()
@@ -414,8 +391,9 @@ class DBConfigDialog(QDialog):
         form.addRow("", advanced_row2)
 
         # Seguridad y datos iniciales
-        self.secure_owner_local_button = QPushButton("Asegurar DUEÑO (local)")
+        self.secure_owner_local_button = QPushButton("Asegurar DUEÑO")
         self.secure_owner_remote_button = QPushButton("Asegurar DUEÑO (remoto)")
+        self.secure_owner_remote_button.setVisible(False)
         own_row = QHBoxLayout()
         own_row.addWidget(self.secure_owner_local_button)
         own_row.addWidget(self.secure_owner_remote_button)
@@ -437,7 +415,7 @@ class DBConfigDialog(QDialog):
 
         # Botones
         self.test_button = QPushButton("Probar conexión")
-        self.test_local_button = QPushButton("Probar conexión local")
+        self.test_local_button = QPushButton("Probar conexión")
         self.save_button = QPushButton("Guardar")
         self.show_password_button = QPushButton("Ver contraseña guardada")
         self.clear_password_button = QPushButton("Eliminar contraseña guardada")
@@ -450,6 +428,11 @@ class DBConfigDialog(QDialog):
         btns.addWidget(self.clear_password_button)
         self.cleanup_button = QPushButton("⚠️ Limpiar Bases de Datos…")
         btns.addWidget(self.cleanup_button)
+        # Lanzadores de rendimiento y optimización
+        self.measure_queries_button = QPushButton("⏱️ Medir consultas críticas")
+        self.optimize_full_button = QPushButton("⚙️ Optimización completa")
+        btns.addWidget(self.measure_queries_button)
+        btns.addWidget(self.optimize_full_button)
         btns.addStretch()
         btns.addWidget(self.save_button)
         btns.addWidget(self.cancel_button)
@@ -468,27 +451,22 @@ class DBConfigDialog(QDialog):
         self.show_password_button.clicked.connect(self._on_show_password)
         self.clear_password_button.clicked.connect(self._on_clear_password)
         self.cleanup_button.clicked.connect(self._on_cleanup_databases)
+        self.measure_queries_button.clicked.connect(self._on_measure_critical_queries)
+        self.optimize_full_button.clicked.connect(self._on_optimize_full)
         self.cancel_button.clicked.connect(self.reject)
         self.toggle_password_btn.toggled.connect(self._on_toggle_password)
         self.profile_combo.currentTextChanged.connect(self._on_profile_changed)
+        self.env_load_button.clicked.connect(self._on_env_load)
+        self.env_save_button.clicked.connect(self._on_env_save)
+        self.env_create_button.clicked.connect(self._on_env_create)
         self.dsn_import_button.clicked.connect(self._on_import_dsn)
         self.tasks_master_checkbox.toggled.connect(self._on_tasks_master_toggled)
-        # Señales de replicación y automatización
-        self.setup_replication_button.clicked.connect(self._on_setup_replication)
-        self.health_check_button.clicked.connect(self._on_health_check)
-        self.test_remote_button.clicked.connect(self._on_test_remote)
+        # Señales
         self.detect_device_button.clicked.connect(self._on_detect_device)
         self.ensure_prereq_button.clicked.connect(self._on_ensure_prereq)
         self.full_bootstrap_button.clicked.connect(self._on_full_bootstrap)
         self.secure_owner_local_button.clicked.connect(self._on_secure_owner_local)
         self.secure_owner_remote_button.clicked.connect(self._on_secure_owner_remote)
-        # Instaladores
-        self.install_wireguard_admin_button.clicked.connect(self._on_install_wireguard_admin)
-        self.admin_vpn_postgres_button.clicked.connect(self._on_admin_vpn_postgres)
-        self.test_wireguard_button.clicked.connect(self._on_test_wireguard)
-        # Automatizaciones - replicación nativa PostgreSQL
-        self.reconcile_remote_to_local_button.clicked.connect(self._on_reconcile_remote_to_local_once)
-        self.reconcile_local_to_remote_button.clicked.connect(self._on_reconcile_local_to_remote_once)
         self.secure_cleanup_button.clicked.connect(self._on_secure_cleanup)
         
         # Advanced setup connections
@@ -508,15 +486,105 @@ class DBConfigDialog(QDialog):
         except Exception:
             pass
 
+    def _on_measure_critical_queries(self):
+        """Ejecuta la medición de consultas críticas y muestra un resumen."""
+        progress = None
+        try:
+            if DatabaseManager is None:
+                QMessageBox.warning(self, "Diagnóstico", "DatabaseManager no está disponible en este entorno.")
+                return
+            params = self._collect_params()
+            progress = QProgressDialog("Midiendo consultas críticas…", None, 0, 0, self)
+            progress.setWindowTitle("Diagnóstico de rendimiento")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            db = DatabaseManager(params)
+            result = db.optimizar_consultas_criticas()
+            try:
+                progress.close()
+            except Exception:
+                pass
+            avg = result.get('mejora_promedio')
+            total = result.get('tiempo_procesamiento')
+            errores = result.get('errores') or []
+            detalles = result.get('mejoras_rendimiento') or {}
+            resumen = (
+                f"Mejora promedio: {avg:.2f}%\n"
+                f"Tiempo total: {total:.2f}s\n"
+                f"Consultas optimizadas: {result.get('consultas_optimizadas')}\n"
+                f"Errores: {len(errores)}"
+            )
+            # Mostrar también detalles en consola para auditoría
+            try:
+                print(json.dumps(result, indent=2, default=str))
+            except Exception:
+                pass
+            QMessageBox.information(self, "Medición realizada", resumen)
+        except Exception as e:
+            try:
+                if progress:
+                    progress.close()
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error en medición", str(e))
+
+    def _on_optimize_full(self):
+        """Lanza la optimización completa y muestra el resultado agregado."""
+        progress = None
+        try:
+            if DatabaseManager is None:
+                QMessageBox.warning(self, "Optimización", "DatabaseManager no está disponible en este entorno.")
+                return
+            params = self._collect_params()
+            progress = QProgressDialog("Aplicando optimización completa…", None, 0, 0, self)
+            progress.setWindowTitle("Optimización de base de datos")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+            db = DatabaseManager(params)
+            result = db.aplicar_optimizacion_completa()
+            try:
+                progress.close()
+            except Exception:
+                pass
+            estado = result.get('estado_final') or 'ok'
+            errores = result.get('errores') or []
+            tiempo = result.get('tiempo_total')
+            resumen = (
+                f"Estado: {estado}\n"
+                f"Tiempo total: {tiempo:.2f}s\n"
+                f"Errores: {len(errores)}"
+            )
+            # Log detallado a consola para auditoría
+            try:
+                print(json.dumps(result, indent=2, default=str))
+            except Exception:
+                pass
+            if estado == 'error' or errores:
+                QMessageBox.warning(self, "Optimización completa", resumen)
+            else:
+                QMessageBox.information(self, "Optimización completa", resumen)
+        except Exception as e:
+            try:
+                if progress:
+                    progress.close()
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error en optimización", str(e))
+
     def _load_params(self):
         # Establecer perfil actual en el combo
-        self.profile_combo.setCurrentText("Local" if self.selected_profile == 'local' else "Remoto")
+        self.profile_combo.setCurrentText("Local")
         # Cargar valores del perfil seleccionado (si existen),
         # si no, usar los resueltos por _get_current_params
-        if self.selected_profile == 'local' and self.db_local_cfg:
-            src = self.db_local_cfg
-        elif self.selected_profile in ('remoto', 'remote') and self.db_remote_cfg:
-            src = self.db_remote_cfg
+        # Usar la configuración de conexión única
+        if self.db_connection_cfg:
+            src = self.db_connection_cfg
         else:
             src = self.params
 
@@ -538,26 +606,11 @@ class DBConfigDialog(QDialog):
             cfg = self.full_cfg if isinstance(self.full_cfg, dict) else {}
             self.webapp_base_url_edit.setText(str(cfg.get('webapp_base_url', '')))
             self.client_base_url_edit.setText(str(cfg.get('client_base_url', '')))
-            self.sync_upload_token_edit.setText(str(cfg.get('sync_upload_token', '')))
             self.webapp_session_secret_edit.setText(str(cfg.get('webapp_session_secret', '')))
-            public_tunnel = cfg.get('public_tunnel') or {}
-            self.tunnel_enabled_checkbox.setChecked(bool(public_tunnel.get('enabled', False)))
-            self.tunnel_subdomain_edit.setText(str(public_tunnel.get('subdomain', '')))
         except Exception:
             pass
-        # Cargar configuración de replicación
-        try:
-            rep = (self.full_cfg or {}).get('replication') if isinstance(self.full_cfg, dict) else {}
-            rep = rep or {}
-            self.publication_name_edit.setText(str(rep.get('publication_name', 'gym_pub')))
-            self.subscription_name_edit.setText(str(rep.get('subscription_name', 'gym_sub')))
-            self.remote_can_reach_local_checkbox.setChecked(bool(rep.get('remote_can_reach_local', False)))
-            # Modo por defecto: Bidireccional
-            # Si se requieren pistas para forzar modo unidireccional, pueden añadirse en el futuro.
-            mode_idx = 1
-            self.replication_mode_combo.setCurrentIndex(mode_idx)
-        except Exception:
-            pass
+        # Cargar configuración de replicación (deshabilitada - sistema usa base de datos única)
+        # No cargar configuración de replicación ya que el sistema usa una sola base de datos Neon
 
     def _collect_params(self) -> dict:
         return {
@@ -623,8 +676,7 @@ class DBConfigDialog(QDialog):
         self.ssl_combo.setCurrentIndex(idx)
         self.timeout_spin.setValue(int(newp['connect_timeout']))
         self.app_name_edit.setText(str(newp['application_name']))
-        if str(newp['host']).lower() not in ('localhost', '127.0.0.1'):
-            self.profile_combo.setCurrentText('Remoto')
+        # Operamos solo con un perfil 'Local' en la UI
         self.status_label.setText("Estado: Sin probar")
         self.status_label.setStyleSheet("color: #666;")
 
@@ -757,41 +809,8 @@ class DBConfigDialog(QDialog):
 
     def _on_test_local(self):
         try:
-            # Construir parámetros locales por defecto con soporte para variables de entorno
-            host = os.getenv('DB_HOST', 'localhost')
-            try:
-                port = int(os.getenv('DB_PORT', 5432))
-            except Exception:
-                port = 5432
-            database = os.getenv('DB_NAME', 'gimnasio')
-            user = os.getenv('DB_USER', 'postgres')
-            sslmode = os.getenv('DB_SSLMODE', 'prefer')
-            connect_timeout = 10
-            application_name = 'gym_management_system'
-
-            # Resolver contraseña: campo UI > keyring > entorno > por defecto provisto
-            password = self.password_edit.text().strip()
-            if not password and keyring is not None:
-                try:
-                    saved_pwd = keyring.get_password(KEYRING_SERVICE_NAME, user)
-                    if saved_pwd:
-                        password = saved_pwd
-                except Exception:
-                    pass
-            if not password:
-                password = os.getenv('DB_PASSWORD', 'Matute03')
-
-            params = {
-                'host': host,
-                'port': port,
-                'database': database,
-                'user': user,
-                'password': password,
-                'sslmode': sslmode,
-                'connect_timeout': connect_timeout,
-                'application_name': application_name,
-            }
-
+            # Usar configuración actual de la conexión única
+            params = self._get_profile_params('connection')
             ok = self._test_connection(params)
             if ok:
                 self.status_label.setText("Estado: Conexión local OK")
@@ -805,13 +824,13 @@ class DBConfigDialog(QDialog):
 
     def _on_test_remote(self):
         try:
-            params = self._get_profile_params('remoto')
+            params = self._get_profile_params('connection')
             host = str(params.get('host', '')).strip()
             if not host:
-                QMessageBox.warning(self, "Config incompleta", "Configura primero el perfil REMOTO (host/puerto/etc.).")
+                QMessageBox.warning(self, "Config incompleta", "Configura primero la conexión a la base de datos (host/puerto/etc.).")
                 return
-            progress = QProgressDialog("Probando conexión remota…", None, 0, 0, self)
-            progress.setWindowTitle("Conexión remota")
+            progress = QProgressDialog("Probando conexión…", None, 0, 0, self)
+            progress.setWindowTitle("Conexión a base de datos")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress.setMinimumDuration(0)
             progress.setAutoClose(True)
@@ -823,116 +842,20 @@ class DBConfigDialog(QDialog):
             except Exception:
                 pass
             if ok:
-                self.status_label.setText("Estado: Conexión remota OK")
+                self.status_label.setText("Estado: Conexión OK")
                 self.status_label.setStyleSheet("color: #2ecc71;")
             else:
-                self.status_label.setText("Estado: Error con base remota")
+                self.status_label.setText("Estado: Error de conexión")
                 self.status_label.setStyleSheet("color: #e74c3c;")
         except Exception:
-            self.status_label.setText("Estado: Error al intentar conexión remota")
+            self.status_label.setText("Estado: Error al intentar conexión")
             self.status_label.setStyleSheet("color: #e74c3c;")
 
     def _on_setup_replication(self):
-        try:
-            # Confirmación previa
-            resp = QMessageBox.question(
-                self,
-                "Confirmar replicación",
-                (
-                    "Esto creará/ajustará publicación y suscripción, y puede modificar objetos\n"
-                    "en ambas bases (local/remota). ¿Deseas continuar?"
-                ),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if resp != QMessageBox.StandardButton.Yes:
-                return
-
-            from utils_modules.replication_setup import ensure_logical_replication, ensure_bidirectional_replication
-            # Cargar config actual desde disco para evitar usar cache desactualizada
-            cfg = self._load_full_config() or (self.full_cfg if isinstance(self.full_cfg, dict) else {})
-            if not isinstance(cfg, dict):
-                cfg = {}
-            # Aplicar valores de UI a la sección de replicación
-            rep = cfg.get('replication', {}) or {}
-            pub = self.publication_name_edit.text().strip() or rep.get('publication_name') or 'gym_pub'
-            sub = self.subscription_name_edit.text().strip() or rep.get('subscription_name') or 'gym_sub'
-            rep['publication_name'] = pub
-            rep['subscription_name'] = sub
-            rep['remote_can_reach_local'] = bool(self.remote_can_reach_local_checkbox.isChecked())
-            # Pistas para bidireccional
-            if self.replication_mode_combo.currentIndex() == 1:
-                rep.setdefault('local_publication_name', pub)
-                rep.setdefault('remote_subscription_name', sub)
-            cfg['replication'] = rep
-            # Validaciones ligeras
-            if not cfg.get('db_local') or not cfg.get('db_remote'):
-                QMessageBox.warning(self, "Config incompleta", "Faltan secciones db_local o db_remote en config/config.json. Guarda y vuelve a intentar.")
-                return
-            # Orquestar replicación con progreso
-            progress = QProgressDialog("Ejecutando replicación…", None, 0, 0, self)
-            progress.setWindowTitle("Replicación")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            # Ejecutar
-            if self.replication_mode_combo.currentIndex() == 1:
-                out = ensure_bidirectional_replication(cfg)
-            else:
-                out = ensure_logical_replication(cfg)
-            try:
-                progress.close()
-            except Exception:
-                pass
-            try:
-                pretty = json.dumps(out, ensure_ascii=False, indent=2)
-            except Exception:
-                pretty = str(out)
-            QMessageBox.information(self, "Replicación", pretty)
-        except Exception as e:
-            QMessageBox.critical(self, "Error en replicación", str(e))
+        QMessageBox.information(self, "Replicación", "La funcionalidad de replicación ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_health_check(self):
-        try:
-            # Usar helpers del script verify_replication_health y resolvers de replication_setup
-            import importlib
-            vmod = importlib.import_module('scripts.verify_replication_health')
-            from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
-            cfg = vmod.load_cfg()
-            out = {}
-            progress = QProgressDialog("Verificando salud de replicación…", None, 0, 0, self)
-            progress.setWindowTitle("Salud de replicación")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            try:
-                local_params = resolve_local_credentials(cfg)
-                with vmod.connect(local_params) as lconn:
-                    out['local_pg_stat_subscription'] = vmod.read_local_subscription(lconn)
-            except Exception as e:
-                out['local_error'] = str(e)
-            try:
-                remote_params = resolve_remote_credentials(cfg)
-                with vmod.connect(remote_params) as rconn:
-                    out['remote_replication'] = vmod.read_remote_replication(rconn)
-            except Exception as e:
-                out['remote_error'] = str(e)
-            try:
-                progress.close()
-            except Exception:
-                pass
-            out['ok'] = True
-            try:
-                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
-            except Exception:
-                pretty = str(out)
-            QMessageBox.information(self, "Salud de replicación", pretty)
-        except Exception as e:
-            QMessageBox.critical(self, "Error verificando salud", str(e))
+        QMessageBox.information(self, "Salud de replicación", "La verificación de salud de replicación ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_detect_device(self):
         try:
@@ -986,9 +909,9 @@ class DBConfigDialog(QDialog):
 
     def _on_secure_owner_local(self):
         try:
-            params = self._get_profile_params('local')
-            progress = QProgressDialog("Asegurando Dueño (local)…", None, 0, 0, self)
-            progress.setWindowTitle("Dueño local")
+            params = self._get_profile_params('connection')
+            progress = QProgressDialog("Asegurando Dueño…", None, 0, 0, self)
+            progress.setWindowTitle("Dueño")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress.setMinimumDuration(0)
             progress.setAutoClose(True)
@@ -1003,36 +926,12 @@ class DBConfigDialog(QDialog):
                 pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
             except Exception:
                 pretty = str(out)
-            QMessageBox.information(self, "Asegurar Dueño (Local)", pretty)
+            QMessageBox.information(self, "Asegurar Dueño", pretty)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo asegurar Dueño (local): {e}")
+            QMessageBox.critical(self, "Error", f"No se pudo asegurar Dueño: {e}")
 
     def _on_secure_owner_remote(self):
-        try:
-            params = self._get_profile_params('remoto')
-            host = str(params.get('host', '')).strip()
-            if not host:
-                QMessageBox.warning(self, "Config remota faltante", "Configura primero el perfil REMOTO (host/puerto/etc.).")
-                return
-            progress = QProgressDialog("Asegurando Dueño (remoto)…", None, 0, 0, self)
-            progress.setWindowTitle("Dueño remoto")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            out = self._secure_owner_on_params(params)
-            try:
-                progress.close()
-            except Exception:
-                pass
-            try:
-                pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
-            except Exception:
-                pretty = str(out)
-            QMessageBox.information(self, "Asegurar Dueño (Remoto)", pretty)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo asegurar Dueño (remoto): {e}")
+        QMessageBox.information(self, "Asegurar Dueño (Remoto)", "La funcionalidad de seguridad remota ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_full_bootstrap(self):
         try:
@@ -1073,38 +972,8 @@ class DBConfigDialog(QDialog):
                 out["ensure_prerequisites"] = prereq_res
             except Exception as e:
                 out["ensure_prerequisites"] = {"ok": False, "error": str(e)}
-            try:
-                import importlib
-                vmod = importlib.import_module('scripts.verify_replication_health')
-                from utils_modules.replication_setup import resolve_local_credentials, resolve_remote_credentials
-                cfg = vmod.load_cfg()
-                health = {}
-                progress2 = QProgressDialog("Verificando salud de replicación…", None, 0, 0, self)
-                progress2.setWindowTitle("Bootstrap")
-                progress2.setWindowModality(Qt.WindowModality.ApplicationModal)
-                progress2.setMinimumDuration(0)
-                progress2.setAutoClose(True)
-                progress2.show()
-                QApplication.processEvents()
-                try:
-                    local_params = resolve_local_credentials(cfg)
-                    with vmod.connect(local_params) as lconn:
-                        health['local_pg_stat_subscription'] = vmod.read_local_subscription(lconn)
-                except Exception as e:
-                    health['local_error'] = str(e)
-                try:
-                    remote_params = resolve_remote_credentials(cfg)
-                    with vmod.connect(remote_params) as rconn:
-                        health['remote_replication'] = vmod.read_remote_replication(rconn)
-                except Exception as e:
-                    health['remote_error'] = str(e)
-                try:
-                    progress2.close()
-                except Exception:
-                    pass
-                out["replication_health"] = health
-            except Exception as e:
-                out["replication_health"] = {"error": str(e)}
+            # Replicación deshabilitada - el sistema ahora usa una sola base de datos Neon
+            out["replication_health"] = {"message": "Replicación deshabilitada - usando base de datos única Neon"}
             out["ok"] = True
             try:
                 pretty = json.dumps(out, ensure_ascii=False, indent=2, default=str)
@@ -1183,7 +1052,7 @@ class DBConfigDialog(QDialog):
         else:
             QMessageBox.critical(self, "VPN + PostgreSQL", msg)
 
-    # Función legacy eliminada - replicación nativa PostgreSQL ya configurada
+    # Función anterior eliminada - replicación nativa ya configurada
 
     def _run_python_script(self, script_rel_path: str, args: list[str] | None = None) -> tuple[bool, str, str]:
         try:
@@ -1200,70 +1069,13 @@ class DBConfigDialog(QDialog):
         except Exception as e:
             return False, "", str(e)
 
-    # Función legacy eliminada - replicación nativa PostgreSQL maneja sincronización automáticamente
+    # Función anterior eliminada - la base de datos gestiona sincronización automáticamente
 
     def _on_reconcile_remote_to_local_once(self):
-        # Importar módulo y ejecutar run_once capturando stdout para mensajes claros
-        try:
-            import importlib
-            mod = importlib.import_module('scripts.reconcile_remote_to_local_once')
-        except Exception as e:
-            QMessageBox.critical(self, "Reconciliación remoto→local", f"No se pudo importar script: {e}")
-            return
-        try:
-            cfg = self._load_full_config()
-            rep = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
-            sub = (rep.get('subscription_name') or self.subscription_name_edit.text().strip() or 'gym_sub')
-            buf = io.StringIO()
-            progress = QProgressDialog("Reconciliando remoto→local…", None, 0, 0, self)
-            progress.setWindowTitle("Reconciliación")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            with contextlib.redirect_stdout(buf):
-                # Ejecutar con tablas por defecto y sin dry-run
-                mod.run_once(subscription=sub, dry_run=False)
-            try:
-                progress.close()
-            except Exception:
-                pass
-            text = buf.getvalue().strip() or "Reconciliación R→L completada."
-            QMessageBox.information(self, "Reconciliación remoto→local", text)
-        except Exception as e:
-            QMessageBox.critical(self, "Reconciliación remoto→local", f"Fallo ejecutando: {e}")
+        QMessageBox.information(self, "Reconciliación remoto→local", "La funcionalidad de reconciliación ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_reconcile_local_to_remote_once(self):
-        # Importar módulo y ejecutar run_once capturando stdout para mensajes claros
-        try:
-            import importlib
-            mod = importlib.import_module('scripts.reconcile_local_remote_once')
-        except Exception as e:
-            QMessageBox.critical(self, "Reconciliación local→remoto", f"No se pudo importar script: {e}")
-            return
-        try:
-            cfg = self._load_full_config()
-            rep = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
-            sub = (rep.get('subscription_name') or self.subscription_name_edit.text().strip() or 'gym_sub')
-            buf = io.StringIO()
-            progress = QProgressDialog("Reconciliando local→remoto…", None, 0, 0, self)
-            progress.setWindowTitle("Reconciliación")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            with contextlib.redirect_stdout(buf):
-                mod.run_once(subscription=sub, dry_run=False)
-            try:
-                progress.close()
-            except Exception:
-                pass
-            text = buf.getvalue().strip() or "Reconciliación L→R completada."
-            QMessageBox.information(self, "Reconciliación local→remoto", text)
-        except Exception as e:
-            QMessageBox.critical(self, "Reconciliación local→remoto", f"Fallo ejecutando: {e}")
+        QMessageBox.information(self, "Reconciliación local→remoto", "La funcionalidad de reconciliación ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_test_wireguard(self):
         # Prueba de instalación/adaptadores WireGuard y conectividad hacia remoto (puerto PostgreSQL)
@@ -1302,12 +1114,12 @@ class DBConfigDialog(QDialog):
                 pass
             results['wireguard_adapters'] = adapters
 
-            # Probar conectividad TCP y conexión DB a remoto
+            # Probar conectividad TCP y conexión DB
             cfg = self._load_full_config()
-            remote = (cfg.get('db_remote') or {}) if isinstance(cfg, dict) else {}
-            host = str(remote.get('host') or cfg.get('host') or '').strip()
+            db_conn = (cfg.get('db_connection') or {}) if isinstance(cfg, dict) else {}
+            host = str(db_conn.get('host') or cfg.get('host') or '').strip()
             try:
-                port = int(remote.get('port') or cfg.get('port') or 5432)
+                port = int(db_conn.get('port') or cfg.get('port') or 5432)
             except Exception:
                 port = 5432
             tcp_ok = False
@@ -1324,7 +1136,7 @@ class DBConfigDialog(QDialog):
             db_ok = False
             db_err = None
             try:
-                params = self._get_profile_params('remoto')
+                params = self._get_profile_params('connection')
                 if str(params.get('host', '')).strip():
                     conn = psycopg2.connect(
                         host=params.get('host'),
@@ -1387,33 +1199,27 @@ class DBConfigDialog(QDialog):
             'connect_timeout': params['connect_timeout'],
             'application_name': params['application_name'],
         }
-        # Incluir contraseña solo si el usuario lo solicita o si no hay keyring
-        if params.get('store_password_in_file', False) or keyring is None:
-            db_cfg['password'] = params.get('password', '')
-        else:
-            # Si no queremos persistirla en archivo, eliminar cualquier rastro previo
-            if 'password' in existing_cfg:
-                try:
-                    del existing_cfg['password']
-                except Exception:
-                    pass
+        # Nunca persistir contraseña en archivo; usar almacén seguro si está disponible
+        try:
+            if keyring is not None and params.get('password'):
+                # Usar cuenta compuesta consistente con el resto del sistema: user@host:port
+                acct = f"{params['user']}@{params['host']}:{params['port']}"
+                keyring.set_password(KEYRING_SERVICE_NAME, acct, params['password'])
+        except Exception:
+            pass
+        # Eliminar cualquier rastro previo de contraseña en config.json
+        if 'password' in existing_cfg:
+            try:
+                del existing_cfg['password']
+            except Exception:
+                pass
 
-        # Escribir sección del perfil seleccionado y top-level para compatibilidad
-        profile = str(params.get('profile', 'local')).lower()
-        # Normalizar clave perfil remoto
-        profile_key = 'db_local' if profile == 'local' else 'db_remote'
-        existing_cfg[profile_key] = db_cfg
-        # Mantener la otra sección si ya existe
-        if profile_key == 'db_local' and 'db_remote' not in existing_cfg and self.db_remote_cfg:
-            existing_cfg['db_remote'] = self.db_remote_cfg
-        if profile_key == 'db_remote' and 'db_local' not in existing_cfg and self.db_local_cfg:
-            existing_cfg['db_local'] = self.db_local_cfg
-        # Establecer perfil activo y duplicar a nivel raíz para que el resto de la app funcione sin cambios
-        existing_cfg['db_profile'] = 'local' if profile == 'local' else 'remoto'
+        # Guardar configuración de conexión única (sin distinción de perfiles)
+        existing_cfg['db_connection'] = db_cfg
+        # Establecer valores a nivel raíz para compatibilidad con el resto de la aplicación
         for k in ['host', 'port', 'database', 'user', 'sslmode', 'connect_timeout', 'application_name']:
             existing_cfg[k] = db_cfg.get(k, existing_cfg.get(k))
-        if 'password' in db_cfg:
-            existing_cfg['password'] = db_cfg['password']
+        # No escribir contraseña en el nivel raíz
 
         # Persistir configuración de tareas programadas desde la UI
         try:
@@ -1421,41 +1227,214 @@ class DBConfigDialog(QDialog):
         except Exception:
             pass
 
+    # --- Gestión de archivo .env ---
+    def _env_path(self) -> Path:
+        try:
+            return Path(__file__).resolve().parent / '.env'
+        except Exception:
+            return Path(os.getcwd()) / '.env'
+
+    def _read_env_file(self) -> dict:
+        env = {}
+        p = self._env_path()
+        try:
+            if not p.exists():
+                return env
+            with open(p, 'r', encoding='utf-8') as f:
+                for line in f:
+                    s = line.strip()
+                    if not s or s.startswith('#'):
+                        continue
+                    if '=' not in s:
+                        continue
+                    k, v = s.split('=', 1)
+                    env[k.strip()] = v.strip()
+        except Exception:
+            pass
+        return env
+
+    def _write_env_file(self, env: dict):
+        p = self._env_path()
+        lines = []
+        lines.append('# =============================================================================')
+        lines.append('# GYM MANAGEMENT SYSTEM - VARIABLES DE ENTORNO')
+        lines.append('# =============================================================================')
+        lines.append('# Este archivo contiene credenciales sensibles. Mantener seguro y no commitear.')
+        lines.append('')
+        # Sección DB
+        lines.append('# Base de datos única')
+        lines.append(f"DB_PROFILE={env.get('DB_PROFILE','local')}")
+        lines.append(f"DB_LOCAL_HOST={env.get('DB_LOCAL_HOST','localhost')}")
+        lines.append(f"DB_LOCAL_PORT={env.get('DB_LOCAL_PORT','5432')}")
+        lines.append(f"DB_LOCAL_DATABASE={env.get('DB_LOCAL_DATABASE','gimnasio')}")
+        lines.append(f"DB_LOCAL_USER={env.get('DB_LOCAL_USER','postgres')}")
+        lines.append(f"DB_LOCAL_PASSWORD={env.get('DB_LOCAL_PASSWORD','')}")
+        lines.append(f"DB_LOCAL_SSLMODE={env.get('DB_LOCAL_SSLMODE','prefer')}")
+        lines.append(f"DB_LOCAL_CONNECT_TIMEOUT={env.get('DB_LOCAL_CONNECT_TIMEOUT','10')}")
+        lines.append(f"DB_LOCAL_APPLICATION_NAME={env.get('DB_LOCAL_APPLICATION_NAME','gym_management_system')}")
+        lines.append('')
+        # Sección de app y secretos
+        lines.append('# Aplicación y secretos')
+        if env.get('WEBAPP_SESSION_SECRET') is not None:
+            lines.append(f"WEBAPP_SESSION_SECRET={env.get('WEBAPP_SESSION_SECRET','')}")
+        if env.get('DEV_PASSWORD') is not None:
+            lines.append(f"DEV_PASSWORD={env.get('DEV_PASSWORD','')}")
+        if env.get('OWNER_PASSWORD') is not None:
+            lines.append(f"OWNER_PASSWORD={env.get('OWNER_PASSWORD','')}")
+        if env.get('WEBAPP_BASE_URL') is not None:
+            lines.append(f"WEBAPP_BASE_URL={env.get('WEBAPP_BASE_URL','')}")
+        if env.get('CLIENT_BASE_URL') is not None:
+            lines.append(f"CLIENT_BASE_URL={env.get('CLIENT_BASE_URL','')}")
+        if env.get('SERVER_PUBLIC_IP') is not None:
+            lines.append(f"SERVER_PUBLIC_IP={env.get('SERVER_PUBLIC_IP','')}")
+        content = "\n".join(lines) + "\n"
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(content)
+
+    def _populate_env_defaults_from_current(self):
+        """Rellena campos de .env con parámetros actuales de la UI."""
+        try:
+            cp = self._collect_params()
+            self.env_local_host_edit.setText(str(cp.get('host','localhost')))
+            self.env_local_port_spin.setValue(int(cp.get('port',5432)))
+            self.env_local_db_edit.setText(str(cp.get('database','gimnasio')))
+            self.env_local_user_edit.setText(str(cp.get('user','postgres')))
+            if str(cp.get('password','')):
+                self.env_local_password_edit.setText(str(cp.get('password','')))
+            sslm = str(cp.get('sslmode','prefer'))
+            idx = max(0, self.env_local_sslmode_combo.findText(sslm))
+            self.env_local_sslmode_combo.setCurrentIndex(idx)
+            self.env_local_timeout_spin.setValue(int(cp.get('connect_timeout',10)))
+            self.env_local_app_name_edit.setText(str(cp.get('application_name','gym_management_system')))
+            # General
+            self.env_webapp_base_url_edit.setText(self.webapp_base_url_edit.text().strip())
+            self.env_client_base_url_edit.setText(self.client_base_url_edit.text().strip())
+            self.env_webapp_session_secret_edit.setText(self.webapp_session_secret_edit.text().strip())
+        except Exception:
+            pass
+
+    def _on_env_load(self):
+        try:
+            env = self._read_env_file()
+            if not env:
+                QMessageBox.information(self, ".env", "No se encontró .env o está vacío. Usa 'Crear .env'.")
+                self._populate_env_defaults_from_current()
+                return
+            # DB
+            self.env_db_profile_combo.setCurrentText(str(env.get('DB_PROFILE','local') or 'local'))
+            self.env_local_host_edit.setText(str(env.get('DB_LOCAL_HOST','')))
+            try:
+                self.env_local_port_spin.setValue(int(env.get('DB_LOCAL_PORT', '5432')))
+            except Exception:
+                self.env_local_port_spin.setValue(5432)
+            self.env_local_db_edit.setText(str(env.get('DB_LOCAL_DATABASE','')))
+            self.env_local_user_edit.setText(str(env.get('DB_LOCAL_USER','')))
+            self.env_local_password_edit.setText(str(env.get('DB_LOCAL_PASSWORD','')))
+            sslm = str(env.get('DB_LOCAL_SSLMODE','prefer'))
+            idx = max(0, self.env_local_sslmode_combo.findText(sslm))
+            self.env_local_sslmode_combo.setCurrentIndex(idx)
+            try:
+                self.env_local_timeout_spin.setValue(int(env.get('DB_LOCAL_CONNECT_TIMEOUT','10')))
+            except Exception:
+                self.env_local_timeout_spin.setValue(10)
+            self.env_local_app_name_edit.setText(str(env.get('DB_LOCAL_APPLICATION_NAME','gym_management_system')))
+            # App
+            self.env_webapp_session_secret_edit.setText(str(env.get('WEBAPP_SESSION_SECRET','')))
+            self.env_dev_password_edit.setText(str(env.get('DEV_PASSWORD','')))
+            self.env_owner_password_edit.setText(str(env.get('OWNER_PASSWORD','')))
+            self.env_webapp_base_url_edit.setText(str(env.get('WEBAPP_BASE_URL','')))
+            self.env_client_base_url_edit.setText(str(env.get('CLIENT_BASE_URL','')))
+            self.env_server_public_ip_edit.setText(str(env.get('SERVER_PUBLIC_IP','')))
+            QMessageBox.information(self, ".env", "Variables cargadas desde .env")
+        except Exception as e:
+            QMessageBox.critical(self, ".env", f"No se pudo cargar .env: {e}")
+
+    def _collect_env_from_ui(self) -> dict:
+        return {
+            'DB_PROFILE': 'local',
+            'DB_LOCAL_HOST': self.env_local_host_edit.text().strip() or 'localhost',
+            'DB_LOCAL_PORT': str(int(self.env_local_port_spin.value())),
+            'DB_LOCAL_DATABASE': self.env_local_db_edit.text().strip() or 'gimnasio',
+            'DB_LOCAL_USER': self.env_local_user_edit.text().strip() or 'postgres',
+            'DB_LOCAL_PASSWORD': self.env_local_password_edit.text().strip(),
+            'DB_LOCAL_SSLMODE': self.env_local_sslmode_combo.currentText() or 'prefer',
+            'DB_LOCAL_CONNECT_TIMEOUT': str(int(self.env_local_timeout_spin.value())),
+            'DB_LOCAL_APPLICATION_NAME': self.env_local_app_name_edit.text().strip() or 'gym_management_system',
+            'WEBAPP_SESSION_SECRET': self.env_webapp_session_secret_edit.text().strip(),
+            'DEV_PASSWORD': self.env_dev_password_edit.text().strip(),
+            'OWNER_PASSWORD': self.env_owner_password_edit.text().strip(),
+            'WEBAPP_BASE_URL': self.env_webapp_base_url_edit.text().strip(),
+            'CLIENT_BASE_URL': self.env_client_base_url_edit.text().strip(),
+            'SERVER_PUBLIC_IP': self.env_server_public_ip_edit.text().strip(),
+        }
+
+    def _on_env_save(self):
+        try:
+            env = self._collect_env_from_ui()
+            # Validaciones mínimas
+            if not env.get('DB_LOCAL_PASSWORD'):
+                QMessageBox.warning(self, ".env", "DB_LOCAL_PASSWORD no puede estar vacío.")
+                return
+            if not env.get('WEBAPP_SESSION_SECRET'):
+                QMessageBox.warning(self, ".env", "WEBAPP_SESSION_SECRET no puede estar vacío.")
+                return
+            if not env.get('DEV_PASSWORD') or not env.get('OWNER_PASSWORD'):
+                QMessageBox.warning(self, ".env", "DEV_PASSWORD y OWNER_PASSWORD no pueden estar vacíos.")
+                return
+            self._write_env_file(env)
+            QMessageBox.information(self, ".env", "Archivo .env guardado correctamente.")
+        except Exception as e:
+            QMessageBox.critical(self, ".env", f"No se pudo guardar .env: {e}")
+
+    def _on_env_create(self):
+        try:
+            p = self._env_path()
+            if p.exists():
+                ret = QMessageBox.question(self, "Crear .env", "Ya existe .env. ¿Deseas sobrescribirlo?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if ret != QMessageBox.StandardButton.Yes:
+                    return
+            env = self._collect_env_from_ui()
+            # Si hay campos vacíos, intentamos rellenar desde UI principal
+            cp = self._collect_params()
+            if not env.get('DB_LOCAL_HOST'):
+                env['DB_LOCAL_HOST'] = str(cp.get('host','localhost'))
+            if not env.get('DB_LOCAL_PORT'):
+                env['DB_LOCAL_PORT'] = str(cp.get('port', 5432))
+            if not env.get('DB_LOCAL_DATABASE'):
+                env['DB_LOCAL_DATABASE'] = str(cp.get('database','gimnasio'))
+            if not env.get('DB_LOCAL_USER'):
+                env['DB_LOCAL_USER'] = str(cp.get('user','postgres'))
+            if not env.get('DB_LOCAL_PASSWORD'):
+                env['DB_LOCAL_PASSWORD'] = str(cp.get('password',''))
+            if not env.get('DB_LOCAL_SSLMODE'):
+                env['DB_LOCAL_SSLMODE'] = str(cp.get('sslmode','prefer'))
+            if not env.get('DB_LOCAL_CONNECT_TIMEOUT'):
+                env['DB_LOCAL_CONNECT_TIMEOUT'] = str(cp.get('connect_timeout',10))
+            if not env.get('DB_LOCAL_APPLICATION_NAME'):
+                env['DB_LOCAL_APPLICATION_NAME'] = str(cp.get('application_name','gym_management_system'))
+            self._write_env_file(env)
+            QMessageBox.information(self, ".env", "Archivo .env creado correctamente.")
+            # Prefill campos de edición
+            self._on_env_load()
+        except Exception as e:
+            QMessageBox.critical(self, ".env", f"No se pudo crear .env: {e}")
+
         # Persistir configuración general
         try:
             base_url = self.webapp_base_url_edit.text().strip()
             client_url = self.client_base_url_edit.text().strip()
-            sync_token = self.sync_upload_token_edit.text().strip()
             session_secret = self.webapp_session_secret_edit.text().strip()
             if base_url:
                 existing_cfg['webapp_base_url'] = base_url
             if client_url:
                 existing_cfg['client_base_url'] = client_url
-            if sync_token:
-                existing_cfg['sync_upload_token'] = sync_token
             if session_secret:
                 existing_cfg['webapp_session_secret'] = session_secret
-            existing_cfg['public_tunnel'] = existing_cfg.get('public_tunnel', {}) or {}
-            existing_cfg['public_tunnel']['enabled'] = bool(self.tunnel_enabled_checkbox.isChecked())
-            existing_cfg['public_tunnel']['subdomain'] = self.tunnel_subdomain_edit.text().strip()
         except Exception:
             pass
 
-        # Persistir configuración de replicación
-        try:
-            rep = existing_cfg.get('replication', {}) or {}
-            pub = self.publication_name_edit.text().strip() or rep.get('publication_name') or 'gym_pub'
-            sub = self.subscription_name_edit.text().strip() or rep.get('subscription_name') or 'gym_sub'
-            rep['publication_name'] = pub
-            rep['subscription_name'] = sub
-            rep['remote_can_reach_local'] = bool(self.remote_can_reach_local_checkbox.isChecked())
-            # Guardar pistas de modo bidireccional si corresponde
-            if self.replication_mode_combo.currentIndex() == 1:
-                rep.setdefault('local_publication_name', pub)
-                rep.setdefault('remote_subscription_name', sub)
-            existing_cfg['replication'] = rep
-        except Exception:
-            pass
+        # Replicación eliminada - se usa base de datos única Neon
+        pass
 
         merged_cfg = existing_cfg
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -1465,18 +1444,12 @@ class DBConfigDialog(QDialog):
         if keyring is None:
             return
         try:
-            accounts = []
-            if str(params.get('profile', 'local')).lower() == 'local':
-                accounts = [
-                    params['user'],
-                    f"{params['user']}@{params['host']}:{params['port']}",
-                ]
-            else:
-                accounts = [
-                    f"{params['user']}@railway",
-                    f"{params['user']}@{params['host']}:{params['port']}",
-                    params['user'],
-                ]
+            # Guardar contraseña sin distinción de perfiles
+            accounts = [
+                params['user'],
+                f"{params['user']}@{params['host']}:{params['port']}",
+                f"{params['user']}@neondb",
+            ]
             for acct in accounts:
                 try:
                     keyring.set_password(KEYRING_SERVICE_NAME, acct, params['password'])
@@ -1487,20 +1460,20 @@ class DBConfigDialog(QDialog):
 
     def _on_profile_changed(self, _: str):
         try:
-            prof = 'local' if self.profile_combo.currentText().lower().startswith('local') else 'remoto'
-            src = self.db_local_cfg if prof == 'local' else self.db_remote_cfg
-            # Valores por defecto si no existe configuración del perfil
+            # Cargar valores de la conexión única
+            src = self.db_connection_cfg
+            # Valores por defecto si no existe configuración
             if not src:
-                src = self._ensure_db_local_defaults(None) if prof == 'local' else self._ensure_db_remote_defaults(None)
-            self.host_edit.setText(str(src.get('host', 'localhost' if prof == 'local' else '')))
-            self.port_spin.setValue(int(src.get('port', 5432 if prof == 'local' else 5432)))
-            self.db_edit.setText(str(src.get('database', 'gimnasio' if prof == 'local' else 'railway')))
-            self.user_edit.setText(str(src.get('user', 'postgres')))
+                src = self._ensure_db_connection_defaults(None)
+            self.host_edit.setText(str(src.get('host', '')))
+            self.port_spin.setValue(int(src.get('port', 5432)))
+            self.db_edit.setText(str(src.get('database', 'neondb')))
+            self.user_edit.setText(str(src.get('user', 'neondb_owner')))
             # No sobreescribir contraseña si ya se escribió manualmente
             if not self.password_edit.text().strip():
                 self.password_edit.setText(str(src.get('password', '')))
             # sslmode, timeout, app name
-            sslmode = str(src.get('sslmode', 'prefer' if prof == 'local' else 'require'))
+            sslmode = str(src.get('sslmode', 'require'))
             idx = max(0, self.ssl_combo.findText(sslmode))
             self.ssl_combo.setCurrentIndex(idx)
             self.timeout_spin.setValue(int(src.get('connect_timeout', 10)))
@@ -1524,24 +1497,13 @@ class DBConfigDialog(QDialog):
             pass
         return {}
 
-    def _ensure_db_local_defaults(self, cfg: dict | None) -> dict:
+    def _ensure_db_connection_defaults(self, cfg: dict | None) -> dict:
         base = cfg.copy() if isinstance(cfg, dict) else {}
-        base.setdefault('host', 'localhost')
-        base.setdefault('port', 5432)
-        base.setdefault('database', 'gimnasio')
-        base.setdefault('user', 'postgres')
-        base.setdefault('sslmode', 'prefer')
-        base.setdefault('connect_timeout', 10)
-        base.setdefault('application_name', 'gym_management_system')
-        return base
-
-    def _ensure_db_remote_defaults(self, cfg: dict | None) -> dict:
-        base = cfg.copy() if isinstance(cfg, dict) else {}
-        # No asumimos host/puerto de remoto si no existen
+        # Configuración por defecto para conexión única a Neon
         base.setdefault('host', '')
         base.setdefault('port', 5432)
-        base.setdefault('database', 'railway')
-        base.setdefault('user', 'postgres')
+        base.setdefault('database', 'neondb')
+        base.setdefault('user', 'neondb_owner')
         base.setdefault('sslmode', 'require')
         base.setdefault('connect_timeout', 10)
         base.setdefault('application_name', 'gym_management_system')
@@ -1557,31 +1519,31 @@ class DBConfigDialog(QDialog):
         uploader.setdefault('enabled', False)
         uploader.setdefault('interval_minutes', 15)
         base['uploader'] = uploader
-        # Legacy reconcile → nuevos campos
+        # reconcile anterior → nuevos campos (deshabilitados - sin replicación)
         legacy = base.get('reconcile') if isinstance(base.get('reconcile'), dict) else None
         r2l = base.get('reconcile_r2l') if isinstance(base.get('reconcile_r2l'), dict) else {}
         l2r = base.get('reconcile_l2r') if isinstance(base.get('reconcile_l2r'), dict) else {}
         if legacy and not r2l and not l2r:
             try:
                 r2l = {
-                    'enabled': bool(legacy.get('enabled', False)),
+                    'enabled': False,  # Deshabilitado - sin replicación
                     'interval_minutes': int(legacy.get('interval_minutes', 60)),
                 }
                 l2r = {
-                    'enabled': bool(legacy.get('enabled', False)),
+                    'enabled': False,  # Deshabilitado - sin replicación
                     'time': '02:00',
                 }
             except Exception:
                 pass
-        r2l.setdefault('enabled', False)
+        r2l.setdefault('enabled', False)  # Deshabilitado - sin replicación
         r2l.setdefault('interval_minutes', 60)
         base['reconcile_r2l'] = r2l
-        l2r.setdefault('enabled', False)
+        l2r.setdefault('enabled', False)  # Deshabilitado - sin replicación
         l2r.setdefault('time', '02:00')
         base['reconcile_l2r'] = l2r
-        # Bidireccional diaria
+        # Bidireccional diaria (deshabilitada - sin replicación)
         bidir = base.get('reconcile_bidirectional') if isinstance(base.get('reconcile_bidirectional'), dict) else {}
-        bidir.setdefault('enabled', False)
+        bidir.setdefault('enabled', False)  # Deshabilitado - sin replicación
         bidir.setdefault('time', '02:15')
         base['reconcile_bidirectional'] = bidir
         cleanup = base.get('cleanup') if isinstance(base.get('cleanup'), dict) else {}
@@ -1592,14 +1554,14 @@ class DBConfigDialog(QDialog):
         backup.setdefault('enabled', False)
         backup.setdefault('time', '02:30')
         base['backup'] = backup
-        # Semanales - replicación nativa PostgreSQL
+        # Semanales - replicación nativa PostgreSQL (deshabilitadas - sin replicación)
         rep_health_w = base.get('replication_health_weekly') if isinstance(base.get('replication_health_weekly'), dict) else {}
-        rep_health_w.setdefault('enabled', False)
+        rep_health_w.setdefault('enabled', False)  # Deshabilitado - sin replicación
         rep_health_w.setdefault('time', '00:45')
         rep_health_w.setdefault('days', 'SUN')
         base['replication_health_weekly'] = rep_health_w
         pub_verify_w = base.get('publication_verify_weekly') if isinstance(base.get('publication_verify_weekly'), dict) else {}
-        pub_verify_w.setdefault('enabled', False)
+        pub_verify_w.setdefault('enabled', False)  # Deshabilitado - sin replicación
         pub_verify_w.setdefault('time', '00:30')
         pub_verify_w.setdefault('days', 'SUN')
         base['publication_verify_weekly'] = pub_verify_w
@@ -1610,7 +1572,7 @@ class DBConfigDialog(QDialog):
             scfg = self._ensure_tasks_defaults(self.full_cfg.get('scheduled_tasks'))
             self.tasks_master_checkbox.setChecked(bool(scfg.get('enabled', False)))
             # Uploader
-            # Replicación nativa PostgreSQL - sin uploader legacy
+        # Replicación nativa PostgreSQL - sin uploader anterior
             # Reconcile R→L
             r2l = scfg.get('reconcile_r2l', {})
             self.reconcile_r2l_enable_checkbox.setChecked(bool(r2l.get('enabled', False)))
@@ -1641,23 +1603,15 @@ class DBConfigDialog(QDialog):
                 t_backup = QTime(2, 30)
             self.backup_time_edit.setTime(t_backup)
             self.backup_enable_checkbox.setChecked(bool(scfg['backup'].get('enabled', False)))
-            # Replicación nativa PostgreSQL - sin outbox legacy
-            # Salud replicación semanal
-            rep_w = scfg.get('replication_health_weekly', {})
-            t_rep_w = QTime.fromString(str(rep_w.get('time', '00:45')), "HH:mm")
-            if not t_rep_w.isValid():
-                t_rep_w = QTime(0, 45)
-            self.replication_health_weekly_time_edit.setTime(t_rep_w)
-            self.replication_health_weekly_enable_checkbox.setChecked(bool(rep_w.get('enabled', False)))
-            self.replication_health_weekly_day_combo.setCurrentText(str(rep_w.get('days', 'SUN')).upper())
-            # Verificación publicación semanal
-            pub_w = scfg.get('publication_verify_weekly', {})
-            t_pub_w = QTime.fromString(str(pub_w.get('time', '00:30')), "HH:mm")
-            if not t_pub_w.isValid():
-                t_pub_w = QTime(0, 30)
-            self.publication_verify_weekly_time_edit.setTime(t_pub_w)
-            self.publication_verify_weekly_enable_checkbox.setChecked(bool(pub_w.get('enabled', False)))
-            self.publication_verify_weekly_day_combo.setCurrentText(str(pub_w.get('days', 'SUN')).upper())
+            # Replicación nativa PostgreSQL
+            # Tareas de mantenimiento (deshabilitadas - sistema usa base de datos única Neon)
+            # Los valores se cargan pero no se utilizan activamente
+            t_maintenance = QTime.fromString('00:45', "HH:mm")
+            if not t_maintenance.isValid():
+                t_maintenance = QTime(0, 45)
+            self.weekly_maintenance_time_edit.setTime(t_maintenance)
+            self.weekly_maintenance_enable_checkbox.setChecked(False)
+            self.weekly_maintenance_day_combo.setCurrentText('SUN')
             # Aplicar estado master
             self._on_tasks_master_toggled(self.tasks_master_checkbox.isChecked())
             # Aplicar exclusión si bidireccional activo
@@ -1668,21 +1622,9 @@ class DBConfigDialog(QDialog):
     def _collect_tasks_cfg(self) -> dict:
         def fmt_time(qt: QTime) -> str:
             return f"{qt.hour():02d}:{qt.minute():02d}"
+        # Persistir sólo tareas nativas soportadas; no se guardan reconciliaciones ni replicación
         return {
             'enabled': bool(self.tasks_master_checkbox.isChecked()),
-            # Replicación nativa PostgreSQL - sin uploader legacy
-            'reconcile_r2l': {
-                'enabled': bool(self.reconcile_r2l_enable_checkbox.isChecked()),
-                'interval_minutes': int(self.reconcile_r2l_interval_spin.value()),
-            },
-            'reconcile_l2r': {
-                'enabled': bool(self.reconcile_l2r_enable_checkbox.isChecked()),
-                'time': fmt_time(self.reconcile_l2r_time_edit.time()),
-            },
-            'reconcile_bidirectional': {
-                'enabled': bool(self.reconcile_bidirectional_enable_checkbox.isChecked()),
-                'time': fmt_time(self.reconcile_bidirectional_time_edit.time()),
-            },
             'cleanup': {
                 'enabled': bool(self.cleanup_enable_checkbox.isChecked()),
                 'time': fmt_time(self.cleanup_time_edit.time()),
@@ -1691,17 +1633,7 @@ class DBConfigDialog(QDialog):
                 'enabled': bool(self.backup_enable_checkbox.isChecked()),
                 'time': fmt_time(self.backup_time_edit.time()),
             },
-            # Replicación nativa PostgreSQL - sin outbox legacy
-            'replication_health_weekly': {
-                'enabled': bool(self.replication_health_weekly_enable_checkbox.isChecked()),
-                'time': fmt_time(self.replication_health_weekly_time_edit.time()),
-                'days': str(self.replication_health_weekly_day_combo.currentText()).upper(),
-            },
-            'publication_verify_weekly': {
-                'enabled': bool(self.publication_verify_weekly_enable_checkbox.isChecked()),
-                'time': fmt_time(self.publication_verify_weekly_time_edit.time()),
-                'days': str(self.publication_verify_weekly_day_combo.currentText()).upper(),
-            },
+            # Replicación y tareas de mantenimiento deshabilitadas - se usa base de datos única Neon
         }
 
     def _on_tasks_master_toggled(self, checked: bool):
@@ -1712,8 +1644,7 @@ class DBConfigDialog(QDialog):
                 self.reconcile_bidirectional_enable_checkbox, self.reconcile_bidirectional_time_edit,
                 self.cleanup_enable_checkbox, self.cleanup_time_edit,
                 self.backup_enable_checkbox, self.backup_time_edit,
-                self.replication_health_weekly_enable_checkbox, self.replication_health_weekly_time_edit, self.replication_health_weekly_day_combo,
-                self.publication_verify_weekly_enable_checkbox, self.publication_verify_weekly_time_edit, self.publication_verify_weekly_day_combo,
+                self.weekly_maintenance_enable_checkbox, self.weekly_maintenance_time_edit, self.weekly_maintenance_day_combo,
             ]:
                 w.setEnabled(checked)
             # Si bidireccional está activo, mantén R→L y L→R bloqueados tras cambiar el master
@@ -1861,7 +1792,7 @@ class DBConfigDialog(QDialog):
                     saved = None
                 if saved:
                     break
-            # Migración automática desde etiquetas legacy si no existe en la actual
+            # Migración automática desde etiquetas anteriores si no existe en la actual
             if not saved:
                 for old_service in LEGACY_KEYRING_SERVICE_NAMES:
                     if not old_service or old_service == KEYRING_SERVICE_NAME:
@@ -1897,7 +1828,12 @@ class DBConfigDialog(QDialog):
                 port = int(params.get('port', 5432))
             except Exception:
                 port = 5432
-            variants = [f"{user}@{host}:{port}", user] if scope_hint == 'local' else [f"{user}@railway", f"{user}@{host}:{port}", user]
+            # Buscar contraseña sin distinción de perfiles
+            variants = [
+                f"{user}@{host}:{port}",
+                user,
+                f"{user}@neondb",
+            ]
             for acct in variants:
                 try:
                     saved = keyring.get_password(KEYRING_SERVICE_NAME, acct)
@@ -1911,7 +1847,12 @@ class DBConfigDialog(QDialog):
         return params
 
     def _get_profile_params(self, profile: str) -> dict:
-        base = self._ensure_db_local_defaults(self.db_local_cfg) if profile == 'local' else self._ensure_db_remote_defaults(self.db_remote_cfg)
+        # Usar configuración única sin distinción de perfiles
+        if profile in ['local', 'remoto', 'remote', 'connection']:
+            base = self._ensure_db_connection_defaults(self.db_connection_cfg)
+        else:
+            # Fallback para compatibilidad hacia atrás
+            base = self._ensure_db_connection_defaults(self.db_connection_cfg)
         return self._resolve_password_for(base, profile)
 
     def _truncate_public_tables(self, params: dict) -> dict:
@@ -2185,9 +2126,9 @@ class DBConfigDialog(QDialog):
                 "Confirmar limpieza peligrosa",
                 (
                     "Esta acción TRUNCARÁ todos los datos de las tablas en 'public' "
-                    "(RESTART IDENTITY, CASCADE) en las bases configuradas.\n\n"
-                    "- Publicación actual incluye 'truncate' para replicación (si hay suscriptores).\n"
-                    "- Se reiniciarán secuencias en 'public'.\n\n"
+                    "(RESTART IDENTITY, CASCADE) en la base local.\n\n"
+                    "- Se reiniciarán secuencias en 'public'.\n"
+                    "- La replicación está deshabilitada: el sistema opera una sola DB Neon.\n\n"
                     "¿Deseas continuar?"
                 ),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -2218,10 +2159,9 @@ class DBConfigDialog(QDialog):
                 QMessageBox.warning(self, "Denegado", "Contraseña incorrecta.")
                 return
 
-            # Ejecutar limpieza en local y remoto (si configurado)
+            # Ejecutar limpieza únicamente en la base local
             local_params = self._get_profile_params('local')
-            remote_params = self._get_profile_params('remoto')
-            progress = QProgressDialog("Ejecutando limpieza…", None, 0, 4, self)
+            progress = QProgressDialog("Ejecutando limpieza…", None, 0, 2, self)
             progress.setWindowTitle("Limpieza")
             progress.setWindowModality(Qt.WindowModality.ApplicationModal)
             progress.setMinimumDuration(0)
@@ -2240,37 +2180,19 @@ class DBConfigDialog(QDialog):
                     rloc_secure = {"ok": False, "error": rloc.get('error') or 'No se pudo truncar'}
                 results.append(("LOCAL", rloc, rloc_secure))
                 try:
-                    progress.setValue(1)
+                    progress.setValue(2)
                     QApplication.processEvents()
                 except Exception:
                     pass
             except Exception as e:
                 results.append(("LOCAL", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
                 try:
-                    progress.setValue(1)
+                    progress.setValue(2)
                 except Exception:
                     pass
-            # Remoto si hay host informado
-            try:
-                if str(remote_params.get('host', '')).strip():
-                    rrem = self._truncate_public_tables(remote_params)
-                    if rrem.get('ok'):
-                        rrem_secure = self._secure_owner_on_params(remote_params)
-                    else:
-                        rrem_secure = {"ok": False, "error": rrem.get('error') or 'No se pudo truncar'}
-                    results.append(("REMOTO", rrem, rrem_secure))
-                else:
-                    results.append(("REMOTO", {"ok": False, "error": "No configurado"}, {"ok": False, "error": "No configurado"}))
-                try:
-                    progress.setValue(3)
-                    QApplication.processEvents()
-                except Exception:
-                    pass
-            except Exception as e:
-                results.append(("REMOTO", {"ok": False, "error": str(e)}, {"ok": False, "error": str(e)}))
 
             try:
-                progress.setValue(4)
+                progress.setValue(2)
                 progress.close()
             except Exception:
                 pass
@@ -2286,7 +2208,7 @@ class DBConfigDialog(QDialog):
                     lines.append(f"[{name}] Dueño asegurado (conteo={sec_res.get('owner_count', '?')})")
                 else:
                     lines.append(f"[{name}] Asegurar Dueño FALLÓ: {sec_res.get('error')}")
-            QMessageBox.information(self, "Limpieza completada", "\n".join(lines))
+            QMessageBox.information(self, "Limpieza completada (Base local)", "\n".join(lines))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo en limpieza: {e}")
 
@@ -2344,40 +2266,8 @@ class DBConfigDialog(QDialog):
             QMessageBox.critical(self, "Error", f"Fallo al inicializar base de datos: {e}")
 
     def _on_force_replication(self):
-        """Force replication setup"""
-        try:
-            from utils_modules.replication_setup import ensure_bidirectional_replication
-            
-            # Load current config
-            cfg = self._load_full_config()
-            
-            progress = QProgressDialog("Configurando replicación...", None, 0, 0, self)
-            progress.setWindowTitle("Replicación")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-            
-            # Bidireccional por defecto
-            result = ensure_bidirectional_replication(cfg)
-            
-            try:
-                progress.close()
-            except Exception:
-                pass
-                
-            try:
-                pretty = json.dumps(result, ensure_ascii=False, indent=2)
-            except Exception:
-                pretty = str(result)
-                
-            if result.get("ok"):
-                QMessageBox.information(self, "Replicación", f"Replicación bidireccional configurada correctamente:\n{pretty}")
-            else:
-                QMessageBox.critical(self, "Replicación", f"Error al configurar replicación bidireccional:\n{pretty}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Fallo al configurar replicación: {e}")
+        """Force replication setup - Disabled, system uses single Neon database"""
+        QMessageBox.information(self, "Replicación", "La funcionalidad de replicación ha sido deshabilitada. El sistema ahora usa una sola base de datos Neon.")
 
     def _on_force_scheduled_tasks(self):
         """Force scheduled tasks setup"""
@@ -2411,6 +2301,64 @@ class DBConfigDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Fallo al configurar tareas programadas: {e}")
 
+    def _on_secure_cleanup(self):
+        """Proceso de limpieza segura:
+        - Confirmación
+        - Backup automático
+        - Limpieza y reinicialización forzada
+        - Verificación de integridad
+        """
+        try:
+            # Confirmación
+            ret = QMessageBox.question(
+                self,
+                "Limpieza segura",
+                "¿Desea continuar? Se realizará backup y reinicialización completa.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if ret != QMessageBox.StandardButton.Yes:
+                return
+
+            # Progreso
+            progress = QProgressDialog("Ejecutando limpieza segura…", None, 0, 0, self)
+            progress.setWindowTitle("Limpieza segura")
+            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+            progress.setMinimumDuration(0)
+            progress.setAutoClose(True)
+            progress.show()
+            QApplication.processEvents()
+
+            # Backup rápido
+            backup_ok, backup_out, backup_err = self._run_python_script('scripts/essential/quick_backup_database.py')
+            # Limpieza y reinicialización completa
+            clean_ok, clean_out, clean_err = self._run_python_script('cleanup_and_reinitialize.py', ['--force', '--full-reset'])
+            # Verificación de estado
+            verify_ok, verify_out, verify_err = self._run_python_script('scripts/essential/verify_system_status.py')
+
+            try:
+                progress.close()
+            except Exception:
+                pass
+
+            # Reporte
+            ok = backup_ok and clean_ok and verify_ok
+            details = {
+                'backup': {'ok': backup_ok, 'stdout': backup_out, 'stderr': backup_err},
+                'cleanup': {'ok': clean_ok, 'stdout': clean_out, 'stderr': clean_err},
+                'verify': {'ok': verify_ok, 'stdout': verify_out, 'stderr': verify_err},
+            }
+            try:
+                pretty = json.dumps(details, ensure_ascii=False, indent=2)
+            except Exception:
+                pretty = str(details)
+
+            if ok:
+                QMessageBox.information(self, "Limpieza segura", pretty)
+            else:
+                QMessageBox.warning(self, "Limpieza segura", pretty)
+        except Exception as e:
+            QMessageBox.critical(self, "Limpieza segura", f"Error en proceso: {e}")
+
 def main():
     app = QApplication(sys.argv)
 
@@ -2440,59 +2388,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    def _on_secure_cleanup(self):
-        """Proceso de limpieza segura:
-        - Confirmación
-        - Backup automático
-        - Limpieza y reinicialización forzada
-        - Verificación de integridad
-        """
-        try:
-            from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QApplication
-        except Exception:
-            pass
-        # Confirmación
-        try:
-            ret = QMessageBox.question(self, "Limpieza segura", "¿Desea continuar? Se realizará backup y reinicialización completa.", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if ret != QMessageBox.StandardButton.Yes:
-                return
-        except Exception:
-            pass
-        # Progreso
-        try:
-            progress = QProgressDialog("Ejecutando limpieza segura…", None, 0, 0, self)
-            progress.setWindowTitle("Limpieza segura")
-            progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-            progress.setMinimumDuration(0)
-            progress.setAutoClose(True)
-            progress.show()
-            QApplication.processEvents()
-        except Exception:
-            progress = None
-        # Backup
-        backup_ok, backup_out, backup_err = self._run_python_script('scripts/quick_backup_database.py')
-        # Limpieza
-        clean_ok, clean_out, clean_err = self._run_python_script('cleanup_and_reinitialize.py', ['--force', '--full-reset'])
-        # Verificación
-        verify_ok, verify_out, verify_err = self._run_python_script('verify_system_status.py')
-        try:
-            if progress:
-                progress.close()
-        except Exception:
-            pass
-        # Reporte
-        try:
-            ok = backup_ok and clean_ok and verify_ok
-            details = {
-                'backup': {'ok': backup_ok, 'stdout': backup_out, 'stderr': backup_err},
-                'cleanup': {'ok': clean_ok, 'stdout': clean_out, 'stderr': clean_err},
-                'verify': {'ok': verify_ok, 'stdout': verify_out, 'stderr': verify_err},
-            }
-            import json
-            pretty = json.dumps(details, ensure_ascii=False, indent=2, default=str)
-            if ok:
-                QMessageBox.information(self, "Limpieza segura", pretty)
-            else:
-                QMessageBox.warning(self, "Limpieza segura", pretty)
-        except Exception:
-            pass

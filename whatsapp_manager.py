@@ -150,11 +150,11 @@ class WhatsAppManager:
         t = threading.Thread(target=_runner, daemon=True)
         t.start()
 
-    # --- Fallback cuando WhatsApp no está disponible: no-op sin gestor legacy ---
+    # --- Fallback cuando WhatsApp no está disponible: no-op sin gestor anterior ---
     def _enqueue_offline_op(self, func_name: str, kwargs: Dict[str, Any]) -> bool:
         """Registra la intención de enviar cuando WhatsApp no está disponible.
 
-        Se elimina el acoplamiento con el gestor legacy OfflineSyncManager.
+        Se elimina el acoplamiento con el gestor anterior OfflineSyncManager.
         Retorna False para indicar que no se encoló.
         """
         try:

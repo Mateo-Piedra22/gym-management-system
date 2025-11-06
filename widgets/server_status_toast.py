@@ -20,8 +20,7 @@ class ServerStatusToast(QDialog):
                  public_url: Optional[str] = None,
                  message: Optional[str] = None,
                  webapp_ok: Optional[bool] = None,
-                 db_local_ok: Optional[bool] = None,
-                 db_remote_ok: Optional[bool] = None,
+                 db_ok: Optional[bool] = None,
                  external_id: Optional[str] = None):
         # Robustez: si el padre está destruido o no es válido, crear como diálogo sin padre
         try:
@@ -33,8 +32,7 @@ class ServerStatusToast(QDialog):
         self.public_url = public_url
         self.message = message
         self.webapp_ok = webapp_ok
-        self.db_local_ok = db_local_ok
-        self.db_remote_ok = db_remote_ok
+        self.db_ok = db_ok
         self.external_id = external_id
         # Estado interno para prevenir re-aperturas y asegurar cierre correcto
         self._closed = False
@@ -184,8 +182,7 @@ class ServerStatusToast(QDialog):
             return ql
 
         status_row.addWidget(_mk_status("WebApp", self.webapp_ok))
-        status_row.addWidget(_mk_status("DB Local", self.db_local_ok))
-        status_row.addWidget(_mk_status("DB Railway", self.db_remote_ok))
+        status_row.addWidget(_mk_status("Database", self.db_ok))
 
         urls_layout.addLayout(status_row)
 

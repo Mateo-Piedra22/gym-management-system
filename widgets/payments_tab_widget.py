@@ -31,6 +31,7 @@ from utils_modules.ui_constants import (
     PLACEHOLDER_SELECT_USER,
     PLACEHOLDER_LOADING_USERS,
 )
+from widgets.loading_spinner import DatabaseLoadingManager
 
 class PaymentHistoryModel(QAbstractTableModel):
     """Modelo optimizado para el historial de pagos con mejor rendimiento"""
@@ -708,9 +709,22 @@ class PaymentsTabWidget(QWidget):
         self._ttl_seconds_history = 15
         self._concepts_cache = {"data": None, "ts": 0}
         self._history_cache = {"user_id": None, "data": None, "ts": 0}
+        # Bandera para evitar solapamiento de cálculos de totales
+        self._totals_loading = False
+        # Timers de debounce
+        self._concepts_refresh_timer = QTimer(self)
+        self._concepts_refresh_timer.setSingleShot(True)
+        self._concepts_refresh_timer.setInterval(250)
+        self._concepts_refresh_timer.timeout.connect(self._do_refresh_payment_concepts)
+        self._methods_refresh_timer = QTimer(self)
+        self._methods_refresh_timer.setSingleShot(True)
+        self._methods_refresh_timer.setInterval(250)
+        self._methods_refresh_timer.timeout.connect(self._do_refresh_payment_methods)
         
         # Inicializar modelo de conceptos
         self.concepts_model = PaymentConceptsTableModel()
+        # Gestor de overlays de carga para operaciones de DB
+        self.loading_manager = DatabaseLoadingManager(self)
         
         self.setup_ui()
         self.setup_connections()
@@ -1424,6 +1438,39 @@ class PaymentsTabWidget(QWidget):
             )
         except Exception as e:
             QMessageBox.warning(self, "Advertencia", f"Error al cargar conceptos de pago: {str(e)}")
+    
+    def refresh_payment_concepts_immediately(self):
+        """Programa un refresco con debounce para evitar recargas repetidas."""
+        try:
+            self._concepts_cache = {"data": None, "ts": 0}
+            self._concepts_refresh_timer.stop()
+            self._concepts_refresh_timer.start()
+        except Exception as e:
+            QMessageBox.warning(self, "Advertencia", f"No se pudieron refrescar los conceptos: {str(e)}")
+
+    def _do_refresh_payment_concepts(self):
+        try:
+            self.load_payment_concepts()
+            try:
+                self.calculate_totals()
+            except Exception:
+                pass
+        except Exception as e:
+            QMessageBox.warning(self, "Advertencia", f"No se pudieron aplicar los conceptos: {str(e)}")
+
+    def _do_refresh_payment_methods(self):
+        try:
+            self.load_payment_methods()
+        except Exception as e:
+            QMessageBox.warning(self, "Advertencia", f"No se pudieron refrescar los métodos: {str(e)}")
+
+    def refresh_payment_methods_debounced(self):
+        """Programa recarga de métodos con debounce para cambios en lote."""
+        try:
+            self._methods_refresh_timer.stop()
+            self._methods_refresh_timer.start()
+        except Exception:
+            pass
         
     def on_user_selected(self, index):
         """Maneja la selección de usuario"""
@@ -1544,71 +1591,71 @@ class PaymentsTabWidget(QWidget):
             pass
 
         mes_actual, año_actual = datetime.now().month, datetime.now().year
-        pago_realizado = self.payment_manager.verificar_pago_actual(
-            self.selected_user.id, mes_actual, año_actual
-        )
-        
-        if pago_realizado:
-            self.payment_status_label.setText(
-                f"<b>✅ AL DÍA (Cuota de {mes_actual:02d}/{año_actual} pagada)</b>"
-            )
-            self.payment_status_label.setProperty("paymentStatus", "up_to_date")
-        else:
-            # Determinar si la cuota está vencida usando fecha_proximo_vencimiento del usuario
-            vencida = False
-            dias_vencida = None
-            try:
-                fpv = getattr(self.selected_user, 'fecha_proximo_vencimiento', None)
-                if fpv:
-                    # Normalizar a objeto date
-                    if isinstance(fpv, str):
-                        fpv_str = fpv.replace('Z', '+00:00')
-                        try:
-                            fecha_venc = datetime.fromisoformat(fpv_str).date()
-                        except Exception:
-                            # Intentar con formato YYYY-MM-DD
+
+        def _check():
+            return self.payment_manager.verificar_pago_actual(self.selected_user.id, mes_actual, año_actual)
+
+        def _apply(pago_realizado):
+            if pago_realizado:
+                self.payment_status_label.setText(
+                    f"<b>✅ AL DÍA (Cuota de {mes_actual:02d}/{año_actual} pagada)</b>"
+                )
+                self.payment_status_label.setProperty("paymentStatus", "up_to_date")
+            else:
+                # Determinar si la cuota está vencida usando fecha_proximo_vencimiento del usuario
+                vencida = False
+                dias_vencida = None
+                try:
+                    fpv = getattr(self.selected_user, 'fecha_proximo_vencimiento', None)
+                    if fpv:
+                        # Normalizar a objeto date
+                        if isinstance(fpv, str):
+                            fpv_str = fpv.replace('Z', '+00:00')
                             try:
-                                fecha_venc = datetime.strptime(fpv.split()[0], '%Y-%m-%d').date()
+                                fecha_venc = datetime.fromisoformat(fpv_str).date()
+                            except Exception:
+                                try:
+                                    fecha_venc = datetime.strptime(fpv.split()[0], '%Y-%m-%d').date()
+                                except Exception:
+                                    fecha_venc = None
+                        else:
+                            try:
+                                fecha_venc = fpv if hasattr(fpv, 'year') else fpv.date()
                             except Exception:
                                 fecha_venc = None
+
+                        if fecha_venc:
+                            hoy = datetime.now().date()
+                            if hoy > fecha_venc:
+                                vencida = True
+                                dias_vencida = (hoy - fecha_venc).days
+                except Exception:
+                    vencida = False
+
+                if vencida:
+                    estado_prop = "overdue_multiple" if getattr(self.selected_user, "cuotas_vencidas", 0) > 1 else "overdue_single"
+                    if dias_vencida is not None and dias_vencida >= 0:
+                        plural = "S" if estado_prop == "overdue_multiple" else ""
+                        self.payment_status_label.setText(
+                            f"<b>🔴 CUOTA{plural} VENCIDA{plural} (hace {dias_vencida} día(s))</b>"
+                        )
                     else:
-                        try:
-                            # Puede venir como datetime/date
-                            fecha_venc = fpv if hasattr(fpv, 'year') else fpv.date()
-                        except Exception:
-                            fecha_venc = None
-
-                    if fecha_venc:
-                        hoy = datetime.now().date()
-                        if hoy > fecha_venc:
-                            vencida = True
-                            dias_vencida = (hoy - fecha_venc).days
-
-            except Exception:
-                vencida = False
-
-            if vencida:
-                estado_prop = "overdue_multiple" if getattr(self.selected_user, "cuotas_vencidas", 0) > 1 else "overdue_single"
-                if dias_vencida is not None and dias_vencida >= 0:
-                    plural = "S" if estado_prop == "overdue_multiple" else ""
-                    self.payment_status_label.setText(
-                        f"<b>🔴 CUOTA{plural} VENCIDA{plural} (hace {dias_vencida} día(s))</b>"
-                    )
+                        plural = "S" if estado_prop == "overdue_multiple" else ""
+                        self.payment_status_label.setText(
+                            f"<b>🔴 CUOTA{plural} VENCIDA{plural}</b>"
+                        )
+                    self.payment_status_label.setProperty("paymentStatus", estado_prop)
                 else:
-                    plural = "S" if estado_prop == "overdue_multiple" else ""
                     self.payment_status_label.setText(
-                        f"<b>🔴 CUOTA{plural} VENCIDA{plural}</b>"
+                        f"<b>CUOTA PENDIENTE PARA {mes_actual:02d}/{año_actual}</b>"
                     )
-                self.payment_status_label.setProperty("paymentStatus", estado_prop)
-            else:
-                self.payment_status_label.setText(
-                    f"<b>CUOTA PENDIENTE PARA {mes_actual:02d}/{año_actual}</b>"
-                )
-                self.payment_status_label.setProperty("paymentStatus", "pending")
-        
-        # Refrescar estilos
-        self.payment_status_label.style().unpolish(self.payment_status_label)
-        self.payment_status_label.style().polish(self.payment_status_label)
+                    self.payment_status_label.setProperty("paymentStatus", "pending")
+
+            # Refrescar estilos
+            self.payment_status_label.style().unpolish(self.payment_status_label)
+            self.payment_status_label.style().polish(self.payment_status_label)
+
+        TaskThread(_check, on_success=_apply, on_error=lambda e: None, parent=self).start()
     
     def update_payment_history(self):
         """Actualiza el historial de pagos de forma asíncrona con TTL corto"""
@@ -1747,32 +1794,72 @@ class PaymentsTabWidget(QWidget):
         """Calcula y actualiza los totales del pago"""
         try:
             subtotal = 0.0
-            
+
             # Calcular subtotal de conceptos seleccionados desde la tabla
             selected_concepts = self.concepts_model.get_selected_concepts()
             for concept_data in selected_concepts:
                 subtotal += concept_data['total']
-            
-            # Calcular comisión y total
+
             method_id = self.payment_method_combo.currentData()
-            commission = 0.0
-            total = subtotal
-            
-            if method_id and subtotal > 0:
-                result = self.payment_manager.calcular_total_con_comision(subtotal, method_id)
-                total = result['total']
-                commission = total - subtotal
-            
-            # Actualizar resumen
-            self.payment_summary.update_summary(subtotal, commission, total)
-            
-            # Habilitar/deshabilitar botón de registro
-            can_register = (
-                subtotal > 0 and method_id is not None and self.selected_user is not None
-                and getattr(self.selected_user, 'rol', None) != 'dueño'
+
+            # Si no hay método o subtotal es 0, actualizar directamente en UI
+            if not method_id or subtotal <= 0:
+                commission = 0.0
+                total = subtotal
+                self.payment_summary.update_summary(subtotal, commission, total)
+                can_register = (
+                    subtotal > 0 and method_id is not None and self.selected_user is not None
+                    and getattr(self.selected_user, 'rol', None) != 'dueño'
+                )
+                self.register_button.setEnabled(can_register)
+                return
+
+            # Evitar solapamiento si ya hay un cálculo en curso
+            if self._totals_loading:
+                return
+
+            self._totals_loading = True
+
+            def _calc():
+                return self.payment_manager.calcular_total_con_comision(subtotal, method_id)
+
+            def _on_success(result):
+                try:
+                    total = result.get('total', subtotal)
+                    commission = max(0.0, total - subtotal)
+                    self.payment_summary.update_summary(subtotal, commission, total)
+                    can_register = (
+                        subtotal > 0 and method_id is not None and self.selected_user is not None
+                        and getattr(self.selected_user, 'rol', None) != 'dueño'
+                    )
+                    self.register_button.setEnabled(can_register)
+                finally:
+                    self._totals_loading = False
+
+            def _on_error(err):
+                try:
+                    logging.exception(f"Error al calcular totales: {err}")
+                    # Degradar con cálculo local mínimo
+                    commission = 0.0
+                    total = subtotal
+                    self.payment_summary.update_summary(subtotal, commission, total)
+                    can_register = (
+                        subtotal > 0 and method_id is not None and self.selected_user is not None
+                        and getattr(self.selected_user, 'rol', None) != 'dueño'
+                    )
+                    self.register_button.setEnabled(can_register)
+                finally:
+                    self._totals_loading = False
+
+            run_in_background(
+                _calc,
+                on_success=_on_success,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=4000,
+                description="Calcular totales con comisión",
             )
-            self.register_button.setEnabled(can_register)
-            
+
         except Exception as e:
             QMessageBox.warning(self, "Advertencia", f"Error al calcular totales: {str(e)}")
     
@@ -1812,50 +1899,105 @@ class PaymentsTabWidget(QWidget):
             if not selected_concepts:
                 QMessageBox.warning(self, "Advertencia", "Seleccione al menos un concepto de pago.")
                 return
-            
-            # Verificar pago existente
-            existing_payment = self.payment_manager.obtener_pago_actual(
-                self.selected_user.id, month, year
-            )
-            
-            if existing_payment:
-                reply = QMessageBox.question(
-                    self, "Pago Existente",
-                    f"Ya existe un pago para {month}/{year}. ¿Desea reemplazarlo?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                if reply == QMessageBox.StandardButton.No:
-                    return
-                
-                self.payment_manager.eliminar_pago(existing_payment.id)
-            
+
             # Obtener monto final (personalizado o calculado)
             final_amount = self.payment_summary.get_final_amount()
             
             # Crear fecha de pago a partir del mes y año seleccionados
             fecha_pago = datetime(year, month, 1)
-            
-            # Registrar nuevo pago
-            payment_id = self.payment_manager.registrar_pago_avanzado(
-                usuario_id=self.selected_user.id,
-                metodo_pago_id=method_id,
-                conceptos=selected_concepts,
-                fecha_pago=fecha_pago,
-                monto_personalizado=final_amount
+
+            op_id = f"register_payment_{self.selected_user.id}"
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Verificando pago existente...",
+                spinner_type="progress",
+                spinner_size=80,
+                background_opacity=0.5,
+                show_message=True,
             )
-            
-            if payment_id:
-                pago = self.db_manager.obtener_pago(payment_id)
-                if pago:
-                    self.show_receipt_confirmation(pago, self.selected_user)
-                
-                # Invalida caché y refresca inmediatamente
-                self._invalidate_history_cache()
-                self.update_current_view()
-                self.reset_payment_form()
-                self.pagos_modificados.emit()
-            else:
-                QMessageBox.critical(self, "Error", "No se pudo registrar el pago.")
+
+            def _check_existing():
+                return self.payment_manager.obtener_pago_actual(self.selected_user.id, month, year)
+
+            def _after_check(existing_payment):
+                try:
+                    if existing_payment:
+                        reply = QMessageBox.question(
+                            self, "Pago Existente",
+                            f"Ya existe un pago para {month}/{year}. ¿Desea reemplazarlo?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        )
+                        if reply == QMessageBox.StandardButton.No:
+                            self.loading_manager.hide_loading(op_id)
+                            return
+
+                    self.loading_manager.update_message(op_id, "Registrando pago...")
+
+                    def _do_register():
+                        if existing_payment:
+                            try:
+                                self.payment_manager.eliminar_pago(existing_payment.id)
+                            except Exception:
+                                pass
+                        payment_id = self.payment_manager.registrar_pago_avanzado(
+                            usuario_id=self.selected_user.id,
+                            metodo_pago_id=method_id,
+                            conceptos=selected_concepts,
+                            fecha_pago=fecha_pago,
+                            monto_personalizado=final_amount
+                        )
+                        if payment_id:
+                            return self.db_manager.obtener_pago(payment_id)
+                        return None
+
+                    def _on_registered(pago):
+                        try:
+                            if pago:
+                                self.show_receipt_confirmation(pago, self.selected_user)
+                                # Invalida caché y refresca inmediatamente
+                                self._invalidate_history_cache()
+                                self.update_current_view()
+                                self.reset_payment_form()
+                                self.pagos_modificados.emit()
+                            else:
+                                QMessageBox.critical(self, "Error", "No se pudo registrar el pago.")
+                        finally:
+                            self.loading_manager.hide_loading(op_id)
+
+                    def _on_register_error(err):
+                        try:
+                            QMessageBox.critical(self, "Error Crítico", f"Ocurrió un error al registrar: {err}")
+                        finally:
+                            self.loading_manager.hide_loading(op_id)
+
+                    run_in_background(
+                        _do_register,
+                        on_success=_on_registered,
+                        on_error=_on_register_error,
+                        parent=self,
+                        timeout_ms=15000,
+                        description="Registrar pago en background",
+                    )
+                except Exception as e:
+                    try:
+                        QMessageBox.critical(self, "Error Crítico", f"Ocurrió un error inesperado: {e}")
+                    finally:
+                        self.loading_manager.hide_loading(op_id)
+
+            def _on_check_error(err):
+                try:
+                    QMessageBox.critical(self, "Error", f"Error al verificar pago existente: {err}")
+                finally:
+                    self.loading_manager.hide_loading(op_id)
+
+            run_in_background(
+                _check_existing,
+                on_success=_after_check,
+                on_error=_on_check_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Verificar pago existente",
+            )
         
         except ValueError as e:
             QMessageBox.warning(self, "Pago Duplicado", str(e))
@@ -1963,14 +2105,49 @@ class PaymentsTabWidget(QWidget):
         """Modifica un pago seleccionado"""
         dialog = PaymentDialog(self, pago=pago)
         if dialog.exec():
+            payment_data = dialog.get_payment_data()
+            op_id = f"modify_payment_{getattr(pago, 'id', '')}"
+
             try:
-                self.payment_manager.modificar_pago(dialog.get_payment_data())
-                # Invalida caché y refresca inmediatamente
-                self._invalidate_history_cache()
-                self.update_current_view()
-                self.pagos_modificados.emit()
-            except Exception as e:
+                self.loading_manager.show_loading(
+                    operation_id=op_id,
+                    message="Modificando pago...",
+                    spinner_type="circular",
+                    show_message=True,
+                )
+            except Exception:
+                pass
+
+            def _modify():
+                self.payment_manager.modificar_pago(payment_data)
+                return True
+
+            def _on_success(_):
+                try:
+                    self._invalidate_history_cache()
+                    self.update_current_view()
+                    self.pagos_modificados.emit()
+                finally:
+                    try:
+                        self.loading_manager.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            def _on_error(e):
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
                 QMessageBox.critical(self, "Error", f"No se pudo modificar el pago: {e}")
+
+            run_in_background(
+                _modify,
+                on_success=_on_success,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Modificar pago",
+            )
     
     def eliminar_pago_seleccionado(self, pago):
         """Elimina un pago seleccionado"""
@@ -1981,14 +2158,47 @@ class PaymentsTabWidget(QWidget):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
+            op_id = f"delete_payment_{getattr(pago, 'id', '')}"
             try:
+                self.loading_manager.show_loading(
+                    operation_id=op_id,
+                    message="Eliminando pago...",
+                    spinner_type="circular",
+                    show_message=True,
+                )
+            except Exception:
+                pass
+
+            def _delete():
                 self.payment_manager.eliminar_pago(pago.id)
-                # Invalida caché y refresca inmediatamente
-                self._invalidate_history_cache()
-                self.update_current_view()
-                self.pagos_modificados.emit()
-            except Exception as e:
+                return True
+
+            def _on_success(_):
+                try:
+                    self._invalidate_history_cache()
+                    self.update_current_view()
+                    self.pagos_modificados.emit()
+                finally:
+                    try:
+                        self.loading_manager.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            def _on_error(e):
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
                 QMessageBox.critical(self, "Error", f"No se pudo eliminar el pago: {e}")
+
+            run_in_background(
+                _delete,
+                on_success=_on_success,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Eliminar pago",
+            )
     
     def exportar_recibo(self, pago):
         """Exporta el recibo de un pago con sistema de comprobantes avanzado"""
@@ -1996,125 +2206,231 @@ class PaymentsTabWidget(QWidget):
         if not usuario:
             QMessageBox.warning(self, "Error", "No se encontró el usuario asociado a este pago.")
             return
+        op_id = f"export_receipt_{getattr(pago, 'id', '')}"
         try:
-            # Crear comprobante en la base de datos
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Creando comprobante...",
+                spinner_type="circular",
+                show_message=True,
+            )
+        except Exception:
+            pass
+
+        def _create():
             comprobante_id = self.db_manager.crear_comprobante(
                 tipo_comprobante='recibo',
                 pago_id=pago.id,
                 usuario_id=pago.usuario_id,
                 monto_total=pago.monto,
-                plantilla_id=None,  # Usar plantilla predeterminada
+                plantilla_id=None,
                 datos_comprobante=None,
-                emitido_por=self.get_current_user_id()  # Usuario actual del sistema
+                emitido_por=self.get_current_user_id(),
             )
-            
-            # Obtener el comprobante creado para obtener el número
-            comprobante = self.db_manager.obtener_comprobante(comprobante_id)
-            
-            self.show_receipt_confirmation(pago, usuario, comprobante)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al crear comprobante: {str(e)}")
-            # Fallback al método anterior si falla
+            return comprobante_id
+
+        def _on_success(comprobante_id):
+            try:
+                comprobante = None
+                try:
+                    comprobante = self.db_manager.obtener_comprobante(comprobante_id)
+                except Exception:
+                    comprobante = None
+                self.show_receipt_confirmation(pago, usuario, comprobante)
+            finally:
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+
+        def _on_error(err):
+            try:
+                self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error", f"Error al crear comprobante: {str(err)}")
             self.show_receipt_confirmation(pago, usuario, None)
+
+        run_in_background(
+            _create,
+            on_success=_on_success,
+            on_error=_on_error,
+            parent=self,
+            timeout_ms=10000,
+            description="Crear comprobante",
+        )
         
     def show_receipt_confirmation(self, pago, usuario, comprobante=None):
-        """Muestra confirmación y genera recibo con número de comprobante"""
+        """Muestra confirmación y genera recibo de forma asíncrona"""
+        op_id = f"generate_receipt_{getattr(pago, 'id', '')}"
+
         try:
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Generando recibo...",
+                spinner_type="circular",
+                show_message=True,
+            )
+        except Exception:
+            pass
+
+        def _generate():
             self.initialize_pdf_generator()
-            # Generar recibo con número de comprobante si está disponible
             detalles = self.payment_manager.obtener_detalles_pago(pago.id)
             subtotal = sum(d.subtotal for d in (detalles or [])) if detalles else float(getattr(pago, 'monto', 0) or 0)
             metodo_id = getattr(pago, 'metodo_pago_id', None)
             totales = self.payment_manager.calcular_total_con_comision(subtotal, metodo_id)
             if comprobante:
-                filepath = self.pdf_generator.generar_recibo(pago, usuario, comprobante['numero_comprobante'], detalles=detalles, totales=totales)
+                filepath = self.pdf_generator.generar_recibo(
+                    pago, usuario, comprobante['numero_comprobante'], detalles=detalles, totales=totales
+                )
                 mensaje = f"Comprobante N° {comprobante['numero_comprobante']}\nRecibo guardado en:\n{filepath}"
             else:
-                filepath = self.pdf_generator.generar_recibo(pago, usuario, detalles=detalles, totales=totales)
+                filepath = self.pdf_generator.generar_recibo(
+                    pago, usuario, detalles=detalles, totales=totales
+                )
                 mensaje = f"Recibo guardado en:\n{filepath}"
-            
-            msg_box = QMessageBox(self)
-            msg_box.setIcon(QMessageBox.Icon.Information)
-            msg_box.setText(mensaje)
-            msg_box.setWindowTitle("Éxito")
-            
-            open_button = msg_box.addButton("Abrir Recibo", QMessageBox.ButtonRole.ActionRole)
-            
-            # Agregar botón de reimpresión si hay comprobante
-            if comprobante:
-                reprint_button = msg_box.addButton("Reimprimir", QMessageBox.ButtonRole.ActionRole)
-            
-            msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
-            
-            msg_box.exec()
-            
-            if msg_box.clickedButton() == open_button:
-                if sys.platform == "win32":
-                    os.startfile(os.path.realpath(filepath))
-                else:
-                    subprocess.call(["open" if sys.platform == "darwin" else "xdg-open", 
-                                   os.path.realpath(filepath)])
-            elif comprobante and msg_box.clickedButton() == reprint_button:
-                self.reimprimir_comprobante(comprobante['id'])
-        
-        except Exception as e:
+            return filepath, mensaje, comprobante
+
+        def _on_success(result):
+            try:
+                filepath, mensaje, comp = result
+                msg_box = QMessageBox(self)
+                msg_box.setIcon(QMessageBox.Icon.Information)
+                msg_box.setText(mensaje)
+                msg_box.setWindowTitle("Éxito")
+
+                open_button = msg_box.addButton("Abrir Recibo", QMessageBox.ButtonRole.ActionRole)
+                reprint_button = None
+                if comp:
+                    reprint_button = msg_box.addButton("Reimprimir", QMessageBox.ButtonRole.ActionRole)
+                msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
+
+                msg_box.exec()
+
+                if msg_box.clickedButton() == open_button:
+                    if sys.platform == "win32":
+                        os.startfile(os.path.realpath(filepath))
+                    else:
+                        subprocess.call([
+                            "open" if sys.platform == "darwin" else "xdg-open",
+                            os.path.realpath(filepath),
+                        ])
+                elif comp and reprint_button and msg_box.clickedButton() == reprint_button:
+                    self.reimprimir_comprobante(comp['id'])
+            except Exception as e:
+                logging.exception("Error al mostrar confirmación de recibo.")
+                QMessageBox.critical(self, "Error", f"Error al generar recibo: {str(e)}")
+            finally:
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+
+        def _on_error(err):
+            try:
+                self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
             logging.exception("Error al generar o mostrar confirmación de recibo.")
-            QMessageBox.critical(self, "Error", f"Error al generar recibo: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al generar recibo: {str(err)}")
+
+        run_in_background(
+            _generate,
+            on_success=_on_success,
+            on_error=_on_error,
+            parent=self,
+            timeout_ms=12000,
+            description="Generar recibo PDF",
+        )
     
     def reimprimir_comprobante(self, comprobante_id):
-        """Reimprime un comprobante existente"""
+        """Reimprime un comprobante existente de forma asíncrona"""
+        op_id = f"reprint_receipt_{comprobante_id}"
+
         try:
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Reimprimiendo comprobante...",
+                spinner_type="circular",
+                show_message=True,
+            )
+        except Exception:
+            pass
+
+        def _reprint():
             self.initialize_pdf_generator()
             comprobante = self.db_manager.obtener_comprobante(comprobante_id)
             if not comprobante:
-                QMessageBox.warning(self, "Error", "No se encontró el comprobante.")
-                return
-            
-            # Verificar que el comprobante no esté cancelado
-            if comprobante['estado'] == 'cancelado':
-                QMessageBox.warning(self, "Error", "No se puede reimprimir un comprobante cancelado.")
-                return
-            
-            # Obtener datos del pago y usuario
+                raise Exception("No se encontró el comprobante.")
+            if comprobante.get('estado') == 'cancelado':
+                raise Exception("No se puede reimprimir un comprobante cancelado.")
+
             pago = self.db_manager.obtener_pago(comprobante['pago_id'])
             usuario = self.db_manager.obtener_usuario(comprobante['usuario_id'])
-            
             if not pago or not usuario:
-                QMessageBox.warning(self, "Error", "No se encontraron los datos asociados al comprobante.")
-                return
-            
-            # Generar PDF con marca de reimpresión
+                raise Exception("No se encontraron los datos asociados al comprobante.")
+
             detalles = self.payment_manager.obtener_detalles_pago(pago.id)
             subtotal = sum(d.subtotal for d in (detalles or [])) if detalles else float(getattr(pago, 'monto', 0) or 0)
             metodo_id = getattr(pago, 'metodo_pago_id', None)
             totales = self.payment_manager.calcular_total_con_comision(subtotal, metodo_id)
             filepath = self.pdf_generator.generar_recibo(
-                pago, usuario, 
+                pago,
+                usuario,
                 f"{comprobante['numero_comprobante']} (REIMPRESIÓN)",
                 detalles=detalles,
-                totales=totales
+                totales=totales,
             )
-            
-            msg_box = QMessageBox(self)
-            msg_box.setIcon(QMessageBox.Icon.Information)
-            msg_box.setText(f"Comprobante N° {comprobante['numero_comprobante']} reimpreso\nArchivo guardado en:\n{filepath}")
-            msg_box.setWindowTitle("Reimpresión Exitosa")
-            
-            open_button = msg_box.addButton("Abrir Recibo", QMessageBox.ButtonRole.ActionRole)
-            msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
-            
-            msg_box.exec()
-            
-            if msg_box.clickedButton() == open_button:
-                if sys.platform == "win32":
-                    os.startfile(os.path.realpath(filepath))
-                else:
-                    subprocess.call(["open" if sys.platform == "darwin" else "xdg-open", 
-                                   os.path.realpath(filepath)])
-                                   
-        except Exception as e:
+            return filepath, comprobante
+
+        def _on_success(result):
+            try:
+                filepath, comprobante = result
+                msg_box = QMessageBox(self)
+                msg_box.setIcon(QMessageBox.Icon.Information)
+                msg_box.setText(
+                    f"Comprobante N° {comprobante['numero_comprobante']} reimpreso\nArchivo guardado en:\n{filepath}"
+                )
+                msg_box.setWindowTitle("Reimpresión Exitosa")
+
+                open_button = msg_box.addButton("Abrir Recibo", QMessageBox.ButtonRole.ActionRole)
+                msg_box.addButton("Aceptar", QMessageBox.ButtonRole.AcceptRole)
+                msg_box.exec()
+
+                if msg_box.clickedButton() == open_button:
+                    if sys.platform == "win32":
+                        os.startfile(os.path.realpath(filepath))
+                    else:
+                        subprocess.call([
+                            "open" if sys.platform == "darwin" else "xdg-open",
+                            os.path.realpath(filepath),
+                        ])
+            except Exception as e:
+                logging.exception("Error al mostrar reimpresión de comprobante.")
+                QMessageBox.critical(self, "Error", f"Error al reimprimir comprobante: {str(e)}")
+            finally:
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+
+        def _on_error(err):
+            try:
+                self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
             logging.exception("Error al reimprimir comprobante.")
-            QMessageBox.critical(self, "Error", f"Error al reimprimir comprobante: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al reimprimir comprobante: {str(err)}")
+
+        run_in_background(
+            _reprint,
+            on_success=_on_success,
+            on_error=_on_error,
+            parent=self,
+            timeout_ms=12000,
+            description="Reimprimir comprobante PDF",
+        )
     
     def exportar_historial(self, file_format: str):
         """Exporta el historial de pagos"""
@@ -2144,19 +2460,31 @@ class PaymentsTabWidget(QWidget):
                 self.exportar_pagos_a_excel(pagos, filepath)
     
     def exportar_pagos_a_pdf(self, pagos: List, filepath: str):
-        """Exporta pagos a PDF"""
+        """Exporta pagos a PDF de forma asíncrona"""
+        op_id = f"export_history_pdf_{getattr(self.selected_user, 'id', 'unknown')}"
+
         try:
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Exportando historial a PDF...",
+                spinner_type="circular",
+                show_message=True,
+            )
+        except Exception:
+            pass
+
+        def _export():
             doc = SimpleDocTemplate(filepath, pagesize=letter)
             styles = getSampleStyleSheet()
-            
+
             elements = [
                 Paragraph(f"Historial de Pagos de: {self.selected_user.nombre}", styles['h1']),
-                Spacer(1, 24)
+                Spacer(1, 24),
             ]
-            
+
             headers = ["Período", "Monto", "Fecha de Pago"]
             table_data = [headers]
-            
+
             for pago in pagos:
                 fecha_pago_str = (
                     datetime.fromisoformat(pago.fecha_pago).strftime("%d/%m/%Y")
@@ -2166,10 +2494,9 @@ class PaymentsTabWidget(QWidget):
                 table_data.append([
                     f"{pago.mes:02d}/{pago.año}",
                     f"${pago.monto:,.0f}",
-                    fecha_pago_str
+                    fecha_pago_str,
                 ])
-            
-            # Obtener colores del sistema de branding
+
             try:
                 main_window = self.window()
                 if hasattr(main_window, 'branding_config'):
@@ -2179,10 +2506,10 @@ class PaymentsTabWidget(QWidget):
                 else:
                     header_bg = '#434C5E'
                     table_bg = '#D8DEE9'
-            except:
+            except Exception:
                 header_bg = '#434C5E'
                 table_bg = '#D8DEE9'
-            
+
             table = Table(table_data)
             table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(header_bg)),
@@ -2191,23 +2518,57 @@ class PaymentsTabWidget(QWidget):
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                 ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
                 ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor(table_bg)),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
             ]))
-            
+
             elements.append(table)
             doc.build(elements)
-            
-            QMessageBox.information(
-                self, "Éxito", 
-                f"Historial de pagos exportado a PDF en:\n{filepath}"
-            )
-        
-        except Exception as e:
+            return True
+
+        def _on_success(_):
+            try:
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    f"Historial de pagos exportado a PDF en:\n{filepath}",
+                )
+            finally:
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+
+        def _on_error(e):
+            try:
+                self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
             QMessageBox.critical(self, "Error", f"No se pudo exportar a PDF: {e}")
+
+        run_in_background(
+            _export,
+            on_success=_on_success,
+            on_error=_on_error,
+            parent=self,
+            timeout_ms=12000,
+            description="Exportar historial a PDF",
+        )
     
     def exportar_pagos_a_excel(self, pagos: List, filepath: str):
-        """Exporta pagos a Excel"""
+        """Exporta pagos a Excel de forma asíncrona"""
+        op_id = f"export_history_excel_{getattr(self.selected_user, 'id', 'unknown')}"
+
         try:
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Exportando historial a Excel...",
+                spinner_type="circular",
+                show_message=True,
+            )
+        except Exception:
+            pass
+
+        def _export():
             pagos_data = []
             for pago in pagos:
                 fecha_pago_str = (
@@ -2218,66 +2579,125 @@ class PaymentsTabWidget(QWidget):
                 pagos_data.append({
                     "Período": f"{pago.mes:02d}/{pago.año}",
                     "Monto": pago.monto,
-                    "Fecha de Pago": fecha_pago_str
+                    "Fecha de Pago": fecha_pago_str,
                 })
-            
+
             pd.DataFrame(pagos_data).to_excel(filepath, index=False, engine='openpyxl')
-            
-            QMessageBox.information(
-                self, "Éxito", 
-                f"Historial de pagos exportado a Excel en:\n{filepath}"
-            )
-        
-        except Exception as e:
+            return True
+
+        def _on_success(_):
+            try:
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    f"Historial de pagos exportado a Excel en:\n{filepath}",
+                )
+            finally:
+                try:
+                    self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+
+        def _on_error(e):
+            try:
+                self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
             QMessageBox.critical(self, "Error", f"No se pudo exportar a Excel: {e}")
+
+        run_in_background(
+            _export,
+            on_success=_on_success,
+            on_error=_on_error,
+            parent=self,
+            timeout_ms=12000,
+            description="Exportar historial a Excel",
+        )
     
     def apply_payment_filters(self, filters):
-        """Aplica filtros al historial de pagos"""
+        """Aplica filtros al historial de pagos de forma eficiente y no bloqueante"""
         if not self.selected_user:
             return
-        
-        all_payments = self.payment_manager.obtener_historial_pagos(self.selected_user.id)
-        filtered_payments = []
-        
-        for pago in all_payments:
-            # Aplicar filtros
-            if filters.get("periodo"):
-                periodo_filter = filters["periodo"].lower()
-                periodo_pago = f"{pago.mes:02d}/{pago.año}"
-                if periodo_filter not in periodo_pago:
-                    continue
-            
-            if filters.get("monto_min"):
-                try:
-                    monto_min = float(filters["monto_min"])
-                    if pago.monto < monto_min:
+
+        user_id = getattr(self.selected_user, 'id', None)
+        if not user_id:
+            return
+
+        def _apply_to_list(all_payments):
+            filtered_payments = []
+            for pago in all_payments:
+                # Aplicar filtros
+                if filters.get("periodo"):
+                    periodo_filter = str(filters["periodo"]).lower()
+                    periodo_pago = f"{pago.mes:02d}/{pago.año}"
+                    if periodo_filter not in periodo_pago:
                         continue
-                except ValueError:
-                    pass
-            
-            if filters.get("monto_max"):
-                try:
-                    monto_max = float(filters["monto_max"])
-                    if pago.monto > monto_max:
-                        continue
-                except ValueError:
-                    pass
-            
-            if filters.get("fecha_pago"):
-                filter_date = filters["fecha_pago"]
-                if hasattr(filter_date, 'toPython'):
-                    filter_date = filter_date.toPython()
-                    pago_date = (
-                        datetime.fromisoformat(pago.fecha_pago).date()
-                        if isinstance(pago.fecha_pago, str)
-                        else pago.fecha_pago.date()
-                    )
+
+                if filters.get("monto_min"):
+                    try:
+                        monto_min = float(filters["monto_min"])
+                        if pago.monto < monto_min:
+                            continue
+                    except Exception:
+                        pass
+
+                if filters.get("monto_max"):
+                    try:
+                        monto_max = float(filters["monto_max"])
+                        if pago.monto > monto_max:
+                            continue
+                    except Exception:
+                        pass
+
+                if filters.get("fecha_pago"):
+                    filter_date = filters["fecha_pago"]
+                    if hasattr(filter_date, 'toPython'):
+                        filter_date = filter_date.toPython()
+                    try:
+                        pago_date = (
+                            datetime.fromisoformat(pago.fecha_pago).date()
+                            if isinstance(pago.fecha_pago, str)
+                            else pago.fecha_pago.date()
+                        )
+                    except Exception:
+                        pago_date = None
                     if pago_date != filter_date:
                         continue
-            
-            filtered_payments.append(pago)
-        
-        self.history_model.update_data(filtered_payments)
+
+                filtered_payments.append(pago)
+
+            self.history_model.update_data(filtered_payments)
+
+        # Usar caché si está disponible para evitar consultas durante tipeo/búsqueda
+        if (
+            self._history_cache.get("user_id") == user_id
+            and self._history_cache.get("data") is not None
+        ):
+            try:
+                _apply_to_list(self._history_cache.get("data") or [])
+            except Exception as e:
+                logging.exception(f"Error al aplicar filtros sobre caché: {e}")
+            return
+
+        # Si no hay caché, cargar de forma asíncrona sin bloquear la UI
+        def _load():
+            return self.payment_manager.obtener_historial_pagos(user_id)
+
+        def _on_success(history):
+            try:
+                self._history_cache = {"user_id": user_id, "data": history, "ts": time.time()}
+                _apply_to_list(history)
+            except Exception as e:
+                logging.exception(f"Error al aplicar filtros tras carga: {e}")
+
+        run_in_background(
+            _load,
+            on_success=_on_success,
+            on_error=lambda e: logging.exception(f"Error al cargar historial para filtros: {e}"),
+            parent=self,
+            timeout_ms=8000,
+            description="Aplicar filtros - cargar historial",
+        )
 
     def on_history_search_text_changed(self, text: str):
         """Mapea texto de búsqueda a filtros compatibles con apply_payment_filters, con heurísticas cuidadosas."""
@@ -2379,101 +2799,153 @@ class PaymentsTabWidget(QWidget):
     def activate_monthly_quota_concept(self):
         """Activa automáticamente el concepto de cuota mensual"""
         try:
-            # Buscar y activar concepto de cuota mensual en la tabla
+            # Buscar fila del concepto primero (rápido en UI)
+            target_row = None
+            target_concept = None
             for row in range(self.concepts_model.rowCount()):
                 concept = self.concepts_model._data[row]
                 if "cuota mensual" in concept.nombre.lower():
-                    # Activar el concepto
-                    index = self.concepts_model.index(row, 0)
-                    self.concepts_model.setData(index, Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole)
-                    
-                    # Establecer precio según tipo de cuota del usuario (robusto: por nombre o ID)
-                    if self.selected_user:
-                        try:
-                            precio_to_apply = None
-                            tipo_val = getattr(self.selected_user, 'tipo_cuota', None)
-                            tipo_obj = None
-                            
-                            # Intentar obtener por ID si viene numérico
-                            if isinstance(tipo_val, (int, float)) or (isinstance(tipo_val, str) and tipo_val.strip().isdigit()):
-                                try:
-                                    tipo_obj = self.db_manager.obtener_tipo_cuota_por_id(int(str(tipo_val).strip()))
-                                except Exception:
-                                    tipo_obj = None
-                            
-                            # Si no, intentar obtener por nombre (con resolución case-insensitive)
-                            if not tipo_obj and isinstance(tipo_val, str) and tipo_val.strip():
-                                try:
-                                    tipo_obj = self.db_manager.obtener_tipo_cuota_por_nombre(tipo_val.strip())
-                                except Exception:
-                                    tipo_obj = None
-                                # Resolver contra lista de tipos activos, normalizando a minúsculas
-                                if not tipo_obj:
-                                    try:
-                                        tipos_activos = []
-                                        if hasattr(self.db_manager, 'obtener_tipos_cuota'):
-                                            tipos_activos = self.db_manager.obtener_tipos_cuota(solo_activos=True) or []
-                                        elif hasattr(self.db_manager, 'obtener_tipos_cuota_activos'):
-                                            tipos_activos = self.db_manager.obtener_tipos_cuota_activos() or []
-                                        tv_norm = tipo_val.strip().lower()
-                                        for t in tipos_activos:
-                                            nombre_t = getattr(t, 'nombre', '') or ''
-                                            if nombre_t.strip().lower() == tv_norm:
-                                                tipo_obj = t
-                                                break
-                                    except Exception:
-                                        pass
-                            
-                            # Fallback: atributo tipo_cuota_id si existe
-                            if not tipo_obj:
-                                tipo_id = getattr(self.selected_user, 'tipo_cuota_id', None)
-                                if tipo_id:
-                                    try:
-                                        tipo_obj = self.db_manager.obtener_tipo_cuota_por_id(int(tipo_id))
-                                    except Exception:
-                                        tipo_obj = None
-                            
-                            # Determinar precio a aplicar solo si se resolvió el tipo
-                            if tipo_obj and hasattr(tipo_obj, 'precio'):
-                                precio_to_apply = tipo_obj.precio
-                            
-                            # Fallback final: usar precio_base del concepto
-                            if precio_to_apply is None:
-                                precio_to_apply = getattr(concept, 'precio_base', None)
-                            
-                            if precio_to_apply is not None:
-                                self.concepts_model.set_user_price_for_concept(concept.nombre, precio_to_apply)
-                        except Exception as e:
-                            logging.warning(f"No se pudo cargar el precio del tipo de cuota: {e}")
-                    
-                    self.calculate_totals()
+                    target_row = row
+                    target_concept = concept
                     break
-        
+
+            if target_row is None:
+                return
+
+            # Mostrar overlay mientras se resuelve precio en segundo plano
+            self.loading_manager.show_loading(
+                operation_id="activar_cuota",
+                message="Resolviendo precio de cuota...",
+                spinner_type="dots",
+                spinner_size=80,
+                background_opacity=0.5,
+                show_message=True,
+            )
+
+            def _resolve_price():
+                precio_to_apply = None
+                tipo_val = getattr(self.selected_user, 'tipo_cuota', None)
+                tipo_obj = None
+
+                if isinstance(tipo_val, (int, float)) or (isinstance(tipo_val, str) and tipo_val.strip().isdigit()):
+                    try:
+                        tipo_obj = self.db_manager.obtener_tipo_cuota_por_id(int(str(tipo_val).strip()))
+                    except Exception:
+                        tipo_obj = None
+
+                if not tipo_obj and isinstance(tipo_val, str) and tipo_val.strip():
+                    try:
+                        tipo_obj = self.db_manager.obtener_tipo_cuota_por_nombre(tipo_val.strip())
+                    except Exception:
+                        tipo_obj = None
+                    if not tipo_obj:
+                        try:
+                            tipos_activos = []
+                            if hasattr(self.db_manager, 'obtener_tipos_cuota'):
+                                tipos_activos = self.db_manager.obtener_tipos_cuota(solo_activos=True) or []
+                            elif hasattr(self.db_manager, 'obtener_tipos_cuota_activos'):
+                                tipos_activos = self.db_manager.obtener_tipos_cuota_activos() or []
+                            tv_norm = tipo_val.strip().lower()
+                            for t in tipos_activos:
+                                nombre_t = getattr(t, 'nombre', '') or ''
+                                if nombre_t.strip().lower() == tv_norm:
+                                    tipo_obj = t
+                                    break
+                        except Exception:
+                            pass
+
+                if not tipo_obj:
+                    tipo_id = getattr(self.selected_user, 'tipo_cuota_id', None)
+                    if tipo_id:
+                        try:
+                            tipo_obj = self.db_manager.obtener_tipo_cuota_por_id(int(tipo_id))
+                        except Exception:
+                            tipo_obj = None
+
+                if tipo_obj and hasattr(tipo_obj, 'precio'):
+                    precio_to_apply = tipo_obj.precio
+                if precio_to_apply is None:
+                    precio_to_apply = getattr(target_concept, 'precio_base', None)
+                return precio_to_apply
+
+            def _apply_price(precio_to_apply):
+                try:
+                    # Activar el concepto
+                    index = self.concepts_model.index(target_row, 0)
+                    self.concepts_model.setData(index, Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole)
+                    if precio_to_apply is not None:
+                        self.concepts_model.set_user_price_for_concept(target_concept.nombre, precio_to_apply)
+                    self.calculate_totals()
+                finally:
+                    self.loading_manager.hide_loading("activar_cuota")
+
+            def _on_error(err):
+                try:
+                    logging.warning(f"No se pudo resolver el precio de la cuota: {err}")
+                finally:
+                    self.loading_manager.hide_loading("activar_cuota")
+
+            run_in_background(
+                _resolve_price,
+                on_success=_apply_price,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Resolver precio de cuota mensual",
+            )
         except Exception as e:
             logging.exception(f"Error al activar concepto Cuota Mensual: {e}")
     
     def select_payment(self, payment_id: int):
         """Selecciona un pago específico en el historial"""
         try:
-            pago = self.db_manager.obtener_pago(payment_id)
-            if not pago:
-                logging.warning(f"No se encontró el pago con ID {payment_id}")
-                return
-            
-            self.set_user_for_payment(pago.usuario_id)
-            
-            if self.selected_user:
-                for row in range(self.history_model.rowCount(None)):
-                    pago_en_tabla = self.history_model._data[row]
-                    if pago_en_tabla.id == payment_id:
-                        index = self.history_model.index(row, 0)
-                        self.history_table.selectRow(row)
-                        self.history_table.scrollTo(index)
-                        break
-        
+            op_id = f"select_payment_{payment_id}"
+            self.loading_manager.show_loading(
+                operation_id=op_id,
+                message="Cargando pago...",
+                spinner_type="dots",
+                spinner_size=80,
+                background_opacity=0.5,
+                show_message=True,
+            )
+
+            def _load():
+                return self.db_manager.obtener_pago(payment_id)
+
+            def _apply(pago):
+                try:
+                    if not pago:
+                        logging.warning(f"No se encontró el pago con ID {payment_id}")
+                        return
+                    self.set_user_for_payment(pago.usuario_id)
+                    if self.selected_user:
+                        for row in range(self.history_model.rowCount(None)):
+                            pago_en_tabla = self.history_model._data[row]
+                            if pago_en_tabla.id == payment_id:
+                                index = self.history_model.index(row, 0)
+                                self.history_table.selectRow(row)
+                                self.history_table.scrollTo(index)
+                                break
+                finally:
+                    self.loading_manager.hide_loading(op_id)
+
+            def _on_error(err):
+                try:
+                    logging.exception(f"Error al seleccionar el pago {payment_id}: {err}")
+                    QMessageBox.warning(self, "Error", f"No se pudo seleccionar el pago: {err}")
+                finally:
+                    self.loading_manager.hide_loading(op_id)
+
+            run_in_background(
+                _load,
+                on_success=_apply,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Cargar pago para selección",
+            )
         except Exception as e:
             logging.exception(f"Error al seleccionar el pago {payment_id}: {e}")
-            QMessageBox.warning(self, "Error", f"No se pudo seleccionar el pago: {e}")
     
     def apply_modern_branding(self):
         """Aplica el branding moderno automático"""

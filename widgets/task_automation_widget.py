@@ -199,27 +199,43 @@ class TaskExecutorThread(QThread):
                     # Exportar estructura y datos de cada tabla
                     for table in tables:
                         f.write(f"\n-- Tabla: {table}\n")
-                        
-                        # Exportar datos
-                        cursor.execute(f"SELECT * FROM {table}")
-                        rows = cursor.fetchall()
-                        
+                        # Obtener columnas explícitas de la tabla
+                        cursor.execute(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = %s
+                            ORDER BY ordinal_position
+                            """,
+                            (table,)
+                        )
+                        col_rows = cursor.fetchall() or []
+                        columns = [r['column_name'] for r in col_rows]
+
+                        if not columns:
+                            logging.warning(f"No se encontraron columnas para la tabla {table}; se omite exportación de datos.")
+                            continue
+
+                        # Exportar datos con columnas explícitas
+                        select_sql = f"SELECT {', '.join(columns)} FROM {table}"
+                        cursor.execute(select_sql)
+                        rows = cursor.fetchall() or []
+
                         if rows:
-                            # Obtener nombres de columnas
-                            columns = [desc[0] for desc in cursor.description]
-                            
                             for row in rows:
                                 values = []
-                                for value in row:
+                                for col in columns:
+                                    value = row.get(col)
                                     if value is None:
                                         values.append('NULL')
                                     elif isinstance(value, str):
-                                        values.append(f"'{value.replace("'", "''")}'")
+                                        # Escapar comillas simples en cadenas
+                                        values.append("'" + value.replace("'", "''") + "'")
                                     elif isinstance(value, datetime):
-                                        values.append(f"'{value.isoformat()}'")
+                                        values.append("'" + value.isoformat() + "'")
                                     else:
                                         values.append(str(value))
-                                
+
                                 f.write(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(values)});\n")
                 
                 self.progress_updated.emit(self.task.task_id, 80)
@@ -356,25 +372,19 @@ class TaskExecutorThread(QThread):
             
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                
-                # Obtener estadísticas del día
+                # Consulta agregada única para minimizar round-trips y bloquear menos
                 cursor.execute(
-                    "SELECT COUNT(*) FROM asistencias WHERE fecha = CURRENT_DATE"
+                    """
+                    SELECT 
+                        (SELECT COUNT(*) FROM asistencias WHERE fecha = CURRENT_DATE) AS asistencias_hoy,
+                        (SELECT COUNT(*) FROM usuarios WHERE fecha_registro = CURRENT_DATE) AS nuevos_usuarios,
+                        (SELECT COALESCE(SUM(monto), 0) FROM pagos WHERE fecha_pago = CURRENT_DATE) AS ingresos_hoy
+                    """
                 )
-                result = cursor.fetchone()
-                asistencias_hoy = result[0] if result and len(result) > 0 else 0
-                
-                cursor.execute(
-                    "SELECT COUNT(*) FROM usuarios WHERE fecha_registro = CURRENT_DATE"
-                )
-                result = cursor.fetchone()
-                nuevos_usuarios = result[0] if result and len(result) > 0 else 0
-                
-                cursor.execute(
-                    "SELECT SUM(monto) FROM pagos WHERE fecha_pago = CURRENT_DATE"
-                )
-                result = cursor.fetchone()
-                ingresos_hoy = result[0] if result and len(result) > 0 else 0
+                agg = cursor.fetchone() or {}
+                asistencias_hoy = agg.get('asistencias_hoy', 0) or 0
+                nuevos_usuarios = agg.get('nuevos_usuarios', 0) or 0
+                ingresos_hoy = agg.get('ingresos_hoy', 0) or 0
             
             self.progress_updated.emit(self.task.task_id, 75)
             
@@ -402,9 +412,15 @@ class TaskAutomationWidget(QWidget):
         self.db_manager = db_manager
         self.tasks = []
         self.executor_threads = {}
+        self._destroyed = False
+        self._checking_tasks = False
         self.automation_timer = QTimer()
         self.automation_timer.timeout.connect(self.check_scheduled_tasks)
         self.automation_timer.start(60000)  # Verificar cada minuto
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         
         self.setup_ui()
         self.load_default_tasks()
@@ -759,12 +775,31 @@ class TaskAutomationWidget(QWidget):
     
     def check_scheduled_tasks(self):
         """Verifica y ejecuta tareas programadas"""
-        for task in self.tasks:
-            if task.should_run() and task.task_id not in self.executor_threads:
-                self.execute_task_now(task)
+        # Evitar ejecuciones si el widget no está visible o fue destruido
+        try:
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+        except RuntimeError:
+            return
+        # Evitar solapamiento de verificaciones si el temporizador dispara rápido
+        if getattr(self, '_checking_tasks', False):
+            return
+        self._checking_tasks = True
+        try:
+            for task in self.tasks:
+                if task.should_run() and task.task_id not in self.executor_threads:
+                    self.execute_task_now(task)
+        finally:
+            self._checking_tasks = False
     
     def execute_task_now(self, task):
         """Ejecuta una tarea inmediatamente"""
+        # No ejecutar si el widget fue destruido o está oculto
+        try:
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+        except RuntimeError:
+            return
         if task.task_id in self.executor_threads:
             QMessageBox.warning(
                 self,
@@ -781,6 +816,15 @@ class TaskAutomationWidget(QWidget):
         
         self.executor_threads[task.task_id] = executor
         executor.start()
+
+    def _cleanup_on_destroy(self):
+        """Detiene el temporizador y marca el widget como destruido para evitar tareas tardías."""
+        try:
+            self._destroyed = True
+            if hasattr(self, 'automation_timer') and self.automation_timer is not None:
+                self.automation_timer.stop()
+        except Exception:
+            pass
     
     def execute_manual_task(self, task_type):
         """Ejecuta una tarea manual"""

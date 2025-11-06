@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
 import logging
+import json
 import psycopg2.extras
 from models import Pago, Usuario, MetodoPago, ConceptoPago, PagoDetalle
 # Importar sistema de alertas con fallback si PyQt6 no está disponible (entornos como Railway)
@@ -35,11 +36,6 @@ except Exception:
             return None
     alert_manager = _StubAlertManager()
 from database import DatabaseManager, database_retry
-
-# Sistema outbox legacy eliminado - replicación nativa PostgreSQL
-enqueue_operations = None  # type: ignore
-op_payment_update = None  # type: ignore
-op_payment_delete = None  # type: ignore
 
 # Importar módulos WhatsApp (importación condicional para evitar errores si no están disponibles)
 try:
@@ -161,24 +157,6 @@ class PaymentManager:
                 }
                 self.db_manager.audit_logger.log_operation('CREATE', 'pagos', pago_id, None, new_values)
 
-            # Encolar sync: payment.update con claves naturales (upsert en servidor)
-            try:
-                if enqueue_operations and op_payment_update:
-                    # Usar DNI si está disponible para robustez lado servidor
-                    dni = getattr(usuario, 'dni', None)
-                    payload = {
-                        'user_id': int(usuario_id),
-                        'dni': str(dni) if dni is not None else None,
-                        'mes': int(mes),
-                        'año': int(año),
-                        'monto': float(monto),
-                        'fecha_pago': datetime.now().isoformat(),
-                        'metodo_pago_id': int(metodo_pago_id) if metodo_pago_id is not None else None,
-                    }
-                    enqueue_operations([op_payment_update(payload)])
-            except Exception:
-                # No bloquear el flujo si el encolado falla (offline-first)
-                pass
 
             # Enviar notificación WhatsApp de confirmación de pago
             self._enviar_notificacion_pago_confirmado(usuario_id, monto, mes, año)
@@ -238,21 +216,6 @@ class PaymentManager:
         # Obtener información del pago antes de eliminar para construir la alerta
         pago = self.obtener_pago(pago_id)
         self.db_manager.eliminar_pago(pago_id)
-        # Encolar sync: payment.delete usando claves naturales si está disponible
-        try:
-            if enqueue_operations and op_payment_delete and pago:
-                usuario = self.db_manager.obtener_usuario(pago.usuario_id)
-                dni = getattr(usuario, 'dni', None) if usuario else None
-                payload = {
-                    'user_id': int(getattr(pago, 'usuario_id', 0)),
-                    'dni': str(dni) if dni is not None else None,
-                    'mes': int(getattr(pago, 'mes', 0)),
-                    'año': int(getattr(pago, 'año', 0)),
-                }
-                enqueue_operations([op_payment_delete(payload)])
-        except Exception:
-            # No bloquear flujo si el encolado falla
-            pass
         # Generar alerta de pago eliminado
         try:
             if pago:
@@ -285,21 +248,21 @@ class PaymentManager:
             logging.error(f"Error al recalcular estado de usuario tras eliminar pago: {e}")
 
     def verificar_pago_actual(self, usuario_id: int, mes: int, anio: int) -> bool:
-        """Verifica si un usuario ha pagado en el mes y año especificados usando fecha_pago."""
+        """Verifica si un usuario ha pagado en el mes y año especificados usando columnas mes/año."""
         with self.db_manager.get_connection_context() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM pagos WHERE usuario_id = %s AND EXTRACT(MONTH FROM fecha_pago) = %s AND EXTRACT(YEAR FROM fecha_pago) = %s", 
+                "SELECT 1 FROM pagos WHERE usuario_id = %s AND mes = %s AND año = %s",
                 (usuario_id, mes, anio)
             )
             return cursor.fetchone() is not None
     
     def obtener_pago_actual(self, usuario_id: int, mes: int, anio: int) -> Optional[Pago]:
-        """Obtiene el pago de un usuario para el mes y año especificados usando fecha_pago."""
+        """Obtiene el pago de un usuario para el mes y año especificados usando columnas mes/año."""
         with self.db_manager.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute(
-                "SELECT * FROM pagos WHERE usuario_id = %s AND EXTRACT(MONTH FROM fecha_pago) = %s AND EXTRACT(YEAR FROM fecha_pago) = %s", 
+                "SELECT id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id FROM pagos WHERE usuario_id = %s AND mes = %s AND año = %s",
                 (usuario_id, mes, anio)
             )
             row = cursor.fetchone()
@@ -324,7 +287,10 @@ class PaymentManager:
     def obtener_pago(self, pago_id: int) -> Optional[Pago]:
         with self.db_manager.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute("SELECT * FROM pagos WHERE id = %s", (pago_id,))
+            cursor.execute(
+                "SELECT id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id FROM pagos WHERE id = %s",
+                (pago_id,)
+            )
             row = cursor.fetchone()
             return self._crear_pago_desde_fila(row) if row else None
 
@@ -602,14 +568,31 @@ class PaymentManager:
                 if not result:
                     raise ValueError("Error al crear/actualizar el pago avanzado: no se obtuvo ID")
                 pago_id = result[0]
-
-                # Crear los detalles de pago
-                for concepto in conceptos:
-                    subtotal = concepto['cantidad'] * concepto['precio_unitario']
-                    cursor.execute(
-                        "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (pago_id, concepto['concepto_id'], concepto['cantidad'], concepto['precio_unitario'], subtotal, subtotal)
-                    )   
+                # Crear los detalles de pago en lote
+                try:
+                    filas = []
+                    for concepto in conceptos:
+                        cantidad = float(concepto['cantidad'])
+                        precio = float(concepto['precio_unitario'])
+                        subtotal = cantidad * precio
+                        filas.append((pago_id, int(concepto['concepto_id']), cantidad, precio, subtotal, subtotal))
+                    if filas:
+                        psycopg2.extras.execute_values(
+                            cursor,
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES %s",
+                            filas,
+                            page_size=250
+                        )
+                except Exception as e:
+                    logging.error(f"No se pudieron insertar detalles en lote, intentando secuencial: {e}")
+                    for concepto in conceptos:
+                        cantidad = float(concepto['cantidad'])
+                        precio = float(concepto['precio_unitario'])
+                        subtotal = cantidad * precio
+                        cursor.execute(
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s)",
+                            (pago_id, int(concepto['concepto_id']), cantidad, precio, subtotal, subtotal)
+                        )
                 # --- Ajuste de estado del usuario y contador de cuotas vencidas ---
                 try:
                     # Obtener duracion_dias desde el tipo de cuota del usuario (acepta nombre o id)
@@ -681,23 +664,6 @@ class PaymentManager:
                 except Exception as cache_err:
                     logging.warning(f"No se pudo invalidar cache post-pago avanzado para usuario {usuario_id}: {cache_err}")
 
-                # Encolar sync: payment.update con claves naturales (upsert en servidor)
-                try:
-                    if enqueue_operations and op_payment_update:
-                        dni = getattr(usuario, 'dni', None)
-                        payload = {
-                            'user_id': int(usuario_id),
-                            'dni': str(dni) if dni is not None else None,
-                            'mes': int(mes),
-                            'año': int(año),
-                            'monto': float(total_final),
-                            'fecha_pago': fecha_pago.isoformat() if isinstance(fecha_pago, datetime) else str(fecha_pago),
-                            'metodo_pago_id': int(metodo_pago_id) if metodo_pago_id is not None else None,
-                        }
-                        enqueue_operations([op_payment_update(payload)])
-                except Exception:
-                    # No bloquear si falla encolado
-                    pass
 
                 # Enviar notificación WhatsApp de confirmación de pago
                 self._enviar_notificacion_pago_confirmado(usuario_id, total_final, mes, año)
@@ -722,21 +688,136 @@ class PaymentManager:
             raise
 
     def obtener_resumen_pago_completo(self, pago_id: int) -> Optional[Dict[str, Any]]:
-        """Obtiene un resumen completo de un pago incluyendo detalles y método"""
-        pago = self.obtener_pago(pago_id)
-        if not pago:
+        """Obtiene un resumen completo de un pago en un solo viaje: pago + usuario + detalles.
+
+        Devuelve dict con claves: 'pago' (Pago), 'usuario' (Usuario), 'detalles' (List[PagoDetalle]),
+        'total_conceptos' (float) y 'cantidad_conceptos' (int).
+        """
+        try:
+            with self.db_manager.get_connection_context() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cursor.execute(
+                    """
+                    SELECT 
+                        -- Pago
+                        p.id AS pago_id,
+                        p.usuario_id,
+                        p.monto,
+                        p.mes,
+                        p.año,
+                        p.fecha_pago,
+                        p.metodo_pago_id,
+                        -- Usuario
+                        u.id AS usuario_id_real,
+                        u.nombre AS usuario_nombre,
+                        u.dni AS usuario_dni,
+                        u.telefono AS usuario_telefono,
+                        u.pin AS usuario_pin,
+                        u.rol AS usuario_rol,
+                        u.notas AS usuario_notas,
+                        u.fecha_registro AS usuario_fecha_registro,
+                        u.activo AS usuario_activo,
+                        u.tipo_cuota AS usuario_tipo_cuota,
+                        u.fecha_proximo_vencimiento AS usuario_fecha_proximo_vencimiento,
+                        u.cuotas_vencidas AS usuario_cuotas_vencidas,
+                        u.ultimo_pago AS usuario_ultimo_pago,
+                        -- Detalles agregados como JSON
+                        (
+                            SELECT json_agg(
+                                json_build_object(
+                                    'id', pd.id,
+                                    'pago_id', pd.pago_id,
+                                    'concepto_id', pd.concepto_id,
+                                    'descripcion', pd.descripcion,
+                                    'cantidad', COALESCE(pd.cantidad, 1),
+                                    'precio_unitario', COALESCE(pd.precio_unitario, 0),
+                                    'subtotal', COALESCE(pd.subtotal, COALESCE(pd.cantidad,1) * COALESCE(pd.precio_unitario,0)),
+                                    'concepto_nombre', COALESCE(cp.nombre, pd.descripcion)
+                                )
+                            )
+                            FROM pago_detalles pd
+                            LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                            WHERE pd.pago_id = p.id
+                            ORDER BY pd.id
+                        ) AS detalles_json
+                    FROM pagos p
+                    JOIN usuarios u ON u.id = p.usuario_id
+                    WHERE p.id = %s
+                    LIMIT 1
+                    """,
+                    (pago_id,)
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                # Construir Pago
+                pago = Pago(
+                    id=row.get('pago_id'),
+                    usuario_id=row.get('usuario_id'),
+                    monto=float(row.get('monto') or 0.0),
+                    mes=int(row.get('mes') or 0),
+                    año=int(row.get('año') or 0),
+                    fecha_pago=row.get('fecha_pago'),
+                    metodo_pago_id=row.get('metodo_pago_id')
+                )
+
+                # Normalizar nombre de usuario: usar solo nombre (apellido no existe en esquema actual)
+                nombre = str(row.get('usuario_nombre') or "").strip()
+                nombre_full = nombre
+
+                usuario = Usuario(
+                    id=row.get('usuario_id_real'),
+                    nombre=nombre_full,
+                    dni=row.get('usuario_dni'),
+                    telefono=row.get('usuario_telefono') or "",
+                    pin=row.get('usuario_pin'),
+                    rol=row.get('usuario_rol') or "socio",
+                    notas=row.get('usuario_notas'),
+                    fecha_registro=str(row.get('usuario_fecha_registro')) if row.get('usuario_fecha_registro') is not None else None,
+                    activo=bool(row.get('usuario_activo')) if 'usuario_activo' in row else True,
+                    tipo_cuota=row.get('usuario_tipo_cuota') or "estandar",
+                    fecha_proximo_vencimiento=str(row.get('usuario_fecha_proximo_vencimiento')) if row.get('usuario_fecha_proximo_vencimiento') is not None else None,
+                    cuotas_vencidas=int(row.get('usuario_cuotas_vencidas') or 0),
+                    ultimo_pago=str(row.get('usuario_ultimo_pago')) if row.get('usuario_ultimo_pago') is not None else None
+                )
+
+                # Parsear detalles
+                detalles_json = row.get('detalles_json')
+                detalles_list: List[PagoDetalle] = []
+                try:
+                    detalles_data = detalles_json if isinstance(detalles_json, list) else json.loads(detalles_json) if detalles_json else []
+                except Exception:
+                    detalles_data = []
+                for d in detalles_data or []:
+                    cantidad = float((d.get('cantidad') if isinstance(d, dict) else d['cantidad']) or 1.0)
+                    precio_unitario = float((d.get('precio_unitario') if isinstance(d, dict) else d['precio_unitario']) or 0.0)
+                    subtotal = float((d.get('subtotal') if isinstance(d, dict) else d['subtotal']) or (cantidad * precio_unitario))
+                    concepto_nombre = (d.get('concepto_nombre') if isinstance(d, dict) else d['concepto_nombre']) or ""
+                    detalles_list.append(PagoDetalle(
+                        id=(d.get('id') if isinstance(d, dict) else d['id']),
+                        pago_id=(d.get('pago_id') if isinstance(d, dict) else d['pago_id']) or pago_id,
+                        concepto_id=(d.get('concepto_id') if isinstance(d, dict) else d['concepto_id']),
+                        concepto_nombre=str(concepto_nombre),
+                        cantidad=cantidad,
+                        precio_unitario=precio_unitario,
+                        subtotal=subtotal,
+                        notas=None
+                    ))
+
+                total_conceptos = sum(d.subtotal for d in detalles_list)
+                cantidad_conceptos = len(detalles_list)
+
+                return {
+                    'pago': pago,
+                    'usuario': usuario,
+                    'detalles': detalles_list,
+                    'total_conceptos': total_conceptos,
+                    'cantidad_conceptos': cantidad_conceptos
+                }
+        except Exception as e:
+            logging.error(f"Error obteniendo resumen completo de pago {pago_id}: {e}")
             return None
-        
-        detalles = self.obtener_detalles_pago(pago_id)
-        usuario = self.db_manager.obtener_usuario(pago.usuario_id)
-        
-        return {
-            'pago': pago,
-            'usuario': usuario,
-            'detalles': detalles,
-            'total_conceptos': sum(d.subtotal for d in detalles),
-            'cantidad_conceptos': len(detalles)
-        }
 
     # --- NUEVOS MÉTODOS: COMISIONES Y DETALLES DE PAGO ---
     def calcular_comision(self, monto_base: float, metodo_pago_id: Optional[int]) -> float:
@@ -838,6 +919,13 @@ class PaymentManager:
     def obtener_metodo_pago(self, metodo_id: int) -> Optional[MetodoPago]:
         """Obtiene un método de pago por su ID como objeto MetodoPago."""
         try:
+            try:
+                ck = f"id:{int(metodo_id)}"
+                cached = self.db_manager.cache.get('metodos_pago', ck)
+                if cached:
+                    return cached
+            except Exception:
+                pass
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 cursor.execute(
@@ -845,7 +933,13 @@ class PaymentManager:
                     (metodo_id,)
                 )
                 row = cursor.fetchone()
-                return self._crear_metodo_pago_desde_row(dict(row)) if row else None
+                result = self._crear_metodo_pago_desde_row(dict(row)) if row else None
+                if result:
+                    try:
+                        self.db_manager.cache.set('metodos_pago', ck, result)
+                    except Exception:
+                        pass
+                return result
         except Exception as e:
             logging.error(f"Error obteniendo método de pago {metodo_id}: {e}")
             return None
@@ -901,6 +995,10 @@ class PaymentManager:
                     'activo': metodo.activo,
                     'descripcion': metodo.descripcion,
                 })
+            try:
+                self.db_manager.cache.invalidate('metodos_pago')
+            except Exception:
+                pass
             return new_id
         except psycopg2.errors.UniqueViolation:
             raise ValueError("Ya existe un método de pago con ese nombre.")
@@ -935,6 +1033,10 @@ class PaymentManager:
                     'activo': metodo.activo,
                     'descripcion': metodo.descripcion,
                 })
+            try:
+                self.db_manager.cache.invalidate('metodos_pago')
+            except Exception:
+                pass
             return updated > 0
         except psycopg2.errors.UniqueViolation:
             raise ValueError("Ya existe un método de pago con ese nombre.")
@@ -952,6 +1054,11 @@ class PaymentManager:
                 conn.commit()
             if hasattr(self.db_manager, 'audit_logger') and self.db_manager.audit_logger and deleted:
                 self.db_manager.audit_logger.log_operation('DELETE', 'metodos_pago', metodo_id, None, None)
+            if deleted:
+                try:
+                    self.db_manager.cache.invalidate('metodos_pago')
+                except Exception:
+                    pass
             return deleted > 0
         except psycopg2.errors.ForeignKeyViolation:
             raise ValueError("No se puede eliminar el método de pago porque está en uso.")
@@ -961,6 +1068,9 @@ class PaymentManager:
     def obtener_conceptos_pago(self, solo_activos: bool = True) -> List[ConceptoPago]:
         """Obtiene lista de conceptos de pago como dataclasses, opcionalmente filtrando por activos."""
         try:
+            if hasattr(self.db_manager, 'obtener_conceptos_pago'):
+                rows: List[Dict[str, Any]] = self.db_manager.obtener_conceptos_pago(solo_activos=solo_activos) or []
+                return [self._crear_concepto_pago_desde_row(r) for r in rows]
             with self.db_manager.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 query = "SELECT id, nombre, descripcion, precio_base, tipo, activo, fecha_creacion FROM conceptos_pago"
@@ -1001,6 +1111,10 @@ class PaymentManager:
                     'tipo': concepto.tipo,
                     'activo': concepto.activo,
                 })
+            try:
+                self.db_manager.cache.invalidate('conceptos_pago')
+            except Exception:
+                pass
             return new_id
         except psycopg2.errors.UniqueViolation:
             raise ValueError("Ya existe un concepto de pago con ese nombre.")
@@ -1033,6 +1147,10 @@ class PaymentManager:
                     'tipo': concepto.tipo,
                     'activo': concepto.activo,
                 })
+            try:
+                self.db_manager.cache.invalidate('conceptos_pago')
+            except Exception:
+                pass
             return updated > 0
         except psycopg2.errors.UniqueViolation:
             raise ValueError("Ya existe un concepto de pago con ese nombre.")
@@ -1050,6 +1168,11 @@ class PaymentManager:
                 conn.commit()
             if hasattr(self.db_manager, 'audit_logger') and self.db_manager.audit_logger and deleted:
                 self.db_manager.audit_logger.log_operation('DELETE', 'conceptos_pago', concepto_id, None, None)
+            if deleted:
+                try:
+                    self.db_manager.cache.invalidate('conceptos_pago')
+                except Exception:
+                    pass
             return deleted > 0
         except psycopg2.errors.ForeignKeyViolation:
             raise ValueError("No se puede eliminar el concepto de pago porque está en uso.")
@@ -1454,7 +1577,7 @@ class PaymentManager:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 cursor.execute(
                     """
-                    SELECT * FROM pagos
+                    SELECT id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id FROM pagos
                     WHERE usuario_id = %s
                     ORDER BY fecha_pago DESC
                     LIMIT 1

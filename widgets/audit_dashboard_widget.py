@@ -460,6 +460,8 @@ class AuditDashboardWidget(QWidget):
         self.analysis_results = {}
         self.auto_refresh_timer = QTimer()
         self.auto_refresh_timer.timeout.connect(self.refresh_dashboard)
+        # Estado interno
+        self._analysis_in_progress = False
         # Marcar destrucción y limpieza segura
         self._destroyed = False
         try:
@@ -467,6 +469,15 @@ class AuditDashboardWidget(QWidget):
         except Exception:
             pass
         self.setup_ui()
+
+    def _cleanup_on_destroy(self):
+        """Detiene timers y marca el widget como destruido para evitar tareas tardías."""
+        try:
+            self._destroyed = True
+            if hasattr(self, 'auto_refresh_timer') and self.auto_refresh_timer is not None:
+                self.auto_refresh_timer.stop()
+        except Exception:
+            pass
         
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -747,6 +758,10 @@ class AuditDashboardWidget(QWidget):
         
     def start_analysis(self):
         """Inicia el análisis de auditoría"""
+        # Evitar solapamiento de análisis
+        if getattr(self, '_analysis_in_progress', False):
+            return
+        self._analysis_in_progress = True
         filters = {
             'start_date': self.start_date.date().toString(Qt.DateFormat.ISODate),
             'end_date': self.end_date.date().toString(Qt.DateFormat.ISODate)
@@ -768,6 +783,8 @@ class AuditDashboardWidget(QWidget):
         
     def on_analysis_complete(self, results):
         """Maneja la finalización del análisis"""
+        # Marcar fin de análisis para permitir nuevos disparos
+        self._analysis_in_progress = False
         try:
             self.analysis_results = results
             
@@ -1048,8 +1065,17 @@ class AuditDashboardWidget(QWidget):
             
     def refresh_dashboard(self):
         """Actualiza el dashboard automáticamente"""
-        if not self.analyze_btn.isEnabled():  # No actualizar si ya hay un análisis en curso
-            return
-        self.start_analysis()
+        try:
+            # Evitar actualizaciones si el widget no está visible o destruido
+            if getattr(self, '_destroyed', False):
+                return
+            if hasattr(self, 'isVisible') and not self.isVisible():
+                return
+            # Evitar solapamientos de análisis en curso
+            if getattr(self, '_analysis_in_progress', False):
+                return
+            self.start_analysis()
+        except Exception as e:
+            logging.error(f"Error refrescando dashboard: {e}")
 from utils_modules.async_runner import TaskThread
 

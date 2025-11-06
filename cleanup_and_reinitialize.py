@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Limpieza y Reinicialización de Bases de Datos - Sistema de Gestión de Gimnasio
+Limpieza y Reinicialización de Base de Datos - Sistema de Gestión de Gimnasio
 
-Este script realiza una limpieza completa y reinicialización de las bases de datos
-local y remota, preservando solo los datos críticos y optimizando la estructura
-para la replicación nativa de PostgreSQL.
+Este script realiza una limpieza completa y reinicialización de UNA sola base de datos,
+preservando solo los datos críticos y optimizando la estructura.
 
 PROCESO:
 1. Backup completo de datos críticos
 2. Limpieza de tablas redundantes y temporales
 3. Reinicialización con estructura optimizada
 4. Restauración de datos críticos
-5. Configuración de replicación nativa
+5. Verificación de integridad
 """
 
 from secure_config import config as secure_config
@@ -40,8 +39,8 @@ class DatabaseCleanupReinitializer:
     """Gestiona limpieza y reinicialización completa de bases de datos."""
     
     def __init__(self):
+        # Única base de datos (perfil 'local')
         self.local_config = secure_config.get_db_config('local')
-        self.remote_config = secure_config.get_db_config('remote')
         
         # Tablas críticas que deben preservarse
         self.critical_tables = [
@@ -49,9 +48,9 @@ class DatabaseCleanupReinitializer:
             'tipos_clases', 'metodos_pago', 'conceptos_pago', 'configuracion'
         ]
         
-        # Tablas de sistema que pueden ser regeneradas
+        # Tablas de sistema que pueden ser regeneradas (sin artefactos anteriores de sincronización)
         self.system_tables = [
-            'sync_outbox', 'sync_inbox', 'auditoria', 'notificaciones_cupos',
+            'auditoria', 'notificaciones_cupos',
             'whatsapp_templates', 'whatsapp_config', 'whatsapp_messages',
             'custom_themes', 'theme_schedules', 'theme_events',
             'node_state', 'numeracion_comprobantes'
@@ -94,7 +93,7 @@ class DatabaseCleanupReinitializer:
         }
         
         try:
-            # Fase 1: Backup completo de datos críticos
+            # Fase 1: Backup completo de datos críticos (única BD)
             logger.info("💾 FASE 1: Creando backup de datos críticos...")
             backup_result = self._create_critical_data_backup()
             result["phases"].append({"phase": "backup", "result": backup_result})
@@ -109,7 +108,7 @@ class DatabaseCleanupReinitializer:
             result["phases"].append({"phase": "cleanup", "result": cleanup_result})
             result["cleanup_summary"] = cleanup_result
             
-            # Fase 3: Reinicialización de estructura
+            # Fase 3: Reinicialización de estructura (única BD)
             logger.info("🔧 FASE 3: Reinicializando estructura de base de datos...")
             reinit_result = self._reinitialize_database_structure()
             result["phases"].append({"phase": "reinit", "result": reinit_result})
@@ -120,13 +119,8 @@ class DatabaseCleanupReinitializer:
             restore_result = self._restore_critical_data(backup_result)
             result["phases"].append({"phase": "restore", "result": restore_result})
             
-            # Fase 5: Configuración de replicación nativa
-            logger.info("🔄 FASE 5: Configurando replicación nativa...")
-            replication_result = self._setup_native_replication()
-            result["phases"].append({"phase": "replication", "result": replication_result})
-            
-            # Fase 6: Verificación final
-            logger.info("✅ FASE 6: Verificando integridad del sistema...")
+            # Fase 5: Verificación final
+            logger.info("✅ FASE 5: Verificando integridad del sistema...")
             verification_result = self._verify_system_integrity()
             result["phases"].append({"phase": "verification", "result": verification_result})
             
@@ -152,7 +146,7 @@ class DatabaseCleanupReinitializer:
         
         backup_result = {
             "status": "success",
-            "backups": [],
+            "backups": [],  # Solo uno: local
             "total_records": 0,
             "backup_size_bytes": 0
         }
@@ -162,19 +156,15 @@ class DatabaseCleanupReinitializer:
         backup_subdir.mkdir(exist_ok=True)
         
         try:
-            # Backup de base de datos local
+            # Backup de base de datos única (local)
             local_backup = self._backup_database_tables(self.local_config, "local", backup_subdir)
             backup_result["backups"].append(local_backup)
             
-            # Backup de base de datos remota
-            remote_backup = self._backup_database_tables(self.remote_config, "remote", backup_subdir)
-            backup_result["backups"].append(remote_backup)
-            
             # Resumen total
-            backup_result["total_records"] = sum(b.get("total_records", 0) for b in backup_result["backups"])
-            backup_result["backup_size_bytes"] = sum(b.get("backup_size_bytes", 0) for b in backup_result["backups"])
+            backup_result["total_records"] = local_backup.get("total_records", 0)
+            backup_result["backup_size_bytes"] = local_backup.get("backup_size_bytes", 0)
             
-            logger.info(f"✅ Backup completado: {backup_result['total_records']} registros en {len(backup_result['backups'])} bases de datos")
+            logger.info(f"✅ Backup completado: {backup_result['total_records']} registros en 1 base de datos")
             
         except Exception as e:
             logger.error(f"❌ Error creando backup: {e}")
@@ -213,8 +203,19 @@ class DatabaseCleanupReinitializer:
                                 logger.warning(f"⚠️ Tabla {table} no existe en {server_name}")
                                 continue
                             
-                            # Obtener datos de la tabla
-                            cur.execute(f"SELECT * FROM {table}")
+                            # Obtener columnas explícitas y luego datos
+                            cur.execute(
+                                """
+                                SELECT column_name
+                                FROM information_schema.columns
+                                WHERE table_schema = 'public' AND table_name = %s
+                                ORDER BY ordinal_position
+                                """,
+                                (table,)
+                            )
+                            cols = [r['column_name'] for r in (cur.fetchall() or [])]
+                            column_list = ", ".join(cols) if cols else "*"
+                            cur.execute(f"SELECT {column_list} FROM {table}")
                             records = cur.fetchall()
                             
                             if records:
@@ -323,7 +324,6 @@ class DatabaseCleanupReinitializer:
         cleanup_result = {
             "status": "success",
             "local_cleanup": {},
-            "remote_cleanup": {},
             "total_tables_cleaned": 0,
             "total_records_removed": 0
         }
@@ -333,22 +333,9 @@ class DatabaseCleanupReinitializer:
             logger.info("🧹 Limpiando base de datos local...")
             local_cleanup = self._cleanup_database(self.local_config, "local")
             cleanup_result["local_cleanup"] = local_cleanup
-            
-            # Limpieza de base de datos remota
-            logger.info("🧹 Limpiando base de datos remota...")
-            remote_cleanup = self._cleanup_database(self.remote_config, "remote")
-            cleanup_result["remote_cleanup"] = remote_cleanup
-            
             # Resumen total
-            cleanup_result["total_tables_cleaned"] = (
-                local_cleanup.get("tables_cleaned", 0) + 
-                remote_cleanup.get("tables_cleaned", 0)
-            )
-            
-            cleanup_result["total_records_removed"] = (
-                local_cleanup.get("records_removed", 0) + 
-                remote_cleanup.get("records_removed", 0)
-            )
+            cleanup_result["total_tables_cleaned"] = local_cleanup.get("tables_cleaned", 0)
+            cleanup_result["total_records_removed"] = local_cleanup.get("records_removed", 0)
             
             logger.info(f"✅ Limpieza completada: {cleanup_result['total_records_removed']} registros eliminados")
             
@@ -374,35 +361,7 @@ class DatabaseCleanupReinitializer:
             with psycopg2.connect(**db_config) as conn:
                 with conn.cursor() as cur:
                     
-                    # 1. Limpiar tablas de sincronización
-                    sync_tables = ['sync_outbox', 'sync_inbox']
-                    for table in sync_tables:
-                        try:
-                            cur.execute(f"SELECT COUNT(*) FROM {table}")
-                            count = cur.fetchone()[0]
-                            
-                            if count > 0:
-                                # Mantener solo registros recientes (< 7 días)
-                                cur.execute(f"""
-                                    DELETE FROM {table} 
-                                    WHERE created_at < NOW() - INTERVAL '7 days'
-                                """)
-                                deleted = cur.rowcount
-                                
-                                cleanup_info["tables_cleaned"] += 1
-                                cleanup_info["records_removed"] += deleted
-                                cleanup_info["cleaned_tables"].append({
-                                    "table": table,
-                                    "action": "delete_old_records",
-                                    "records_removed": deleted,
-                                    "records_kept": count - deleted
-                                })
-                                
-                                logger.info(f"🧹 {server_name}.{table}: {deleted} registros antiguos eliminados")
-                            
-                        except Exception as e:
-                            logger.warning(f"⚠️ Error limpiando {table} en {server_name}: {e}")
-                            cleanup_info["errors"].append({"table": table, "error": str(e)})
+                    # Sincronización anterior eliminada; no se procesan tablas sync_outbox/sync_inbox
                     
                     # 2. Limpiar tablas de auditoría temporal
                     audit_tables = ['auditoria']
@@ -474,7 +433,6 @@ class DatabaseCleanupReinitializer:
         reinit_result = {
             "status": "success",
             "local_reinit": {},
-            "remote_reinit": {},
             "optimizations_applied": [],
             "replication_setup": {}
         }
@@ -484,11 +442,6 @@ class DatabaseCleanupReinitializer:
             logger.info("🔧 Reinicializando base de datos local...")
             local_reinit = self._reinitialize_single_database(self.local_config, "local")
             reinit_result["local_reinit"] = local_reinit
-            
-            # Reinicialización remota
-            logger.info("🔧 Reinicializando base de datos remota...")
-            remote_reinit = self._reinitialize_single_database(self.remote_config, "remote")
-            reinit_result["remote_reinit"] = remote_reinit
             
             # Aplicar optimizaciones
             optimizations = self._apply_database_optimizations()
@@ -527,8 +480,15 @@ class DatabaseCleanupReinitializer:
                                     WHERE schemaname = 'public' AND tablename = %s
                                 )
                             """, (table,))
-                            
-                            if cur.fetchone()['exists']:
+                            res = cur.fetchone()
+                            exists = False
+                            try:
+                                # Soporta tanto cursor por tupla como por dict
+                                exists = bool(res[0]) if isinstance(res, tuple) else bool(res.get('exists'))
+                            except Exception:
+                                exists = False
+
+                            if exists:
                                 # VACUUM y ANALYZE para optimizar
                                 cur.execute(f"VACUUM ANALYZE {table}")
                                 
@@ -562,6 +522,34 @@ class DatabaseCleanupReinitializer:
             reinit_info["error"] = str(e)
         
         return reinit_info
+
+    def _apply_database_optimizations(self) -> List[str]:
+        """Aplica optimizaciones seguras post-reinicialización.
+
+        Realiza ANALYZE sobre tablas de 'public' en la base local para
+        refrescar estadísticas del planificador. Devuelve una lista de
+        acciones realizadas para registro en el log.
+        """
+        actions: List[str] = []
+        try:
+            with psycopg2.connect(**self.local_config) as conn:
+                with conn.cursor() as cur:
+                    # Obtener tablas en esquema public
+                    cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                    tables = [row[0] for row in cur.fetchall()] if cur.rowcount is not None else []
+                    for t in tables:
+                        try:
+                            # ANALYZE seguro (sin VACUUM para evitar permisos/locks innecesarios)
+                            from psycopg2 import sql as _sql
+                            cur.execute(_sql.SQL("ANALYZE {}").format(_sql.Identifier(t)))
+                            actions.append(f"analyze_local.{t}")
+                        except Exception as te:
+                            logger.warning(f"⚠️ Error ANALYZE en local.{t}: {te}")
+                    conn.commit()
+                    logger.info(f"📈 Optimización local: ANALYZE aplicado a {len(tables)} tablas")
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudieron aplicar optimizaciones en local: {e}")
+        return actions
     
     def _create_optimized_indexes(self, cursor, server_name: str, reinit_info: Dict[str, Any]):
         """Crea índices optimizados para mejorar rendimiento."""
@@ -636,7 +624,6 @@ class DatabaseCleanupReinitializer:
         restore_result = {
             "status": "success",
             "local_restore": {},
-            "remote_restore": {},
             "total_records_restored": 0,
             "errors": []
         }
@@ -648,13 +635,6 @@ class DatabaseCleanupReinitializer:
                 local_restore = self._restore_database_data(local_backup, self.local_config, "local")
                 restore_result["local_restore"] = local_restore
                 restore_result["total_records_restored"] += local_restore.get("records_restored", 0)
-            
-            # Restaurar datos remotos
-            remote_backup = next((b for b in backup_result["backups"] if b["server"] == "remote"), None)
-            if remote_backup:
-                remote_restore = self._restore_database_data(remote_backup, self.remote_config, "remote")
-                restore_result["remote_restore"] = remote_restore
-                restore_result["total_records_restored"] += remote_restore.get("records_restored", 0)
             
             logger.info(f"✅ Restauración completada: {restore_result['total_records_restored']} registros restaurados")
             
@@ -742,26 +722,9 @@ class DatabaseCleanupReinitializer:
             cursor.executemany(insert_query, batch)
     
     def _setup_native_replication(self) -> Dict[str, Any]:
-        """Configura replicación nativa de PostgreSQL."""
-        logger.info("🔄 Configurando replicación nativa de PostgreSQL...")
-        
-        # Importar y usar el sistema de replicación nativa
-        try:
-            from native_replication_manager import NativeReplicationManager
-            
-            replicator = NativeReplicationManager(self.local_config, self.remote_config)
-            replication_result = replicator.setup_logical_replication()
-            
-            logger.info("✅ Replicación nativa configurada exitosamente")
-            return replication_result
-            
-        except Exception as e:
-            logger.error(f"❌ Error configurando replicación nativa: {e}")
-            return {
-                "status": "error",
-                "error": str(e),
-                "message": "Replicación nativa no pudo ser configurada"
-            }
+        """Replicación deshabilitada: el sistema opera con una sola base de datos Neon."""
+        logger.info("🔄 Replicación deshabilitada: se utiliza una única base de datos Neon.")
+        return {"status": "disabled", "message": "Replicación deshabilitada - base de datos única Neon"}
     
     def _verify_system_integrity(self) -> Dict[str, Any]:
         """Verifica integridad del sistema después de la limpieza."""
@@ -770,8 +733,6 @@ class DatabaseCleanupReinitializer:
         verification = {
             "status": "success",
             "local_verification": {},
-            "remote_verification": {},
-            "replication_status": {},
             "overall_health": "unknown"
         }
         
@@ -780,24 +741,8 @@ class DatabaseCleanupReinitializer:
             local_verify = self._verify_database_integrity(self.local_config, "local")
             verification["local_verification"] = local_verify
             
-            # Verificación remota
-            remote_verify = self._verify_database_integrity(self.remote_config, "remote")
-            verification["remote_verification"] = remote_verify
-            
-            # Estado de replicación
-            replication_status = self._check_replication_health()
-            verification["replication_status"] = replication_status
-            
-            # Salud general
-            if (local_verify.get("status") == "healthy" and 
-                remote_verify.get("status") == "healthy" and 
-                replication_status.get("status") == "healthy"):
-                verification["overall_health"] = "excellent"
-            elif (local_verify.get("status") == "healthy" and 
-                  remote_verify.get("status") == "healthy"):
-                verification["overall_health"] = "good"
-            else:
-                verification["overall_health"] = "needs_attention"
+            # Salud general (única BD)
+            verification["overall_health"] = "excellent" if local_verify.get("status") == "healthy" else "needs_attention"
             
             logger.info(f"✅ Verificación completada - Salud: {verification['overall_health']}")
             
@@ -867,27 +812,11 @@ class DatabaseCleanupReinitializer:
         return integrity
     
     def _check_replication_health(self) -> Dict[str, Any]:
-        """Verifica salud de la replicación."""
-        try:
-            from adapted_replication_monitor import AdaptedReplicationMonitor
-            
-            monitor = AdaptedReplicationMonitor()
-            health_report = monitor.get_basic_health_report()
-            
-            return {
-                "status": health_report.get("overall_status", "unknown"),
-                "sync_percentage": health_report.get("data_integrity", {}).get("sync_percentage", 0),
-                "alerts_count": len(health_report.get("alerts", [])),
-                "details": health_report
-            }
-            
-        except Exception as e:
-            logger.warning(f"⚠️ No se pudo verificar salud de replicación: {e}")
-            return {
-                "status": "unknown",
-                "error": str(e),
-                "message": "Verificación de replicación no disponible"
-            }
+        """Verifica salud de la replicación (DEPRECADO - se usa base de datos única Neon)."""
+        return {
+            "status": "disabled",
+            "message": "Replicación deshabilitada - se usa base de datos única Neon"
+        }
     
     def _attempt_emergency_restore(self, backup_result: Dict[str, Any]):
         """Intenta restauración de emergencia si algo falla."""
@@ -928,7 +857,7 @@ def main():
     print("• Limpiará datos redundantes y temporales")
     print("• Reinicializará la estructura de base de datos")
     print("• Restaurará datos críticos")
-    print("• Configurará replicación nativa de PostgreSQL")
+    print("• Verificará integridad de la base de datos")
     print("=" * 60)
     
     # Saltar confirmación si se usa --force

@@ -27,7 +27,7 @@ else:
 # Centraliza la etiqueta usada para guardar/leer contraseñas de DB
 KEYRING_SERVICE_NAME = "GymMS_DB"
 
-# Etiquetas legacy para migración automática de contraseñas guardadas.
+# Etiquetas anteriores para migración automática de contraseñas guardadas.
 # Si cambias KEYRING_SERVICE_NAME, el código intentará copiar desde estas etiquetas.
 LEGACY_KEYRING_SERVICE_NAMES = [
     "GymMS_DB",  # etiqueta usada anteriormente

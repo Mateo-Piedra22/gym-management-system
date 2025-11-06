@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, HTTPException, Depends
 import logging
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -43,13 +43,15 @@ except Exception:
 
 # Importar dataclasses de modelos para payloads del API
 try:
-    from models import Usuario, Pago, MetodoPago, ConceptoPago, Ejercicio  # type: ignore
+    from models import Usuario, Pago, MetodoPago, ConceptoPago, Ejercicio, Rutina, RutinaEjercicio  # type: ignore
 except Exception:
     Usuario = None  # type: ignore
     Pago = None  # type: ignore
     MetodoPago = None  # type: ignore
     ConceptoPago = None  # type: ignore
     Ejercicio = None  # type: ignore
+    Rutina = None  # type: ignore
+    RutinaEjercicio = None  # type: ignore
 
 # Importar utilidades del proyecto principal para branding y contraseña de desarrollador
 try:
@@ -61,6 +63,27 @@ except Exception:
             if path.exists():
                 for line in path.read_text(encoding="utf-8").splitlines():
                     if line.startswith("gym_name="):
+                        return line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+        return default
+
+# Dirección del gimnasio (fallback si no se puede importar desde utils)
+try:
+    from utils import get_gym_value as _get_gym_value  # type: ignore
+    def get_gym_address(default: str = "Dirección del gimnasio") -> str:  # type: ignore
+        try:
+            v = _get_gym_value("gym_address")
+            return (v or default).strip()
+        except Exception:
+            return default
+except Exception:
+    def get_gym_address(default: str = "Dirección del gimnasio") -> str:  # type: ignore
+        try:
+            path = Path("gym_data.txt")
+            if path.exists():
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if line.startswith("gym_address="):
                         return line.split("=", 1)[1].strip()
         except Exception:
             pass
@@ -84,21 +107,7 @@ except Exception:
         import os as _os
         return _os.getenv("WEBAPP_BASE_URL", default).strip()
 
-# Utilidad para cerrar túneles públicos de forma segura
-try:
-    from utils import terminate_tunnel_processes  # type: ignore
-except Exception:
-    def terminate_tunnel_processes() -> None:  # type: ignore
-        try:
-            for p in psutil.process_iter(attrs=["pid","name","cmdline"]):
-                try:
-                    cmd = " ".join(p.info.get("cmdline") or [])
-                    if ("ssh" in (p.info.get("name") or "")) or ("node" in (p.info.get("name") or "")):
-                        p.terminate()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+# Sistema de túneles removido - aplicación usa base de datos Neon única sin túneles
 
 from .qss_to_css import generate_css_from_qss, read_theme_vars
 
@@ -110,6 +119,14 @@ _db_initializing = False
 # Gestor de pagos (se instancia perezosamente sobre la DB)
 _pm: Optional[PaymentManager] = None
 
+# Gestor de rutinas (plantillas y exportación)
+try:
+    from routine_manager import RoutineTemplateManager, create_routine_manager  # type: ignore
+except Exception:
+    RoutineTemplateManager = None  # type: ignore
+    create_routine_manager = None  # type: ignore
+_rm: Optional[RoutineTemplateManager] = None
+
 def _get_pm() -> Optional[PaymentManager]:
     global _pm
     try:
@@ -120,6 +137,23 @@ def _get_pm() -> Optional[PaymentManager]:
             return None
         _pm = PaymentManager(db)
         return _pm
+    except Exception:
+        return None
+
+# Gestor de rutinas: getter perezoso ligado a la misma DB
+def _get_rm() -> Optional[RoutineTemplateManager]:
+    global _rm
+    try:
+        if _rm is not None:
+            return _rm
+        # Validar dependencias
+        if RoutineTemplateManager is None or create_routine_manager is None:
+            return None
+        db = _get_db()
+        if db is None:
+            return None
+        _rm = create_routine_manager(database_manager=db)
+        return _rm
     except Exception:
         return None
 
@@ -624,8 +658,8 @@ try:
 except Exception:
     pass
 
-# --- Utilidad legacy de sincronización eliminada ---
-# Nota: La replicación lógica de PostgreSQL reemplaza el sistema de sync vía HTTP.
+# Utilidad de sincronización anterior eliminada
+# Nota: Las operaciones se gestionan directamente por la base de datos.
 
 # Endpoint de salud ligero para probes y monitores
 @app.get("/healthz")
@@ -657,255 +691,12 @@ async def webapp_base_url():
     except Exception:
         return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
 
-# Endpoints de sincronización para integración con proxy local
-@app.post("/api/sync/upload")
-async def api_sync_upload(request: Request):
-    rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
-    db = _get_db()
-    guard = _circuit_guard_json(db, "/api/sync/upload") if db else None
-    if guard:
-        return guard
-    # Validar JSON
-    try:
-        data = await request.json()
-    except Exception:
-        return JSONResponse({"error": "JSON inválido"}, status_code=400)
-    ops = data.get("ops")
-    if not isinstance(ops, list):
-        return JSONResponse({"error": "Formato inválido: 'ops' debe ser lista"}, status_code=400)
-    # Autenticación por token (solo desde ENV)
-    expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
-    if expected:
-        auth = str(request.headers.get("Authorization", "")).strip()
-        x_token = str(request.headers.get("X-Upload-Token", "")).strip()
-        token = ""
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1].strip()
-        elif x_token:
-            token = x_token
-        if not token:
-            return JSONResponse({"error": "Falta token"}, status_code=401)
-        if token != expected:
-            return JSONResponse({"error": "Token inválido"}, status_code=401)
-    # Registrar en inbox para observabilidad
-    try:
-        base_dir = _compute_base_dir()
-        inbox_dir = base_dir / "config"
-        inbox_dir.mkdir(parents=True, exist_ok=True)
-        inbox_path = inbox_dir / "sync_inbox.jsonl"
-        with open(inbox_path, "a", encoding="utf-8") as f:
-            for op in ops:
-                try:
-                    f.write(json.dumps(op, ensure_ascii=False) + "\n")
-                except Exception:
-                    # No bloquear el lote por un op malformado
-                    pass
-    except Exception as e:
-        try:
-            logging.debug(f"/api/sync/upload: fallo escribiendo inbox rid={rid} err={e}")
-        except Exception:
-            pass
-    # Construir ack por dedup_key
-    dedup_keys = []
-    try:
-        for op in ops:
-            k = None
-            try:
-                k = op.get("dedup_key")
-            except Exception:
-                k = None
-            if k:
-                dedup_keys.append(str(k))
-    except Exception:
-        dedup_keys = []
-    try:
-        logging.info(f"/api/sync/upload: recibido ops={len(ops)} acked={len(dedup_keys)} rid={rid}")
-    except Exception:
-        pass
-    return JSONResponse({"acked": dedup_keys})
-
-# Endpoint para aplicar cambios del outbox local de forma idempotente
-@app.post("/api/sync/upload_outbox")
-async def api_sync_upload_outbox(request: Request):
-    rid = getattr(getattr(request, 'state', object()), 'request_id', '-')
-    db = _get_db()
-    guard = _circuit_guard_json(db, "/api/sync/upload_outbox") if db else None
-    if guard:
-        return guard
-    # Validar JSON
-    try:
-        payload = await request.json()
-    except Exception:
-        return JSONResponse({"error": "JSON inválido"}, status_code=400)
-    changes = payload.get("changes")
-    if not isinstance(changes, list):
-        return JSONResponse({"error": "Formato inválido: 'changes' debe ser lista"}, status_code=400)
-    # Autenticación por token (solo desde ENV)
-    expected = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
-    if expected:
-        auth = str(request.headers.get("Authorization", "")).strip()
-        x_token = str(request.headers.get("X-Upload-Token", "")).strip()
-        token = ""
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1].strip()
-        elif x_token:
-            token = x_token
-        if not token:
-            return JSONResponse({"error": "Falta token"}, status_code=401)
-        if token != expected:
-            return JSONResponse({"error": "Token inválido"}, status_code=401)
-
-    acked: list = []
-    errors: list = []
-    try:
-        with db.get_connection_context() as conn:  # type: ignore
-            conn.autocommit = False
-            for ch in changes:
-                try:
-                    schema = str(ch.get("schema") or "public")
-                    table = str(ch.get("table") or "")
-                    op = str(ch.get("op") or "").upper()
-                    pk = ch.get("pk") or {}
-                    data = ch.get("data")
-                    dedup_key = str(ch.get("dedup_key") or "")
-                    if not table or op not in ("INSERT", "UPDATE", "DELETE") or not isinstance(pk, dict):
-                        errors.append({"dedup_key": dedup_key, "error": "change inválido"})
-                        continue
-                    applied = _apply_change_idempotent(conn, schema, table, op, pk, data)
-                    if applied and dedup_key:
-                        acked.append(dedup_key)
-                except Exception as e:
-                    try:
-                        errors.append({"dedup_key": str(ch.get("dedup_key") or ""), "error": str(e)})
-                    except Exception:
-                        pass
-            conn.commit()
-    except Exception as e:
-        try:
-            logging.exception(f"/api/sync/upload_outbox: fallo aplicando cambios rid={rid} err={e}")
-        except Exception:
-            pass
-        return JSONResponse({"error": "Fallo aplicando cambios"}, status_code=500)
-    try:
-        logging.info(f"/api/sync/upload_outbox: changes={len(changes)} acked={len(acked)} errors={len(errors)} rid={rid}")
-    except Exception:
-        pass
-    return JSONResponse({"acked": acked, "errors": errors})
+# Endpoints de sincronización removidos - sistema usa base de datos Neon única sin replicación
 
 # Helpers para aplicar cambios de forma segura e idempotente
 
-def _get_pk_columns_conn(conn, schema: str, table: str):
-    cols = []
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT a.attname
-            FROM pg_index i
-            JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-            WHERE i.indrelid = %s::regclass AND i.indisprimary
-            """,
-            (f"{schema}.{table}",)
-        )
-        rows = cur.fetchall() or []
-        cols = [r[0] for r in rows]
-    except Exception:
-        cols = []
-    return cols
-
-
-def _filter_existing_columns(conn, schema: str, table: str, data: dict) -> dict:
-    if not isinstance(data, dict):
-        return {}
-    try:
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            """,
-            (schema, table)
-        )
-        allowed = {r[0] for r in (cur.fetchall() or [])}
-        return {k: v for k, v in data.items() if k in allowed}
-    except Exception:
-        return {}
-
-
-def _apply_change_idempotent(conn, schema: str, table: str, op: str, pk: dict, data: dict) -> bool:
-    from psycopg2 import sql as _sql
-    try:
-        pk_cols = _get_pk_columns_conn(conn, schema, table)
-        if op == 'DELETE':
-            # Borrar aunque no exista: idempotente
-            where_parts = []
-            params = []
-            for c in pk_cols:
-                where_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(c)))
-                params.append(pk.get(c))
-            stmt = _sql.SQL("DELETE FROM {}.{} WHERE ")\
-                .format(_sql.Identifier(schema), _sql.Identifier(table)) + _sql.SQL(" AND ").join(where_parts)
-            cur = conn.cursor()
-            cur.execute(stmt, params)
-            return True
-        elif op == 'UPDATE':
-            updates = _filter_existing_columns(conn, schema, table, data or {})
-            if not updates:
-                return True
-            set_parts = []
-            params = []
-            for k, v in updates.items():
-                set_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(str(k))))
-                params.append(v)
-            where_parts = []
-            for c in pk_cols:
-                where_parts.append(_sql.SQL("{} = %s").format(_sql.Identifier(c)))
-                params.append(pk.get(c))
-            stmt = _sql.SQL("UPDATE {}.{} SET ")\
-                .format(_sql.Identifier(schema), _sql.Identifier(table)) + _sql.SQL(", ").join(set_parts) + _sql.SQL(" WHERE ") + _sql.SQL(" AND ").join(where_parts)
-            cur = conn.cursor()
-            cur.execute(stmt, params)
-            return True
-        elif op == 'INSERT':
-            values = _filter_existing_columns(conn, schema, table, data or {})
-            if not values:
-                return False
-            cols = list(values.keys())
-            params = [values[c] for c in cols]
-            placeholders = [_sql.Placeholder() for _ in cols]
-            # ON CONFLICT por PK si existe
-            cur = conn.cursor()
-            if pk_cols:
-                set_cols = [c for c in cols if c not in pk_cols]
-                on_conf = _sql.SQL(', ').join([_sql.Composed([_sql.Identifier(c), _sql.SQL(' = EXCLUDED.'), _sql.Identifier(c)]) for c in set_cols])
-                stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({}) ON CONFLICT ({}) DO UPDATE SET ")\
-                    .format(
-                        _sql.Identifier(schema), _sql.Identifier(table),
-                        _sql.SQL(', ').join(map(_sql.Identifier, cols)),
-                        _sql.SQL(', ').join(placeholders),
-                        _sql.SQL(', ').join(map(_sql.Identifier, pk_cols))
-                    ) + on_conf
-            else:
-                stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})")\
-                    .format(
-                        _sql.Identifier(schema), _sql.Identifier(table),
-                        _sql.SQL(', ').join(map(_sql.Identifier, cols)),
-                        _sql.SQL(', ').join(placeholders)
-                    )
-            cur.execute(stmt, params)
-            return True
-    except Exception:
-        return False
-
-
-
-
-async def admin_sync_migrate(request: Request):
-    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
-
-async def api_sync_download(request: Request):
-    return JSONResponse({"detail": "Legacy sync removed. Use PostgreSQL logical replication."}, status_code=410)
+# Helpers de sincronización anteriores eliminados.
+ 
 
 
 # Evitar 404 de clientes de Vite durante desarrollo: devolver stub vacío
@@ -953,6 +744,31 @@ def _get_password() -> str:
     # Último recurso
     return "admin"
 
+def _verify_owner_password(password: str) -> bool:
+    """Verifica la contraseña del dueño usando bcrypt con fallback a texto plano."""
+    try:
+        # Importar aquí para evitar dependencias circulares
+        from security_utils import SecurityUtils
+        
+        # Obtener la contraseña almacenada (puede ser hash o texto plano)
+        stored_password = _get_password()
+        
+        # Intentar verificar con bcrypt primero
+        if SecurityUtils.verify_password(password, stored_password):
+            return True
+            
+        # Fallback: comparación directa para contraseñas antiguas en texto plano
+        if password == stored_password:
+            return True
+            
+        return False
+    except Exception:
+        # Fallback final: comparación directa
+        try:
+            return password == _get_password()
+        except Exception:
+            return False
+
 
 def _resolve_logo_url() -> str:
     # Resuelve el logo desde assets del proyecto principal
@@ -968,6 +784,25 @@ def _resolve_logo_url() -> str:
         except Exception:
             continue
     return "/assets/logo.svg"
+
+
+@app.get("/api/gym/data")
+async def api_gym_data(request: Request):
+    try:
+        # Validar acceso a Gestión sin depender del orden de definición
+        require_gestion_access(request)
+        return JSONResponse({
+            "gym_name": get_gym_name(),
+            "gym_address": get_gym_address(),
+            "logo_url": _resolve_logo_url(),
+        })
+    except Exception as e:
+        logging.error(f"api_gym_data error: {e}")
+        return JSONResponse({
+            "gym_name": get_gym_name(),
+            "gym_address": get_gym_address(),
+            "logo_url": _resolve_logo_url(),
+        })
 
 
 def _get_db() -> Optional[DatabaseManager]:
@@ -1055,15 +890,27 @@ def _get_db() -> Optional[DatabaseManager]:
                             current = None
                         if not current:
                             try:
-                                ok = _db.actualizar_configuracion('owner_password', env_pwd)  # type: ignore
+                                # Hashear la contraseña antes de almacenarla
+                                from security_utils import SecurityUtils
+                                hashed_pwd = SecurityUtils.hash_password(env_pwd)
+                                ok = _db.actualizar_configuracion('owner_password', hashed_pwd)  # type: ignore
                                 if ok:
                                     try:
-                                        logging.info("_get_db: owner_password sembrada desde variable de entorno (solo inicial)")
+                                        logging.info("_get_db: owner_password hasheada sembrada desde variable de entorno (solo inicial)")
                                     except Exception:
                                         pass
                             except Exception:
-                                # No bloquear si falla el seed
-                                pass
+                                # Fallback: guardar sin hashear si hay error
+                                try:
+                                    ok = _db.actualizar_configuracion('owner_password', env_pwd)  # type: ignore
+                                    if ok:
+                                        try:
+                                            logging.info("_get_db: owner_password sembrada desde variable de entorno (sin hash)")
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    # No bloquear si falla el seed
+                                    pass
                 except Exception:
                     pass
         except Exception as e:
@@ -1187,7 +1034,7 @@ async def _startup_init_db():
             except Exception:
                 # No bloquear el arranque si falla la autocreación
                 pass
-        # Eliminado: aseguramiento legacy de updated_at en remoto. El esquema usa logical_ts/last_op_id.
+        # Eliminado: aseguramiento anterior de updated_at en remoto.
     except Exception:
         # No bloquear el arranque; los endpoints intentarán reintentar
         pass
@@ -1206,6 +1053,472 @@ def require_gestion_access(request: Request):
     if request.session.get("logged_in") or request.session.get("gestion_profesor_id"):
         return True
     raise HTTPException(status_code=401, detail="Acceso restringido a Gestión")
+
+# Helper: agrupa ejercicios de una rutina por día, ordenados
+def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
+    try:
+        grupos: Dict[int, list] = {}
+        ejercicios = getattr(rutina, "ejercicios", []) or []
+        for r in ejercicios:
+            dia = getattr(r, "dia_semana", None)
+            if dia is None:
+                # Ignorar ejercicios sin día definido
+                continue
+            grupos.setdefault(int(dia), []).append(r)
+        # Ordenar cada día por 'orden' y nombre para consistencia visual
+        for dia, arr in grupos.items():
+            try:
+                arr.sort(key=lambda e: (
+                    (getattr(e, "orden", 0) or 0),
+                    (getattr(e, "nombre_ejercicio", None) or (
+                        getattr(getattr(e, "ejercicio", None), "nombre", "")
+                    ))
+                ))
+            except Exception:
+                # Si falla el sort por algún dato, dejar tal cual
+                pass
+        return grupos
+    except Exception:
+        return {}
+
+@app.get("/api/rutinas/{rutina_id}/export/pdf")
+async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    guard = _circuit_guard_json(db, "/api/rutinas/{rutina_id}/export/pdf")
+    if guard:
+        return guard
+    rm = _get_rm()
+    if rm is None:
+        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
+    try:
+        rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
+        if rutina is None:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+        # Manejo seguro de usuario_id potencialmente None
+        # Obtener usuario asociado a la rutina, con respaldo si no existe
+        u_raw = getattr(rutina, "usuario_id", None)
+        try:
+            u_id = int(u_raw) if u_raw is not None else None
+        except Exception:
+            u_id = None
+        usuario = None
+        if u_id is not None:
+            try:
+                usuario = db.obtener_usuario(u_id)  # type: ignore
+            except Exception:
+                usuario = None
+        if usuario is None:
+            # Construir usuario de respaldo para exportar plantillas/no asignadas
+            try:
+                usuario = Usuario(nombre="Plantilla")  # type: ignore
+            except Exception:
+                # Fallback seguro si la dataclass no está disponible
+                class _Usr:
+                    def __init__(self, nombre: str):
+                        self.nombre = nombre
+                usuario = _Usr("Plantilla")
+        ejercicios_por_dia = _build_exercises_by_day(rutina)
+        # Asegurar semanas dentro de rango 1..4
+        try:
+            weeks = max(1, min(int(weeks), 4))
+        except Exception:
+            weeks = 1
+        # Generar primero el Excel con las semanas indicadas y luego convertir a PDF
+        xlsx_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        pdf_path = rm.convert_excel_to_pdf(xlsx_path)
+        from starlette.responses import FileResponse
+        filename = os.path.basename(pdf_path)
+        # Entregar el PDF en modo inline para permitir la previsualización en iframe (alineado con recibos)
+        resp = FileResponse(pdf_path, media_type="application/pdf")
+        try:
+            resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+        except Exception:
+            pass
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error generando PDF de rutina")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/rutinas/{rutina_id}/export/excel")
+async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    guard = _circuit_guard_json(db, "/api/rutinas/{rutina_id}/export/excel")
+    if guard:
+        return guard
+    rm = _get_rm()
+    if rm is None:
+        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
+    try:
+        rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
+        if rutina is None:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+        # Obtener usuario asociado (con respaldo si no existe)
+        u_raw = getattr(rutina, "usuario_id", None)
+        try:
+            u_id = int(u_raw) if u_raw is not None else None
+        except Exception:
+            u_id = None
+        usuario = None
+        if u_id is not None:
+            try:
+                usuario = db.obtener_usuario(u_id)  # type: ignore
+            except Exception:
+                usuario = None
+        if usuario is None:
+            try:
+                usuario = Usuario(nombre="Plantilla")  # type: ignore
+            except Exception:
+                class _Usr:
+                    def __init__(self, nombre: str):
+                        self.nombre = nombre
+                usuario = _Usr("Plantilla")
+        ejercicios_por_dia = _build_exercises_by_day(rutina)
+        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        filename = os.path.basename(out_path)
+        return FileResponse(
+            out_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=filename,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error generando Excel de rutina")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- API Rutinas ---
+@app.get("/api/rutinas")
+async def api_rutinas_get(usuario_id: Optional[int] = None, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/rutinas")
+    if guard:
+        return guard
+    try:
+        if usuario_id is not None:
+            rutinas = db.obtener_rutinas_por_usuario(int(usuario_id))  # type: ignore
+            items = []
+            for r in rutinas or []:
+                is_dict = isinstance(r, dict)
+                rid = (r.get("id") if is_dict else getattr(r, "id", None))
+                usuario = (r.get("usuario_id") if is_dict else getattr(r, "usuario_id", None))
+                nombre = (r.get("nombre_rutina") if is_dict else getattr(r, "nombre_rutina", None))
+                descripcion = (r.get("descripcion") if is_dict else getattr(r, "descripcion", None))
+                dias = (r.get("dias_semana") if is_dict else getattr(r, "dias_semana", None))
+                categoria = (r.get("categoria") if is_dict else getattr(r, "categoria", "general"))
+                fecha_creacion = (r.get("fecha_creacion") if is_dict else getattr(r, "fecha_creacion", None))
+                activa = (r.get("activa") if is_dict else getattr(r, "activa", True))
+                items.append({
+                    "id": int(rid) if rid is not None else None,
+                    "usuario_id": usuario,
+                    "nombre_rutina": nombre,
+                    "descripcion": descripcion,
+                    "dias_semana": dias,
+                    "categoria": categoria,
+                    "fecha_creacion": fecha_creacion,
+                    "activa": bool(activa),
+                })
+            return items
+        else:
+            rows = db.obtener_todas_rutinas()  # type: ignore
+            return [
+                {
+                    "id": int(row.get("id")) if row.get("id") is not None else None,
+                    "usuario_id": row.get("usuario_id"),
+                    "nombre_rutina": row.get("nombre_rutina"),
+                    "descripcion": row.get("descripcion"),
+                    "dias_semana": row.get("dias_semana"),
+                    "categoria": row.get("categoria"),
+                    "fecha_creacion": row.get("fecha_creacion"),
+                    "activa": bool(row.get("activa", True)),
+                }
+                for row in rows or []
+            ]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/rutinas/plantillas")
+async def api_rutinas_plantillas(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/rutinas/plantillas")
+    if guard:
+        return guard
+    try:
+        plantillas = db.obtener_plantillas_rutina()  # type: ignore
+        return [
+            {
+                "id": int(r.id) if r.id is not None else None,
+                "usuario_id": r.usuario_id,
+                "nombre_rutina": r.nombre_rutina,
+                "descripcion": r.descripcion,
+                "dias_semana": r.dias_semana,
+                "categoria": getattr(r, "categoria", "general"),
+                "fecha_creacion": r.fecha_creacion,
+                "activa": bool(getattr(r, "activa", True)),
+            }
+            for r in plantillas
+        ]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/rutinas/{rutina_id}")
+async def api_rutina_detalle(rutina_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/rutinas/{rutina_id}")
+    if guard:
+        return guard
+    try:
+        r = db.obtener_rutina_completa(int(rutina_id))  # type: ignore
+        if not r:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+        ejercicios_out = []
+        for re in getattr(r, "ejercicios", []) or []:
+            ej = getattr(re, "ejercicio", None)
+            ejercicios_out.append({
+                "id": re.id,
+                "rutina_id": re.rutina_id,
+                "ejercicio_id": re.ejercicio_id,
+                "dia_semana": re.dia_semana,
+                "series": re.series,
+                "repeticiones": re.repeticiones,
+                "orden": re.orden,
+                "ejercicio": {
+                    "id": getattr(ej, "id", re.ejercicio_id) if ej is not None else re.ejercicio_id,
+                    "nombre": getattr(ej, "nombre", None) if ej is not None else None,
+                    "grupo_muscular": getattr(ej, "grupo_muscular", None) if ej is not None else None,
+                    "descripcion": getattr(ej, "descripcion", None) if ej is not None else None,
+                }
+            })
+        return {
+            "id": int(r.id) if r.id is not None else None,
+            "usuario_id": r.usuario_id,
+            "nombre_rutina": r.nombre_rutina,
+            "descripcion": r.descripcion,
+            "dias_semana": r.dias_semana,
+            "categoria": getattr(r, "categoria", "general"),
+            "fecha_creacion": r.fecha_creacion,
+            "activa": bool(getattr(r, "activa", True)),
+            "ejercicios": ejercicios_out,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/rutinas")
+async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/rutinas[POST]")
+    if guard:
+        return guard
+    if Rutina is None:
+        raise HTTPException(status_code=503, detail="Modelo Rutina no disponible")
+    payload = await request.json()
+    try:
+        nombre_rutina = (payload.get("nombre_rutina") or "").strip()
+        if not nombre_rutina:
+            raise HTTPException(status_code=400, detail="'nombre_rutina' es obligatorio")
+        descripcion = payload.get("descripcion")
+        dias_semana = int(payload.get("dias_semana") or 1)
+        categoria = (payload.get("categoria") or "general").strip() or "general"
+        usuario_id = payload.get("usuario_id")
+        rutina = Rutina(usuario_id=usuario_id, nombre_rutina=nombre_rutina, descripcion=descripcion, dias_semana=dias_semana, categoria=categoria)  # type: ignore
+        new_id = db.crear_rutina(rutina)  # type: ignore
+
+        ejercicios = payload.get("ejercicios")
+        if ejercicios and isinstance(ejercicios, list):
+            rutina_ejs = []
+            for item in ejercicios:
+                try:
+                    rutina_ejs.append(RutinaEjercicio(
+                        rutina_id=int(new_id),
+                        ejercicio_id=int(item.get("ejercicio_id")),
+                        dia_semana=int(item.get("dia_semana") or 1),
+                        series=item.get("series"),
+                        repeticiones=item.get("repeticiones"),
+                        orden=item.get("orden"),
+                    ))  # type: ignore
+                except Exception:
+                    # Ignorar entradas inválidas sin detener creación
+                    pass
+            if rutina_ejs:
+                db.guardar_ejercicios_de_rutina(int(new_id), rutina_ejs)  # type: ignore
+        return {"ok": True, "id": int(new_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.put("/api/rutinas/{rutina_id}")
+async def api_rutinas_update(rutina_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/rutinas/{rutina_id}[PUT]")
+    if guard:
+        return guard
+    if Rutina is None:
+        raise HTTPException(status_code=503, detail="Modelo Rutina no disponible")
+    payload = await request.json()
+    try:
+        # Obtener existente para actualización parcial (sin tocar usuario_id aquí)
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa FROM rutinas WHERE id = %s",
+                (int(rutina_id),),
+            )
+            existing = cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+
+        nombre_rutina = (payload.get("nombre_rutina") or existing.get("nombre_rutina") or "").strip() or (existing.get("nombre_rutina") or "")
+        if not nombre_rutina:
+            raise HTTPException(status_code=400, detail="'nombre_rutina' es obligatorio")
+        descripcion = payload.get("descripcion") if ("descripcion" in payload) else existing.get("descripcion")
+        dias_semana = int(payload.get("dias_semana") or existing.get("dias_semana") or 1)
+        categoria = (payload.get("categoria") or existing.get("categoria") or "general").strip() or (existing.get("categoria") or "general")
+        rutina = Rutina(id=int(rutina_id), usuario_id=existing.get("usuario_id"), nombre_rutina=nombre_rutina, descripcion=descripcion, dias_semana=dias_semana, categoria=categoria)  # type: ignore
+        ok = db.actualizar_rutina(rutina)  # type: ignore
+        if not ok:
+            raise HTTPException(status_code=404, detail="No se pudo actualizar la rutina")
+
+        ejercicios = payload.get("ejercicios")
+        if ejercicios and isinstance(ejercicios, list):
+            rutina_ejs = []
+            for item in ejercicios:
+                try:
+                    rutina_ejs.append(RutinaEjercicio(
+                        rutina_id=int(rutina_id),
+                        ejercicio_id=int(item.get("ejercicio_id")),
+                        dia_semana=int(item.get("dia_semana") or 1),
+                        series=item.get("series"),
+                        repeticiones=item.get("repeticiones"),
+                        orden=item.get("orden"),
+                    ))  # type: ignore
+                except Exception:
+                    pass
+            db.guardar_ejercicios_de_rutina(int(rutina_id), rutina_ejs)  # type: ignore
+        return {"ok": True, "id": int(rutina_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.delete("/api/rutinas/{rutina_id}")
+async def api_rutinas_delete(rutina_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/rutinas/{rutina_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        ok = db.eliminar_rutina(int(rutina_id))  # type: ignore
+        if not ok:
+            raise HTTPException(status_code=404, detail="No se pudo eliminar la rutina")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/rutinas/{rutina_id}/assign")
+async def api_rutina_assign(rutina_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/rutinas/{rutina_id}/assign[POST]")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        usuario_id = payload.get("usuario_id")
+        if usuario_id is None:
+            raise HTTPException(status_code=400, detail="'usuario_id' es obligatorio")
+
+        # Verificar existencia y estado del usuario
+        if not db.usuario_id_existe(int(usuario_id)):  # type: ignore
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        try:
+            u = db.obtener_usuario_por_id(int(usuario_id))  # type: ignore
+            if u and not bool(getattr(u, "activo", True)):
+                raise HTTPException(status_code=400, detail="Usuario inactivo: no se puede asignar rutina")
+        except Exception:
+            pass
+
+        # Verificar existencia de la rutina
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id FROM rutinas WHERE id = %s", (int(rutina_id),))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Rutina no encontrada")
+            cur.execute("UPDATE rutinas SET usuario_id = %s WHERE id = %s", (int(usuario_id), int(rutina_id)))
+            conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/rutinas/{rutina_id}/unassign")
+async def api_rutina_unassign(rutina_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/rutinas/{rutina_id}/unassign[POST]")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id FROM rutinas WHERE id = %s", (int(rutina_id),))
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Rutina no encontrada")
+            cur.execute("UPDATE rutinas SET usuario_id = NULL WHERE id = %s", (int(rutina_id),))
+            conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "127.0.0.1", port: int = 8003, log_level: str = "info") -> None:
@@ -1300,192 +1613,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
         pass
 
 
-# Callback global de reconexión del túnel público (LocalTunnel por defecto)
-_public_tunnel_on_reconnect_cb: Optional[Callable[[str], None]] = None
-
-def set_public_tunnel_reconnect_callback(cb: Optional[Callable[[str], None]]):
-    """Registra callback de reconexión del túnel público."""
-    global _public_tunnel_on_reconnect_cb
-    _public_tunnel_on_reconnect_cb = cb
-
-def set_serveo_reconnect_callback(cb: Optional[Callable[[str], None]]):
-    """Alias legado: redirige a set_public_tunnel_reconnect_callback."""
-    set_public_tunnel_reconnect_callback(cb)
-
-def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, on_reconnect: Optional[Callable[[str], None]] = None) -> Optional[str]:
-    """No-op de túnel público: devuelve la URL Railway configurada."""
-    try:
-        url = get_webapp_base_url()
-        return url
-    except Exception:
-        pass
-    try:
-        import shutil, subprocess, os, threading, re, webbrowser, time, socket
-
-        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel').
-        provider = str(os.getenv("TUNNEL_PROVIDER", "localtunnel")).strip().lower()
-
-        # Localizar binario de SSH
-        def _find_ssh() -> Optional[str]:
-            b = shutil.which("ssh")
-            if not b and os.name == "nt":
-                cand = r"C:\\Windows\\System32\\OpenSSH\\ssh.exe"
-                if os.path.exists(cand):
-                    b = cand
-            return b
-
-        # Chequear conectividad TCP simple
-        def _tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(timeout)
-                res = (s.connect_ex((host, int(port))) == 0)
-                try:
-                    s.close()
-                except Exception:
-                    pass
-                return res
-            except Exception:
-                return False
-
-        ssh_bin = _find_ssh()
-        if not ssh_bin and provider != "localtunnel":
-            print("Cliente SSH no encontrado; no se puede iniciar túnel SSH")
-            return None
-
-        # Esperar a que el servicio local esté escuchando
-        try:
-            deadline = time.time() + 15
-            while time.time() < deadline:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.settimeout(1.5)
-                try:
-                    if s.connect_ex(("127.0.0.1", int(local_port))) == 0:
-                        break
-                finally:
-                    try:
-                        s.close()
-                    except Exception:
-                        pass
-                time.sleep(0.5)
-        except Exception:
-            # Si falla la comprobación, continuamos igualmente
-            pass
-
-        # Host y puerto SSH configurables para proveedores SSH genéricos
-        ssh_host = os.getenv("PUBLIC_TUNNEL_SSH_HOST", "localhost.run").strip()
-        ssh_port_env = os.getenv("PUBLIC_TUNNEL_SSH_PORT")
-        ssh_port: int
-        try:
-            ssh_port = int(ssh_port_env) if ssh_port_env else 22
-        except Exception:
-            ssh_port = 22
-
-        # Si no especificado por ENV, probar conectividad y usar 443 como fallback
-        if ssh_port_env is None:
-            if not _tcp_open(ssh_host, 22, 1.5):
-                # Intento rápido de 443
-                if _tcp_open(ssh_host, 443, 1.5):
-                    ssh_port = 443
-                else:
-                    # Intento de flush DNS en Windows y re-test
-                    try:
-                        if os.name == "nt":
-                            subprocess.run(["ipconfig", "/flushdns"], timeout=5)
-                    except Exception:
-                        pass
-                    if _tcp_open(ssh_host, 22, 1.5):
-                        ssh_port = 22
-                    elif _tcp_open(ssh_host, 443, 1.5):
-                        ssh_port = 443
-                    else:
-                        # No hay conectividad saliente; continuar igualmente para que el supervisor reintente
-                        ssh_port = 22
-
-        # Intento de permitir tráfico saliente de ssh.exe en Windows (no crítico, puede requerir admin)
-        _startupinfo = None
-        try:
-            if os.name == "nt":
-                _startupinfo = subprocess.STARTUPINFO()
-                _startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-                try:
-                    # SW_HIDE para asegurar que la ventana esté oculta
-                    _startupinfo.wShowWindow = 0
-                except Exception:
-                    pass
-        except Exception:
-            _startupinfo = None
-        try:
-            if os.name == "nt" and ssh_bin:
-                subprocess.run([
-                    "netsh", "advfirewall", "firewall", "add", "rule",
-                    "name=GymMS SSH Tunnel",
-                    "dir=out",
-                    f"program={ssh_bin}",
-                    "action=allow",
-                    "enable=yes"
-                ], timeout=4)
-        except Exception:
-            pass
-
-        # Selección de proveedor centrado en LocalTunnel (default 'localtunnel'). Sin fallback automático.
-        # Bandera de verbosidad SSH configurable
-        ssh_verbose = str(os.getenv("PUBLIC_TUNNEL_SSH_VERBOSE", "0")).strip().lower() in ("1", "true", "yes")
-
-        # Helper para construir el comando SSH según proveedor y puerto actual
-        def _build_cmd() -> list:
-            try:
-                if provider == "localtunnel":
-                    # LocalTunnel: requiere Node. Intentar usar binario 'lt' o 'npx localtunnel'.
-                    lt_bin = shutil.which("lt")
-                    npx_bin = shutil.which("npx")
-                    if lt_bin:
-                        base = [lt_bin, "--port", str(local_port), "--subdomain", subdomain]
-                    elif npx_bin:
-                        base = [npx_bin, "localtunnel", "--port", str(local_port), "--subdomain", subdomain]
-                    else:
-                        logging.warning("[Tunnel] LocalTunnel no disponible (no se encontró 'lt' ni 'npx').")
-                        return []
-                    try:
-                        logging.info(f"[Tunnel] provider=localtunnel subdomain={subdomain} port={local_port}")
-                    except Exception:
-                        pass
-                    return base
-                if provider == "localhost.run":
-                    # localhost.run: túnel HTTP gratuito (dominio aleatorio) con usuario opcional
-                    lhr_user = str(os.getenv("LHR_SSH_USER", "nokey")).strip()
-                    remote_spec = f"80:localhost:{local_port}"
-                    host_spec = f"{lhr_user}@localhost.run" if lhr_user else "localhost.run"
-                    base = [
-                        ssh_bin,
-                        "-o", "StrictHostKeyChecking=no",
-                        "-o", "ExitOnForwardFailure=yes",
-                        "-o", "ServerAliveInterval=60",
-                        "-o", "ServerAliveCountMax=3",
-                        "-o", "ConnectTimeout=10",
-                        "-o", "ConnectionAttempts=3",
-                        "-N",
-                        "-T",
-                        "-R", remote_spec,
-                        host_spec,
-                    ]
-                    if ssh_verbose:
-                        base.insert(1, "-vvv")
-                    try:
-                        logging.info(f"[Tunnel] provider=localhost.run remote={remote_spec} host={host_spec} port=22")
-                    except Exception:
-                        pass
-                    return base
-                else:
-                    # SSH genérico: sin soporte de subdominio explícito
-                    try:
-                        logging.info(f"[Tunnel] provider=ssh remote=80:localhost:{local_port} host={ssh_host} port={ssh_port}")
-                    except Exception:
-                        pass
-                    return []
-            except Exception:
-                # Fallback seguro en caso de error construyendo comando
-                return []
+# Funciones de túnel público eliminadas: se usaban en configuraciones anteriores con túneles SSH/LocalTunnel.
 
         # Comando inicial según proveedor seleccionado
         cmd = _build_cmd()
@@ -1504,7 +1632,12 @@ def start_public_tunnel(subdomain: str = "gym-ms-zrk", local_port: int = 8000, o
         ssh_failures = 0
 
         def _run():
-            nonlocal ssh_port, attempt, provider, last_public_url, ssh_failures
+            # Variables capturadas desde el ámbito superior (closure)
+            ssh_port = ssh_port
+            attempt = attempt
+            provider = provider
+            last_public_url = last_public_url
+            ssh_failures = ssh_failures
             # Supervisor con backoff exponencial para reconectar si el proceso termina
             backoff = 2.0
             max_backoff = 300.0  # 5 minutos máximo
@@ -1647,13 +1780,7 @@ async def root_selector(request: Request):
     }
     return templates.TemplateResponse("index.html", ctx)
 
-@app.get("/tunnel/password")
-async def tunnel_password():
-    """Endpoint legado deshabilitado.
 
-    En configuración Railway no hay contraseña de túnel.
-    """
-    return JSONResponse({"password": None, "ok": False})
 
 @app.get("/login")
 async def login_page_get(request: Request):
@@ -1682,8 +1809,8 @@ async def do_login(request: Request):
     if not password:
         return RedirectResponse(url="/login?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
     ok = False
-    # Contraseña única: obtenida por _get_password() (BD -> ENV [solo seed] -> DEV como último recurso)
-    if password == _get_password():
+    # Verificar contraseña usando bcrypt con fallback a texto plano
+    if _verify_owner_password(password):
         ok = True
     # Nota: Se ha eliminado el uso del PIN del dueño para autenticación web
     if ok:
@@ -1757,6 +1884,16 @@ async def set_owner_password(request: Request):
     if len(new_pwd) < 4:
         return JSONResponse({"success": False, "message": "La nueva contraseña debe tener al menos 4 caracteres"}, status_code=400)
 
+    # Validar fortaleza de la contraseña
+    try:
+        from security_utils import SecurityUtils
+        is_strong, message = SecurityUtils.validate_password_strength(new_pwd)
+        if not is_strong:
+            return JSONResponse({"success": False, "message": f"Contraseña débil: {message}"}, status_code=400)
+    except Exception:
+        # Si falla la validación, continuar sin ella
+        pass
+
     # Resolver DEV_PASSWORD real
     real_dev = None
     try:
@@ -1783,8 +1920,17 @@ async def set_owner_password(request: Request):
 
     try:
         ok = False
+        
+        # Hashear la nueva contraseña antes de almacenarla
+        try:
+            from security_utils import SecurityUtils
+            hashed_pwd = SecurityUtils.hash_password(new_pwd)
+        except Exception:
+            # Fallback: guardar sin hashear si hay error
+            hashed_pwd = new_pwd
+        
         if hasattr(db, 'actualizar_configuracion'):
-            ok = bool(db.actualizar_configuracion('owner_password', new_pwd))  # type: ignore
+            ok = bool(db.actualizar_configuracion('owner_password', hashed_pwd))  # type: ignore
         else:
             # Fallback SQL directo si el método no existe
             with db.get_connection_context() as conn:  # type: ignore
@@ -1805,7 +1951,7 @@ async def set_owner_password(request: Request):
                     VALUES ('owner_password', %s)
                     ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
                     """,
-                    (new_pwd,),
+                    (hashed_pwd,),
                 )
                 conn.commit()
                 ok = True
@@ -1992,18 +2138,27 @@ async def api_admin_secure_owner(request: Request, _=Depends(require_owner)):
                 try:
                     env_pwd = secure_config.get_owner_password()
                 except ValueError:
-                    # Fallback a variables de entorno legacy
+                    # Fallback a variables de entorno anteriores
                     env_pwd = os.getenv("WEBAPP_OWNER_PASSWORD", "").strip() or os.getenv("OWNER_PASSWORD", "").strip()
                     if not env_pwd:
                         logger.error("No se encontró contraseña de owner en variables de entorno")
                         raise ValueError("Contraseña de owner no configurada")
+                
+                # Hash de la contraseña antes de almacenarla
+                try:
+                    from security_utils import SecurityUtils
+                    hashed_pwd = SecurityUtils.hash_password(env_pwd)
+                except Exception as e:
+                    logger.warning(f"Error al hashear contraseña: {e}, usando contraseña en texto plano")
+                    hashed_pwd = env_pwd
+                
                 cur.execute(
                     """
                     INSERT INTO configuracion (clave, valor)
                     VALUES ('owner_password', %s)
                     ON CONFLICT (clave) DO NOTHING
                     """,
-                    (env_pwd,),
+                    (hashed_pwd,),
                 )
             except Exception:
                 pass
@@ -2566,10 +2721,18 @@ async def api_metodos_pago(_=Depends(require_gestion_access)):
     if guard:
         return guard
     try:
-        with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT id, nombre, activo, color, comision, icono FROM metodos_pago ORDER BY nombre")
-            return cur.fetchall() or []
+        rows = db.obtener_metodos_pago(solo_activos=True)  # type: ignore
+        return [
+            {
+                'id': r.get('id'),
+                'nombre': r.get('nombre'),
+                'activo': r.get('activo'),
+                'color': r.get('color'),
+                'comision': r.get('comision'),
+                'icono': r.get('icono'),
+            }
+            for r in (rows or [])
+        ]
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -2754,7 +2917,10 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         # Obtener existente para soportar actualización parcial
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT * FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            cur.execute(
+                "SELECT id, nombre, grupo_muscular, descripcion, objetivo FROM ejercicios WHERE id = %s",
+                (int(ejercicio_id),),
+            )
             existing = cur.fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
@@ -2801,10 +2967,9 @@ async def api_conceptos_pago(_=Depends(require_gestion_access)):
     if guard:
         return guard
     try:
-        with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Asegurar que exista el concepto "Cuota Mensual" de tipo variable
-            try:
+        # Asegurar que exista el concepto "Cuota Mensual" de tipo variable (no bloquear si falla)
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
                 c = conn.cursor()
                 c.execute("SELECT id FROM conceptos_pago WHERE LOWER(nombre) = LOWER(%s) LIMIT 1", ("Cuota Mensual",))
                 exists = c.fetchone()
@@ -2814,11 +2979,25 @@ async def api_conceptos_pago(_=Depends(require_gestion_access)):
                         ("Cuota Mensual", "Cuota mensual estándar", 0.0, "variable", True)
                     )
                     conn.commit()
-            except Exception:
-                # No bloquear el listado si el ensure falla
-                pass
-            cur.execute("SELECT id, nombre, descripcion, precio_base, tipo, activo FROM conceptos_pago ORDER BY nombre")
-            return cur.fetchall() or []
+                try:
+                    db.cache.invalidate('conceptos_pago')  # type: ignore
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        rows = db.obtener_conceptos_pago(solo_activos=True)  # type: ignore
+        return [
+            {
+                'id': r.get('id'),
+                'nombre': r.get('nombre'),
+                'descripcion': r.get('descripcion'),
+                'precio_base': r.get('precio_base'),
+                'tipo': r.get('tipo'),
+                'activo': r.get('activo'),
+            }
+            for r in (rows or [])
+        ]
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -3253,7 +3432,7 @@ async def gestion_auth(request: Request):
     if isinstance(usuario_id_raw, str) and usuario_id_raw == "__OWNER__":
         if not owner_password:
             return RedirectResponse(url="/gestion/login?error=Ingrese%20la%20contrase%C3%B1a", status_code=303)
-        if owner_password == _get_password():
+        if _verify_owner_password(owner_password):
             request.session.clear()
             request.session["logged_in"] = True
             request.session["role"] = "dueño"
@@ -4495,41 +4674,362 @@ async def api_pago_resumen(pago_id: int, _=Depends(require_gestion_access)):
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(
-                """
-                SELECT p.*, u.nombre AS usuario_nombre, u.dni, u.id AS usuario_id
-                FROM pagos p
-                JOIN usuarios u ON u.id = p.usuario_id
-                WHERE p.id = %s
-                """,
-                (pago_id,)
-            )
-            pago = cur.fetchone()
-            if not pago:
-                raise HTTPException(status_code=404, detail="Pago no encontrado")
+            # Consulta única con JOINs y agregación JSON para detalles
             cur.execute(
                 """
                 SELECT 
-                    pd.id, pd.pago_id,
-                    COALESCE(cp.nombre, pd.descripcion) AS concepto_nombre,
-                    COALESCE(pd.cantidad, 1) AS cantidad,
-                    COALESCE(pd.precio_unitario, 0) AS precio_unitario,
-                    COALESCE(pd.subtotal, COALESCE(pd.cantidad,1) * COALESCE(pd.precio_unitario,0)) AS subtotal
-                FROM pago_detalles pd
+                    -- Pago (columnas explícitas)
+                    p.id AS id,
+                    p.usuario_id AS usuario_id,
+                    p.monto AS monto,
+                    p.mes AS mes,
+                    p.año AS año,
+                    p.fecha_pago AS fecha_pago,
+                    p.metodo_pago_id AS metodo_pago_id,
+                    -- Usuario
+                    u.id AS usuario_id_ref,
+                    u.nombre AS usuario_nombre,
+                    u.dni AS dni,
+                    -- Agregados de detalles
+                    COALESCE(SUM(COALESCE(pd.cantidad,1) * COALESCE(pd.precio_unitario,0)), 0) AS total_detalles,
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'id', pd.id,
+                            'pago_id', pd.pago_id,
+                            'concepto_nombre', COALESCE(cp.nombre, pd.descripcion),
+                            'cantidad', COALESCE(pd.cantidad, 1),
+                            'precio_unitario', COALESCE(pd.precio_unitario, 0),
+                            'subtotal', COALESCE(pd.subtotal, COALESCE(pd.cantidad,1) * COALESCE(pd.precio_unitario,0))
+                        )
+                    ) FILTER (WHERE pd.id IS NOT NULL) AS detalles
+                FROM pagos p
+                JOIN usuarios u ON u.id = p.usuario_id
+                LEFT JOIN pago_detalles pd ON pd.pago_id = p.id
                 LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
-                WHERE pd.pago_id = %s
-                ORDER BY pd.id
+                WHERE p.id = %s
+                GROUP BY p.id, u.id
                 """,
                 (pago_id,)
             )
-            detalles = cur.fetchall() or []
-        total_detalles = sum(float(d.get("subtotal") or 0) for d in detalles)
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Pago no encontrado")
+        # Separar campos: mantener interfaz {pago, detalles, total_detalles}
+        total_detalles = float(row.get("total_detalles") or 0)
+        detalles = row.get("detalles") or []
+        # Construir 'pago' sin las agregaciones JSON
+        pago = {k: v for k, v in row.items() if k not in ("detalles", "total_detalles")}
         return {"pago": pago, "detalles": detalles, "total_detalles": total_detalles}
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Recibo PDF por pago ---
+@app.get("/api/pagos/{pago_id}/recibo.pdf")
+async def api_pago_recibo_pdf(pago_id: int, request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    if pm is None:
+        raise HTTPException(status_code=503, detail="PaymentManager no disponible")
+    try:
+        # Obtener pago y usuario
+        pago = pm.obtener_pago(int(pago_id))
+        if not pago:
+            raise HTTPException(status_code=404, detail="Pago no encontrado")
+        usuario = db.obtener_usuario_por_id(int(getattr(pago, 'usuario_id', 0)))  # type: ignore
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuario del pago no encontrado")
+
+        # Detalles del pago (si existen) y totales con comisión según método
+        try:
+            detalles = pm.obtener_detalles_pago(int(pago_id))
+        except Exception:
+            detalles = []
+        subtotal = 0.0
+        try:
+            subtotal = sum(float(getattr(d, 'subtotal', 0.0) or 0.0) for d in (detalles or [])) if detalles else float(getattr(pago, 'monto', 0.0) or 0.0)
+        except Exception:
+            subtotal = float(getattr(pago, 'monto', 0.0) or 0.0)
+        metodo_id = getattr(pago, 'metodo_pago_id', None)
+        try:
+            totales = pm.calcular_total_con_comision(subtotal, metodo_id)
+        except Exception:
+            totales = {"subtotal": subtotal, "comision": 0.0, "total": subtotal}
+
+        # Determinar modo de operación y posible override de número
+        qp = request.query_params
+        preview_mode = False
+        try:
+            qpv = qp.get("preview")
+            preview_mode = True if (qpv and str(qpv).lower() in ("1","true","yes")) else False
+        except Exception:
+            preview_mode = False
+        numero_override = None
+        try:
+            nraw = qp.get("numero")
+            numero_override = (str(nraw).strip() or None) if (nraw is not None) else None
+        except Exception:
+            numero_override = None
+
+        # Campos opcionales para personalizar el recibo
+        obs_text = None
+        try:
+            oraw = qp.get("observaciones")
+            obs_text = (str(oraw).strip() or None) if (oraw is not None) else None
+        except Exception:
+            obs_text = None
+        emitido_por = None
+        try:
+            eraw = qp.get("emitido_por")
+            emitido_por = (str(eraw).strip() or None) if (eraw is not None) else None
+        except Exception:
+            emitido_por = None
+
+        # Overrides avanzados: encabezado, gimnasio, fecha, método, destinatario, visibilidad, items y totales
+        def _qp_bool(val):
+            try:
+                s = str(val).strip().lower()
+            except Exception:
+                return None
+            if s in ("1","true","yes","on"): return True
+            if s in ("0","false","no","off"): return False
+            return None
+
+        titulo = None
+        try:
+            titulo = (str(qp.get("titulo")).strip() or None) if (qp.get("titulo") is not None) else None
+        except Exception:
+            titulo = None
+        gym_name_override = None
+        gym_address_override = None
+        try:
+            gym_name_override = (str(qp.get("gym_name")).strip() or None) if (qp.get("gym_name") is not None) else None
+        except Exception:
+            gym_name_override = None
+        try:
+            gym_address_override = (str(qp.get("gym_address")).strip() or None) if (qp.get("gym_address") is not None) else None
+        except Exception:
+            gym_address_override = None
+
+        fecha_emision_disp = None
+        try:
+            fraw = qp.get("fecha")
+            if fraw is not None:
+                s = str(fraw).strip()
+                try:
+                    if "/" in s:
+                        dt = datetime.strptime(s, "%d/%m/%Y")
+                    else:
+                        dt = datetime.strptime(s, "%Y-%m-%d")
+                    fecha_emision_disp = dt.strftime("%d/%m/%Y")
+                except Exception:
+                    # Si no parsea, usar tal cual
+                    fecha_emision_disp = s or None
+        except Exception:
+            fecha_emision_disp = None
+
+        metodo_override = None
+        try:
+            metodo_override = (str(qp.get("metodo")).strip() or None) if (qp.get("metodo") is not None) else None
+        except Exception:
+            metodo_override = None
+
+        # Tipo de cuota y periodo (opcional)
+        tipo_cuota_override = None
+        try:
+            tipo_cuota_override = (str(qp.get("tipo_cuota")).strip() or None) if (qp.get("tipo_cuota") is not None) else None
+        except Exception:
+            tipo_cuota_override = None
+        periodo_override = None
+        try:
+            periodo_override = (str(qp.get("periodo")).strip() or None) if (qp.get("periodo") is not None) else None
+        except Exception:
+            periodo_override = None
+
+        usuario_nombre_override = None
+        usuario_dni_override = None
+        try:
+            usuario_nombre_override = (str(qp.get("usuario_nombre")).strip() or None) if (qp.get("usuario_nombre") is not None) else None
+        except Exception:
+            usuario_nombre_override = None
+        try:
+            usuario_dni_override = (str(qp.get("usuario_dni")).strip() or None) if (qp.get("usuario_dni") is not None) else None
+        except Exception:
+            usuario_dni_override = None
+
+        mostrar_logo = _qp_bool(qp.get("mostrar_logo"))
+        mostrar_metodo = _qp_bool(qp.get("mostrar_metodo"))
+        mostrar_dni = _qp_bool(qp.get("mostrar_dni"))
+
+        detalles_override = None
+        try:
+            iraw = qp.get("items")
+            if iraw is not None:
+                obj = json.loads(str(iraw))
+                if isinstance(obj, list):
+                    detalles_override = obj
+        except Exception:
+            detalles_override = None
+
+        # Totales override si vienen (mantener existentes para valores faltantes)
+        try:
+            sub_o = qp.get("subtotal")
+            com_o = qp.get("comision")
+            tot_o = qp.get("total")
+            if sub_o is not None or com_o is not None or tot_o is not None:
+                s = float(sub_o) if (sub_o is not None and str(sub_o).strip() != "") else float(totales.get("subtotal", 0.0))
+                c = float(com_o) if (com_o is not None and str(com_o).strip() != "") else float(totales.get("comision", 0.0))
+                t = float(tot_o) if (tot_o is not None and str(tot_o).strip() != "") else float(totales.get("total", s + c))
+                totales = {"subtotal": s, "comision": c, "total": t}
+        except Exception:
+            pass
+
+        # Intentar reutilizar comprobante existente o crear uno nuevo para numeración
+        numero_comprobante = None
+        comprobante_id = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    """
+                    SELECT id, numero_comprobante
+                    FROM comprobantes_pago
+                    WHERE pago_id = %s AND estado = 'emitido'
+                    ORDER BY fecha_creacion DESC
+                    LIMIT 1
+                    """,
+                    (int(pago_id),)
+                )
+                row = cur.fetchone()
+                if row:
+                    comprobante_id = int(row.get("id"))
+                    numero_comprobante = row.get("numero_comprobante")
+        except Exception:
+            numero_comprobante = None
+
+        # En modo preview no creamos ni reservamos número; usamos override si viene
+        if preview_mode:
+            if numero_override:
+                numero_comprobante = numero_override
+        else:
+            try:
+                if not numero_comprobante:
+                    # Crear y reservar número de comprobante de forma atómica
+                    comprobante_id = db.crear_comprobante(
+                        tipo_comprobante='recibo',
+                        pago_id=int(pago_id),
+                        usuario_id=int(getattr(pago, 'usuario_id', 0)),
+                        monto_total=float(getattr(pago, 'monto', 0.0) or 0.0),
+                        plantilla_id=None,
+                        datos_comprobante=None,
+                        emitido_por=None
+                    )
+                    # Obtener número creado
+                    comp = db.obtener_comprobante(int(comprobante_id))
+                    if comp:
+                        numero_comprobante = comp.get('numero_comprobante')
+                # Si hay override en modo no preview, usarlo solo para el PDF (no persistimos aquí)
+                if numero_override:
+                    numero_comprobante = numero_override
+            except Exception:
+                # Si falla la creación, continuar sin numeración
+                numero_comprobante = None
+
+        # Generar PDF con el generador existente, incluyendo número si está disponible
+        from pdf_generator import PDFGenerator
+        pdfg = PDFGenerator()
+        filepath = pdfg.generar_recibo(
+            pago,
+            usuario,
+            numero_comprobante,
+            detalles=detalles,
+            totales=totales,
+            observaciones=obs_text,
+            emitido_por=emitido_por,
+            titulo=titulo,
+            gym_name=gym_name_override,
+            gym_address=gym_address_override,
+            fecha_emision=fecha_emision_disp,
+            metodo_pago=metodo_override,
+            usuario_nombre=usuario_nombre_override,
+            usuario_dni=usuario_dni_override,
+            detalles_override=detalles_override,
+            mostrar_logo=mostrar_logo,
+            mostrar_metodo=mostrar_metodo,
+            mostrar_dni=mostrar_dni,
+            tipo_cuota=tipo_cuota_override,
+            periodo=periodo_override,
+        )
+
+        # Guardar ruta del PDF en el comprobante si existe
+        try:
+            if comprobante_id is not None and filepath:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor()
+                    cur.execute(
+                        "UPDATE comprobantes_pago SET archivo_pdf = %s WHERE id = %s",
+                        (str(filepath), int(comprobante_id))
+                    )
+                    conn.commit()
+        except Exception:
+            pass
+
+        # Servir el archivo PDF
+        from starlette.responses import FileResponse
+        filename = os.path.basename(filepath)
+        resp = FileResponse(filepath, media_type="application/pdf")
+        try:
+            resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+        except Exception:
+            pass
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Numeración de recibos: próximos números y configuración ---
+@app.get("/api/recibos/numero-proximo")
+async def api_recibos_numero_proximo(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    try:
+        numero = db.get_next_receipt_number()
+        return {"numero": str(numero)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/recibos/config")
+async def api_recibos_config_get(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    try:
+        cfg = db.get_receipt_numbering_config()
+        return cfg
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/recibos/config")
+async def api_recibos_config_put(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    try:
+        payload = await request.json()
+        ok = db.save_receipt_numbering_config(payload)
+        if ok:
+            return {"ok": True}
+        return JSONResponse({"error": "No se pudo guardar la configuración"}, status_code=400)
+    except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # --- Crear/registrar pago (básico) ---
@@ -4874,135 +5374,103 @@ async def api_profesores_detalle(request: Request, _=Depends(require_owner)):
     - Resumen de horarios (día, hora_inicio, hora_fin)
     - Sesiones del mes actual y horas trabajadas reales
     """
-    print("DEBUG: top-level entry in /api/profesores_detalle")
     db = _get_db()
     if db is None:
         return []
     try:
+        # Parsear parámetros de fecha (opcionales)
+        start = request.query_params.get("start")
+        end = request.query_params.get("end")
+        if not start or (isinstance(start, str) and start.strip() == ""):
+            start = None
+        if not end or (isinstance(end, str) and end.strip() == ""):
+            end = None
+
+        from datetime import datetime as _dt
+        from datetime import datetime
+        start_date = None
+        end_date = None
+        try:
+            if start:
+                start_date = _dt.strptime(start, "%Y-%m-%d").date()
+            if end:
+                end_date = _dt.strptime(end, "%Y-%m-%d").date()
+        except Exception:
+            start_date = None
+            end_date = None
+        now = datetime.now()
+        mes_actual = now.month
+        anio_actual = now.year
+
         with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor()
-            # Mes/año actuales para métricas de sesiones reales
-            # Rango opcional (start/end) para sesiones/horas; si no se envía, usa mes actual
-            start = request.query_params.get("start")
-            end = request.query_params.get("end")
-            # Normalizar parámetros vacíos a None para evitar BETWEEN con cadenas vacías
-            if not start or (isinstance(start, str) and start.strip() == ""):
-                start = None
-            if not end or (isinstance(end, str) and end.strip() == ""):
-                end = None
-            from datetime import datetime
-            now = datetime.now()
-            mes_actual = now.month
-            anio_actual = now.year
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-            # Base: profesores + usuario info (sin 'email' para evitar UndefinedColumn en esquemas sin esa columna)
-            try:
-                cur.execute(
-                    """
-                    SELECT p.id,
-                           COALESCE(u.nombre,'') AS nombre,
-                           COALESCE(u.telefono,'') AS telefono
-                    FROM profesores p
-                    JOIN usuarios u ON u.id = p.usuario_id
-                    ORDER BY p.id
-                    """
+            # Consulta única con CTEs que agrega horarios (JSON) y sesiones del rango o del mes actual
+            # Índices recomendados (también se crean automáticamente en database.ensure_indexes):
+            # - CREATE INDEX IF NOT EXISTS idx_profesores_usuario_id ON profesores(usuario_id);
+            # - CREATE INDEX IF NOT EXISTS idx_horarios_profesores_profesor_id ON horarios_profesores(profesor_id);
+            # - CREATE INDEX IF NOT EXISTS idx_horarios_profesores_dia_inicio ON horarios_profesores(dia_semana, hora_inicio);
+            # - CREATE INDEX IF NOT EXISTS idx_profesor_horas_fecha ON profesor_horas_trabajadas(fecha);
+            # - CREATE INDEX IF NOT EXISTS idx_profesor_horas_profesor_fecha ON profesor_horas_trabajadas(profesor_id, fecha);
+            cur.execute(
+                """
+                WITH sesiones AS (
+                    SELECT profesor_id,
+                           COUNT(*) AS sesiones_mes,
+                           COALESCE(SUM(minutos_totales) / 60.0, 0) AS horas_mes
+                    FROM profesor_horas_trabajadas
+                    WHERE hora_fin IS NOT NULL
+                      AND (
+                        ( %s IS NOT NULL AND %s IS NOT NULL AND fecha BETWEEN %s AND %s )
+                        OR ( (%s IS NULL OR %s IS NULL) AND EXTRACT(MONTH FROM fecha) = %s AND EXTRACT(YEAR FROM fecha) = %s )
+                      )
+                    GROUP BY profesor_id
+                ),
+                horarios AS (
+                    SELECT hp.profesor_id,
+                           COUNT(hp.id) AS horarios_count,
+                           JSON_AGG(
+                               JSON_BUILD_OBJECT(
+                                   'dia', hp.dia_semana,
+                                   'inicio', hp.hora_inicio::text,
+                                   'fin', hp.hora_fin::text
+                               )
+                               ORDER BY CASE hp.dia_semana 
+                                   WHEN 'Lunes' THEN 1 
+                                   WHEN 'Martes' THEN 2 
+                                   WHEN 'Miércoles' THEN 3 
+                                   WHEN 'Jueves' THEN 4 
+                                   WHEN 'Viernes' THEN 5 
+                                   WHEN 'Sábado' THEN 6 
+                                   WHEN 'Domingo' THEN 7 
+                               END, hp.hora_inicio
+                           ) AS horarios
+                    FROM horarios_profesores hp
+                    GROUP BY hp.profesor_id
                 )
-                base_rows = cur.fetchall()
-                print(f"DEBUG: profesores base_rows count = {len(base_rows)}")
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                print("Error base SELECT in profesores_detalle:", repr(e))
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                base_rows = []
-
-            # Sessions aggregation (controlled reintroduction)
-            try:
-                # Parsear fechas si vienen como strings
-                from datetime import datetime as _dt
-                start_date = None
-                end_date = None
-                try:
-                    if start:
-                        start_date = _dt.strptime(start, "%Y-%m-%d").date()
-                    if end:
-                        end_date = _dt.strptime(end, "%Y-%m-%d").date()
-                except Exception:
-                    start_date = None
-                    end_date = None
-
-                if start_date and end_date:
-                    cur.execute(
-                        """
-                        SELECT profesor_id,
-                               COUNT(*) AS sesiones_mes,
-                               COALESCE(SUM(minutos_totales) / 60.0, 0) AS horas_mes
-                        FROM profesor_horas_trabajadas
-                        WHERE hora_fin IS NOT NULL AND fecha BETWEEN %s AND %s
-                        GROUP BY profesor_id
-                        """,
-                        (start_date, end_date)
-                    )
-                else:
-                    cur.execute(
-                        """
-                        SELECT profesor_id,
-                               COUNT(*) AS sesiones_mes,
-                               COALESCE(SUM(minutos_totales) / 60.0, 0) AS horas_mes
-                        FROM profesor_horas_trabajadas
-                        WHERE hora_fin IS NOT NULL AND EXTRACT(MONTH FROM fecha) = %s AND EXTRACT(YEAR FROM fecha) = %s
-                        GROUP BY profesor_id
-                        """,
-                        (mes_actual, anio_actual)
-                    )
-                s_map = {row[0]: (int(row[1] or 0), float(row[2] or 0)) for row in cur.fetchall()}
-            except Exception as e:
-                logging.exception("Error sessions aggregation in profesores_detalle")
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                s_map = {}
-
-            # Base-only response plus schedules (controlled reintroduction)
-            rows = []
-            # Construir respuesta: como 'email' puede no existir en la BD, devolvemos ''
-            for pid, nombre, telefono in base_rows:
-                # Obtener horarios de disponibilidad del profesor desde database.py
-                try:
-                    disp = db.obtener_horarios_disponibilidad_profesor(pid)  # type: ignore
-                    horarios_list = [
-                        {
-                            "dia": h.get("dia_semana"),
-                            "inicio": str(h.get("hora_inicio")) if h.get("hora_inicio") is not None else None,
-                            "fin": str(h.get("hora_fin")) if h.get("hora_fin") is not None else None,
-                        }
-                        for h in (disp or [])
-                    ]
-                except Exception as e:
-                    logging.exception(f"Error disponibilidad para profesor {pid} en profesores_detalle")
-                    try:
-                        conn.rollback()
-                    except Exception:
-                        pass
-                    horarios_list = []
-                rows.append({
-                    "id": pid,
-                    "nombre": nombre,
-                    "email": "",
-                    "telefono": telefono,
-                    "horarios_count": len(horarios_list),
-                    "horarios": horarios_list,
-                    "sesiones_mes": s_map.get(pid, (0, 0.0))[0],
-                    "horas_mes": s_map.get(pid, (0, 0.0))[1],
-                })
-            logging.debug("profesores response rows count = %d", len(rows))
+                SELECT p.id AS id,
+                       COALESCE(u.nombre,'') AS nombre,
+                       ''::text AS email,
+                       COALESCE(u.telefono,'') AS telefono,
+                       COALESCE(h.horarios_count, 0) AS horarios_count,
+                       COALESCE(h.horarios, '[]'::json) AS horarios,
+                       COALESCE(s.sesiones_mes, 0) AS sesiones_mes,
+                       COALESCE(s.horas_mes, 0) AS horas_mes
+                FROM profesores p
+                JOIN usuarios u ON u.id = p.usuario_id
+                LEFT JOIN horarios h ON h.profesor_id = p.id
+                LEFT JOIN sesiones s ON s.profesor_id = p.id
+                ORDER BY p.id
+                """,
+                (
+                    start_date, end_date, start_date, end_date,
+                    start_date, end_date, mes_actual, anio_actual
+                )
+            )
+            rows = cur.fetchall() or []
         return rows
     except Exception as e:
-        logging.exception("Error final in /api/profesores_detalle")
+        logging.exception("Error final en /api/profesores_detalle")
         return []
 
 # --- Endpoints de detalle para pagos y asistencias ---
@@ -5825,11 +6293,22 @@ async def api_waitlist_events(request: Request, _=Depends(require_gestion_access
             if since_id > 0:
                 cur.execute(
                     """
-                    SELECT id, user_id, action, table_name, record_id, new_values, timestamp
-                    FROM audit_logs
-                    WHERE action IN ('auto_promote_waitlist','decline_waitlist_promotion')
-                      AND id > %s
-                    ORDER BY id DESC
+                    SELECT 
+                        l.id,
+                        l.action,
+                        l.timestamp,
+                        TRIM(COALESCE(u.nombre,'')) AS nombre_full,
+                        COALESCE(tc.nombre, c.nombre) AS tipo_txt,
+                        ch.dia_semana,
+                        ch.hora_inicio
+                    FROM audit_logs l
+                    LEFT JOIN usuarios u ON u.id = l.user_id
+                    LEFT JOIN clases_horarios ch ON ch.id = l.record_id
+                    LEFT JOIN clases c ON c.id = ch.clase_id
+                    LEFT JOIN tipos_clases tc ON tc.id = c.tipo_clase_id
+                    WHERE l.action IN ('auto_promote_waitlist','decline_waitlist_promotion')
+                      AND l.id > %s
+                    ORDER BY l.id DESC
                     LIMIT 100
                     """,
                     (since_id,)
@@ -5837,39 +6316,36 @@ async def api_waitlist_events(request: Request, _=Depends(require_gestion_access
             else:
                 cur.execute(
                     """
-                    SELECT id, user_id, action, table_name, record_id, new_values, timestamp
-                    FROM audit_logs
-                    WHERE action IN ('auto_promote_waitlist','decline_waitlist_promotion')
-                    ORDER BY id DESC
+                    SELECT 
+                        l.id,
+                        l.action,
+                        l.timestamp,
+                        TRIM(COALESCE(u.nombre,'')) AS nombre_full,
+                        COALESCE(tc.nombre, c.nombre) AS tipo_txt,
+                        ch.dia_semana,
+                        ch.hora_inicio
+                    FROM audit_logs l
+                    LEFT JOIN usuarios u ON u.id = l.user_id
+                    LEFT JOIN clases_horarios ch ON ch.id = l.record_id
+                    LEFT JOIN clases c ON c.id = ch.clase_id
+                    LEFT JOIN tipos_clases tc ON tc.id = c.tipo_clase_id
+                    WHERE l.action IN ('auto_promote_waitlist','decline_waitlist_promotion')
+                    ORDER BY l.id DESC
                     LIMIT 50
                     """
                 )
             rows = cur.fetchall() or []
+
         items = []
         for r in rows:
             try:
-                uid = r.get("user_id")
-                rid = r.get("record_id")
                 action = r.get("action") or ""
-                nombre = None
-                tipo_txt = None
-                dia_txt = None
-                hora_txt = None
-                try:
-                    u = db.obtener_usuario_por_id(int(uid)) if uid is not None else None  # type: ignore
-                    if u:
-                        nombre = u.nombre
-                except Exception:
-                    nombre = None
-                try:
-                    clase_info = db.obtener_horario_por_id(int(rid)) if rid is not None else None  # type: ignore
-                    if clase_info:
-                        tipo_txt = clase_info.get("tipo_clase_nombre") or clase_info.get("clase_nombre") or "la clase"
-                        dia_txt = clase_info.get("dia_semana") or ""
-                        hora_raw = clase_info.get("hora_inicio")
-                        hora_txt = str(hora_raw) if hora_raw is not None else ""
-                except Exception:
-                    pass
+                nombre = r.get("nombre_full") or None
+                tipo_txt = r.get("tipo_txt") or None
+                dia_txt = r.get("dia_semana") or None
+                hora_raw = r.get("hora_inicio")
+                hora_txt = str(hora_raw) if hora_raw is not None else ""
+
                 if action == "auto_promote_waitlist":
                     msg = f"Autopromoción: {nombre or 'Usuario'} inscrito automáticamente en {tipo_txt or 'la clase'} {('el ' + str(dia_txt)) if dia_txt else ''} {('a las ' + str(hora_txt)) if hora_txt else ''}."
                     tipo = "success"

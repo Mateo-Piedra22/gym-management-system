@@ -12,6 +12,7 @@ import csv
 import logging
 from collections import defaultdict, Counter
 import re
+import psycopg2.extras
 
 class LogAnalysisThread(QThread):
     """Hilo para análisis de logs en segundo plano"""
@@ -38,8 +39,11 @@ class LogAnalysisThread(QThread):
                 'recent_critical': []
             }
             
-            # Obtener logs con filtros
-            query = "SELECT * FROM audit_logs WHERE 1=1"
+            # Obtener logs con filtros (columnas explícitas para minimizar transferencia)
+            query = (
+                "SELECT id, timestamp, level, category, message, source "
+                "FROM audit_logs WHERE 1=1"
+            )
             params = []
             
             if self.filters.get('start_date'):
@@ -59,24 +63,28 @@ class LogAnalysisThread(QThread):
                 params.append(self.filters['category'])
                 
             query += " ORDER BY timestamp DESC"
-            
-            logs = self.db_manager.execute_query(query, params)
+
+            # Usar RealDictCursor para acceder por nombre de columna y evitar posiciones frágiles
+            with self.db_manager.get_connection_context() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cursor.execute(query, params)
+                logs = cursor.fetchall() or []
             results['total_logs'] = len(logs)
             
             self.progress_updated.emit(20)
             
             # Análisis por nivel
-            level_counts = Counter(log[3] for log in logs)  # level es columna 3
+            level_counts = Counter((log.get('level') or '') for log in logs)
             results['by_level'] = dict(level_counts)
             
             self.progress_updated.emit(40)
             
             # Análisis por categoría
-            category_counts = Counter(log[4] for log in logs)  # category es columna 4
+            category_counts = Counter((log.get('category') or '') for log in logs)
             results['by_category'] = dict(category_counts)
             
             # Análisis por fuente
-            source_counts = Counter(log[6] for log in logs)  # source es columna 6
+            source_counts = Counter((log.get('source') or '') for log in logs)
             results['by_source'] = dict(source_counts)
             
             self.progress_updated.emit(60)
@@ -86,7 +94,19 @@ class LogAnalysisThread(QThread):
             day_counts = defaultdict(int)
             
             for log in logs:
-                timestamp = datetime.fromisoformat(log[2])  # timestamp es columna 2
+                ts = log.get('timestamp')
+                # Convertir timestamp a datetime si viene como cadena
+                if isinstance(ts, str):
+                    try:
+                        timestamp = datetime.fromisoformat(ts)
+                    except Exception:
+                        # Fallback para formatos no ISO
+                        timestamp = datetime.now()
+                elif isinstance(ts, datetime):
+                    timestamp = ts
+                else:
+                    # Si no hay timestamp, saltar registro
+                    continue
                 hour_key = timestamp.strftime('%H:00')
                 day_key = timestamp.strftime('%Y-%m-%d')
                 hour_counts[hour_key] += 1
@@ -98,8 +118,8 @@ class LogAnalysisThread(QThread):
             self.progress_updated.emit(80)
             
             # Análisis de patrones de error
-            error_logs = [log for log in logs if log[3] in ['ERROR', 'CRITICAL']]
-            error_messages = [log[5] for log in error_logs]  # message es columna 5
+            error_logs = [log for log in logs if (log.get('level') or '') in ['ERROR', 'CRITICAL']]
+            error_messages = [(log.get('message') or '') for log in error_logs]
             
             # Buscar patrones comunes en errores
             error_patterns = {}
@@ -119,18 +139,32 @@ class LogAnalysisThread(QThread):
             results['error_patterns'] = error_patterns
             
             # Logs críticos recientes (últimas 24 horas)
-            recent_critical = [
-                {
-                    'timestamp': log[2],
-                    'level': log[3],
-                    'category': log[4],
-                    'message': log[5],
-                    'source': log[6]
-                }
-                for log in logs
-                if log[3] == 'CRITICAL' and 
-                datetime.fromisoformat(log[2]) > datetime.now() - timedelta(days=1)
-            ][:10]  # Máximo 10
+            recent_critical = []
+            cutoff = datetime.now() - timedelta(days=1)
+            for log in logs:
+                lvl = log.get('level') or ''
+                ts = log.get('timestamp')
+                # Convertir timestamp si es string
+                if isinstance(ts, str):
+                    try:
+                        ts_dt = datetime.fromisoformat(ts)
+                    except Exception:
+                        ts_dt = None
+                elif isinstance(ts, datetime):
+                    ts_dt = ts
+                else:
+                    ts_dt = None
+
+                if lvl == 'CRITICAL' and ts_dt and ts_dt > cutoff:
+                    recent_critical.append({
+                        'timestamp': ts_dt,
+                        'level': lvl,
+                        'category': log.get('category') or '',
+                        'message': log.get('message') or '',
+                        'source': log.get('source') or ''
+                    })
+
+            recent_critical = recent_critical[:10]  # Máximo 10
             
             results['recent_critical'] = recent_critical
             
@@ -148,7 +182,13 @@ class LogAnalysisWidget(QWidget):
         super().__init__()
         self.db_manager = db_manager
         self.analysis_thread = None
+        self._destroyed = False
+        self._analysis_in_progress = False
         self.setup_ui()
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         
     def setup_ui(self):
         """Configura la interfaz de usuario"""
@@ -335,6 +375,15 @@ class LogAnalysisWidget(QWidget):
         
     def start_analysis(self):
         """Inicia el análisis de logs"""
+        # No iniciar si el widget fue destruido o está oculto
+        try:
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+        except RuntimeError:
+            return
+        # Evitar solapamiento de análisis
+        if getattr(self, '_analysis_in_progress', False):
+            return
         if self.analysis_thread and self.analysis_thread.isRunning():
             return
             
@@ -360,10 +409,18 @@ class LogAnalysisWidget(QWidget):
         self.analysis_thread = LogAnalysisThread(self.db_manager, filters)
         self.analysis_thread.progress_updated.connect(self.progress_bar.setValue)
         self.analysis_thread.analysis_complete.connect(self.on_analysis_complete)
+        self._analysis_in_progress = True
         self.analysis_thread.start()
         
     def on_analysis_complete(self, results):
         """Maneja la finalización del análisis"""
+        # Marcar fin de análisis y evitar actualizar si el widget no es visible o fue destruido
+        self._analysis_in_progress = False
+        try:
+            if getattr(self, '_destroyed', False) or (hasattr(self, 'isVisible') and not self.isVisible()):
+                return
+        except RuntimeError:
+            return
         try:
             self.analysis_results = results
             
@@ -386,6 +443,13 @@ class LogAnalysisWidget(QWidget):
         except Exception as e:
             logging.error(f"Error procesando resultados de análisis: {e}")
             self.status_label.setText("Error en el análisis")
+
+    def _cleanup_on_destroy(self):
+        """Marca el widget como destruido para evitar tareas tardías."""
+        try:
+            self._destroyed = True
+        except Exception:
+            pass
             
     def update_stats_summary(self, results):
         """Actualiza el resumen estadístico"""

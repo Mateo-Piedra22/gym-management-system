@@ -8,6 +8,6 @@ El botón "Limpieza segura (backup + reinit)" en `cdbconfig` ejecuta:
 4. Verificación de integridad (`verify_system_status.py`)
 5. Reporte detallado en la UI
 
-Este flujo garantiza que no haya pérdida de datos y que la replicación nativa
-se mantenga saludable tras la limpieza.
+Este flujo garantiza la coherencia de datos y un estado consistente del sistema
+conforme al modelo de base de datos única Neon.
 

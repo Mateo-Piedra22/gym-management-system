@@ -284,7 +284,7 @@ def _parse_dsn_bootstrap(dsn: str, defaults: dict) -> Tuple[str, int, str, str, 
 
 
 def apply_remote_bootstrap_if_present() -> dict:
-    info = {"applied": False, "message": ""}
+    return {"applied": False, "message": "disabled_single_db"}
     try:
         cfg_dir = CONFIG_DIR
         path = os.path.join(cfg_dir, "remote_bootstrap.json")
@@ -405,12 +405,7 @@ def apply_remote_bootstrap_if_present() -> dict:
                 os.environ["WEBAPP_BASE_URL"] = pub_url
             except Exception:
                 pass
-        sync_token = str(data.get("sync_upload_token") or "").strip()
-        if sync_token:
-            try:
-                os.environ["SYNC_UPLOAD_TOKEN"] = sync_token
-            except Exception:
-                pass
+        # sync_upload_token eliminado: ya no se utiliza en el sistema
         owner_seed = str(data.get("owner_password") or "").strip()
         if owner_seed:
             try:
@@ -433,11 +428,9 @@ def apply_remote_bootstrap_if_present() -> dict:
                 "sslmode": sslmode or "require",
             })
             cfg["db_remote"] = remote_cfg
-            # Persistir webapp_base_url y token si vienen en bootstrap
+            # Persistir webapp_base_url si viene en bootstrap
             if pub_url:
                 cfg["webapp_base_url"] = pub_url
-            if sync_token:
-                cfg["sync_upload_token"] = sync_token
             # Persistir configuración no sensible del VPN
             if provider:
                 vpn_cfg = dict(cfg.get("vpn") or {})
@@ -516,7 +509,7 @@ def ensure_prerequisites(device_id: str) -> dict:
     except Exception:
         pass
 
-    # Si ya hay marca, no salimos: aplicamos pasos idempotentes (outbox/tareas/red/replicación)
+    # Si ya hay marca, no salimos: aplicamos pasos idempotentes (tareas/red/replicación)
     marker = read_marker(device_id)
     if marker:
         # Solo reportar estado actual de PostgreSQL y continuar
@@ -620,7 +613,7 @@ def ensure_prerequisites(device_id: str) -> dict:
     except Exception:
         pass
 
-    # Replicación nativa PostgreSQL configurada - sin outbox legacy
+    # Replicación nativa PostgreSQL configurada
 
     # Eliminado: aseguramiento de updated_at. El esquema ahora usa logical_ts/last_op_id.
 
@@ -639,105 +632,9 @@ def ensure_prerequisites(device_id: str) -> dict:
         except Exception:
             pass
 
-    # Intentar asegurar conectividad VPN y replicación bidireccional si hay configuración disponible (no bloqueante)
-    try:
-        cfg = _load_cfg()
-
-        # VPN join automático (si cfg['vpn'] o variables de entorno lo indican)
-        try:
-            logging.info("Prerequisitos: verificando conectividad VPN")
-        except Exception:
-            pass
-        try:
-            from utils_modules.vpn_setup import ensure_vpn_connectivity  # type: ignore
-            vpn_info = ensure_vpn_connectivity(cfg, device_id)
-        except Exception:
-            vpn_info = {"ok": False}
-        try:
-            logging.info(f"Prerequisitos: VPN -> ok={vpn_info.get('ok')} ip={vpn_info.get('ip')}")
-        except Exception:
-            pass
-        # Asegurar exposición segura de PostgreSQL para acceso vía VPN y Firewall
-        try:
-            net_res = ensure_postgres_network_access(cfg)
-            result.setdefault("postgresql", {})["network"] = net_res
-        except Exception as e:
-            result.setdefault("postgresql", {})["network_error"] = str(e)
-        try:
-            logging.info(f"Prerequisitos: red PostgreSQL -> {result.get('postgresql', {}).get('network', {})}")
-        except Exception:
-            pass
-
-        # Determinar y fijar alcance del remoto al local según VPN/IP (blindado)
-        remote_can_reach = False
-        ip = None
-        try:
-            if vpn_info.get("ok"):
-                ip = vpn_info.get("ip")
-                remote_can_reach = bool(ip)
-        except Exception:
-            ip = None
-            remote_can_reach = False
-        try:
-            rep_cfg = dict(cfg.get("replication") or {})
-            rep_cfg["remote_can_reach_local"] = bool(remote_can_reach)
-            cfg["replication"] = rep_cfg
-            with open(os.path.join(CONFIG_DIR, "config.json"), "w", encoding="utf-8") as cf:
-                json.dump(cfg, cf, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-        # Exportar o limpiar variables de entorno del túnel para consumidores posteriores
-        if remote_can_reach and ip:
-            try:
-                local = cfg.get("db_local") or {}
-                host = str(ip)
-                port = int(local.get("port") or cfg.get("port") or 5432)
-                dbname = local.get("database") or cfg.get("database") or "gimnasio"
-                user = local.get("user") or cfg.get("user") or "postgres"
-                pwd = local.get("password") or os.getenv("PGLOCAL_PASSWORD") or ""
-                if not pwd and keyring:
-                    try:
-                        acct = f"{user}@{host}:{port}"
-                        saved_pwd = keyring.get_password(KEYRING_SERVICE_NAME, acct)
-                        if saved_pwd:
-                            pwd = saved_pwd
-                    except Exception:
-                        pass
-                os.environ["PGLOCAL_DSN"] = f"postgres://{user}:{pwd}@{host}:{port}/{dbname}?sslmode=prefer&application_name=gym_management_system"
-                if pwd:
-                    os.environ["PGLOCAL_PASSWORD"] = pwd
-            except Exception:
-                pass
-        else:
-            # Eliminar DSN local si no hay IP de túnel para evitar usos accidentales
-            try:
-                os.environ.pop("PGLOCAL_DSN", None)
-            except Exception:
-                pass
-
-        # Decidir flujo de replicación sin depender de archivos legacy
-        try:
-            rep_cfg = (cfg.get('replication') or {}) if isinstance(cfg, dict) else {}
-            mode = str(rep_cfg.get('mode', '')).lower()
-            remote_can_reach_local = bool(rep_cfg.get('remote_can_reach_local'))
-            if mode.startswith('bidi') or remote_can_reach_local:
-                # Replicación bidireccional cuando el remoto puede acceder al local (VPN/túnel)
-                from utils_modules.replication_setup import ensure_bidirectional_replication  # type: ignore
-                rep_res = ensure_bidirectional_replication(cfg)
-            else:
-                # Replicación remota→local por defecto
-                from utils_modules.replication_setup import ensure_logical_replication  # type: ignore
-                rep_res = ensure_logical_replication(cfg)
-            result["replication"] = rep_res
-        except Exception as e:
-            result["replication"] = {"ok": False, "error": str(e)}
-        try:
-            logging.info(f"Prerequisitos: replicación -> ok={result.get('replication', {}).get('ok')}")
-        except Exception:
-            pass
-    except Exception:
-        pass
+    # Red/VPN y replicación deshabilitadas: modelo de base única (Neon)
+    result.setdefault("postgresql", {})["network"] = {"ok": True, "skipped": True, "reason": "not_applicable_single_db"}
+    result["replication"] = {"ok": True, "status": "disabled", "message": "Base única Neon; sin VPN ni túnel"}
 
     # Marcar como completado para este device si PostgreSQL está resuelto
     if result["postgresql"]["installed"]:
@@ -881,109 +778,42 @@ def ensure_scheduled_tasks(device_id: str) -> dict:
         run_as_system = bool(scfg.get("run_as_system", False))
 
         scripts_dir = os.path.join(PROJECT_ROOT, "scripts")
-        # Compatibilidad: si sólo existe 'reconcile', mapear a claves nuevas
-        legacy = scfg.get("reconcile") if isinstance(scfg.get("reconcile"), dict) else {}
-        if legacy and not isinstance(scfg.get("reconcile_r2l"), dict) and not isinstance(scfg.get("reconcile_l2r"), dict):
-            try:
-                scfg["reconcile_r2l"] = {
-                    "enabled": bool(legacy.get("enabled", False)),
-                    "interval_minutes": int(legacy.get("interval_minutes", 60)),
-                }
-                scfg["reconcile_l2r"] = {
-                    "enabled": bool(legacy.get("enabled", False)),
-                    "time": "02:00",
-                }
-            except Exception:
-                pass
+        # Eliminado: compatibilidad con claves 'reconcile*' anteriores. Replicación nativa no usa reconciliación manual.
 
         # Usar ruta absoluta de wscript.exe para evitar problemas de PATH en contexto del Programador de Tareas
         wscript_exe = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'System32', 'wscript.exe')
         if not os.path.exists(wscript_exe):
             wscript_exe = 'wscript.exe'
-        # Definiciones de tareas con acciones totalmente silenciosas
+        # Definiciones de tareas (solo nativas; sin uploader ni reconciliación anterior)
         tasks_def = [
-            {
-                "key": "uploader",
-                "name": "GymMS_Uploader",
-                "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_sync_uploader_hidden.vbs")}"',
-                "default": {"interval_minutes": 15},
-                "type": "minute",
-            },
-            {
-                "key": "reconcile_r2l",
-                "name": "GymMS_ReconcileRemoteToLocal",
-                "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_reconcile_remote_to_local_scheduled_hidden.vbs")}"',
-                "default": {"interval_minutes": 60},
-                "type": "minute",
-            },
-            {
-                "key": "reconcile_l2r",
-                "name": "GymMS_ReconcileLocalToRemote",
-                "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_reconcile_scheduled_hidden.vbs")}"',
-                "default": {"time": "02:00"},
-                "type": "daily",
-            },
-            {
-                "key": "reconcile_bidirectional",
-                "name": "GymMS_ReconcileBidirectional",
-                "action": f'"{wscript_exe}" "{os.path.join(scripts_dir, "run_reconcile_bidirectional_scheduled_hidden.vbs")}"',
-                "default": {"time": "02:15"},
-                "type": "daily",
-            },
             {
                 "key": "cleanup",
                 "name": "GymMS_DataCleanup",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_cleanup_scheduled.ps1")}"',
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "essential", "run_cleanup_scheduled.ps1")}"',
                 "default": {"time": "03:15"},
                 "type": "daily",
             },
             {
                 "key": "backup",
                 "name": "GymMS_BackupDaily",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_backup_scheduled.ps1")}"',
+                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "essential", "run_backup_scheduled.ps1")}"',
                 "default": {"time": "02:30"},
                 "type": "daily",
             },
-            # Tarea legacy eliminada - replicación nativa PostgreSQL maneja sincronización automáticamente
-            {
-                "key": "replication_health_weekly",
-                "name": "GymMS_ReplicationHealthWeekly",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_replication_health_check.ps1")}"',
-                "default": {"time": "00:45", "days": "SUN"},
-                "type": "weekly",
-            },
-            {
-                "key": "publication_verify_weekly",
-                "name": "GymMS_PublicationVerifyWeekly",
-                "action": f'PowerShell.exe -NoProfile -NonInteractive -NoLogo -WindowStyle Hidden -ExecutionPolicy Bypass -File "{os.path.join(scripts_dir, "run_publication_verification.ps1")}"',
-                "default": {"time": "00:30", "days": "SUN"},
-                "type": "weekly",
-            },
+            # Las tareas de replicación han sido eliminadas - se usa base de datos única Neon
         ]
 
-        # Eliminar tareas legacy con nombres antiguos (evita duplicados y acciones defectuosas)
-        try:
-            legacy_names = [
-                "GymMS_Reconcile_RemoteToLocal",
-                "GymMS_Reconcile_LocalToRemote",
-            ]
-            for ln in legacy_names:
-                if _task_exists(ln):
-                    _delete_task_schtasks(ln)
-        except Exception:
-            pass
+        # Sin limpieza de tareas anteriores: el sistema ya no gestiona
+        # Uploader ni reconciliaciones manuales. Evitamos intentos de
+        # borrado que generan mensajes de "Access is denied" bajo UAC.
 
         for td in tasks_def:
             key = td["key"]
             name = td["name"]
             action = td["action"]
             tcfg = scfg.get(key, {}) if isinstance(scfg.get(key), dict) else {}
-            # Si falta el flag 'enabled' en subtarea, habilitar por defecto el uploader
-            # cuando el maestro esté activo, para compatibilidad con configs antiguas.
-            if tcfg.get("enabled") is None and key == "uploader":
-                sub_enabled = True
-            else:
-                sub_enabled = bool(tcfg.get("enabled", False))
+            # Evaluar habilitado de subtarea (sólo tareas nativas)
+            sub_enabled = bool(tcfg.get("enabled", False))
             enabled = bool(master_enabled and sub_enabled)
 
             # Construir horario deseado

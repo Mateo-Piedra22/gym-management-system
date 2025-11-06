@@ -233,64 +233,9 @@ def delete_files(paths: list, progress=None):
         pass
     return deleted, errors
 
-
-# --- Token de subida (centralizado) ---
-def get_sync_upload_token(persist_from_env: bool = True) -> str:
-    """Obtiene el token de subida de forma centralizada.
-
-    Prioridad:
-    1) ENV `SYNC_UPLOAD_TOKEN` (si `persist_from_env` está activo, lo guarda en config)
-    2) `config/config.json` → `sync_upload_token`
-    3) "" (cadena vacía si no está configurado)
-    """
-    try:
-        env_token = os.getenv("SYNC_UPLOAD_TOKEN", "").strip()
-        if env_token:
-            if persist_from_env:
-                try:
-                    cfg_path = resource_path("config/config.json")
-                    # Leer config existente (si existe)
-                    cfg = {}
-                    if os.path.exists(cfg_path):
-                        import json as _json
-                        try:
-                            with open(cfg_path, "r", encoding="utf-8") as f:
-                                cfg = _json.load(f) or {}
-                            if not isinstance(cfg, dict):
-                                cfg = {}
-                        except Exception:
-                            cfg = {}
-                    cur = str(cfg.get("sync_upload_token") or "").strip()
-                    if cur != env_token:
-                        cfg["sync_upload_token"] = env_token
-                        try:
-                            with open(cfg_path, "w", encoding="utf-8") as f:
-                                _json.dump(cfg, f, ensure_ascii=False, indent=2)
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-            return env_token
-        # Fallback: leer desde config.json
-        try:
-            cfg_path = resource_path("config/config.json")
-            if os.path.exists(cfg_path):
-                import json as _json
-                with open(cfg_path, "r", encoding="utf-8") as f:
-                    data = _json.load(f) or {}
-                c = data.get("sync_upload_token")
-                if isinstance(c, str) and c.strip():
-                    return c.strip()
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return ""
-
-
 # --- Gestión de procesos de túnel público (deprecado, sin LocalTunnel) ---
 def terminate_serveo_tunnel_processes():
-    """Alias legado: redirige a terminate_tunnel_processes()."""
+    """Alias anterior: redirige a terminate_tunnel_processes()."""
     try:
         return terminate_tunnel_processes()
     except Exception:
@@ -363,7 +308,7 @@ def _parse_bool(value) -> bool | None:
 def get_public_tunnel_enabled(default: bool = True) -> bool:
     """
     Devuelve si el túnel público debe arrancar automáticamente.
-    Prioridad: config/config.json → ENV PUBLIC_TUNNEL_ENABLED → ENV SERVEO_TUNNEL_ENABLED (legado) → default.
+    Prioridad: config/config.json → ENV PUBLIC_TUNNEL_ENABLED → ENV SERVEO_TUNNEL_ENABLED (anterior) → default.
     Claves soportadas en config.json:
       - public_tunnel.enabled (bool o string)
       - public_tunnel_enabled (bool o string, fallback)
@@ -393,7 +338,7 @@ def get_public_tunnel_enabled(default: bool = True) -> bool:
         parsed = _parse_bool(env_val) if env_val is not None else None
         if parsed is not None:
             return parsed
-        # Alias legado soportado
+        # Alias anterior soportado
         env_val_legacy = os.getenv("SERVEO_TUNNEL_ENABLED")
         parsed_legacy = _parse_bool(env_val_legacy) if env_val_legacy is not None else None
         if parsed_legacy is not None:

@@ -136,7 +136,6 @@ QTabBar::tab {
     font-weight: 500; /* var(--font-weight-medium) */
     margin: 2px 1px 0px 1px; /* Margen fijo */
     height: 28px; /* Altura fija para alineación con búsqueda */
-    text-align: center;
 }
 
 QTabBar::tab:selected {
@@ -439,8 +438,8 @@ QLabel#routine_user_label {
     padding: 4px 6px; /* Padding moderado */
     font-size: 12px; /* Tamaño consistente */
     font-weight: 500; /* var(--font-weight-medium) */
-    word-wrap: break-word; /* Permitir salto de línea si es necesario */
-    text-align: left;
+    qproperty-wordWrap: true; /* Permitir salto de línea */
+    qproperty-alignment: AlignLeft; /* Alinear texto a la izquierda */
 }
 
 QLabel#routine_display_label {
@@ -449,8 +448,8 @@ QLabel#routine_display_label {
     padding: 8px 12px; /* Padding moderado */
     font-size: 12px; /* Tamaño consistente */
     font-weight: 400; /* var(--font-weight-normal) */
-    word-wrap: break-word; /* Permitir salto de línea */
-    text-align: center;
+    qproperty-wordWrap: true; /* Permitir salto de línea */
+    qproperty-alignment: AlignHCenter; /* Alinear texto al centro */
     /* line-height no es soportado por QSS; eliminado */
 }
 
@@ -945,7 +944,6 @@ QHeaderView::section {
     border-bottom: 2px solid #5E81AC; /* var(--accent-primary) */
     font-weight: 600; /* var(--font-weight-semibold) */
     font-size: 12px; /* Tamaño fijo */
-    text-align: left;
     min-height: 30px; /* Restore para que el texto no se achique */
 }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Utilidades de backup de base de datos local (PostgreSQL) usando pg_dump.
-- Usa config/config.json, variables de entorno y keyring para credenciales.
+Utilidades de backup de base de datos (PostgreSQL) usando pg_dump.
+- Prioriza variables de entorno y keyring para credenciales (no lee password de config.json).
 - Genera archivo .db en 'backups' para compatibilidad con la UI.
 """
 import os
@@ -33,17 +33,19 @@ def _load_config() -> dict:
 
 
 def _build_local_params(cfg: dict) -> dict:
-    node = cfg.get('db_local') or cfg
-    host = node.get('host') or cfg.get('host') or 'localhost'
+    node = cfg.get('db_connection') or cfg.get('db_local') or cfg
+    # Preferir variables genéricas de entorno
+    host = os.getenv('DB_HOST') or node.get('host') or cfg.get('host') or 'localhost'
     try:
-        port = int(node.get('port') or cfg.get('port') or 5432)
+        port_env = os.getenv('DB_PORT')
+        port = int(port_env) if port_env else int(node.get('port') or cfg.get('port') or 5432)
     except Exception:
         port = 5432
-    database = node.get('database') or cfg.get('database') or 'gimnasio'
-    user = node.get('user') or cfg.get('user') or 'postgres'
-    password = node.get('password') or cfg.get('password') or (
-        os.getenv('DB_LOCAL_PASSWORD') or os.getenv('DB_PASSWORD') or os.getenv('PGPASSWORD') or ''
-    )
+    database = os.getenv('DB_NAME') or node.get('database') or cfg.get('database') or 'gimnasio'
+    user = os.getenv('DB_USER') or node.get('user') or cfg.get('user') or 'postgres'
+
+    # Password: solo desde entorno o almacén seguro
+    password = (os.getenv('DB_PASSWORD') or os.getenv('DB_LOCAL_PASSWORD') or os.getenv('PGPASSWORD') or '')
     if not password:
         try:
             import keyring

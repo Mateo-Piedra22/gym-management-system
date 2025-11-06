@@ -146,6 +146,8 @@ class WhatsAppConfigWidget(QWidget):
         self.stats_timer = QTimer()
         self.stats_timer.timeout.connect(self.update_statistics)
         self.stats_timer.start(30000)  # Actualizar cada 30 segundos
+        # Flag para evitar solapamiento de cargas de estadísticas
+        self._stats_loading = False
     
     def setup_ui(self):
         """Configura la interfaz de usuario de solo lectura"""
@@ -1105,7 +1107,7 @@ class WhatsAppConfigWidget(QWidget):
             # Reinicializar componentes WhatsApp si están disponibles
             if WHATSAPP_AVAILABLE and self.whatsapp_manager:
                 self.whatsapp_manager.reinicializar_configuracion()
-                # Legacy OfflineSyncManager eliminado: no recargar preferencias adicionales
+                # OfflineSyncManager anterior eliminado: no recargar preferencias adicionales
             
             self.update_status()
             
@@ -1489,35 +1491,78 @@ class WhatsAppConfigWidget(QWidget):
     # --- MÉTODOS DE ESTADÍSTICAS ---
     
     def update_statistics(self):
-        """Actualiza las estadísticas mostradas"""
-        try:
-            if not WHATSAPP_AVAILABLE or not self.message_logger:
+        """Actualiza las estadísticas mostradas en segundo plano evitando solapamientos."""
+        if self._stats_loading:
+            return
+        # Fast-fail si módulos no disponibles
+        if not WHATSAPP_AVAILABLE or not self.message_logger:
+            self.messages_today_label.setText("N/A")
+            self.messages_week_label.setText("N/A")
+            self.messages_failed_label.setText("N/A")
+            self.blocked_users_label.setText("N/A")
+            return
+
+        self._stats_loading = True
+
+        def _collect():
+            # Recolectar estadísticas en background
+            diarias = self.message_logger.obtener_estadisticas_diarias()
+            semanales = self.message_logger.obtener_estadisticas_semanales()
+            por_tipo = self.message_logger.obtener_estadisticas_por_tipo(7)
+            bloqueados = self.message_logger.obtener_usuarios_bloqueados()
+            return {
+                'diarias': diarias or {},
+                'semanales': semanales or {},
+                'por_tipo': por_tipo or {},
+                'bloqueados': bloqueados or [],
+            }
+
+        def _on_success(data):
+            try:
+                diarias = data.get('diarias', {}) if isinstance(data, dict) else {}
+                semanales = data.get('semanales', {}) if isinstance(data, dict) else {}
+                por_tipo = data.get('por_tipo', {}) if isinstance(data, dict) else {}
+                bloqueados = data.get('bloqueados', []) if isinstance(data, dict) else []
+
+                # Actualizar labels
+                self.messages_today_label.setText(str(diarias.get('enviados', 0)))
+                self.messages_week_label.setText(str(semanales.get('enviados', 0)))
+                self.messages_failed_label.setText(str(diarias.get('fallidos', 0)))
+                self.blocked_users_label.setText(str(len(bloqueados)))
+
+                # Actualizar lista de estadísticas por tipo
+                self.type_stats_list.clear()
+                for tipo, stats in por_tipo.items():
+                    item_text = f"{tipo}: {stats.get('enviados', 0)} enviados, {stats.get('fallidos', 0)} fallidos"
+                    self.type_stats_list.addItem(item_text)
+            finally:
+                self._stats_loading = False
+
+        def _on_error(err):
+            try:
+                logging.error(f"Error al actualizar estadísticas: {err}")
                 self.messages_today_label.setText("N/A")
                 self.messages_week_label.setText("N/A")
                 self.messages_failed_label.setText("N/A")
                 self.blocked_users_label.setText("N/A")
-                return
-            
-            # Obtener estadísticas
-            stats_diarias = self.message_logger.obtener_estadisticas_diarias()
-            stats_semanales = self.message_logger.obtener_estadisticas_semanales()
-            stats_por_tipo = self.message_logger.obtener_estadisticas_por_tipo(7)
-            usuarios_bloqueados = self.message_logger.obtener_usuarios_bloqueados()
-            
-            # Actualizar labels
-            self.messages_today_label.setText(str(stats_diarias.get('enviados', 0)))
-            self.messages_week_label.setText(str(stats_semanales.get('enviados', 0)))
-            self.messages_failed_label.setText(str(stats_diarias.get('fallidos', 0)))
-            self.blocked_users_label.setText(str(len(usuarios_bloqueados)))
-            
-            # Actualizar lista de estadísticas por tipo
-            self.type_stats_list.clear()
-            for tipo, stats in stats_por_tipo.items():
-                item_text = f"{tipo}: {stats.get('enviados', 0)} enviados, {stats.get('fallidos', 0)} fallidos"
-                self.type_stats_list.addItem(item_text)
-            
+                self.type_stats_list.clear()
+            finally:
+                self._stats_loading = False
+
+        try:
+            run_in_background(
+                _collect,
+                on_success=_on_success,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=4500,
+                description="Actualizar estadísticas WhatsApp",
+            )
         except Exception as e:
-            logging.error(f"Error al actualizar estadísticas: {e}")
+            try:
+                logging.error(f"Error al iniciar actualización de estadísticas: {e}")
+            finally:
+                self._stats_loading = False
     
     def export_statistics(self):
         """Exporta las estadísticas a un archivo"""

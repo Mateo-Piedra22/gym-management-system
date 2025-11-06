@@ -19,39 +19,9 @@ import json
 import functools
 import random
 import calendar
-# Sistema outbox legacy eliminado - reemplazado por replicación nativa PostgreSQL
-def enqueue_operations(*args, **kwargs):
-    """Legacy outbox system removed - use native PostgreSQL replication"""
-    return False
-
-def _noop(*args, **kwargs):
-    """Legacy outbox system removed - use native PostgreSQL replication"""
-    return {}
-
-# Stubs para operaciones legacy (todas deshabilitadas)
-op_user_add = _noop
-op_user_update = _noop
-op_user_delete = _noop
-op_payment_update = _noop
-op_payment_delete = _noop
-op_tag_add = _noop
-op_tag_update = _noop
-op_tag_delete = _noop
-op_user_tag_add = _noop
-op_user_tag_update = _noop
-op_user_tag_delete = _noop
-op_note_add = _noop
-op_note_update = _noop
-op_note_delete = _noop
-op_attendance_update = _noop
-op_attendance_delete = _noop
-
-# Mantener stubs para asistencia de clases (no hay helper en sync_client)
-def op_class_attendance_update(*args, **kwargs):
-    return {}
-
-def op_class_attendance_delete(*args, **kwargs):
-    return {}
+# Importar PyQt6 para workers
+from PyQt6.QtCore import QThread, pyqtSignal, QObject
+# Replicación nativa de PostgreSQL gestiona sincronización (sin cola local)
 
 # Importación del sistema de auditoría
 try:
@@ -70,6 +40,52 @@ _INIT_ONCE_LOCK = threading.RLock()
 _INIT_ONCE_DONE = False
 _INDEX_ONCE_LOCK = threading.RLock()
 _INDEX_ONCE_DONE = False
+
+# Optimized indexes for frequently queried tables
+OPTIMIZED_INDEXES = {
+    'usuarios': [
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_activo_rol ON usuarios(activo, rol) WHERE activo = true',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_nombre_lower ON usuarios(LOWER(nombre))',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_dni ON usuarios(dni) WHERE dni IS NOT NULL',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_telefono ON usuarios(telefono) WHERE telefono IS NOT NULL',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_fecha_registro ON usuarios(fecha_registro)',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_tipo_cuota ON usuarios(tipo_cuota)',
+        'CREATE INDEX IF NOT EXISTS idx_usuarios_vencimiento ON usuarios(fecha_proximo_vencimiento) WHERE fecha_proximo_vencimiento IS NOT NULL'
+    ],
+    'pagos': [
+        'CREATE INDEX IF NOT EXISTS idx_pagos_usuario_fecha ON pagos(usuario_id, fecha_pago DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_pagos_fecha_mes ON pagos(fecha_pago, mes, año)',
+        'CREATE INDEX IF NOT EXISTS idx_pagos_mes_año ON pagos(mes, año)',
+        'CREATE INDEX IF NOT EXISTS idx_pagos_usuario_mes_año ON pagos(usuario_id, mes, año)'
+    ],
+    'asistencias': [
+        'CREATE INDEX IF NOT EXISTS idx_asistencias_usuario_fecha ON asistencias(usuario_id, fecha DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_asistencias_fecha ON asistencias(fecha DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_asistencias_fecha_hora ON asistencias(fecha, hora_registro)',
+        'CREATE INDEX IF NOT EXISTS idx_asistencias_usuario_actual ON asistencias(usuario_id, fecha) WHERE fecha = CURRENT_DATE'
+    ],
+    'clase_horarios': [
+        'CREATE INDEX IF NOT EXISTS idx_clase_horarios_dia ON clase_horarios(dia_semana)',
+        'CREATE INDEX IF NOT EXISTS idx_clase_horarios_clase ON clase_horarios(clase_id)',
+        'CREATE INDEX IF NOT EXISTS idx_clase_horarios_profesor ON clase_horarios(profesor_id)',
+        'CREATE INDEX IF NOT EXISTS idx_clase_horarios_activo ON clase_horarios(activo) WHERE activo = true'
+    ],
+    'clase_usuarios': [
+        'CREATE INDEX IF NOT EXISTS idx_clase_usuarios_horario ON clase_usuarios(clase_horario_id)',
+        'CREATE INDEX IF NOT EXISTS idx_clase_usuarios_usuario ON clase_usuarios(usuario_id)',
+        'CREATE INDEX IF NOT EXISTS idx_clase_usuarios_combined ON clase_usuarios(clase_horario_id, usuario_id)'
+    ],
+    'rutinas': [
+        'CREATE INDEX IF NOT EXISTS idx_rutinas_usuario ON rutinas(usuario_id)',
+        'CREATE INDEX IF NOT EXISTS idx_rutinas_activa ON rutinas(activa) WHERE activa = true',
+        'CREATE INDEX IF NOT EXISTS idx_rutinas_categoria ON rutinas(categoria)'
+    ],
+    'rutina_ejercicios': [
+        'CREATE INDEX IF NOT EXISTS idx_rutina_ejercicios_rutina ON rutina_ejercicios(rutina_id)',
+        'CREATE INDEX IF NOT EXISTS idx_rutina_ejercicios_ejercicio ON rutina_ejercicios(ejercicio_id)',
+        'CREATE INDEX IF NOT EXISTS idx_rutina_ejercicios_dia ON rutina_ejercicios(dia_semana)'
+    ]
+}
 
 
 def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
@@ -93,28 +109,17 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
             try:
                 if hasattr(self, 'is_circuit_open') and callable(getattr(self, 'is_circuit_open')):
                     if self.is_circuit_open():  # type: ignore
-                        offline_mgr = getattr(self, 'offline_sync_manager', None)
-                        # Lecturas: intentar servir desde caché offline o retorno seguro
+                        # Lecturas: servir un retorno seguro si el circuito está abierto
                         try:
                             if hasattr(self, '_is_read_operation') and self._is_read_operation(func_name):
-                                if offline_mgr and hasattr(offline_mgr, 'get_cached_read_result'):
-                                    cached = offline_mgr.get_cached_read_result(func_name, args, kwargs)
-                                    if cached is not None:
-                                        logging.warning(f"{func_name} servido desde caché offline (circuito abierto)")
-                                        return cached
                                 if hasattr(self, '_get_default_offline_return'):
                                     return self._get_default_offline_return(func_name)
                                 return None
                         except Exception:
                             pass
-                        # Escrituras: encolar operación si es posible y devolver retorno seguro
+                        # Escrituras: devolver retorno seguro sin encolar
                         try:
-                            if hasattr(self, '_is_write_operation') and self._is_write_operation(func_name) and offline_mgr:
-                                try:
-                                    offline_mgr.enqueue_db_operation(func_name, args, kwargs)
-                                    logging.warning(f"Operación {func_name} encolada (circuito abierto)")
-                                except Exception:
-                                    pass
+                            if hasattr(self, '_is_write_operation') and self._is_write_operation(func_name):
                                 if hasattr(self, '_get_default_offline_return'):
                                     return self._get_default_offline_return(func_name)
                                 return None
@@ -126,14 +131,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
             for attempt in range(max_retries + 1):
                 try:
                     result = f(self, *args, **kwargs)
-                    # Almacenar en caché lecturas exitosas si está disponible
-                    try:
-                        offline_mgr = getattr(self, 'offline_sync_manager', None)
-                        if offline_mgr and hasattr(self, '_is_read_operation') and self._is_read_operation(func_name):
-                            # Cachear siempre lecturas críticas
-                            offline_mgr.cache_read_result(func_name, args, kwargs, result)
-                    except Exception:
-                        pass
+                    # No usar caché persistente offline
                     # Registrar éxito en Circuit Breaker
                     try:
                         if hasattr(self, '_cb_register_success'):
@@ -169,17 +167,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                         raise e
                     
                     if attempt == max_retries:
-                        # Último intento: preferir caché offline para lecturas críticas
-                        try:
-                            offline_mgr = getattr(self, 'offline_sync_manager', None)
-                            if offline_mgr and hasattr(self, '_is_read_operation') and self._is_read_operation(func_name):
-                                cached = offline_mgr.get_cached_read_result(func_name, args, kwargs)
-                                if cached is not None:
-                                    logging.warning(f"Lectura {func_name} servida desde caché offline tras agotar reintentos")
-                                    return cached
-                        except Exception:
-                            pass
-                        # Si no hay caché, usar conexión directa como fallback
+                        # Último intento: usar conexión directa como fallback (sin caché persistente)
                         logging.warning(f"Agotados reintentos normales para {f.__name__}, intentando conexión directa...")
                         try:
                             if hasattr(self, '_crear_conexion_directa'):
@@ -234,37 +222,16 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
             
             # Si llegamos aquí, agotamos todos los reintentos
             logging.error(f"Agotados todos los reintentos para {f.__name__}")
-            # Modo offline: encolar operaciones de escritura en cola local si está disponible
+            # Modo offline: devolver valor seguro sin caché persistente ni encolado
             try:
-                offline_mgr = getattr(self, 'offline_sync_manager', None)
-                is_executing_offline = getattr(self, '_executing_offline_op', False)
-                # Lecturas: intentar recuperar desde caché persistente
-                if offline_mgr and hasattr(self, '_is_read_operation') and self._is_read_operation(func_name):
-                    # Priorizar cacheo obligatorio para métodos críticos
-                    cached = offline_mgr.get_cached_read_result(func_name, args, kwargs)
-                    if cached is not None:
-                        logging.warning(f"Lectura {func_name} servida desde caché offline")
-                        return cached
-                    # Si no hay caché, devolver valor seguro por heurística
+                if hasattr(self, '_is_read_operation') and self._is_read_operation(func_name):
                     if hasattr(self, '_get_default_offline_return'):
                         return self._get_default_offline_return(func_name)
-
-                # Escrituras: encolar operación y devolver valor seguro
-                if offline_mgr and hasattr(self, '_is_write_operation') and self._is_write_operation(func_name) and not is_executing_offline:
-                    # Encolar operación y devolver valor seguro
-                    try:
-                        offline_mgr.enqueue_db_operation(func_name, args, kwargs)
-                        logging.warning(f"Operación {func_name} encolada para sincronización offline")
-                        if hasattr(self, '_get_default_offline_return'):
-                            return self._get_default_offline_return(func_name)
-                        # Fallback si no hay retorno por defecto
-                        return None
-                    except Exception as enqueue_err:
-                        logging.error(f"Error encolando operación offline {func_name}: {enqueue_err}")
-                        # Si falla encolado, re-lanzar el último error original
-                        raise last_exception
+                if hasattr(self, '_is_write_operation') and self._is_write_operation(func_name):
+                    if hasattr(self, '_get_default_offline_return'):
+                        return self._get_default_offline_return(func_name)
             except Exception:
-                # Cualquier problema en el mecanismo offline no debe ocultar el error original
+                # No ocultar el error original
                 pass
             raise last_exception
             
@@ -696,14 +663,15 @@ class CacheManager:
             self._stats['misses'] += 1
         return None
 
-    def set(self, cache_type: str, key: Any, value: Any):
+    def set(self, cache_type: str, key: Any, value: Any, ttl_seconds: Optional[float] = None):
         with self._lock:
             if cache_type not in self._cache:
                 self._cache[cache_type] = {}
                 self._lru_order[cache_type] = {}
             
             config = self._config.get(cache_type, {'duration': 300, 'max_size': 100})
-            expires_at = time.time() + config['duration']
+            # Permite override de TTL por llamada, si se especifica
+            expires_at = time.time() + (ttl_seconds if ttl_seconds is not None else config['duration'])
             
             self._cache[cache_type][key] = {'value': value, 'expires_at': expires_at}
             self._lru_order[cache_type][key] = time.time()
@@ -806,6 +774,31 @@ class MassOperationQueue:
                 'active_operations': len(self._active_operations),
                 'queue_size': self._queue.qsize()
             }
+
+    def create_optimized_indexes(self):
+        """Crea índices optimizados para mejorar el rendimiento de consultas frecuentes"""
+        try:
+            with self.connection() as conn:
+                with conn.cursor() as cur:
+                    created_count = 0
+                    for table_name, indexes in OPTIMIZED_INDEXES.items():
+                        for index_sql in indexes:
+                            try:
+                                cur.execute(index_sql)
+                                created_count += 1
+                                self.logger.info(f"Índice creado exitosamente: {index_sql}")
+                            except Exception as e:
+                                self.logger.warning(f"Error al crear índice {index_sql}: {e}")
+                                # Continuar con el siguiente índice si uno falla
+                                continue
+                    
+                    conn.commit()
+                    self.logger.info(f"Total de índices optimizados creados: {created_count}")
+                    return created_count
+                    
+        except Exception as e:
+            self.logger.error(f"Error al crear índices optimizados: {e}")
+            return 0
     
     def is_operation_active(self, operation_id: str) -> bool:
         """Verifica si una operación está activa"""
@@ -819,7 +812,7 @@ class MassOperationQueue:
 class DatabaseManager:
     def __init__(self, connection_params: dict = None):
         """
-        Inicializa el gestor de base de datos PostgreSQL
+        Inicializa el gestor de base de datos PostgreSQL optimizado para conexión remota São Paulo -> Argentina
         
         Args:
             connection_params: Diccionario con parámetros de conexión PostgreSQL
@@ -833,7 +826,27 @@ class DatabaseManager:
         if connection_params is None:
             connection_params = self._get_default_connection_params()
         
-        self.connection_params = connection_params
+        # Configuración optimizada para conexión remota São Paulo -> Argentina
+        optimized_params = connection_params.copy()
+        optimized_params.update({
+            'connect_timeout': 30,  # 30 segundos para conexión inicial
+            'application_name': 'GymManagementSystem_Argentina',
+            'options': '-c timezone=America/Argentina/Buenos_Aires'
+        })
+        
+        # Solo agregar parámetros de timeout si no es Neon.tech (no los soporta)
+        try:
+            host_lc = str(connection_params.get('host', '')).lower()
+            if 'neon.tech' not in host_lc:
+                optimized_params.update({
+                    'statement_timeout': '60s',  # Timeout de 60 segundos por consulta
+                    'lock_timeout': '10s',       # Timeout de 10 segundos para locks
+                    'idle_in_transaction_session_timeout': '30s',  # Timeout para transacciones inactivas
+                })
+        except Exception:
+            pass
+        
+        self.connection_params = optimized_params
         # Atributo de compatibilidad con código SQLite existente
         self.db_path = f"postgresql://{connection_params.get('user', 'postgres')}@{connection_params.get('host', 'localhost')}:{connection_params.get('port', 5432)}/{connection_params.get('database', 'gym_management')}"
         self._initializing = False
@@ -846,37 +859,199 @@ class DatabaseManager:
                 'database': connection_params.get('database'),
                 'user': connection_params.get('user'),
                 'sslmode': connection_params.get('sslmode'),
-                'connect_timeout': connection_params.get('connect_timeout'),
-                'application_name': connection_params.get('application_name'),
-                'options_present': bool(connection_params.get('options')),
+                'connect_timeout': optimized_params.get('connect_timeout'),
+                'application_name': optimized_params.get('application_name'),
+                'options_present': bool(optimized_params.get('options')),
             }
-            self.logger.info(f"DatabaseManager: init con params seguros={_safe}")
+            self.logger.info(f"DatabaseManager: init con params optimizados para conexión remota={_safe}")
         except Exception:
             pass
         
+        # Pool de conexiones con mayor capacidad para conexión remota
         self._connection_pool = ConnectionPool(
-            connection_params=connection_params,
-            max_connections=8,
-            timeout=20.0
+            connection_params=optimized_params,
+            max_connections=20,  # Aumentado de 8 a 20
+            timeout=45.0  # Aumentado de 20s a 45s para conexión remota
         )
         try:
-            self.logger.info("DatabaseManager: pool creado max_connections=8, timeout=20.0s")
+            self.logger.info("DatabaseManager: pool creado max_connections=20, timeout=45.0s (optimizado para São Paulo)")
         except Exception:
             pass
         
         self._cache_config = {
-            'usuarios': {'duration': 300, 'max_size': 500},
-            'pagos': {'duration': 180, 'max_size': 300},
-            'asistencias': {'duration': 120, 'max_size': 200},
-            'reportes': {'duration': 600, 'max_size': 100},
-            'profesores': {'duration': 400, 'max_size': 150},
-            'clases': {'duration': 240, 'max_size': 200},
-            # Caché de configuraciones generales (branding, owner_password, etc.)
-            'config': {'duration': 1800, 'max_size': 200}
+            'usuarios': {'duration': 900, 'max_size': 1000},      # 15 minutos, 1000 usuarios
+            'pagos': {'duration': 600, 'max_size': 500},        # 10 minutos, 500 pagos
+            'asistencias': {'duration': 300, 'max_size': 300},   # 5 minutos, 300 asistencias
+            'reportes': {'duration': 1200, 'max_size': 200},    # 20 minutos, 200 reportes
+            'profesores': {'duration': 1800, 'max_size': 200},   # 30 minutos, 200 profesores
+            'clases': {'duration': 600, 'max_size': 300},       # 10 minutos, 300 clases
+            'ejercicios': {'duration': 900, 'max_size': 1000},   # 15 minutos, 1000 ejercicios
+            'rutinas': {'duration': 600, 'max_size': 600},       # 10 minutos, 600 rutinas y vistas asociadas
+            'clase_ejercicios': {'duration': 600, 'max_size': 600}, # 10 minutos, ejercicios por clase
+            'config': {'duration': 3600, 'max_size': 200},      # 1 hora, 200 configs
+            'metodos_pago': {'duration': 1800, 'max_size': 200},  # 30 minutos, 200 métodos
+            'conceptos_pago': {'duration': 1800, 'max_size': 300} # 30 minutos, 300 conceptos
         }
         self.cache = CacheManager(self._cache_config)
         self._cache_cleanup_thread = None
         self._stop_event = threading.Event()
+        # Caché de columnas por tabla para construir SELECT explícitos sin '*'
+        self._table_columns_cache: Dict[str, List[str]] = {}
+        self._table_columns_lock = threading.RLock()
+        
+        # Prepared statements para consultas frecuentes
+        self._prepared_statements = {
+            'usuarios_by_rol': "PREPARE get_usuarios_by_rol(TEXT) AS SELECT id, nombre, dni, telefono, pin, rol, notas, fecha_registro, activo, tipo_cuota, fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago FROM usuarios WHERE rol = $1 ORDER BY nombre",
+            'usuarios_by_id': "PREPARE get_usuario_by_id(BIGINT) AS SELECT id, nombre, dni, telefono, pin, rol, notas, fecha_registro, activo, tipo_cuota, fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago FROM usuarios WHERE id = $1",
+            'usuarios_active': "PREPARE get_usuarios_active() AS SELECT id, nombre, dni, telefono, pin, rol, notas, fecha_registro, activo, tipo_cuota, fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago FROM usuarios WHERE activo = true ORDER BY nombre",
+            'pagos_by_usuario': "PREPARE get_pagos_by_usuario(BIGINT) AS SELECT id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id FROM pagos WHERE usuario_id = $1 ORDER BY fecha_pago DESC",
+            'asistencias_today': "PREPARE get_asistencias_today() AS SELECT id, usuario_id, fecha, hora_registro FROM asistencias WHERE fecha = CURRENT_DATE ORDER BY hora_registro DESC",
+            'asistencias_by_usuario_date': "PREPARE get_asistencias_by_usuario_date(BIGINT, DATE, DATE) AS SELECT id, usuario_id, fecha, hora_registro FROM asistencias WHERE usuario_id = $1 AND fecha BETWEEN $2 AND $3 ORDER BY fecha DESC",
+            'clases_active': "PREPARE get_clases_active() AS SELECT id, nombre, descripcion, activa FROM clases WHERE activa = true ORDER BY nombre",
+            'profesores_active': "PREPARE get_profesores_active() AS SELECT p.id, u.nombre, u.telefono FROM profesores p JOIN usuarios u ON u.id = p.usuario_id ORDER BY u.nombre"
+        }
+        
+        # Estadísticas de rendimiento
+        self._query_stats = {
+            'total_queries': 0,
+            'slow_queries': 0,
+            'cache_hits': 0,
+            'cache_misses': 0,
+            'average_query_time': 0.0
+        }
+        # Locks y caché ligera para estadísticas de rendimiento
+        self._query_stats_lock = threading.RLock()
+        self._perf_stats_cache = {'value': None, 'expires_at': 0.0}
+        # TTL corto para evitar recomputaciones frecuentes bajo carga (segundos)
+        self._perf_stats_cache_ttl = 3.0
+        self._query_time_threshold = 2.0  # 2 segundos para considerar una consulta lenta
+
+    def get_table_columns(self, table_name: str) -> List[str]:
+        """Devuelve la lista de columnas de una tabla en orden, con caché.
+
+        Usa information_schema para descubrir columnas y cachea el resultado
+        para minimizar consultas adicionales.
+        """
+        try:
+            # Cache hit
+            cols = self._table_columns_cache.get(table_name)
+            if cols:
+                return cols
+        except Exception:
+            pass
+        with self._table_columns_lock:
+            # Revalidar dentro del lock
+            cols2 = self._table_columns_cache.get(table_name)
+            if cols2:
+                return cols2
+            try:
+                with self.readonly_session(lock_ms=0, statement_ms=2000, idle_s=2, seqscan_off=True) as conn:
+                    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                        cur.execute(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = %s
+                            ORDER BY ordinal_position
+                            """,
+                            (table_name,)
+                        )
+                        rows = cur.fetchall() or []
+                        names = [r['column_name'] for r in rows]
+                        # Cachear
+                        self._table_columns_cache[table_name] = names
+                        return names
+            except Exception:
+                # Fallback: devolver vacío para evitar romper llamadas; el caller puede usar '*'
+                return []
+
+    def initialize_prepared_statements(self):
+        """Inicializa las declaraciones preparadas para consultas frecuentes"""
+        try:
+            with self.connection() as conn:
+                with conn.cursor() as cur:
+                    for stmt_name, stmt_sql in self._prepared_statements.items():
+                        try:
+                            cur.execute(stmt_sql)
+                            self.logger.info(f"Declaración preparada creada: {stmt_name}")
+                        except Exception as e:
+                            self.logger.warning(f"Error al crear declaración preparada {stmt_name}: {e}")
+                    
+                    conn.commit()
+                    self.logger.info("Declaraciones preparadas inicializadas exitosamente")
+        except Exception as e:
+            self.logger.error(f"Error al inicializar declaraciones preparadas: {e}")
+
+    def execute_prepared_query(self, stmt_name: str, params: tuple = ()) -> List[Dict]:
+        """Ejecuta una declaración preparada con monitoreo de rendimiento"""
+        start_time = time.time()
+        try:
+            with self.readonly_session(lock_ms=0, statement_ms=3000, idle_s=2, seqscan_off=True) as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    # Construir la consulta EXECUTE con parámetros
+                    execute_sql = f"EXECUTE {stmt_name}"
+                    if params:
+                        execute_sql += f"({', '.join(['%s'] * len(params))})"
+                    
+                    cur.execute(execute_sql, params)
+                    results = cur.fetchall()
+                    
+                    # Actualizar estadísticas
+                    query_time = time.time() - start_time
+                    self._update_query_stats(query_time)
+                    
+                    return results
+                    
+        except Exception as e:
+            query_time = time.time() - start_time
+            self.logger.warning(f"Error en declaración preparada {stmt_name} ({query_time:.2f}s): {e}")
+            raise
+
+    def _update_query_stats(self, query_time: float):
+        """Actualiza estadísticas de rendimiento de consultas"""
+        with self._query_stats_lock:
+            self._query_stats['total_queries'] += 1
+            if query_time > self._query_time_threshold:
+                self._query_stats['slow_queries'] += 1
+                self.logger.warning(f"Consulta lenta detectada: {query_time:.2f}s")
+            # Promedio móvil
+            self._query_stats['average_query_time'] = (
+                (self._query_stats['average_query_time'] * (self._query_stats['total_queries'] - 1) + query_time)
+                / self._query_stats['total_queries']
+            )
+
+    def get_query_performance_stats(self) -> Dict:
+        """Obtiene estadísticas de rendimiento de consultas con caché ligera (TTL)."""
+        now = time.time()
+        # Fast-path cache válida
+        with self._query_stats_lock:
+            cached = self._perf_stats_cache
+            if cached['value'] is not None and now < cached['expires_at']:
+                return cached['value']
+
+            # Tomar snapshot consistente y calcular métricas derivadas
+            total = self._query_stats['total_queries']
+            slow = self._query_stats['slow_queries']
+            hits = self._query_stats['cache_hits']
+            misses = self._query_stats['cache_misses']
+            avg = self._query_stats['average_query_time']
+
+            result = {
+                'total_queries': total,
+                'slow_queries': slow,
+                'cache_hits': hits,
+                'cache_misses': misses,
+                'average_query_time': avg,
+                'slow_query_percentage': ((slow / max(total, 1)) * 100),
+                'cache_hit_ratio': ((hits / max(hits + misses, 1)) * 100),
+            }
+
+            # Actualizar caché
+            self._perf_stats_cache = {
+                'value': result,
+                'expires_at': now + self._perf_stats_cache_ttl,
+            }
+            return result
         
         # Inicialización de locks y estadísticas de rendimiento
         self._cache_lock = threading.RLock()
@@ -892,6 +1067,18 @@ class DatabaseManager:
         # Sistema de contador local de sesiones (sin conexión continua a DB)
         self._sesiones_locales = {}  # {profesor_id: {'inicio': datetime, 'sesion_id': int, 'tipo_actividad': str}}
         self._sesiones_lock = threading.RLock()
+        
+        # Inicializar declaraciones preparadas
+        try:
+            self.initialize_prepared_statements()
+        except Exception as e:
+            self.logger.warning(f"No se pudieron inicializar declaraciones preparadas: {e}")
+        
+        # Inicializar índices optimizados
+        try:
+            self.create_optimized_indexes()
+        except Exception as e:
+            self.logger.warning(f"No se pudieron crear índices optimizados: {e}")
         
         # Inicialización pesada diferida y única (no bloquear UI múltiples veces)
         self._init_database_once_deferred()
@@ -1670,31 +1857,44 @@ class DatabaseManager:
         # Permite: statement_timeout, lock_timeout, idle_in_transaction_session_timeout y zona horaria
         options_parts = []
         try:
-            st_timeout = str(os.getenv('DB_STATEMENT_TIMEOUT', (cfg.get('statement_timeout') or node.get('statement_timeout') or '4s')))
+            st_timeout = str(os.getenv('DB_STATEMENT_TIMEOUT', (base.get('statement_timeout') or '4s')))
             if st_timeout:
                 options_parts.append(f"-c statement_timeout={st_timeout}")
         except Exception:
             options_parts.append("-c statement_timeout=4s")
         try:
-            lk_timeout = str(os.getenv('DB_LOCK_TIMEOUT', (cfg.get('lock_timeout') or node.get('lock_timeout') or '2s')))
+            lk_timeout = str(os.getenv('DB_LOCK_TIMEOUT', (base.get('lock_timeout') or '2s')))
             if lk_timeout:
                 options_parts.append(f"-c lock_timeout={lk_timeout}")
         except Exception:
             options_parts.append("-c lock_timeout=2s")
         try:
-            idle_trx_timeout = str(os.getenv('DB_IDLE_IN_TRX_TIMEOUT', (cfg.get('idle_in_transaction_session_timeout') or node.get('idle_in_transaction_session_timeout') or '30s')))
+            idle_trx_timeout = str(os.getenv('DB_IDLE_IN_TRX_TIMEOUT', (base.get('idle_in_transaction_session_timeout') or '30s')))
             if idle_trx_timeout:
                 options_parts.append(f"-c idle_in_transaction_session_timeout={idle_trx_timeout}")
         except Exception:
             options_parts.append("-c idle_in_transaction_session_timeout=30s")
         try:
-            tz = str(os.getenv('DB_TIME_ZONE', (cfg.get('time_zone') or node.get('time_zone') or 'America/Argentina/Buenos_Aires')))
+            tz = str(os.getenv('DB_TIME_ZONE', (base.get('time_zone') or 'America/Argentina/Buenos_Aires')))
             if tz:
                 options_parts.append(f"-c TimeZone={tz}")
         except Exception:
             options_parts.append("-c TimeZone=America/Argentina/Buenos_Aires")
         # Construir cadena options final
         options = " ".join(options_parts).strip()
+
+        # Algunos proveedores como Neon no soportan 'options' con '-c ...' en el startup packet.
+        # Permite deshabilitarlo vía entorno o automáticamente si el host parece ser Neon.
+        try:
+            disable_options_flag = str(os.getenv('DB_DISABLE_OPTIONS', 'false')).lower() in ('1', 'true', 'yes', 'on')
+        except Exception:
+            disable_options_flag = False
+        try:
+            host_lc = str(host).lower()
+        except Exception:
+            host_lc = ''
+        if disable_options_flag or ('neon.tech' in host_lc):
+            options = ''
 
         # Contraseña: ENV > perfil config.json > top-level > almacén seguro
         password = str(base.get('password') or os.getenv('DB_PASSWORD', ''))
@@ -1723,7 +1923,7 @@ class DatabaseManager:
                     if saved_pwd:
                         break
 
-                # Migración automática desde etiquetas legacy si no existe en la actual
+                # Migración automática desde etiquetas anteriores si no existe en la actual
                 if not saved_pwd:
                     for old_service in LEGACY_KEYRING_SERVICE_NAMES:
                         if not old_service or old_service == KEYRING_SERVICE_NAME:
@@ -1748,7 +1948,7 @@ class DatabaseManager:
             except Exception:
                 password = ''
 
-        return {
+        params = {
             'host': host,
             'port': port,
             'database': database,
@@ -1757,13 +1957,23 @@ class DatabaseManager:
             'sslmode': sslmode,
             'connect_timeout': connect_timeout,
             'application_name': application_name,
-            'options': options,
-            # Mantener viva la conexión TCP en redes inestables
-            'keepalives': 1,
-            'keepalives_idle': int(os.getenv('DB_KEEPALIVES_IDLE', (node.get('keepalives_idle') or cfg.get('keepalives_idle') or 30))),
-            'keepalives_interval': int(os.getenv('DB_KEEPALIVES_INTERVAL', (node.get('keepalives_interval') or cfg.get('keepalives_interval') or 10))),
-            'keepalives_count': int(os.getenv('DB_KEEPALIVES_COUNT', (node.get('keepalives_count') or cfg.get('keepalives_count') or 3))),
         }
+        
+        # Solo agregar parámetros keepalives si no es Neon.tech (no los soporta)
+        try:
+            host_lc = str(host).lower()
+            if 'neon.tech' not in host_lc:
+                # Mantener viva la conexión TCP en redes inestables (solo para no-Neon)
+                params['keepalives'] = 1
+                params['keepalives_idle'] = int(os.getenv('DB_KEEPALIVES_IDLE', (base.get('keepalives_idle') or 30)))
+                params['keepalives_interval'] = int(os.getenv('DB_KEEPALIVES_INTERVAL', (base.get('keepalives_interval') or 10)))
+                params['keepalives_count'] = int(os.getenv('DB_KEEPALIVES_COUNT', (base.get('keepalives_count') or 3)))
+        except Exception:
+            pass
+        # Solo incluir 'options' si hay contenido
+        if options:
+            params['options'] = options
+        return params
     
     def obtener_conexion(self):
         """Obtiene una conexión optimizada del pool de conexiones"""
@@ -2380,7 +2590,7 @@ class DatabaseManager:
                     FOR EACH ROW EXECUTE FUNCTION usuarios_bloquear_dueno_delete();
                     """)
 
-                    # Eliminado: lógica legacy de updated_at; migración usa logical_ts/last_op_id
+                    
                     
                     # Tabla de pagos
                     cursor.execute("""
@@ -2948,7 +3158,7 @@ class DatabaseManager:
                         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )""")
                     
-                    # Tabla de logs de auditoría (con campos lógicos)
+                    # Tabla de logs de auditoría
                     cursor.execute("""
                     CREATE TABLE IF NOT EXISTS audit_logs (
                         id SERIAL PRIMARY KEY,
@@ -2962,8 +3172,6 @@ class DatabaseManager:
                         user_agent TEXT,
                         session_id VARCHAR(255),
                         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        logical_ts BIGINT NOT NULL DEFAULT 0,
-                        last_op_id UUID,
                         FOREIGN KEY (user_id) REFERENCES usuarios (id) ON DELETE SET NULL
                     )""")
                     
@@ -3047,12 +3255,24 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuario_estados_usuario_id ON usuario_estados(usuario_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuario_estados_creado_por ON usuario_estados(creado_por)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_logical_ts ON audit_logs(logical_ts)")
-                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_last_op_id ON audit_logs(last_op_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_theme_schedules_theme_id ON theme_schedules(theme_id)")
                     # Índices compuestos para ordenar y filtrar usuarios eficientemente
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_rol_nombre ON usuarios(rol, nombre)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_activo_rol_nombre ON usuarios(activo, rol, nombre)")
+                    # Índices adicionales para 'clases' y operación de asistencias
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clases_nombre ON clases(nombre)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clases_activa_true_nombre ON clases(nombre) WHERE activa = TRUE")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clases_tipo_clase_id ON clases(tipo_clase_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_asistencias_usuario_fecha ON asistencias(usuario_id, fecha)")
+
+                    # Recomendaciones de índices adicionales (comentadas) para patrones comunes:
+                    # CREATE INDEX IF NOT EXISTS idx_clases_activa_nombre ON clases(activa, nombre);
+                    # CREATE INDEX IF NOT EXISTS idx_clases_activa_true ON clases(id) WHERE activa = TRUE;
+                    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_usuario_activa_fecha ON usuario_notas(usuario_id, fecha_creacion) WHERE activa = TRUE;
+                    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_categoria_activa_fecha ON usuario_notas(categoria, fecha_creacion) WHERE activa = TRUE;
+                    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_importancia_activa_fecha ON usuario_notas(importancia, fecha_creacion) WHERE activa = TRUE;
+                    # CREATE INDEX IF NOT EXISTS idx_usuario_estados_usuario_activo_fecha_inicio_desc ON usuario_estados(usuario_id, fecha_inicio DESC) WHERE activo = TRUE;
+                    # CREATE INDEX IF NOT EXISTS idx_usuario_estados_activo_vencimiento ON usuario_estados(fecha_vencimiento) WHERE activo = TRUE;
                     # Índice funcional para optimizar consultas por mes/año en pagos
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_pagos_month_year ON pagos ((EXTRACT(MONTH FROM fecha_pago)), (EXTRACT(YEAR FROM fecha_pago)))")
                     # Índices compuestos para ordenar por fecha en historial
@@ -3250,15 +3470,29 @@ class DatabaseManager:
                                  ('theme_mode', 'light', 'Modo de tema (light/dark)'))
                     cursor.execute("INSERT INTO configuracion (clave, valor, descripcion) VALUES (%s, %s, %s) ON CONFLICT (clave) DO NOTHING", 
                                  ('language', 'es', 'Idioma del sistema'))
-                    # Contraseña del Dueño (se crea automáticamente si no existe)
-                    cursor.execute("INSERT INTO configuracion (clave, valor, descripcion) VALUES (%s, %s, %s) ON CONFLICT (clave) DO NOTHING", 
-                                 ('owner_password', 'Matute03', 'Contraseña del Dueño para acceso administrativo'))
-                    # Contraseña de acceso del Dueño
-                    cursor.execute("INSERT INTO configuracion (clave, valor, descripcion) VALUES (%s, %s, %s) ON CONFLICT (clave) DO NOTHING", 
-                                 ('owner_password', 'Matute03', 'Contraseña del Dueño para acceso administrativo'))
-                    
+                    # Sembrar contraseña del Dueño desde entorno (hasheada) si está disponible
+                    try:
+                        env_pwd = (os.getenv('WEBAPP_OWNER_PASSWORD', '') or os.getenv('OWNER_PASSWORD', '')).strip()
+                    except Exception:
+                        env_pwd = ''
+                    if env_pwd:
+                        try:
+                            from security_utils import SecurityUtils
+                            hashed_pwd = SecurityUtils.hash_password(env_pwd)
+                        except Exception:
+                            # Fallback a texto plano solo si falla bcrypt
+                            hashed_pwd = env_pwd
+                        try:
+                            cursor.execute(
+                                "INSERT INTO configuracion (clave, valor, descripcion) VALUES (%s, %s, %s) ON CONFLICT (clave) DO NOTHING",
+                                ('owner_password', hashed_pwd, 'Contraseña del Dueño para acceso administrativo')
+                            )
+                        except Exception:
+                            # No bloquear inicialización por errores de seed
+                            pass
+
                     # Usuario dueño por defecto ya creado antes de aplicar protecciones (ver sección anterior)
-                    
+
                     # Insertar estados básicos si no existen (después de crear el usuario dueño)
                     if owner_id is not None:
                         cursor.execute(
@@ -3434,41 +3668,236 @@ class DatabaseManager:
                 # Enviar mensaje de bienvenida automático por WhatsApp
                 self._enviar_mensaje_bienvenida_automatico(usuario_id, usuario.nombre, usuario.telefono)
                 
-                # Encolar operación de sincronización (user.add)
-                try:
-                    payload = {
-                        "dni": usuario.dni,
-                        "nombre": usuario.nombre,
-                        "telefono": usuario.telefono,
-                        "tipo_cuota": usuario.tipo_cuota,
-                        "active": bool(usuario.activo),
-                        "rol": usuario.rol,
-                    }
-                    enqueue_operations([op_user_add(payload)])
-                except Exception as e:
-                    logging.debug(f"sync enqueue user.add falló: {e}")
+                
                 
                 return usuario_id
 
-    def obtener_usuario(self, usuario_id: int) -> Optional[Usuario]:
-        """Obtiene un usuario por su ID"""
+    @database_retry()
+    def registrar_usuarios_batch(self, items: List[Dict[str, Any]], *, skip_duplicates: bool = True, validate_data: bool = True) -> Dict[str, Any]:
+        """Registra usuarios en lote de forma chunky y optimizada.
+
+        - Normaliza datos (nombre, rol, activo, etc.).
+        - Si hay 'dni', deduplica por dni. Si no hay 'dni', inserta tal cual.
+        - Inserta en batch con RETURNING para obtener IDs.
+        - Actualiza fecha_proximo_vencimiento para nuevos socios en un único UPDATE.
+        - Crea perfiles de profesor para nuevos profesores con un único INSERT batch.
+        - Invalida cache y encola sincronización upstream en un único paso.
+        """
+        result: Dict[str, Any] = {
+            'insertados': [],
+            'actualizados': [],
+            'omitidos': [],
+        }
+        if not items:
+            return result
+
+        # Pre-procesamiento: normalizar y validar
+        prepped: List[Dict[str, Any]] = []
+        for raw in items:
+            try:
+                nombre = str((raw.get('nombre') or '')).strip()
+                dni = str(raw.get('dni')).strip() if raw.get('dni') is not None else None
+                telefono = str(raw.get('telefono')).strip() if raw.get('telefono') is not None else None
+                pin = str(raw.get('pin')).strip() if raw.get('pin') is not None else None
+                rol = str((raw.get('rol') or 'socio')).strip().lower()
+                activo = bool(raw.get('activo', True))
+                tipo_cuota = raw.get('tipo_cuota')
+                notas = raw.get('notas')
+                if validate_data and not nombre:
+                    result['omitidos'].append({'motivo': 'nombre vacío', 'item': raw})
+                    continue
+                prepped.append({
+                    'nombre': nombre,
+                    'dni': dni,
+                    'telefono': telefono,
+                    'pin': pin,
+                    'rol': rol,
+                    'activo': activo,
+                    'tipo_cuota': tipo_cuota,
+                    'notas': notas,
+                })
+            except Exception as e:
+                result['omitidos'].append({'motivo': f'error normalizando: {e}', 'item': raw})
+
+        if not prepped:
+            return result
+
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM usuarios WHERE id = %s", (usuario_id,))
+                # Detectar dnis ya existentes (si se proveen)
+                dnis: List[str] = [p['dni'] for p in prepped if p.get('dni')]
+                existing_by_dni: Set[str] = set()
+                if dnis:
+                    try:
+                        cursor.execute("SELECT dni FROM usuarios WHERE dni = ANY(%s)", (dnis,))
+                        rows = cursor.fetchall() or []
+                        existing_by_dni = {str(r.get('dni')).strip() for r in rows if r.get('dni') is not None}
+                    except Exception:
+                        existing_by_dni = set()
+
+                nuevos: List[Dict[str, Any]] = []
+                existentes: List[Dict[str, Any]] = []
+                for p in prepped:
+                    if p.get('dni') and p['dni'] in existing_by_dni:
+                        existentes.append(p)
+                    else:
+                        nuevos.append(p)
+
+                # Inserción en lote
+                inserted_rows: List[Dict[str, Any]] = []
+                if nuevos:
+                    tpl_values = [
+                        (
+                            n['nombre'], n.get('dni'), n.get('telefono'), n.get('pin'),
+                            n['rol'], n['activo'], n.get('tipo_cuota'), n.get('notas')
+                        )
+                        for n in nuevos
+                    ]
+                    sql_insert = (
+                        "INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota, notas) "
+                        "VALUES %s RETURNING id, dni, rol"
+                    )
+                    psycopg2.extras.execute_values(cursor, sql_insert, tpl_values, page_size=max(100, min(1000, len(tpl_values))))
+                    for r in cursor.fetchall() or []:
+                        rid = r.get('id')
+                        inserted_rows.append({'id': rid, 'dni': r.get('dni'), 'rol': (r.get('rol') or '').strip().lower()})
+                        result['insertados'].append(rid)
+
+                # Actualización en lote por DNI si se solicita
+                if existentes and not skip_duplicates:
+                    # Usar UPDATE ... FROM (VALUES ...) para actualizar múltiples filas
+                    upd_values = [
+                        (
+                            e.get('dni'), e['nombre'], e.get('telefono'), e.get('pin'), e['rol'], e['activo'], e.get('tipo_cuota'), e.get('notas')
+                        )
+                        for e in existentes if e.get('dni')
+                    ]
+                    sql_update = (
+                        "UPDATE usuarios AS u SET "
+                        "  nombre = v.nombre, "
+                        "  telefono = v.telefono, "
+                        "  pin = v.pin, "
+                        "  rol = v.rol, "
+                        "  activo = v.activo, "
+                        "  tipo_cuota = v.tipo_cuota, "
+                        "  notas = v.notas "
+                        "FROM (VALUES %s) AS v(dni, nombre, telefono, pin, rol, activo, tipo_cuota, notas) "
+                        "WHERE u.dni = v.dni"
+                    )
+                    psycopg2.extras.execute_values(cursor, sql_update, upd_values, page_size=max(100, min(1000, len(upd_values))))
+                    # Obtener IDs actualizados
+                    try:
+                        cursor.execute("SELECT id FROM usuarios WHERE dni = ANY(%s)", ([e[0] for e in upd_values],))
+                        for r in cursor.fetchall() or []:
+                            result['actualizados'].append(r.get('id'))
+                    except Exception:
+                        pass
+                else:
+                    # Marcar existentes como omitidos si se decide saltar duplicados
+                    for e in existentes:
+                        result['omitidos'].append({'motivo': 'dni duplicado', 'item': e})
+
+                # Actualización de fecha_proximo_vencimiento para nuevos socios en un único UPDATE
+                socios_ids = [r['id'] for r in inserted_rows if (r.get('rol') or '') == 'socio']
+                if socios_ids:
+                    try:
+                        cursor.execute(
+                            "UPDATE usuarios SET fecha_proximo_vencimiento = CURRENT_DATE + INTERVAL '1 month' WHERE id = ANY(%s)",
+                            (socios_ids,)
+                        )
+                    except Exception as e:
+                        logging.debug(f"Aviso al actualizar vencimientos batch: {e}")
+
+                # Crear perfiles profesor para nuevos profesores en un único INSERT batch (valores por defecto)
+                profesores_ids = [r['id'] for r in inserted_rows if (r.get('rol') or '') == 'profesor']
+                if profesores_ids:
+                    try:
+                        tpl_prof = [
+                            (pid, '', '', 0, 0.0, date.today(), '', '')
+                            for pid in profesores_ids
+                        ]
+                        sql_prof = (
+                            "INSERT INTO profesores (usuario_id, especialidades, certificaciones, experiencia_años, "
+                            "tarifa_por_hora, fecha_contratacion, biografia, telefono_emergencia) VALUES %s"
+                        )
+                        psycopg2.extras.execute_values(cursor, sql_prof, tpl_prof, page_size=max(100, min(1000, len(tpl_prof))))
+                    except Exception as e:
+                        logging.debug(f"Aviso al crear perfiles profesor batch: {e}")
+
+                conn.commit()
+
+                # Auditoría y sincronización upstream
+                try:
+                    if self.audit_logger:
+                        self.audit_logger.log_operation('BULK_CREATE', 'usuarios', None, None, {
+                            'insertados': len(result['insertados']),
+                            'actualizados': len(result['actualizados']),
+                            'omitidos': len(result['omitidos']),
+                        })
+                except Exception:
+                    pass
+
+                try:
+                    payloads = []
+                    for r in nuevos:
+                        payloads.append({
+                            'dni': r.get('dni'),
+                            'nombre': r.get('nombre'),
+                            'telefono': r.get('telefono'),
+                            'tipo_cuota': r.get('tipo_cuota'),
+                            'active': bool(r.get('activo')), 
+                            'rol': r.get('rol'),
+                        })
+                    
+                except Exception:
+                    pass
+
+                # Invalidar cache
+                self.cache.invalidate('usuarios')
+
+        return result
+
+    def obtener_usuario(self, usuario_id: int) -> Optional[Usuario]:
+        """Obtiene un usuario por su ID"""
+        # Intento rápido: caché por ID
+        try:
+            cache_key = ('id', int(usuario_id))
+            cached = self.cache.get('usuarios', cache_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
+
+        with self.get_connection_context() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Selección de columnas dinámica para soportar esquemas sin 'apellido'/'email'
+                _cols = self.get_table_columns('usuarios')
+                _desired = ['id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+                _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, rol"
+                cursor.execute(
+                    f"SELECT {_sel} FROM usuarios WHERE id = %s",
+                    (usuario_id,)
+                )
                 row = cursor.fetchone()
                 if row:
                     data = dict(row)
-                    apellido = data.pop('apellido', None)
-                    nombre = (data.get('nombre') or '').strip()
-                    if apellido:
-                        ap = str(apellido).strip()
-                        if ap and ap not in nombre:
-                            nombre = f"{nombre} {ap}".strip() if nombre else ap
-                    data['nombre'] = nombre
+                    if 'apellido' in data:
+                        apellido = (data.get('apellido') or '').strip()
+                        nombre = (data.get('nombre') or '').strip()
+                        data['nombre'] = (f"{nombre} {apellido}".strip() if nombre or apellido else nombre or apellido)
+                        data.pop('apellido', None)
+                    else:
+                        data['nombre'] = (data.get('nombre') or '').strip()
                     data.pop('email', None)
-                    allowed = {'id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago'}
-                    filtered = {k: data.get(k) for k in allowed if k in data}
-                    return Usuario(**filtered)
+                    allowed_fields = set(Usuario.__dataclass_fields__.keys())
+                    filtered = {k: v for k, v in data.items() if k in allowed_fields}
+                    user_obj = Usuario(**filtered)
+                    # Guardar en caché
+                    try:
+                        self.cache.set('usuarios', ('id', int(usuario_id)), user_obj)
+                    except Exception:
+                        pass
+                    return user_obj
                 return None
     
     def obtener_usuario_por_id(self, usuario_id: int) -> Optional[Usuario]:
@@ -3485,17 +3914,7 @@ class DatabaseManager:
         except Exception:
             pass
 
-        # 2) Intento rápido: caché persistente (OfflineSyncManager)
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                cached_persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_todos_usuarios', (), {}
-                )
-                if cached_persist is not None:
-                    return cached_persist
-        except Exception:
-            pass
-
+        
         # 3) Consulta endurecida con columnas específicas y timeouts (readonly_session)
         try:
             with self.readonly_session(lock_ms=8000, statement_ms=6000, idle_s=2, seqscan_off=True) as conn:
@@ -3522,21 +3941,7 @@ class DatabaseManager:
                         if 'lock timeout' in msg or 'canceling statement due to lock timeout' in msg:
                             # 1) Fallback inmediato a cachés
                             try:
-                                cached_mem = None
-                                try:
-                                    cached_mem = self.cache.get('usuarios', ('all',))
-                                except Exception:
-                                    cached_mem = None
-                                cached_persist = None
-                                try:
-                                    if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                                        cached_persist = self.offline_sync_manager.get_cached_read_result(
-                                            'obtener_todos_usuarios', (), {}
-                                        )
-                                except Exception:
-                                    cached_persist = None
-                                if cached_persist:
-                                    return cached_persist
+                                cached_mem = self.cache.get('usuarios', ('all',))
                                 if cached_mem:
                                     return cached_mem
                             except Exception:
@@ -3593,11 +3998,6 @@ class DatabaseManager:
                                             self.cache.set('usuarios', ('all',), usuarios)
                                         except Exception:
                                             pass
-                                        try:
-                                            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                                                self.offline_sync_manager.cache_read_result('obtener_todos_usuarios', (), {}, usuarios)
-                                        except Exception:
-                                            pass
                                         return usuarios
                             except Exception:
                                 # 3) Último recurso: devolver lista vacía para evitar crash en UI
@@ -3634,11 +4034,6 @@ class DatabaseManager:
                         self.cache.set('usuarios', ('all',), usuarios)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result('obtener_todos_usuarios', (), {}, usuarios)
-                    except Exception:
-                        pass
                     return usuarios
         except Exception as e:
             # Log estructurado para detectar origen del bloqueo
@@ -3647,15 +4042,6 @@ class DatabaseManager:
             except Exception:
                 pass
             # 4) Fallback: intentar devolver lo que haya en caché persistente o memoria
-            try:
-                if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                    cached_persist = self.offline_sync_manager.get_cached_read_result(
-                        'obtener_todos_usuarios', (), {}
-                    )
-                    if cached_persist is not None:
-                        return cached_persist
-            except Exception:
-                pass
             try:
                 cached = self.cache.get('usuarios', ('all',))
                 if cached is not None:
@@ -3674,17 +4060,7 @@ class DatabaseManager:
         except Exception:
             pass
 
-        # 2) Caché persistente (OfflineSyncManager)
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                cached_persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_todos_pagos', (), {}
-                )
-                if cached_persist is not None:
-                    return cached_persist
-        except Exception:
-            pass
-
+        
         # 3) Consulta con columnas específicas y timeouts
         try:
             with self.get_connection_context() as conn:
@@ -3710,13 +4086,6 @@ class DatabaseManager:
                     # Actualizar caché
                     try:
                         self.cache.set('pagos', ('all_basic',), rows)
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_todos_pagos', (), {}, rows
-                            )
                     except Exception:
                         pass
                     return rows
@@ -3775,7 +4144,14 @@ class DatabaseManager:
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                    cursor.execute("SELECT * FROM ejercicios ORDER BY nombre")
+                    cursor.execute(
+                        """
+                        SELECT 
+                            id, nombre, grupo_muscular, descripcion, objetivo
+                        FROM ejercicios
+                        ORDER BY nombre
+                        """
+                    )
                     return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logging.error(f"Error al obtener todos los ejercicios: {str(e)}")
@@ -3791,17 +4167,7 @@ class DatabaseManager:
         except Exception:
             pass
 
-        # 2) Caché persistente
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                cached_persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_todas_rutinas', (), {}
-                )
-                if cached_persist is not None:
-                    return cached_persist
-        except Exception:
-            pass
-
+        
         # 3) Consulta optimizada
         try:
             with self.get_connection_context() as conn:
@@ -3828,13 +4194,6 @@ class DatabaseManager:
                         self.cache.set('rutinas', ('all_basic',), rows)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_todas_rutinas', (), {}, rows
-                            )
-                    except Exception:
-                        pass
                     return rows
         except Exception as e:
             logging.error(f"Error al obtener todas las rutinas: {str(e)}")
@@ -3850,17 +4209,7 @@ class DatabaseManager:
         except Exception:
             pass
 
-        # 2) Caché persistente
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                cached_persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_todas_clases', (), {}
-                )
-                if cached_persist is not None:
-                    return cached_persist
-        except Exception:
-            pass
-
+        
         # 3) Consulta optimizada
         try:
             with self.get_connection_context() as conn:
@@ -3885,13 +4234,6 @@ class DatabaseManager:
 
                     try:
                         self.cache.set('clases', ('all_basic',), rows)
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_todas_clases', (), {}, rows
-                            )
                     except Exception:
                         pass
                     return rows
@@ -3950,7 +4292,14 @@ class DatabaseManager:
             try:
                 with self.readonly_session(lock_ms=800, statement_ms=stmt_ms, idle_s=2, seqscan_off=True) as conn:
                     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                        cursor.execute("SELECT * FROM usuarios WHERE rol = %s AND activo = TRUE ORDER BY id LIMIT 1", (rol,))
+                        # Seleccionar columnas explícitas para minimizar transferencia
+                        _cols = self.get_table_columns('usuarios')
+                        _desired = ['id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+                        _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, rol"
+                        cursor.execute(
+                            f"SELECT {_sel} FROM usuarios WHERE rol = %s AND activo = TRUE ORDER BY id LIMIT 1",
+                            (rol,)
+                        )
                         row = cursor.fetchone()
                         if row:
                             data = dict(row)
@@ -4010,8 +4359,11 @@ class DatabaseManager:
                             pass
                         with self.readonly_session(lock_ms=0, statement_ms=retry_stmt_ms, idle_s=2, seqscan_off=False) as conn2:
                             with conn2.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as c2:
+                                _cols2 = self.get_table_columns('usuarios')
+                                _desired2 = ['id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+                                _sel2 = ", ".join([c for c in _desired2 if c in (_cols2 or [])]) or "id, nombre, rol"
                                 c2.execute(
-                                    "SELECT * FROM usuarios WHERE rol = %s AND activo = TRUE ORDER BY id LIMIT 1",
+                                    f"SELECT {_sel2} FROM usuarios WHERE rol = %s AND activo = TRUE ORDER BY id LIMIT 1",
                                     (rol,)
                                 )
                                 r2 = c2.fetchone()
@@ -4106,8 +4458,13 @@ class DatabaseManager:
         try:
             with self.readonly_session(lock_ms=6000, statement_ms=5000, idle_s=2, seqscan_off=True) as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                query = "SELECT * FROM usuarios WHERE rol = %s ORDER BY nombre"
-                cursor.execute(query, (rol,))
+                _cols = self.get_table_columns('usuarios')
+                _desired = ['id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+                _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, rol"
+                cursor.execute(
+                    f"SELECT {_sel} FROM usuarios WHERE rol = %s ORDER BY nombre",
+                    (rol,)
+                )
                 rows = cursor.fetchall()
                 usuarios: List[Usuario] = []
                 allowed_fields = set(Usuario.__dataclass_fields__.keys())
@@ -4229,21 +4586,17 @@ class DatabaseManager:
                             self.eliminar_profesor(perfil_profesor['id'])
                 
                 # Limpiar cache de usuarios
+                try:
+                    # Invalidaciones específicas: ficha y resumen, más lista completa
+                    self.cache.invalidate('usuarios', ('id', int(usuario.id)))
+                    self.cache.invalidate('usuarios', ('refs', int(usuario.id)))
+                    self.cache.invalidate('usuarios', ('all',))
+                except Exception:
+                    pass
+                # Invalidación global (compatibilidad)
                 self.limpiar_cache_usuarios()
 
-                # Encolar operación de sincronización (user.update)
-                try:
-                    payload = {
-                        "id": usuario.id,
-                        "dni": usuario.dni,
-                        "nombre": usuario.nombre,
-                        "telefono": usuario.telefono,
-                        "tipo_cuota": usuario.tipo_cuota,
-                        "active": bool(usuario.activo),
-                    }
-                    enqueue_operations([op_user_update(payload)])
-                except Exception as e:
-                    logging.debug(f"sync enqueue user.update falló: {e}")
+                
 
     @database_retry()
     def eliminar_usuario(self, usuario_id: int):
@@ -4279,17 +4632,15 @@ class DatabaseManager:
                     self.audit_logger.log_operation('DELETE', 'usuarios', usuario_id, old_values, None)
                 
                 # Limpiar cache de usuarios
+                try:
+                    self.cache.invalidate('usuarios', ('id', int(usuario_id)))
+                    self.cache.invalidate('usuarios', ('refs', int(usuario_id)))
+                    self.cache.invalidate('usuarios', ('all',))
+                except Exception:
+                    pass
                 self.limpiar_cache_usuarios()
 
-                # Encolar operación de sincronización (user.delete)
-                try:
-                    payload = {
-                        "id": usuario_id,
-                        "dni": user_to_delete.dni if user_to_delete else None,
-                    }
-                    enqueue_operations([op_user_delete(payload)])
-                except Exception as e:
-                    logging.debug(f"sync enqueue user.delete falló: {e}")
+                
 
     def dni_existe(self, dni: str, user_id_to_ignore: Optional[int] = None) -> bool:
         """Verifica si un DNI ya existe en la base de datos"""
@@ -4309,46 +4660,530 @@ class DatabaseManager:
                 return cursor.fetchone() is not None
 
     def obtener_resumen_referencias_usuario(self, usuario_id: int) -> dict:
-        """Obtiene un resumen de conteos de referencias al usuario en tablas relacionadas"""
-        counts = {}
+        """Obtiene un resumen de conteos de referencias al usuario en tablas relacionadas mediante una sola consulta."""
+        # Cache por usuario para evitar múltiples subconsultas repetidas
+        try:
+            cache_key = ('refs', int(usuario_id))
+            cached = self.cache.get('usuarios', cache_key)
+            if isinstance(cached, dict):
+                return cached
+        except Exception:
+            pass
+
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
-                queries = [
-                    ("pagos", "SELECT COUNT(*) FROM pagos WHERE usuario_id = %s"),
-                    ("asistencias", "SELECT COUNT(*) FROM asistencias WHERE usuario_id = %s"),
-                    ("rutinas", "SELECT COUNT(*) FROM rutinas WHERE usuario_id = %s"),
-                    ("clase_usuarios", "SELECT COUNT(*) FROM clase_usuarios WHERE usuario_id = %s"),
-                    ("clase_lista_espera", "SELECT COUNT(*) FROM clase_lista_espera WHERE usuario_id = %s"),
-                    ("usuario_notas", "SELECT COUNT(*) FROM usuario_notas WHERE usuario_id = %s"),
-                    ("usuario_etiquetas", "SELECT COUNT(*) FROM usuario_etiquetas WHERE usuario_id = %s"),
-                    ("usuario_estados", "SELECT COUNT(*) FROM usuario_estados WHERE usuario_id = %s"),
-                    ("profesores", "SELECT COUNT(*) FROM profesores WHERE usuario_id = %s"),
-                    ("notificaciones_cupos", "SELECT COUNT(*) FROM notificaciones_cupos WHERE usuario_id = %s"),
-                    ("audit_logs_user", "SELECT COUNT(*) FROM audit_logs WHERE user_id = %s"),
-                    ("checkin_pending", "SELECT COUNT(*) FROM checkin_pending WHERE usuario_id = %s"),
-                    ("whatsapp_messages", "SELECT COUNT(*) FROM whatsapp_messages WHERE user_id = %s"),
-                ]
-                for key, sql in queries:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                try:
+                    cursor.execute(
+                        """
+                        SELECT
+                          (SELECT COUNT(*) FROM pagos WHERE usuario_id = %s)                AS pagos,
+                          (SELECT COUNT(*) FROM asistencias WHERE usuario_id = %s)          AS asistencias,
+                          (SELECT COUNT(*) FROM rutinas WHERE usuario_id = %s)              AS rutinas,
+                          (SELECT COUNT(*) FROM clase_usuarios WHERE usuario_id = %s)       AS clase_usuarios,
+                          (SELECT COUNT(*) FROM clase_lista_espera WHERE usuario_id = %s)   AS clase_lista_espera,
+                          (SELECT COUNT(*) FROM usuario_notas WHERE usuario_id = %s)        AS usuario_notas,
+                          (SELECT COUNT(*) FROM usuario_etiquetas WHERE usuario_id = %s)    AS usuario_etiquetas,
+                          (SELECT COUNT(*) FROM usuario_estados WHERE usuario_id = %s)      AS usuario_estados,
+                          (SELECT COUNT(*) FROM profesores WHERE usuario_id = %s)           AS profesores,
+                          (SELECT COUNT(*) FROM notificaciones_cupos WHERE usuario_id = %s) AS notificaciones_cupos,
+                          (SELECT COUNT(*) FROM audit_logs WHERE user_id = %s)              AS audit_logs_user,
+                          (SELECT COUNT(*) FROM checkin_pending WHERE usuario_id = %s)      AS checkin_pending,
+                          (SELECT COUNT(*) FROM whatsapp_messages WHERE user_id = %s)       AS whatsapp_messages
+                        """,
+                        (
+                            usuario_id, usuario_id, usuario_id, usuario_id, usuario_id,
+                            usuario_id, usuario_id, usuario_id, usuario_id, usuario_id,
+                            usuario_id, usuario_id, usuario_id
+                        )
+                    )
+                    row = cursor.fetchone() or {}
+                    # Normalizar a dict simple con enteros
+                    result = {k: int(row.get(k) or 0) for k in [
+                        'pagos','asistencias','rutinas','clase_usuarios','clase_lista_espera',
+                        'usuario_notas','usuario_etiquetas','usuario_estados','profesores',
+                        'notificaciones_cupos','audit_logs_user','checkin_pending','whatsapp_messages'
+                    ]}
                     try:
-                        cursor.execute(sql, (usuario_id,))
-                        row = cursor.fetchone()
-                        counts[key] = row[0] if row else 0
+                        self.cache.set('usuarios', ('refs', int(usuario_id)), result)
                     except Exception:
-                        counts[key] = 0
-        return counts
+                        pass
+                    return result
+                except Exception:
+                    # Fallback seguro si alguna tabla no existe, devolvemos ceros
+                    result = {
+                        'pagos': 0, 'asistencias': 0, 'rutinas': 0, 'clase_usuarios': 0,
+                        'clase_lista_espera': 0, 'usuario_notas': 0, 'usuario_etiquetas': 0,
+                        'usuario_estados': 0, 'profesores': 0, 'notificaciones_cupos': 0,
+                        'audit_logs_user': 0, 'checkin_pending': 0, 'whatsapp_messages': 0
+                    }
+                    try:
+                        self.cache.set('usuarios', ('refs', int(usuario_id)), result)
+                    except Exception:
+                        pass
+                    return result
 
     # --- MÉTODOS DE PAGO ---
     
     def obtener_metodos_pago(self, solo_activos: bool = True) -> List[Dict]:
-        """Obtiene todos los métodos de pago"""
+        """Obtiene todos los métodos de pago con selección explícita de columnas, con caché TTL."""
+        try:
+            cache_key = f"activos:{1 if solo_activos else 0}"
+            cached = self.cache.get('metodos_pago', cache_key)
+            if isinstance(cached, list):
+                return cached
+        except Exception:
+            pass
+
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                sql = "SELECT * FROM metodos_pago"
+                _cols = self.get_table_columns('metodos_pago')
+                _desired = ['id','nombre','icono','color','comision','activo','fecha_creacion','descripcion']
+                _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, activo"
+                sql = f"SELECT {_sel} FROM metodos_pago"
+                params: List[Any] = []
+                if solo_activos:
+                    sql += " WHERE activo = true"
+                sql += " ORDER BY nombre"
+                cursor.execute(sql, params)
+                rows = [dict(row) for row in cursor.fetchall()]
+        try:
+            self.cache.set('metodos_pago', cache_key, rows)
+        except Exception:
+            pass
+        return rows
+
+    def obtener_conceptos_pago(self, solo_activos: bool = True) -> List[Dict]:
+        """Obtiene todos los conceptos de pago con selección explícita de columnas, con caché TTL."""
+        try:
+            cache_key = f"activos:{1 if solo_activos else 0}"
+            cached = self.cache.get('conceptos_pago', cache_key)
+            if isinstance(cached, list):
+                return cached
+        except Exception:
+            pass
+
+        with self.get_connection_context() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                _cols = self.get_table_columns('conceptos_pago')
+                _desired = ['id','nombre','descripcion','precio_base','tipo','activo','fecha_creacion']
+                _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, activo"
+                sql = f"SELECT {_sel} FROM conceptos_pago"
                 if solo_activos:
                     sql += " WHERE activo = true"
                 sql += " ORDER BY nombre"
                 cursor.execute(sql)
-                return [dict(row) for row in cursor.fetchall()]
+                rows = [dict(row) for row in cursor.fetchall()]
+        try:
+            self.cache.set('conceptos_pago', cache_key, rows)
+        except Exception:
+            pass
+        return rows
+
+    # --- MÉTODOS DE EJERCICIO (BATCH) ---
+
+    def registrar_ejercicios_batch(self, ejercicios_items: List[Dict[str, Any]], skip_duplicates: bool = True, validate_data: bool = True) -> Dict[str, Any]:
+        """Inserta/actualiza ejercicios en lote usando claves naturales por nombre.
+
+        - Si `skip_duplicates` es False, actualiza descripción/grupo_muscular por nombre.
+        - Usa inserción en bloque para nuevos registros.
+        """
+        if not ejercicios_items:
+            return {'insertados': [], 'actualizados': [], 'omitidos': [], 'count': 0}
+
+        omitidos: List[Dict[str, Any]] = []
+        rows_norm: List[Tuple[str, Optional[str], Optional[str]]] = []  # (nombre, grupo_muscular, descripcion)
+
+        for item in ejercicios_items:
+            try:
+                nombre = str(item.get('nombre')).strip()
+                if validate_data and not nombre:
+                    raise ValueError('nombre vacío')
+                grupo = str(item.get('grupo_muscular')).strip() if item.get('grupo_muscular') is not None else None
+                desc = str(item.get('descripcion')).strip() if item.get('descripcion') is not None else None
+                rows_norm.append((nombre, grupo if grupo else None, desc if desc else None))
+            except Exception as e:
+                omitidos.append({'nombre': item.get('nombre'), 'motivo': f'payload inválido: {e}'})
+
+        if not rows_norm:
+            return {'insertados': [], 'actualizados': [], 'omitidos': omitidos, 'count': 0}
+
+        try:
+            with self.atomic_transaction(isolation_level="READ COMMITTED") as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                actualizados: List[str] = []
+                insertados_ids: List[int] = []
+
+                if not skip_duplicates:
+                    update_sql = (
+                        """
+                        UPDATE ejercicios AS e
+                        SET grupo_muscular = COALESCE(v.grupo_muscular, e.grupo_muscular),
+                            descripcion = COALESCE(v.descripcion, e.descripcion)
+                        FROM (VALUES %s) AS v(nombre, grupo_muscular, descripcion)
+                        WHERE LOWER(e.nombre) = LOWER(v.nombre)
+                        RETURNING e.id, e.nombre
+                        """
+                    )
+                    psycopg2.extras.execute_values(cur, update_sql, rows_norm, page_size=250)
+                    upd_rows = cur.fetchall() or []
+                    actualizados = [str(r['nombre']) for r in upd_rows]
+
+                insert_sql = (
+                    """
+                    INSERT INTO ejercicios (nombre, grupo_muscular, descripcion)
+                    SELECT v.nombre, v.grupo_muscular, v.descripcion
+                    FROM (VALUES %s) AS v(nombre, grupo_muscular, descripcion)
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM ejercicios e WHERE LOWER(e.nombre) = LOWER(v.nombre)
+                    )
+                    RETURNING id
+                    """
+                )
+                psycopg2.extras.execute_values(cur, insert_sql, rows_norm, page_size=250)
+                ins_rows = cur.fetchall() or []
+                insertados_ids = [int(r['id']) for r in ins_rows]
+
+                try:
+                    self.cache.invalidate('ejercicios')
+                except Exception:
+                    pass
+
+                return {
+                    'insertados': insertados_ids,
+                    'actualizados': actualizados,
+                    'omitidos': omitidos,
+                    'count': len(insertados_ids) + len(actualizados)
+                }
+        except Exception as e:
+            logging.error(f"Error registrar_ejercicios_batch: {e}")
+            raise
+
+    # --- MÉTODOS DE CLASE (BATCH) ---
+
+    def registrar_clases_batch(self, clases_items: List[Dict[str, Any]], skip_duplicates: bool = True, validate_data: bool = True) -> Dict[str, Any]:
+        """Inserta/actualiza clases en lote usando nombre como clave natural."""
+        if not clases_items:
+            return {'insertados': [], 'actualizados': [], 'omitidos': [], 'count': 0}
+
+        omitidos: List[Dict[str, Any]] = []
+        rows_norm: List[Tuple[str, Optional[str], int]] = []  # (nombre, descripcion, capacidad_maxima)
+
+        for item in clases_items:
+            try:
+                nombre = str(item.get('nombre')).strip()
+                if validate_data and not nombre:
+                    raise ValueError('nombre vacío')
+                desc = str(item.get('descripcion')).strip() if item.get('descripcion') is not None else None
+                cap_raw = item.get('capacidad_maxima')
+                capacidad = int(cap_raw) if cap_raw is not None else 20
+                if validate_data and capacidad <= 0:
+                    capacidad = 20
+                rows_norm.append((nombre, desc if desc else None, capacidad))
+            except Exception as e:
+                omitidos.append({'nombre': item.get('nombre'), 'motivo': f'payload inválido: {e}'})
+
+        if not rows_norm:
+            return {'insertados': [], 'actualizados': [], 'omitidos': omitidos, 'count': 0}
+
+        try:
+            with self.atomic_transaction(isolation_level="READ COMMITTED") as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                actualizados: List[str] = []
+                insertados_ids: List[int] = []
+
+                if not skip_duplicates:
+                    update_sql = (
+                        """
+                        UPDATE clases AS c
+                        SET descripcion = COALESCE(v.descripcion, c.descripcion),
+                            capacidad_maxima = COALESCE(v.capacidad_maxima, c.capacidad_maxima)
+                        FROM (VALUES %s) AS v(nombre, descripcion, capacidad_maxima)
+                        WHERE LOWER(c.nombre) = LOWER(v.nombre)
+                        RETURNING c.id, c.nombre
+                        """
+                    )
+                    psycopg2.extras.execute_values(cur, update_sql, rows_norm, page_size=250)
+                    upd_rows = cur.fetchall() or []
+                    actualizados = [str(r['nombre']) for r in upd_rows]
+
+                insert_sql = (
+                    """
+                    INSERT INTO clases (nombre, descripcion, capacidad_maxima)
+                    SELECT v.nombre, v.descripcion, v.capacidad_maxima
+                    FROM (VALUES %s) AS v(nombre, descripcion, capacidad_maxima)
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM clases c WHERE LOWER(c.nombre) = LOWER(v.nombre)
+                    )
+                    RETURNING id
+                    """
+                )
+                psycopg2.extras.execute_values(cur, insert_sql, rows_norm, page_size=250)
+                ins_rows = cur.fetchall() or []
+                insertados_ids = [int(r['id']) for r in ins_rows]
+
+                try:
+                    self.cache.invalidate('clases')
+                except Exception:
+                    pass
+
+                return {
+                    'insertados': insertados_ids,
+                    'actualizados': actualizados,
+                    'omitidos': omitidos,
+                    'count': len(insertados_ids) + len(actualizados)
+                }
+        except Exception as e:
+            logging.error(f"Error registrar_clases_batch: {e}")
+            raise
+
+    def registrar_pagos_batch(self, pagos_items: List[Dict[str, Any]], skip_duplicates: bool = False, validate_data: bool = True, auto_crear_metodos_pago: bool = False) -> Dict[str, Any]:
+        """Registra/actualiza pagos en lote.
+
+        - Inserta nuevos pagos y, si `skip_duplicates` es False, actualiza existentes por (usuario_id, mes, año) usando UPDATE FROM.
+        - Filtra usuarios inactivos.
+        - Resuelve `metodo_pago_id` a partir de `metodo_pago` por nombre (case-insensitive) si es necesario.
+        - Opcional: crea métodos de pago faltantes cuando llega `metodo_pago` y no existe.
+
+        Cada item admite claves: usuario_id, monto, fecha_pago (str|date|datetime), mes, año,
+        metodo_pago_id, metodo_pago. Retorna dict con 'insertados', 'actualizados', 'omitidos' y 'count'.
+        """
+        if not pagos_items:
+            return {'insertados': [], 'actualizados': [], 'omitidos': [], 'count': 0}
+
+        omitidos: List[Dict[str, Any]] = []
+        normalized: List[Tuple[int, int, int]] = []  # (usuario_id, mes, año)
+        rows_input: List[Dict[str, Any]] = []
+
+        # Resolver nombres de métodos de pago si vienen como string
+        metodo_nombres_original: Dict[str, str] = {}
+        for item in pagos_items:
+            nombre = item.get('metodo_pago')
+            if nombre and not item.get('metodo_pago_id'):
+                try:
+                    key = str(nombre).strip().lower()
+                    if key not in metodo_nombres_original:
+                        metodo_nombres_original[key] = str(nombre).strip()
+                except Exception:
+                    pass
+
+        metodo_map: Dict[str, int] = {}
+        try:
+            if metodo_nombres_original:
+                with self.get_connection_context() as conn:
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        "SELECT id, LOWER(nombre) AS nombre FROM metodos_pago WHERE LOWER(nombre) = ANY(%s)",
+                        (list(metodo_nombres_original.keys()),)
+                    )
+                    for r in cur.fetchall() or []:
+                        metodo_map[str(r['nombre']).lower()] = int(r['id'])
+
+                    # Crear faltantes si se solicitó
+                    faltantes = [n for n in metodo_nombres_original.keys() if n not in metodo_map]
+                    if auto_crear_metodos_pago and faltantes:
+                        valores = []
+                        for key in faltantes:
+                            nombre_vis = metodo_nombres_original.get(key, key)
+                            # Defaults razonables
+                            valores.append((nombre_vis, '💳', '#9b59b6', 0.0, True))
+
+                        insert_sql = (
+                            """
+                            INSERT INTO metodos_pago (nombre, icono, color, comision, activo)
+                            SELECT v.nombre, v.icono, v.color, v.comision, v.activo
+                            FROM (VALUES %s) AS v(nombre, icono, color, comision, activo)
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM metodos_pago m WHERE LOWER(m.nombre) = LOWER(v.nombre)
+                            )
+                            RETURNING id, nombre
+                            """
+                        )
+                        psycopg2.extras.execute_values(cur, insert_sql, valores, page_size=200)
+                        for r in cur.fetchall() or []:
+                            metodo_map[str(r['nombre']).strip().lower()] = int(r['id'])
+        except Exception as e:
+            logging.debug(f"Mapeo/creación de métodos de pago falló/no crítico: {e}")
+
+        # Normalización y validaciones básicas
+        for item in pagos_items:
+            try:
+                uid = int(item.get('usuario_id'))
+                monto = float(item.get('monto'))
+                if validate_data and monto < 0:
+                    raise ValueError('monto negativo')
+
+                # fecha_pago
+                fraw = item.get('fecha_pago')
+                fdt: datetime
+                if fraw is None:
+                    fdt = datetime.now()
+                elif isinstance(fraw, datetime):
+                    fdt = fraw
+                elif isinstance(fraw, date):
+                    fdt = datetime.combine(fraw, datetime.min.time())
+                elif isinstance(fraw, str):
+                    try:
+                        fdt = datetime.fromisoformat(fraw)
+                    except Exception:
+                        fdt = datetime.now()
+                else:
+                    fdt = datetime.now()
+
+                # mes/año
+                mes_val = item.get('mes')
+                if mes_val is None:
+                    mes_val = item.get('mes_pagado')
+                if mes_val is None:
+                    mes_val = fdt.month
+                mes_int = int(mes_val)
+                if validate_data and not (1 <= mes_int <= 12):
+                    raise ValueError('mes inválido')
+
+                año_val = item.get('año')
+                if año_val is None:
+                    año_val = item.get('año_pagado')
+                if año_val is None:
+                    año_val = fdt.year
+                año_int = int(año_val)
+
+                metodo_id = item.get('metodo_pago_id')
+                if metodo_id is None:
+                    nombre = item.get('metodo_pago')
+                    if nombre:
+                        metodo_id = metodo_map.get(str(nombre).strip().lower())
+
+                normalized.append((uid, mes_int, año_int))
+                rows_input.append({
+                    'usuario_id': uid,
+                    'mes': mes_int,
+                    'año': año_int,
+                    'monto': monto,
+                    'fecha_pago': fdt,
+                    'metodo_pago_id': int(metodo_id) if metodo_id is not None else None
+                })
+            except Exception as e:
+                omitidos.append({'usuario_id': item.get('usuario_id'), 'mes': item.get('mes'), 'año': item.get('año'), 'motivo': f'payload inválido: {e}'})
+
+        if not rows_input:
+            return {'insertados': [], 'actualizados': [], 'omitidos': omitidos, 'count': 0}
+
+        try:
+            with self.atomic_transaction(isolation_level="READ COMMITTED") as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                # Filtrar usuarios activos
+                uids = list({uid for uid, _m, _a in normalized})
+                cur.execute("SELECT id FROM usuarios WHERE id = ANY(%s) AND activo = TRUE", (uids,))
+                activos_set = {int(r['id']) for r in (cur.fetchall() or [])}
+
+                rows_activos = [r for r in rows_input if int(r['usuario_id']) in activos_set]
+                normalized_activos = [(r['usuario_id'], r['mes'], r['año']) for r in rows_activos]
+
+                if not rows_activos:
+                    return {'insertados': [], 'actualizados': [], 'omitidos': omitidos + [{'motivo': 'todos inactivos'}], 'count': 0}
+
+                actualizados: List[Tuple[int, int, int]] = []
+                insertados_ids: List[int] = []
+
+                # Si no se deben saltar duplicados, actualizar existentes primero
+                if not skip_duplicates:
+                    update_sql = (
+                        """
+                        UPDATE pagos AS p
+                        SET monto = v.monto,
+                            fecha_pago = v.fecha_pago,
+                            metodo_pago_id = COALESCE(v.metodo_pago_id, p.metodo_pago_id)
+                        FROM (VALUES %s) AS v(usuario_id, mes, año, monto, fecha_pago, metodo_pago_id)
+                        WHERE p.usuario_id = v.usuario_id AND p.mes = v.mes AND p.año = v.año
+                        RETURNING p.id, p.usuario_id, p.mes, p.año
+                        """
+                    )
+                    rows_for_update = [(r['usuario_id'], r['mes'], r['año'], r['monto'], r['fecha_pago'], r['metodo_pago_id']) for r in rows_activos]
+                    psycopg2.extras.execute_values(cur, update_sql, rows_for_update, page_size=250)
+                    upd_rows = cur.fetchall() or []
+                    actualizados = [(int(r['usuario_id']), int(r['mes']), int(r['año'])) for r in upd_rows]
+
+                # Insertar los que no existen aún por (usuario_id, mes, año)
+                insert_sql = (
+                    """
+                    INSERT INTO pagos (usuario_id, monto, mes, año, fecha_pago, metodo_pago_id)
+                    SELECT v.usuario_id, v.monto, v.mes, v.año, v.fecha_pago, v.metodo_pago_id
+                    FROM (VALUES %s) AS v(usuario_id, mes, año, monto, fecha_pago, metodo_pago_id)
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM pagos p WHERE p.usuario_id = v.usuario_id AND p.mes = v.mes AND p.año = v.año
+                    )
+                    RETURNING id, usuario_id, mes, año, fecha_pago
+                    """
+                )
+                rows_for_insert = [(r['usuario_id'], r['mes'], r['año'], r['monto'], r['fecha_pago'], r['metodo_pago_id']) for r in rows_activos]
+                psycopg2.extras.execute_values(cur, insert_sql, rows_for_insert, page_size=250)
+                ins_rows = cur.fetchall() or []
+                insertados_ids = [int(r['id']) for r in ins_rows]
+
+                # Determinar omitidos por duplicado (si se pidió saltar) o usuario inactivo
+                if skip_duplicates:
+                    existentes_sql = (
+                        "SELECT usuario_id, mes, año FROM pagos WHERE (usuario_id, mes, año) IN (SELECT * FROM (VALUES %s) AS t(usuario_id, mes, año))"
+                    )
+                    psycopg2.extras.execute_values(cur, existentes_sql, normalized_activos, page_size=250)
+                    existentes = {(int(r['usuario_id']), int(r['mes']), int(r['año'])) for r in (cur.fetchall() or [])}
+                    for uid, m, a in normalized_activos:
+                        if (uid, m, a) in existentes:
+                            omitidos.append({'usuario_id': uid, 'mes': m, 'año': a, 'motivo': 'duplicado'})
+
+                # Actualización masiva de usuarios con vencimiento y último pago en base a fecha_pago de insertados
+                pv_rows: List[Tuple[int, datetime]] = [(int(r['usuario_id']), r['fecha_pago']) for r in ins_rows if r and r.get('usuario_id')]
+                if pv_rows:
+                    update_user_sql = (
+                        """
+                        UPDATE usuarios AS u
+                        SET 
+                            fecha_proximo_vencimiento = pv.fecha_pago::date + make_interval(days => COALESCE(tc.duracion_dias, 30)),
+                            ultimo_pago = pv.fecha_pago::date,
+                            activo = TRUE,
+                            cuotas_vencidas = 0
+                        FROM (VALUES %s) AS pv(usuario_id, fecha_pago)
+                        LEFT JOIN tipos_cuota tc ON u.tipo_cuota = tc.nombre OR u.tipo_cuota::text = tc.id::text
+                        WHERE u.id = pv.usuario_id
+                        """
+                    )
+                    psycopg2.extras.execute_values(cur, update_user_sql, pv_rows, page_size=250)
+
+                # Auditoría
+                if self.audit_logger:
+                    try:
+                        for r in ins_rows:
+                            self.audit_logger.log_operation(
+                                'CREATE', 'pagos', int(r['id']), None,
+                                {'usuario_id': int(r['usuario_id']), 'mes': int(r['mes']), 'año': int(r['año']), 'accion': 'batch'}
+                            )
+                        for uid, m, a in actualizados:
+                            self.audit_logger.log_operation(
+                                'UPDATE', 'pagos', None, None,
+                                {'usuario_id': int(uid), 'mes': int(m), 'año': int(a), 'accion': 'batch'}
+                            )
+                    except Exception:
+                        pass
+
+                
+
+                # Limpiar caché
+                try:
+                    self.cache.invalidate('pagos')
+                except Exception:
+                    pass
+
+                return {
+                    'insertados': insertados_ids,
+                    'actualizados': actualizados,
+                    'omitidos': omitidos,
+                    'count': len(insertados_ids) + len(actualizados)
+                }
+        except Exception as e:
+            logging.error(f"Error registrar_pagos_batch: {e}")
+            raise
     
     # --- MÉTODOS DE ASISTENCIA ---
     
@@ -4399,17 +5234,7 @@ class DatabaseManager:
                     }
                     self.audit_logger.log_operation('CREATE', 'asistencias', asistencia_id, None, new_values)
                 
-                # Encolar sincronización upstream (upsert)
-                try:
-                    payload = {
-                        'user_id': int(usuario_id),
-                        'fecha': fecha.isoformat(),
-                        'hora': hora_actual.strftime('%H:%M:%S'),
-                    }
-                    enqueue_operations([op_attendance_update(payload)])
-                except Exception:
-                    # No bloquear la operación por fallos de encolado
-                    pass
+                
                 
                 return asistencia_id
 
@@ -5006,14 +5831,43 @@ class DatabaseManager:
                 cursor.execute(sql, (clase.nombre, clase.descripcion))
                 clase_id = cursor.fetchone()[0]
                 conn.commit()
+                try:
+                    self.cache.invalidate('clases')
+                except Exception:
+                    pass
                 return clase_id
 
     def obtener_clases(self) -> List[Clase]:
         """Obtiene todas las clases"""
+        # Cache de clases completas (incluye join con tipos)
+        try:
+            cached = self.cache.get('clases', ('full',))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM clases ORDER BY nombre")
-                return [Clase(**dict(r)) for r in cursor.fetchall()]
+                cursor.execute(
+                    """
+                    SELECT 
+                        c.id,
+                        c.nombre,
+                        c.descripcion,
+                        c.activa,
+                        c.tipo_clase_id,
+                        tc.nombre AS tipo_clase_nombre
+                    FROM clases c
+                    LEFT JOIN tipos_clases tc ON tc.id = c.tipo_clase_id
+                    ORDER BY c.nombre
+                    """
+                )
+                result = [Clase(**dict(r)) for r in cursor.fetchall()]
+                try:
+                    self.cache.set('clases', ('full',), result)
+                except Exception:
+                    pass
+                return result
 
     # --- MÉTODOS DE PROFESORES ---
     
@@ -5296,7 +6150,15 @@ class DatabaseManager:
 
                     for table in tables:
                         f.write(f"\n-- Tabla: {table}\n")
-                        cursor.execute(f"SELECT * FROM {table}")
+                        try:
+                            cols = self.get_table_columns(table) or []
+                        except Exception:
+                            cols = []
+                        if not cols:
+                            # Sin columnas detectadas, saltar para evitar SELECT *
+                            continue
+                        sel = ", ".join(cols)
+                        cursor.execute(f"SELECT {sel} FROM {table}")
                         rows = cursor.fetchall()
 
                         if not rows:
@@ -5443,7 +6305,7 @@ class DatabaseManager:
             placeholders = ','.join(['%s' for _ in lote])
             
             # Verificar que los usuarios existen y obtener roles anteriores
-            cursor.execute(f"SELECT id, rol, nombre, apellido FROM usuarios WHERE id IN ({placeholders})", lote)
+            cursor.execute(f"SELECT id, rol, nombre FROM usuarios WHERE id IN ({placeholders})", lote)
             usuarios_existentes = cursor.fetchall()
             
             if not usuarios_existentes:
@@ -5453,7 +6315,7 @@ class DatabaseManager:
                 resultados['fallidos'] += len(lote)
                 return
             
-            roles_anteriores = {row['id']: {'rol': row['rol'], 'nombre': row['nombre'], 'apellido': row['apellido']} for row in usuarios_existentes}
+            roles_anteriores = {row['id']: {'rol': row['rol'], 'nombre': row['nombre']} for row in usuarios_existentes}
             usuarios_encontrados = set(roles_anteriores.keys())
             usuarios_no_encontrados = set(lote) - usuarios_encontrados
             
@@ -5507,7 +6369,7 @@ class DatabaseManager:
                 try:
                     if usuario_id in roles_anteriores:
                         rol_anterior = roles_anteriores[usuario_id]['rol']
-                        nombre_completo = f"{roles_anteriores[usuario_id]['nombre']} {roles_anteriores[usuario_id]['apellido']}"
+                        nombre_completo = str(roles_anteriores[usuario_id]['nombre'] or "").strip()
                         
                         # Si cambió de no-profesor a profesor, crear perfil
                         if nuevo_rol == 'profesor' and rol_anterior != 'profesor':
@@ -5550,7 +6412,7 @@ class DatabaseManager:
             resultados['fallidos'] += len(lote)
     
     def _procesar_lote_cambio_rol(self, cursor, lote: List[int], nuevo_rol: str, resultados: dict):
-        """Wrapper legacy para compatibilidad - usa la versión robusta"""
+        """Wrapper anterior para compatibilidad - usa la versión robusta"""
         return self._procesar_lote_cambio_rol_robusto(cursor, lote, nuevo_rol, resultados)
 
     def _procesar_acciones_individuales_robusto(self, cursor, lote: List[int], accion: str, parametros: dict, resultados: dict):
@@ -5579,10 +6441,10 @@ class DatabaseManager:
             
             # Verificar que los usuarios existen
             placeholders = ','.join(['%s' for _ in lote])
-            cursor.execute(f"SELECT id, rol, nombre, apellido FROM usuarios WHERE id IN ({placeholders})", lote)
+            cursor.execute(f"SELECT id, rol, nombre FROM usuarios WHERE id IN ({placeholders})", lote)
             usuarios_existentes = cursor.fetchall()
             
-            usuarios_info = {row['id']: {'rol': row['rol'], 'nombre': row['nombre'], 'apellido': row['apellido']} for row in usuarios_existentes}
+            usuarios_info = {row['id']: {'rol': row['rol'], 'nombre': row['nombre']} for row in usuarios_existentes}
             usuarios_encontrados = set(usuarios_info.keys())
             usuarios_no_encontrados = set(lote) - usuarios_encontrados
             
@@ -5597,7 +6459,7 @@ class DatabaseManager:
             for usuario_id in usuarios_encontrados:
                 try:
                     usuario_info = usuarios_info[usuario_id]
-                    nombre_completo = f"{usuario_info['nombre']} {usuario_info['apellido']}"
+                    nombre_completo = str(usuario_info['nombre'] or "").strip()
                     
                     if accion == 'eliminar':
                         # Verificar si es el dueño
@@ -5700,7 +6562,7 @@ class DatabaseManager:
             resultados['fallidos'] += len(lote)
     
     def _procesar_acciones_individuales(self, cursor, lote: List[int], accion: str, parametros: dict, resultados: dict):
-        """Wrapper legacy para compatibilidad - usa la versión robusta"""
+        """Wrapper anterior para compatibilidad - usa la versión robusta"""
         return self._procesar_acciones_individuales_robusto(cursor, lote, accion, parametros, resultados)
 
     def _procesar_agregar_estado_usuario(self, cursor, usuario_id: int, parametros: dict, resultados: dict):
@@ -5851,8 +6713,12 @@ class DatabaseManager:
             
             # Búsqueda optimizada con ILIKE para PostgreSQL (case-insensitive)
             termino = f"%{termino_busqueda}%"
-            cursor.execute("""
-                SELECT * FROM usuarios 
+            _cols = self.get_table_columns('usuarios')
+            _desired = ['id','nombre','dni','telefono','pin','rol','notas','fecha_registro','activo','tipo_cuota','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+            _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, rol"
+            cursor.execute(
+                f"""
+                SELECT {_sel} FROM usuarios 
                 WHERE (nombre ILIKE %s OR dni ILIKE %s OR telefono ILIKE %s)
                   AND activo = true
                 ORDER BY 
@@ -5861,7 +6727,9 @@ class DatabaseManager:
                          ELSE 3 END,
                     nombre ASC
                 LIMIT %s
-            """, (termino, termino, termino, limite))
+                """,
+                (termino, termino, termino, limite)
+            )
             
             usuarios = []
             for row in cursor.fetchall():
@@ -5969,7 +6837,10 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 # Validaciones previas
-                cursor.execute("SELECT * FROM usuarios WHERE id = %s", (old_id,))
+                _cols = self.get_table_columns('usuarios')
+                _desired = ['id','nombre','dni','telefono','pin','rol','activo','tipo_cuota','notas','fecha_registro','fecha_proximo_vencimiento','cuotas_vencidas','ultimo_pago','apellido','email']
+                _sel = ", ".join([c for c in _desired if c in (_cols or [])]) or "id, nombre, rol"
+                cursor.execute(f"SELECT {_sel} FROM usuarios WHERE id = %s", (old_id,))
                 old_row = cursor.fetchone()
                 if not old_row:
                     raise ValueError("Usuario original no existe.")
@@ -6065,18 +6936,7 @@ class DatabaseManager:
                     self.limpiar_cache_usuarios()
                 except Exception:
                     pass
-                try:
-                    payload = {
-                        "id": new_id,
-                        "dni": orig_dni,
-                        "nombre": old_row.get('nombre'),
-                        "telefono": old_row.get('telefono'),
-                        "tipo_cuota": old_row.get('tipo_cuota'),
-                        "active": bool(old_row.get('activo')),
-                    }
-                    enqueue_operations([op_user_update(payload)])
-                except Exception as e:
-                    logging.debug(f"sync enqueue user.update (cambio ID) falló: {e}")
+                
 
     @database_retry()
     def renumerar_usuario_ids(self, start_id: int = 1) -> dict:
@@ -6169,7 +7029,7 @@ class DatabaseManager:
         """Obtiene todos los grupos de ejercicios"""
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM ejercicio_grupos ORDER BY nombre")
+                cursor.execute("SELECT id, nombre FROM ejercicio_grupos ORDER BY nombre")
                 return [EjercicioGrupo(**dict(r)) for r in cursor.fetchall()]
 
     def obtener_ejercicios_de_grupo(self, grupo_id: int) -> List[Ejercicio]:
@@ -6177,7 +7037,7 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 sql = """
-                    SELECT e.* FROM ejercicios e
+                    SELECT e.id, e.nombre, e.descripcion, e.grupo_muscular, e.objetivo FROM ejercicios e
                     JOIN ejercicio_grupo_items egi ON e.id = egi.ejercicio_id
                     WHERE egi.grupo_id = %s ORDER BY e.nombre
                 """
@@ -6279,7 +7139,10 @@ class DatabaseManager:
         """Obtiene un tipo de cuota por su nombre"""
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM tipos_cuota WHERE nombre = %s", (nombre,))
+                cursor.execute(
+                    "SELECT id, nombre, precio, icono_path, activo, fecha_creacion, descripcion, duracion_dias, fecha_modificacion FROM tipos_cuota WHERE nombre = %s",
+                    (nombre,)
+                )
                 row = cursor.fetchone()
                 return TipoCuota(**dict(row)) if row else None
 
@@ -6304,27 +7167,17 @@ class DatabaseManager:
                 cursor.execute(sql, (nota.usuario_id, categoria, titulo, contenido, importancia, autor_id))
                 nota_id = cursor.fetchone()[0]
                 conn.commit()
-                # Encolar sync: note.add
-                try:
-                    payload = {
-                        "id": nota_id,
-                        "usuario_id": getattr(nota, "usuario_id", None),
-                        "categoria": categoria,
-                        "titulo": titulo,
-                        "contenido": contenido,
-                        "importancia": importancia,
-                        "activa": True,
-                    }
-                    enqueue_operations([op_note_add(payload)])
-                except Exception as _:
-                    pass
                 return nota_id
     
     def obtener_notas_usuario(self, usuario_id: int, solo_activas: bool = True) -> List:
         """Obtiene todas las notas de un usuario."""
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                sql = "SELECT * FROM usuario_notas WHERE usuario_id = %s"
+                sql = (
+                    "SELECT id, usuario_id, categoria, titulo, contenido, importancia, "
+                    "fecha_creacion, fecha_modificacion, activa, autor_id "
+                    "FROM usuario_notas WHERE usuario_id = %s"
+                )
                 params = [usuario_id]
                 
                 if solo_activas:
@@ -6333,12 +7186,17 @@ class DatabaseManager:
                 sql += " ORDER BY fecha_creacion DESC"
                 cursor.execute(sql, params)
                 return [dict(row) for row in cursor.fetchall()]
-    
+
     def obtener_nota_por_id(self, nota_id: int):
         """Obtiene una nota específica por su ID."""
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT * FROM usuario_notas WHERE id = %s", (nota_id,))
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute(
+                    "SELECT id, usuario_id, categoria, titulo, contenido, importancia, "
+                    "fecha_creacion, fecha_modificacion, activa, autor_id "
+                    "FROM usuario_notas WHERE id = %s",
+                    (nota_id,)
+                )
                 row = cursor.fetchone()
                 if row:
                     return dict(row)
@@ -6358,20 +7216,6 @@ class DatabaseManager:
                                    nota.importancia, nota.id))
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: note.update
-                if ok:
-                    try:
-                        payload = {
-                            "id": getattr(nota, "id", None),
-                            "usuario_id": getattr(nota, "usuario_id", None),
-                            "categoria": getattr(nota, "categoria", None),
-                            "titulo": getattr(nota, "titulo", None),
-                            "contenido": getattr(nota, "contenido", None),
-                            "importancia": getattr(nota, "importancia", None),
-                        }
-                        enqueue_operations([op_note_update(payload)])
-                    except Exception as _:
-                        pass
                 return ok
     
     def eliminar_nota_usuario(self, nota_id: int, eliminar_permanente: bool = False) -> bool:
@@ -6386,33 +7230,103 @@ class DatabaseManager:
                 
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: note.delete o note.update(activa=false)
-                if ok:
-                    try:
-                        if eliminar_permanente:
-                            enqueue_operations([op_note_delete({"id": nota_id})])
-                        else:
-                            enqueue_operations([op_note_update({"id": nota_id, "activa": False})])
-                    except Exception as _:
-                        pass
                 return ok
     
     def obtener_notas_por_categoria(self, categoria: str) -> List:
         """Obtiene todas las notas de una categoría específica."""
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
-                sql = "SELECT * FROM usuario_notas WHERE categoria = %s AND activa = TRUE ORDER BY fecha_creacion DESC"
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                sql = (
+                    "SELECT id, usuario_id, categoria, titulo, contenido, importancia, "
+                    "fecha_creacion, fecha_modificacion, activa, autor_id "
+                    "FROM usuario_notas WHERE categoria = %s AND activa = TRUE "
+                    "ORDER BY fecha_creacion DESC"
+                )
                 cursor.execute(sql, (categoria,))
                 return [dict(row) for row in cursor.fetchall()]
     
     def obtener_notas_por_importancia(self, importancia: str) -> List:
         """Obtiene todas las notas de una importancia específica."""
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
-                sql = "SELECT * FROM usuario_notas WHERE importancia = %s AND activa = TRUE ORDER BY fecha_creacion DESC"
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                sql = (
+                    "SELECT id, usuario_id, categoria, titulo, contenido, importancia, "
+                    "fecha_creacion, fecha_modificacion, activa, autor_id "
+                    "FROM usuario_notas WHERE importancia = %s AND activa = TRUE "
+                    "ORDER BY fecha_creacion DESC"
+                )
                 cursor.execute(sql, (importancia,))
                 return [dict(row) for row in cursor.fetchall()]
-    
+
+    def obtener_notas_y_etiquetas_usuario(self, usuario_id: int, solo_activas_notas: bool = True) -> Dict[str, List]:
+        """Obtiene todas las notas y etiquetas de un usuario en un solo viaje.
+
+        - Devuelve un diccionario con claves 'notas' y 'etiquetas'.
+        - Las listas contienen diccionarios con las columnas necesarias.
+        - Aplica filtro por 'activa' en notas cuando 'solo_activas_notas' es True.
+        """
+        with self.get_connection_context() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                cursor.execute(
+                    """
+                    WITH notas AS (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', n.id,
+                                'usuario_id', n.usuario_id,
+                                'categoria', n.categoria,
+                                'titulo', n.titulo,
+                                'contenido', n.contenido,
+                                'importancia', n.importancia,
+                                'fecha_creacion', n.fecha_creacion,
+                                'fecha_modificacion', n.fecha_modificacion,
+                                'activa', n.activa,
+                                'autor_id', n.autor_id
+                            )
+                            ORDER BY n.fecha_creacion DESC
+                        ) AS items
+                        FROM (
+                            SELECT id, usuario_id, categoria, titulo, contenido, importancia, fecha_creacion, fecha_modificacion, activa, autor_id
+                            FROM usuario_notas
+                            WHERE usuario_id = %s AND (NOT %s OR activa = TRUE)
+                            ORDER BY fecha_creacion DESC
+                        ) n
+                    ),
+                    etiquetas AS (
+                        SELECT json_agg(
+                            json_build_object(
+                                'id', e.id,
+                                'nombre', e.nombre,
+                                'color', e.color,
+                                'descripcion', e.descripcion,
+                                'fecha_creacion', e.fecha_creacion,
+                                'activo', e.activo
+                            )
+                            ORDER BY e.nombre ASC
+                        ) AS items
+                        FROM etiquetas e
+                        JOIN usuario_etiquetas ue ON e.id = ue.etiqueta_id
+                        WHERE ue.usuario_id = %s AND e.activo = TRUE
+                    )
+                    SELECT COALESCE(notas.items, '[]'::json) AS notas,
+                           COALESCE(etiquetas.items, '[]'::json) AS etiquetas
+                    FROM notas, etiquetas
+                    """,
+                    (usuario_id, solo_activas_notas, usuario_id)
+                )
+                row = cursor.fetchone() or {}
+                notas_raw = row.get('notas')
+                etiquetas_raw = row.get('etiquetas')
+                try:
+                    notas = notas_raw if isinstance(notas_raw, list) else (json.loads(notas_raw) if notas_raw is not None else [])
+                except Exception:
+                    notas = []
+                try:
+                    etiquetas = etiquetas_raw if isinstance(etiquetas_raw, list) else (json.loads(etiquetas_raw) if etiquetas_raw is not None else [])
+                except Exception:
+                    etiquetas = []
+                return {'notas': notas, 'etiquetas': etiquetas}
+
     # --- MÉTODOS DE ETIQUETAS ---
     
     def crear_etiqueta(self, etiqueta) -> int:
@@ -6423,18 +7337,6 @@ class DatabaseManager:
                 cursor.execute(sql, (etiqueta.nombre, etiqueta.color, etiqueta.descripcion))
                 etiqueta_id = cursor.fetchone()[0]
                 conn.commit()
-                # Encolar sync: tag.add
-                try:
-                    payload = {
-                        "id": etiqueta_id,
-                        "nombre": getattr(etiqueta, "nombre", None),
-                        "color": getattr(etiqueta, "color", None),
-                        "descripcion": getattr(etiqueta, "descripcion", None),
-                        "activo": True,
-                    }
-                    enqueue_operations([op_tag_add(payload)])
-                except Exception as _:
-                    pass
                 return etiqueta_id
     
     def obtener_todas_etiquetas(self, solo_activas: bool = True) -> List:
@@ -6442,7 +7344,7 @@ class DatabaseManager:
         from models import Etiqueta
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                sql = "SELECT * FROM etiquetas"
+                sql = "SELECT id, nombre, color, descripcion, fecha_creacion, activo FROM etiquetas"
                 if solo_activas:
                     sql += " WHERE activo = TRUE"
                 sql += " ORDER BY nombre"
@@ -6469,7 +7371,10 @@ class DatabaseManager:
         from models import Etiqueta
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM etiquetas WHERE id = %s", (etiqueta_id,))
+                cursor.execute(
+                    "SELECT id, nombre, color, descripcion, fecha_creacion, activo FROM etiquetas WHERE id = %s",
+                    (etiqueta_id,)
+                )
                 row = cursor.fetchone()
                 if row:
                     return Etiqueta(
@@ -6487,7 +7392,11 @@ class DatabaseManager:
         from models import Etiqueta
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM etiquetas WHERE nombre = %s AND activo = TRUE", (nombre,))
+                cursor.execute(
+                    "SELECT id, nombre, color, descripcion, fecha_creacion, activo "
+                    "FROM etiquetas WHERE nombre = %s AND activo = TRUE",
+                    (nombre,)
+                )
                 row = cursor.fetchone()
                 if row:
                     return Etiqueta(
@@ -6507,7 +7416,11 @@ class DatabaseManager:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 
                 # Intentar obtener la etiqueta
-                cursor.execute("SELECT * FROM etiquetas WHERE nombre = %s AND activo = TRUE", (nombre,))
+                cursor.execute(
+                    "SELECT id, nombre, color, descripcion, fecha_creacion, activo "
+                    "FROM etiquetas WHERE nombre = %s AND activo = TRUE",
+                    (nombre,)
+                )
                 row = cursor.fetchone()
                 if row:
                     return Etiqueta(
@@ -6520,7 +7433,10 @@ class DatabaseManager:
                     )
                 
                 # Si no existe, crearla dentro de la misma transacción
-                sql = "INSERT INTO etiquetas (nombre, color, descripcion) VALUES (%s, %s, %s) RETURNING *"
+                sql = (
+                    "INSERT INTO etiquetas (nombre, color, descripcion) VALUES (%s, %s, %s) "
+                    "RETURNING id, nombre, color, descripcion, fecha_creacion, activo"
+                )
                 cursor.execute(sql, (nombre, color, descripcion))
                 nueva_etiqueta = cursor.fetchone()
                 conn.commit()
@@ -6542,18 +7458,6 @@ class DatabaseManager:
                 cursor.execute(sql, (etiqueta.nombre, etiqueta.color, etiqueta.descripcion, etiqueta.id))
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: tag.update
-                if ok:
-                    try:
-                        payload = {
-                            "id": getattr(etiqueta, "id", None),
-                            "nombre": getattr(etiqueta, "nombre", None),
-                            "color": getattr(etiqueta, "color", None),
-                            "descripcion": getattr(etiqueta, "descripcion", None),
-                        }
-                        enqueue_operations([op_tag_update(payload)])
-                    except Exception as _:
-                        pass
                 return ok
     
     def eliminar_etiqueta(self, etiqueta_id: int) -> bool:
@@ -6566,12 +7470,6 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM etiquetas WHERE id = %s", (etiqueta_id,))
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: tag.delete
-                if ok:
-                    try:
-                        enqueue_operations([op_tag_delete({"id": etiqueta_id})])
-                    except Exception as _:
-                        pass
                 return ok
     
     # --- MÉTODOS DE ASIGNACIÓN DE ETIQUETAS A USUARIOS ---
@@ -6584,14 +7482,63 @@ class DatabaseManager:
                 cursor.execute(sql, (usuario_id, etiqueta_id, asignado_por))
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: user_tag.add
-                if ok:
-                    try:
-                        payload = {"usuario_id": usuario_id, "etiqueta_id": etiqueta_id}
-                        enqueue_operations([op_user_tag_add(payload)])
-                    except Exception as _:
-                        pass
                 return ok
+
+    def asignar_etiquetas_usuario_bulk(self, usuario_id: int, etiqueta_ids: List[int], asignado_por: int = None) -> Dict[str, int]:
+        """Asigna un conjunto de etiquetas a un usuario en una sola operación.
+
+        - Elimina asignaciones existentes que no estén en `etiqueta_ids`.
+        - Inserta asignaciones nuevas usando inserción por lotes.
+        - Retorna conteos de inserciones y eliminaciones.
+        """
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    etiquetas_nuevas = set(int(e) for e in (etiqueta_ids or []))
+
+                    # Obtener asignaciones actuales
+                    cursor.execute(
+                        "SELECT etiqueta_id FROM usuario_etiquetas WHERE usuario_id = %s",
+                        (usuario_id,)
+                    )
+                    actuales = {int(r['etiqueta_id']) for r in (cursor.fetchall() or [])}
+
+                    a_eliminar = list(actuales - etiquetas_nuevas)
+                    a_insertar = list(etiquetas_nuevas - actuales)
+
+                    eliminados = 0
+                    insertados = 0
+
+                    # Eliminar en lote lo que ya no corresponde
+                    if a_eliminar:
+                        cursor.execute(
+                            "DELETE FROM usuario_etiquetas WHERE usuario_id = %s AND etiqueta_id = ANY(%s)",
+                            (usuario_id, a_eliminar)
+                        )
+                        eliminados = cursor.rowcount or 0
+
+                    # Insertar en lote nuevas asignaciones
+                    if a_insertar:
+                        valores = [(usuario_id, eid, asignado_por) for eid in a_insertar]
+                        insert_sql = (
+                            "INSERT INTO usuario_etiquetas (usuario_id, etiqueta_id, asignado_por) VALUES %s "
+                            "ON CONFLICT DO NOTHING"
+                        )
+                        psycopg2.extras.execute_values(
+                            cursor,
+                            insert_sql,
+                            valores,
+                            template="(%s, %s, %s)",
+                            page_size=max(50, min(1000, len(valores)))
+                        )
+                        # execute_values rowcount puede ser None; asumimos todos insertados por set diff
+                        insertados = len(a_insertar)
+
+                    conn.commit()
+                    return {"inserted": insertados, "deleted": eliminados}
+        except Exception as e:
+            logging.error(f"Error en asignar_etiquetas_usuario_bulk: {e}")
+            return {"inserted": 0, "deleted": 0}
     
     def desasignar_etiqueta_usuario(self, usuario_id: int, etiqueta_id: int) -> bool:
         """Desasigna una etiqueta de un usuario."""
@@ -6601,13 +7548,6 @@ class DatabaseManager:
                              (usuario_id, etiqueta_id))
                 conn.commit()
                 ok = cursor.rowcount > 0
-                # Encolar sync: user_tag.delete
-                if ok:
-                    try:
-                        payload = {"usuario_id": usuario_id, "etiqueta_id": etiqueta_id}
-                        enqueue_operations([op_user_tag_delete(payload)])
-                    except Exception as _:
-                        pass
                 return ok
     
     def obtener_etiquetas_usuario(self, usuario_id: int) -> List:
@@ -6615,7 +7555,8 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 sql = """
-                SELECT e.* FROM etiquetas e
+                SELECT e.id, e.nombre, e.color, e.descripcion, e.fecha_creacion, e.activo
+                FROM etiquetas e
                 JOIN usuario_etiquetas ue ON e.id = ue.etiqueta_id
                 WHERE ue.usuario_id = %s AND e.activo = TRUE
                 ORDER BY e.nombre
@@ -6637,9 +7578,12 @@ class DatabaseManager:
     def obtener_usuarios_por_etiqueta(self, etiqueta_id: int) -> List:
         """Obtiene todos los usuarios que tienen una etiqueta específica."""
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 sql = """
-                SELECT u.* FROM usuarios u
+                SELECT u.id, u.nombre, u.dni, u.telefono, u.pin, u.rol, u.notas,
+                       u.fecha_registro, u.activo, u.tipo_cuota,
+                       u.fecha_proximo_vencimiento, u.cuotas_vencidas, u.ultimo_pago
+                FROM usuarios u
                 JOIN usuario_etiquetas ue ON u.id = ue.usuario_id
                 WHERE ue.etiqueta_id = %s AND u.activo = TRUE
                 ORDER BY u.nombre
@@ -6687,12 +7631,15 @@ class DatabaseManager:
         from models import UsuarioEstado
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                sql = "SELECT * FROM usuario_estados WHERE usuario_id = %s"
+                sql = (
+                    "SELECT id, usuario_id, estado, descripcion, fecha_inicio, fecha_vencimiento, activo, creado_por "
+                    "FROM usuario_estados WHERE usuario_id = %s"
+                )
                 params = [usuario_id]
-                
+
                 if solo_activos:
                     sql += " AND activo = TRUE"
-                
+
                 sql += " ORDER BY fecha_inicio DESC"
                 cursor.execute(sql, params)
                 estados = []
@@ -6852,14 +7799,15 @@ class DatabaseManager:
     def obtener_estados_vencidos(self) -> List:
         """Obtiene todos los estados que han vencido."""
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
-                sql = """
-                SELECT * FROM usuario_estados 
-                WHERE fecha_vencimiento < CURRENT_TIMESTAMP AND activo = TRUE
-                ORDER BY fecha_vencimiento
-                """
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                sql = (
+                    "SELECT id, usuario_id, estado, descripcion, fecha_inicio, fecha_vencimiento, activo, creado_por "
+                    "FROM usuario_estados "
+                    "WHERE fecha_vencimiento < CURRENT_TIMESTAMP AND activo = TRUE "
+                    "ORDER BY fecha_vencimiento"
+                )
                 cursor.execute(sql)
-                return [dict(zip([desc[0] for desc in cursor.description], row)) for row in cursor.fetchall()]
+                return [dict(row) for row in cursor.fetchall()]
     
     def desactivar_estados_vencidos(self) -> int:
         """Desactiva automáticamente los estados que han vencido."""
@@ -6888,11 +7836,13 @@ class DatabaseManager:
         """Obtiene el historial completo de cambios de estado de un usuario."""
         from models import HistorialEstado
         with self.get_connection_context() as conn:
-            with conn.cursor() as cursor:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 sql = """
-                SELECT h.*, 
-                       u_mod.nombre as modificador_nombre,
-                       ue.estado as estado_actual_nombre
+                SELECT 
+                    h.id, h.usuario_id, h.estado_id, h.accion, h.estado_anterior, h.estado_nuevo,
+                    h.fecha_accion, h.creado_por, h.motivo, h.detalles, h.ip_origen,
+                    u_mod.nombre AS modificador_nombre,
+                    ue.estado AS estado_actual_nombre
                 FROM historial_estados h
                 LEFT JOIN usuarios u_mod ON h.creado_por = u_mod.id
                 LEFT JOIN usuario_estados ue ON h.estado_id = ue.id
@@ -6903,21 +7853,20 @@ class DatabaseManager:
                 cursor.execute(sql, (usuario_id, limite))
                 historial = []
                 for row in cursor.fetchall():
-                    row_dict = dict(zip([desc[0] for desc in cursor.description], row))
                     historial_item = HistorialEstado(
-                        id=row_dict.get('id'),
-                        usuario_id=row_dict.get('usuario_id'),
-                        estado_id=row_dict.get('estado_id'),
-                        accion=row_dict.get('accion', ''),
-                        estado_anterior=row_dict.get('estado_anterior'),
-                        estado_nuevo=row_dict.get('estado_nuevo'),
-                        fecha_accion=row_dict.get('fecha_accion'),
-                        usuario_modificador=row_dict.get('creado_por'),  # Usar creado_por en lugar de usuario_modificador
-                        motivo=row_dict.get('motivo'),
-                        detalles=row_dict.get('detalles'),
-                        ip_origen=row_dict.get('ip_origen'),
-                        modificador_nombre=row_dict.get('modificador_nombre'),
-                        estado_actual_nombre=row_dict.get('estado_actual_nombre')
+                        id=row.get('id'),
+                        usuario_id=row.get('usuario_id'),
+                        estado_id=row.get('estado_id'),
+                        accion=row.get('accion', ''),
+                        estado_anterior=row.get('estado_anterior'),
+                        estado_nuevo=row.get('estado_nuevo'),
+                        fecha_accion=row.get('fecha_accion'),
+                        usuario_modificador=row.get('creado_por'),
+                        motivo=row.get('motivo'),
+                        detalles=row.get('detalles'),
+                        ip_origen=row.get('ip_origen'),
+                        modificador_nombre=row.get('modificador_nombre'),
+                        estado_actual_nombre=row.get('estado_actual_nombre')
                     )
                     historial.append(historial_item)
                 return historial
@@ -7059,7 +8008,11 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
                 
-                sql = "SELECT * FROM numeracion_comprobantes"
+                sql = (
+                    "SELECT id, tipo_comprobante, prefijo, numero_inicial, separador, "
+                    "reiniciar_anual, longitud_numero, activo, fecha_creacion "
+                    "FROM numeracion_comprobantes"
+                )
                 params = []
                 
                 if tipo_comprobante:
@@ -7269,22 +8222,27 @@ class DatabaseManager:
         estados_a_vencer = cursor.fetchall()
 
         vencidos = []
-        for estado in estados_a_vencer:
-            cursor.execute("UPDATE usuario_estados SET activo = FALSE WHERE id = %s", (estado[0],))
-            self.registrar_historial_estado(
-                usuario_id=estado[1],
-                estado_id=estado[0],
-                accion='desactivar',
-                estado_anterior=estado[2],
-                motivo='Vencimiento automático',
-                usuario_modificador=1  # Sistema
-            )
-            vencidos.append({
-                'usuario_id': estado[1],
-                'estado_id': estado[0],
-                'estado': estado[2],
-                'motivo': 'Vencimiento automático'
-            })
+        if estados_a_vencer:
+            ids = [e[0] for e in estados_a_vencer]
+            # Actualización por lote para minimizar round-trips
+            placeholders = ",".join(["%s"] * len(ids))
+            cursor.execute(f"UPDATE usuario_estados SET activo = FALSE WHERE id IN ({placeholders})", ids)
+            # Registrar historial por cada estado (mantener trazabilidad)
+            for estado in estados_a_vencer:
+                self.registrar_historial_estado(
+                    usuario_id=estado[1],
+                    estado_id=estado[0],
+                    accion='desactivar',
+                    estado_anterior=estado[2],
+                    motivo='Vencimiento automático',
+                    usuario_modificador=1  # Sistema
+                )
+                vencidos.append({
+                    'usuario_id': estado[1],
+                    'estado_id': estado[0],
+                    'estado': estado[2],
+                    'motivo': 'Vencimiento automático'
+                })
         return vencidos
 
     def _identificar_usuarios_para_actualizar(self, cursor, config) -> list:
@@ -7816,7 +8774,7 @@ class DatabaseManager:
             raise  # Re-lanzar para manejo de transacciones
     
     def _procesar_lote_activacion(self, cursor, lote: List[int], accion: str, resultados: dict):
-        """Procesa un lote de activación/desactivación de usuarios (método legacy)"""
+        """Procesa un lote de activación/desactivación de usuarios (método anterior)"""
         # Llamar al método robusto para mantener compatibilidad
         return self._procesar_lote_activacion_robusto(cursor, lote, accion, resultados)
     
@@ -8332,7 +9290,11 @@ class DatabaseManager:
         """Obtiene todas las rutinas de un usuario"""
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM rutinas WHERE usuario_id = %s ORDER BY fecha_creacion DESC", (usuario_id,))
+                cursor.execute(
+                    "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
+                    "FROM rutinas WHERE usuario_id = %s ORDER BY fecha_creacion DESC",
+                    (usuario_id,)
+                )
                 return [Rutina(**dict(r)) for r in cursor.fetchall()]
     
     def obtener_rutinas_usuario(self, usuario_id: int) -> List[Rutina]:
@@ -8344,7 +9306,11 @@ class DatabaseManager:
         rutina = None
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM rutinas WHERE id = %s", (rutina_id,))
+                cursor.execute(
+                    "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
+                    "FROM rutinas WHERE id = %s",
+                    (rutina_id,)
+                )
                 row = cursor.fetchone()
                 
                 if row:
@@ -8414,6 +9380,10 @@ class DatabaseManager:
                 cursor.execute(sql, (ejercicio.nombre, ejercicio.grupo_muscular, ejercicio.descripcion, 
                                    getattr(ejercicio, 'objetivo', 'general'), ejercicio.id))
                 conn.commit()
+                try:
+                    self.cache.invalidate('ejercicios')
+                except Exception:
+                    pass
 
     def eliminar_ejercicio(self, ejercicio_id: int):
         """Elimina un ejercicio"""
@@ -8421,13 +9391,31 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 cursor.execute("DELETE FROM ejercicios WHERE id = %s", (ejercicio_id,))
                 conn.commit()
+                try:
+                    self.cache.invalidate('ejercicios')
+                except Exception:
+                    pass
 
     def obtener_plantillas_rutina(self) -> List[Rutina]:
         """Obtiene todas las plantillas de rutina (rutinas sin usuario asignado)"""
+        try:
+            cached = self.cache.get('rutinas', ('plantillas',))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT * FROM rutinas WHERE usuario_id IS NULL ORDER BY nombre_rutina")
-                return [Rutina(**dict(r)) for r in cursor.fetchall()]
+                cursor.execute(
+                    "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
+                    "FROM rutinas WHERE usuario_id IS NULL ORDER BY nombre_rutina"
+                )
+                result = [Rutina(**dict(r)) for r in cursor.fetchall()]
+                try:
+                    self.cache.set('rutinas', ('plantillas',), result)
+                except Exception:
+                    pass
+                return result
 
     def eliminar_rutina(self, rutina_id: int) -> bool:
         """Elimina una rutina"""
@@ -8439,6 +9427,10 @@ class DatabaseManager:
                     # Then delete the routine
                     cursor.execute("DELETE FROM rutinas WHERE id = %s", (rutina_id,))
                     conn.commit()
+                    try:
+                        self.cache.invalidate('rutinas')
+                    except Exception:
+                        pass
                     return cursor.rowcount > 0
         except Exception as e:
             logging.error(f"Error deleting routine: {e}")
@@ -8453,6 +9445,10 @@ class DatabaseManager:
                 sql = "UPDATE clases SET nombre = %s, descripcion = %s WHERE id = %s"
                 cursor.execute(sql, (clase.nombre, clase.descripcion, clase.id))
                 conn.commit()
+                try:
+                    self.cache.invalidate('clases')
+                except Exception:
+                    pass
 
     def eliminar_clase(self, clase_id: int):
         """Elimina una clase"""
@@ -8460,6 +9456,10 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 cursor.execute("DELETE FROM clases WHERE id = %s", (clase_id,))
                 conn.commit()
+                try:
+                    self.cache.invalidate('clases')
+                except Exception:
+                    pass
 
     def crear_horario_clase(self, horario: ClaseHorario) -> int:
         """Crea un nuevo horario para una clase"""
@@ -8630,8 +9630,13 @@ class DatabaseManager:
         """Obtiene todos los horarios de disponibilidad de un profesor"""
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Selección explícita de columnas para evitar SELECT * y mejorar desempeño
+                # Índices recomendados (también creados en ensure_indexes):
+                # - CREATE INDEX IF NOT EXISTS idx_horarios_profesores_profesor_id ON horarios_profesores(profesor_id);
+                # - CREATE INDEX IF NOT EXISTS idx_horarios_profesores_dia_inicio ON horarios_profesores(dia_semana, hora_inicio);
                 sql = """
-                    SELECT * FROM horarios_profesores 
+                    SELECT id, profesor_id, dia_semana, hora_inicio, hora_fin, disponible
+                    FROM horarios_profesores 
                     WHERE profesor_id = %s 
                     ORDER BY CASE dia_semana 
                         WHEN 'Lunes' THEN 1 
@@ -8782,8 +9787,8 @@ class DatabaseManager:
                 return False
 
     def agregar_a_lista_espera(self, clase_horario_id: int, usuario_id: int):
-        """Método legacy redirigido: usa clase_lista_espera con gestión de posición/activo."""
-        # Redirigir al método principal para evitar escrituras en la tabla legacy
+        """Método anterior redirigido: usa clase_lista_espera con gestión de posición/activo."""
+        # Redirigir al método principal para evitar escrituras en la tabla anterior
         try:
             return self.agregar_a_lista_espera_completo(clase_horario_id, usuario_id)
         except Exception:
@@ -8961,7 +9966,10 @@ class DatabaseManager:
         """Obtiene un pago por su ID"""
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute("SELECT * FROM pagos WHERE id = %s", (pago_id,))
+            cursor.execute(
+                "SELECT id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id FROM pagos WHERE id = %s",
+                (pago_id,)
+            )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -9024,18 +10032,6 @@ class DatabaseManager:
                 }
                 self.audit_logger.log_operation('DELETE', 'pagos', pago_id, old_values, None)
             
-            # Encolar sync: payment.delete usando claves naturales (usuario_id, mes, año)
-            try:
-                if pago_to_delete:
-                    payload = {
-                        "usuario_id": getattr(pago_to_delete, "usuario_id", None),
-                        "mes": getattr(pago_to_delete, "mes", None),
-                        "año": getattr(pago_to_delete, "año", None),
-                    }
-                    enqueue_operations([op_payment_delete(payload)])
-            except Exception:
-                pass
-
             # Limpiar cache de pagos
             self.cache.invalidate('pagos')
     
@@ -9071,20 +10067,6 @@ class DatabaseManager:
                 self.audit_logger.log_operation('UPDATE', 'pagos', pago.id, old_values, new_values)
             
             # Encolar sync: payment.update (o add con upsert en servidor)
-            try:
-                payload = {
-                    "id": getattr(pago, "id", None),
-                    "usuario_id": getattr(pago, "usuario_id", None),
-                    "mes": getattr(pago, "mes", None),
-                    "año": getattr(pago, "año", None),
-                    "monto": getattr(pago, "monto", None),
-                    "fecha_pago": getattr(pago, "fecha_pago", None),
-                    "metodo_pago_id": getattr(pago, "metodo_pago_id", None),
-                }
-                enqueue_operations([op_payment_update(payload)])
-            except Exception:
-                pass
-
             # Limpiar cache de pagos
             self.cache.invalidate('pagos')
 
@@ -9098,6 +10080,8 @@ class DatabaseManager:
                 LIMIT 1
             """, (usuario_id, mes, año))
             return cursor.fetchone() is not None
+
+    # Nota: definición consolidada de registrar_pagos_batch se encuentra arriba.
 
     def obtener_estadisticas_pagos(self, año: int = None) -> dict:
         """Obtiene estadísticas de pagos con optimizaciones"""
@@ -9342,17 +10326,97 @@ class DatabaseManager:
             
             # Limpiar cache de asistencias
             self.cache.invalidate('asistencias')
-            # Encolar sincronización upstream (upsert)
-            try:
-                payload = {
-                    'user_id': int(usuario_id),
-                    'fecha': fecha.isoformat(),
-                }
-                enqueue_operations([op_attendance_update(payload)])
-            except Exception:
-                # No bloquear la operación por fallos de encolado
-                pass
             return asistencia_id
+
+    def registrar_asistencias_batch(self, asistencias: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Inserta asistencias en lote, filtrando usuarios inactivos y evitando duplicados por (usuario_id, fecha).
+
+        Cada item debe tener: {'usuario_id': int, 'fecha': date | str | None}.
+        Devuelve {'insertados': [ids], 'omitidos': [{'usuario_id':..,'fecha':..,'motivo':..}], 'count': int}.
+        """
+        if not asistencias:
+            return {'insertados': [], 'omitidos': [], 'count': 0}
+        # Normalizar filas
+        now_dt = datetime.now()
+        rows: List[Tuple[int, date, datetime]] = []
+        normalized: List[Tuple[int, date]] = []
+        omitidos: List[Dict[str, Any]] = []
+        for item in asistencias:
+            try:
+                uid = int(item.get('usuario_id'))
+                fraw = item.get('fecha')
+                if fraw is None:
+                    f = date.today()
+                elif isinstance(fraw, date):
+                    f = fraw
+                elif isinstance(fraw, str):
+                    try:
+                        f = datetime.fromisoformat(fraw).date()
+                    except Exception:
+                        f = date.today()
+                else:
+                    f = date.today()
+                rows.append((uid, f, now_dt))
+                normalized.append((uid, f))
+            except Exception as e:
+                omitidos.append({'usuario_id': item.get('usuario_id'), 'fecha': item.get('fecha'), 'motivo': f'payload inválido: {e}'})
+
+        try:
+            with self.atomic_transaction(isolation_level="READ COMMITTED") as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Insertar solo asistencias de usuarios activos y que no existen aún para esa fecha
+                insert_sql = (
+                    """
+                    INSERT INTO asistencias (usuario_id, fecha, hora_registro)
+                    SELECT v.usuario_id, v.fecha, v.hora_registro
+                    FROM (VALUES %s) AS v(usuario_id, fecha, hora_registro)
+                    WHERE EXISTS (
+                        SELECT 1 FROM usuarios u WHERE u.id = v.usuario_id AND u.activo = TRUE
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM asistencias a WHERE a.usuario_id = v.usuario_id AND a.fecha = v.fecha
+                    )
+                    RETURNING id, usuario_id, fecha
+                    """
+                )
+                psycopg2.extras.execute_values(cur, insert_sql, rows, page_size=250)
+                inserted = cur.fetchall() or []
+
+                # Determinar omitidos por inactivos o duplicados
+                activos_sql = "SELECT id FROM usuarios WHERE id = ANY(%s) AND activo = TRUE"
+                uids = list({uid for uid, _f in normalized})
+                cur.execute(activos_sql, (uids,))
+                activos_set = {int(r['id']) for r in (cur.fetchall() or [])}
+                existentes_sql = (
+                    "SELECT usuario_id, fecha FROM asistencias WHERE (usuario_id, fecha) IN (SELECT * FROM (VALUES %s) AS t(usuario_id, fecha))"
+                )
+                psycopg2.extras.execute_values(cur, existentes_sql, normalized, page_size=250)
+                existentes = {(int(r['usuario_id']), r['fecha']) for r in (cur.fetchall() or [])}
+
+                for uid, f in normalized:
+                    if uid not in activos_set:
+                        omitidos.append({'usuario_id': uid, 'fecha': f, 'motivo': 'usuario inactivo'})
+                    elif (uid, f) in existentes:
+                        omitidos.append({'usuario_id': uid, 'fecha': f, 'motivo': 'duplicado'})
+
+                # Auditoría por cada inserción realizada
+                if self.audit_logger:
+                    try:
+                        for r in inserted:
+                            self.audit_logger.log_operation(
+                                'CREATE', 'asistencias', int(r['id']), None,
+                                {'usuario_id': int(r['usuario_id']), 'fecha': str(r['fecha']), 'accion': 'batch'}
+                            )
+                    except Exception:
+                        pass
+                return {
+                    'insertados': [int(r['id']) for r in inserted],
+                    'omitidos': omitidos,
+                    'count': len(inserted)
+                }
+        except Exception as e:
+            logging.error(f"Error registrar_asistencias_batch: {e}")
+            raise
 
     # --- MÉTODOS PARA CHECK-IN INVERSO POR QR ---
     @database_retry()
@@ -9520,7 +10584,9 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute("""
-                SELECT a.*, u.nombre as usuario_nombre, u.dni, u.telefono
+                SELECT 
+                    a.id, a.usuario_id, a.fecha, a.hora_registro, a.hora_entrada,
+                    u.nombre AS usuario_nombre, u.dni, u.telefono
                 FROM asistencias a
                 JOIN usuarios u ON a.usuario_id = u.id
                 WHERE a.fecha = %s
@@ -9533,83 +10599,59 @@ class DatabaseManager:
                 asistencias.append(asistencia_dict)
             
             # Cache por 2 horas
-            self.cache.set('asistencias', cache_key, asistencias)
+            self.cache.set('asistencias', cache_key, asistencias, ttl_seconds=7200)
             
             return asistencias
 
     def eliminar_asistencia(self, asistencia_id_or_user_id: int, fecha: date = None):
-        """Elimina una asistencia con auditoría
-        
-        Args:
-            asistencia_id_or_user_id: ID de la asistencia o ID del usuario
-            fecha: Fecha de la asistencia (requerida si se pasa user_id)
-        """
+        """Elimina una asistencia con auditoría y sincronización usando DELETE ... RETURNING en una sola operación"""
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            
-            # Si se proporciona fecha, buscar por usuario_id y fecha
+
+            deleted_row = None
             if fecha is not None:
                 cursor.execute(
-                    "SELECT * FROM asistencias WHERE usuario_id = %s AND fecha = %s",
+                    """
+                    DELETE FROM asistencias
+                    WHERE usuario_id = %s AND fecha = %s
+                    RETURNING 
+                        id,
+                        usuario_id,
+                        fecha,
+                        hora_registro,
+                        hora_entrada,
+                        (SELECT dni FROM usuarios u WHERE u.id = asistencias.usuario_id) AS dni
+                    """,
                     (asistencia_id_or_user_id, fecha)
                 )
-                asistencia_to_delete = cursor.fetchone()
-                if not asistencia_to_delete:
-                    return  # No hay asistencia para eliminar
-                
-                actual_asistencia_id = asistencia_to_delete['id']
-                cursor.execute("DELETE FROM asistencias WHERE usuario_id = %s AND fecha = %s", 
-                             (asistencia_id_or_user_id, fecha))
+                deleted_row = cursor.fetchone()
             else:
-                # Comportamiento original: eliminar por ID de asistencia
-                cursor.execute("SELECT * FROM asistencias WHERE id = %s", (asistencia_id_or_user_id,))
-                asistencia_to_delete = cursor.fetchone()
-                if not asistencia_to_delete:
-                    return  # No hay asistencia para eliminar
-                
-                actual_asistencia_id = asistencia_id_or_user_id
-                cursor.execute("DELETE FROM asistencias WHERE id = %s", (asistencia_id_or_user_id,))
-            
+                cursor.execute(
+                    """
+                    DELETE FROM asistencias
+                    WHERE id = %s
+                    RETURNING 
+                        id,
+                        usuario_id,
+                        fecha,
+                        hora_registro,
+                        hora_entrada,
+                        (SELECT dni FROM usuarios u WHERE u.id = asistencias.usuario_id) AS dni
+                    """,
+                    (asistencia_id_or_user_id,)
+                )
+                deleted_row = cursor.fetchone()
+
+            if not deleted_row:
+                return
+
             conn.commit()
-            
-            # Registrar en auditoría
-            if self.audit_logger and asistencia_to_delete:
-                old_values = dict(asistencia_to_delete)
-                self.audit_logger.log_operation('DELETE', 'asistencias', actual_asistencia_id, old_values, None)
+
+            # Auditoría con valores eliminados
+            if self.audit_logger:
+                self.audit_logger.log_operation('DELETE', 'asistencias', deleted_row['id'], dict(deleted_row), None)
 
             # Encolar sincronización upstream (delete)
-            try:
-                uid = int(asistencia_to_delete['usuario_id']) if asistencia_to_delete else None
-                fecha_val = asistencia_to_delete['fecha'] if asistencia_to_delete else None
-                # Normalizar fecha a string ISO (solo fecha)
-                try:
-                    if hasattr(fecha_val, 'date'):
-                        fecha_str = fecha_val.date().isoformat()
-                    else:
-                        fecha_str = fecha_val.isoformat() if hasattr(fecha_val, 'isoformat') else str(fecha_val)
-                except Exception:
-                    fecha_str = str(fecha_val) if fecha_val is not None else None
-                dni_val = None
-                try:
-                    cursor.execute("SELECT dni FROM usuarios WHERE id = %s", (uid,))
-                    r = cursor.fetchone()
-                    if r is not None:
-                        try:
-                            dni_val = r.get('dni') if isinstance(r, dict) else r[0]
-                        except Exception:
-                            dni_val = None
-                except Exception:
-                    dni_val = None
-                if uid and fecha_str:
-                    payload = {
-                        'user_id': uid,
-                        'dni': dni_val,
-                        'fecha': fecha_str,
-                    }
-                    enqueue_operations([op_attendance_delete(payload)])
-            except Exception:
-                pass
-            
             # Limpiar cache de asistencias
             self.cache.invalidate('asistencias')
 
@@ -9685,16 +10727,7 @@ class DatabaseManager:
                 return cached
         except Exception:
             pass
-        # Caché persistente
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_asistencias_por_dia', (int(dias),), {}
-                )
-                if persist is not None:
-                    return persist
-        except Exception:
-            pass
+        
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
@@ -9716,13 +10749,6 @@ class DatabaseManager:
                         self.cache.set('asistencias', cache_key, rows, ttl_seconds=1800)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_asistencias_por_dia', (int(dias),), {}, rows
-                            )
-                    except Exception:
-                        pass
                     return rows
         except Exception as e:
             logging.error(f"Error en obtener_asistencias_por_dia: {e}")
@@ -9737,15 +10763,7 @@ class DatabaseManager:
                 return cached
         except Exception:
             pass
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_asistencias_por_rango_diario', (fecha_inicio, fecha_fin), {}
-                )
-                if persist is not None:
-                    return persist
-        except Exception:
-            pass
+        
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
@@ -9767,13 +10785,6 @@ class DatabaseManager:
                         self.cache.set('asistencias', cache_key, rows, ttl_seconds=1800)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_asistencias_por_rango_diario', (fecha_inicio, fecha_fin), {}, rows
-                            )
-                    except Exception:
-                        pass
                     return rows
         except Exception as e:
             logging.error(f"Error en obtener_asistencias_por_rango_diario: {e}")
@@ -9788,15 +10799,7 @@ class DatabaseManager:
                 return cached
         except Exception:
             pass
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_asistencias_por_hora', (int(dias),), {}
-                )
-                if persist is not None:
-                    return persist
-        except Exception:
-            pass
+        
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
@@ -9818,13 +10821,6 @@ class DatabaseManager:
                         self.cache.set('asistencias', cache_key, rows, ttl_seconds=1800)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_asistencias_por_hora', (int(dias),), {}, rows
-                            )
-                    except Exception:
-                        pass
                     return rows
         except Exception as e:
             logging.error(f"Error en obtener_asistencias_por_hora: {e}")
@@ -9839,15 +10835,7 @@ class DatabaseManager:
                 return cached
         except Exception:
             pass
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_asistencias_por_hora_rango', (fecha_inicio, fecha_fin), {}
-                )
-                if persist is not None:
-                    return persist
-        except Exception:
-            pass
+        
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
@@ -9867,13 +10855,6 @@ class DatabaseManager:
                     rows = [(int(row[0]), row[1]) for row in cursor.fetchall()]
                     try:
                         self.cache.set('asistencias', cache_key, rows, ttl_seconds=1800)
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_asistencias_por_hora_rango', (fecha_inicio, fecha_fin), {}, rows
-                            )
                     except Exception:
                         pass
                     return rows
@@ -10002,11 +10983,6 @@ class DatabaseManager:
                 self.cache.set('tipos', cache_key, tipos)
             except Exception:
                 pass
-            try:
-                if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                    self.offline_sync_manager.cache_read_result('obtener_tipos_cuota_activos', (), {}, tipos)
-            except Exception:
-                pass
             return tipos
         except Exception as e:
             msg = str(e).lower()
@@ -10035,22 +11011,10 @@ class DatabaseManager:
                         self.cache.set('tipos', cache_key, tipos2)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result('obtener_tipos_cuota_activos', (), {}, tipos2)
-                    except Exception:
-                        pass
                     return tipos2
                 except Exception:
                     pass
-            # Fallback: caché persistente o memoria
-            try:
-                if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                    cached_persist = self.offline_sync_manager.get_cached_read_result('obtener_tipos_cuota_activos', (), {})
-                    if cached_persist is not None:
-                        return cached_persist
-            except Exception:
-                pass
+            # Fallback: caché en memoria
             try:
                 cached_mem = self.cache.get('tipos', cache_key)
                 if cached_mem is not None:
@@ -10163,6 +11127,10 @@ class DatabaseManager:
                                rutina.dias_semana, categoria))
             rutina_id = cursor.fetchone()['id']
             conn.commit()
+            try:
+                self.cache.invalidate('rutinas')
+            except Exception:
+                pass
             return rutina_id
     
     def actualizar_rutina(self, rutina) -> bool:
@@ -10179,6 +11147,10 @@ class DatabaseManager:
                 cursor.execute(sql, (rutina.nombre_rutina, rutina.descripcion, 
                                    rutina.dias_semana, categoria, rutina.id))
                 conn.commit()
+                try:
+                    self.cache.invalidate('rutinas')
+                except Exception:
+                    pass
                 return cursor.rowcount > 0
         except Exception as e:
             logging.error(f"Error updating routine: {e}")
@@ -10186,23 +11158,46 @@ class DatabaseManager:
     
     def obtener_rutinas_por_usuario(self, usuario_id: int) -> List:
         """Obtiene todas las rutinas de un usuario."""
+        # Cache por usuario
+        try:
+            cached = self.cache.get('rutinas', ('usuario', int(usuario_id)))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cursor.execute("""
-                SELECT * FROM rutinas 
+                SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa FROM rutinas 
                 WHERE usuario_id = %s 
                 ORDER BY fecha_creacion DESC
             """, (usuario_id,))
-            return [dict(r) for r in cursor.fetchall()]
+            result = [dict(r) for r in cursor.fetchall()]
+            try:
+                self.cache.set('rutinas', ('usuario', int(usuario_id)), result)
+            except Exception:
+                pass
+            return result
     
     def obtener_rutina_completa(self, rutina_id: int) -> Optional[dict]:
         """Obtiene una rutina completa con sus ejercicios."""
+        # Cache por rutina completa (versión dict)
+        try:
+            cached = self.cache.get('rutinas', ('completa_dict', int(rutina_id)))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         rutina = None
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
             # Obtener rutina
-            cursor.execute("SELECT * FROM rutinas WHERE id = %s", (rutina_id,))
+            cursor.execute(
+                "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
+                "FROM rutinas WHERE id = %s",
+                (rutina_id,)
+            )
             row = cursor.fetchone()
             
             if row:
@@ -10232,39 +11227,61 @@ class DatabaseManager:
                     rutina_ejercicio['ejercicio'] = ejercicio_data
                     rutina['ejercicios'].append(rutina_ejercicio)
         
+        try:
+            self.cache.set('rutinas', ('completa_dict', int(rutina_id)), rutina)
+        except Exception:
+            pass
         return rutina
     
     def obtener_ejercicios(self, filtro: str = "", objetivo: str = "", 
                           grupo_muscular: str = "") -> List[Ejercicio]:
-        """Obtiene ejercicios con filtros avanzados."""
+        """Obtiene ejercicios con filtros avanzados con caché TTL por combinación de filtros."""
+        # Normalizar claves de filtro para caché
+        filtro_key = (filtro or "").strip().lower() or None
+        objetivo_key = None if not objetivo or objetivo == "Todos" else str(objetivo).strip().lower()
+        grupo_key = None if not grupo_muscular or grupo_muscular == "Todos" else str(grupo_muscular).strip().lower()
+        cache_key = (filtro_key, objetivo_key, grupo_key)
+
+        try:
+            cached = self.cache.get('ejercicios', cache_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
+
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            
+
             # Construir consulta dinámica
-            sql = "SELECT * FROM ejercicios WHERE 1=1"
+            sql = "SELECT id, nombre, descripcion, grupo_muscular, objetivo FROM ejercicios WHERE 1=1"
             params = []
-            
+
             # Filtro por nombre
             if filtro:
                 sql += " AND (nombre ILIKE %s OR descripcion ILIKE %s)"
                 params.extend([f"%{filtro}%", f"%{filtro}%"])
-            
+
             # Filtro por objetivo
             if objetivo and objetivo != "Todos":
                 sql += " AND objetivo = %s"
                 params.append(objetivo)
-            
+
             # Filtro por grupo muscular
             if grupo_muscular and grupo_muscular != "Todos":
                 sql += " AND grupo_muscular = %s"
                 params.append(grupo_muscular)
-            
+
             sql += " ORDER BY nombre"
             cursor.execute(sql, params)
-            return [Ejercicio(**dict(r)) for r in cursor.fetchall()]
+            result = [Ejercicio(**dict(r)) for r in cursor.fetchall()]
+            try:
+                self.cache.set('ejercicios', cache_key, result)
+            except Exception:
+                pass
+            return result
     
     def crear_ejercicio(self, ejercicio) -> int:
-        """Crea un nuevo ejercicio."""
+        """Crea un nuevo ejercicio y limpia caché relacionada."""
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -10281,6 +11298,10 @@ class DatabaseManager:
                     raise Exception(f"Error creando ejercicio {ejercicio.nombre}: fetchone returned None")
                 ejercicio_id = result['id']
                 conn.commit()
+                try:
+                    self.cache.invalidate('ejercicios')
+                except Exception:
+                    pass
                 return ejercicio_id
         except Exception as e:
             logging.error(f"Error creating exercise {ejercicio.nombre}: {e}")
@@ -10328,9 +11349,20 @@ class DatabaseManager:
                 cursor.executemany(sql, data_to_insert)
             
             conn.commit()
+            try:
+                self.cache.invalidate('clase_ejercicios', (int(clase_id),))
+            except Exception:
+                pass
     
     def obtener_ejercicios_de_clase(self, clase_id: int) -> List[Ejercicio]:
         """Obtiene ejercicios asociados a una clase."""
+        # Cache por clase_id
+        try:
+            cached = self.cache.get('clase_ejercicios', (int(clase_id),))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             sql = """
@@ -10340,7 +11372,12 @@ class DatabaseManager:
             ORDER BY e.nombre
             """
             cursor.execute(sql, (clase_id,))
-            return [Ejercicio(**dict(r)) for r in cursor.fetchall()]
+            result = [Ejercicio(**dict(r)) for r in cursor.fetchall()]
+            try:
+                self.cache.set('clase_ejercicios', (int(clase_id),), result)
+            except Exception:
+                pass
+            return result
     
     # === MÉTODOS DE GESTIÓN DE PROFESORES AVANZADOS ===
     
@@ -10512,8 +11549,6 @@ class DatabaseManager:
                         resolved_at TIMESTAMP NULL,
                         resolution_time INTEGER,
                         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                        logical_ts BIGINT NOT NULL DEFAULT 0,
-                        last_op_id UUID,
                         CONSTRAINT fk_conflict_profesor FOREIGN KEY (professor_id) REFERENCES profesores(id),
                         CONSTRAINT fk_conflict_clase FOREIGN KEY (class_id) REFERENCES clases(id)
                     )
@@ -10783,17 +11818,7 @@ class DatabaseManager:
         except Exception:
             pass
 
-        # 2) Caché persistente
-        try:
-            if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                persist = self.offline_sync_manager.get_cached_read_result(
-                    'obtener_asistencias_por_dia_semana', (int(dias),), {}
-                )
-                if persist is not None:
-                    return persist
-        except Exception:
-            pass
-
+        
         try:
             with self.get_connection_context() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
@@ -10831,13 +11856,6 @@ class DatabaseManager:
                     # Actualizar cachés
                     try:
                         self.cache.set('asistencias', cache_key, asistencias, ttl_seconds=1800)
-                    except Exception:
-                        pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result(
-                                'obtener_asistencias_por_dia_semana', (int(dias),), {}, asistencias
-                            )
                     except Exception:
                         pass
                     return asistencias
@@ -10975,7 +11993,7 @@ class DatabaseManager:
                         GROUP BY u.id, u.nombre
                         HAVING MAX(p.fecha_vencimiento) IS NOT NULL
                     )
-                    SELECT * FROM usuarios_vencidos 
+                    SELECT usuario_id, nombre, ultima_fecha_vencimiento, estado_calculado FROM usuarios_vencidos 
                     WHERE estado_calculado IN ('vencido', 'proximo_vencimiento')
                     ORDER BY ultima_fecha_vencimiento
                 """, (fecha_actual, fecha_actual, fecha_actual + timedelta(days=7)))
@@ -11476,21 +12494,14 @@ class DatabaseManager:
 
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                # Obtener campos lógicos para esta operación
-                try:
-                    from utils_modules.logical_clock import assign_logical_fields
-                    logical_ts, last_op_id = assign_logical_fields(conn)
-                except Exception:
-                    # Fallback: valores seguros
-                    logical_ts, last_op_id = (0, None)
                 sql = """
                     INSERT INTO audit_logs 
-                    (user_id, action, table_name, record_id, old_values, new_values, ip_address, user_agent, session_id, logical_ts, last_op_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (user_id, action, table_name, record_id, old_values, new_values, ip_address, user_agent, session_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """
-                cursor.execute(sql, (valid_user_id, action, table_name, record_id, old_values, new_values, # Usar valid_user_id
-                                   ip_address, user_agent, session_id, logical_ts, last_op_id))
+                cursor.execute(sql, (valid_user_id, action, table_name, record_id, old_values, new_values,
+                                   ip_address, user_agent, session_id))
                 conn.commit()
                 return cursor.fetchone()['id']
         except Exception as e:
@@ -11934,10 +12945,21 @@ class DatabaseManager:
     
     def obtener_rutina_completa(self, rutina_id: int) -> Optional[Rutina]:
         """Obtiene una rutina completa con todos sus ejercicios PostgreSQL"""
+        # Cache por rutina completa (versión objeto)
+        try:
+            cached = self.cache.get('rutinas', ('completa_obj', int(rutina_id)))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
         rutina = None
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute("SELECT * FROM rutinas WHERE id = %s", (rutina_id,))
+            cursor.execute(
+                "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
+                "FROM rutinas WHERE id = %s",
+                (rutina_id,)
+            )
             row = cursor.fetchone()
             
             if row:
@@ -11968,6 +12990,10 @@ class DatabaseManager:
                     rutina_ejercicio.ejercicio = ejercicio_data
                     rutina.ejercicios.append(rutina_ejercicio)
         
+        try:
+            self.cache.set('rutinas', ('completa_obj', int(rutina_id)), rutina)
+        except Exception:
+            pass
         return rutina
     
     def crear_rutina(self, rutina: Rutina) -> int:
@@ -11988,6 +13014,10 @@ class DatabaseManager:
             cursor.execute(sql, (getattr(rutina, 'usuario_id', None), rutina.nombre_rutina, rutina.descripcion, rutina.dias_semana, categoria))
             rutina_id = cursor.fetchone()['id']
             conn.commit()
+            try:
+                self.cache.invalidate('rutinas')
+            except Exception:
+                pass
             return rutina_id
     
     # === MÉTODOS PARA ESPECIALIDADES Y CERTIFICACIONES ===
@@ -13107,7 +14137,11 @@ class DatabaseManager:
 
                 cursor.execute(
                     """
-                    SELECT * FROM profesor_horas_trabajadas
+                    SELECT 
+                        id, profesor_id, fecha, hora_inicio, hora_fin,
+                        minutos_totales, horas_totales, tipo_actividad,
+                        clase_id, notas, fecha_creacion
+                    FROM profesor_horas_trabajadas
                     WHERE profesor_id = %s AND hora_fin IS NULL
                     ORDER BY hora_inicio DESC
                     LIMIT 1
@@ -13139,7 +14173,10 @@ class DatabaseManager:
                         minutos_totales = %s,
                         tipo_actividad = COALESCE(tipo_actividad, 'Trabajo')
                     WHERE id = %s
-                    RETURNING *
+                    RETURNING 
+                        id, profesor_id, fecha, hora_inicio, hora_fin,
+                        minutos_totales, horas_totales, tipo_actividad,
+                        clase_id, notas, fecha_creacion
                     """
                     cursor.execute(sql, (fin, round(duracion_minutos_db), sesion_db['id']))
                     sesion_finalizada = cursor.fetchone()
@@ -13245,7 +14282,11 @@ class DatabaseManager:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 sql = """
-                SELECT * FROM profesor_horas_trabajadas 
+                SELECT 
+                    id, profesor_id, fecha, hora_inicio, hora_fin,
+                    minutos_totales, horas_totales, tipo_actividad,
+                    clase_id, notas, fecha_creacion
+                FROM profesor_horas_trabajadas 
                 WHERE profesor_id = %s AND hora_fin IS NULL
                 ORDER BY hora_inicio DESC
                 LIMIT 1
@@ -13970,6 +15011,35 @@ class DatabaseManager:
             return resultados
     
     
+    # Recomendaciones de índices (aceleran WHERE/ORDER y JOIN comunes)
+    #
+    # CREATE INDEX IF NOT EXISTS idx_audit_logs_record_id ON audit_logs(record_id);
+    # CREATE INDEX IF NOT EXISTS idx_audit_logs_action_id ON audit_logs(action, id);
+    # CREATE INDEX IF NOT EXISTS idx_clases_horarios_comp ON clases_horarios(clase_id, dia_semana, hora_inicio);
+    # CREATE INDEX IF NOT EXISTS idx_asistencias_fecha_date ON asistencias ((fecha::date));
+    # CREATE INDEX IF NOT EXISTS idx_clase_usuarios_clase_horario ON clase_usuarios(clase_horario_id);
+    # CREATE INDEX IF NOT EXISTS idx_clase_usuarios_usuario ON clase_usuarios(usuario_id);
+    # CREATE INDEX IF NOT EXISTS idx_profesor_clase_asignaciones_profesor_activa ON profesor_clase_asignaciones(profesor_id, activa);
+    # CREATE INDEX IF NOT EXISTS idx_profesor_clase_asignaciones_clase ON profesor_clase_asignaciones(clase_horario_id);
+    # CREATE INDEX IF NOT EXISTS idx_clases_tipo_clase_id ON clases(tipo_clase_id);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_usuario_activa_fecha ON usuario_notas(usuario_id, activa, fecha_creacion);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_categoria_activa_fecha ON usuario_notas(categoria, activa, fecha_creacion);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_notas_importancia_activa_fecha ON usuario_notas(importancia, activa, fecha_creacion);
+    # CREATE INDEX IF NOT EXISTS idx_etiquetas_activo ON etiquetas(activo);
+    # CREATE INDEX IF NOT EXISTS idx_etiquetas_activo_nombre ON etiquetas(activo, nombre);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_etiquetas_usuario_id ON usuario_etiquetas(usuario_id);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_etiquetas_etiqueta_id ON usuario_etiquetas(etiqueta_id);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_estados_usuario_fecha_inicio_desc ON usuario_estados(usuario_id, fecha_inicio DESC);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_estados_usuario_activo_fecha_inicio_desc ON usuario_estados(usuario_id, activo, fecha_inicio DESC);
+    # CREATE INDEX IF NOT EXISTS idx_usuario_estados_activo_vencimiento ON usuario_estados(activo, fecha_vencimiento);
+    # CREATE INDEX IF NOT EXISTS idx_historial_estados_usuario_fecha_desc ON historial_estados(usuario_id, fecha_accion DESC);
+    # CREATE INDEX IF NOT EXISTS idx_pagos_usuario_mes_anio ON pagos(usuario_id, año, mes);
+    # CREATE INDEX IF NOT EXISTS idx_pagos_usuario_fecha_desc ON pagos(usuario_id, fecha_pago DESC);
+    # CREATE INDEX IF NOT EXISTS idx_pago_detalles_pago_id ON pago_detalles(pago_id);
+    # CREATE INDEX IF NOT EXISTS idx_pago_detalles_concepto_id ON pago_detalles(concepto_id);
+    # CREATE INDEX IF NOT EXISTS idx_conceptos_pago_activo ON conceptos_pago(activo);
+    # CREATE INDEX IF NOT EXISTS idx_metodos_pago_activo ON metodos_pago(activo);
+
     def ensure_indexes(self) -> None:
         """Crea (idempotentemente) índices críticos en autocommit usando advisory lock y ejecuta ANALYZE.
 
@@ -14046,11 +15116,19 @@ class DatabaseManager:
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuarios_rol_nombre ON usuarios(rol, nombre)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuarios_activo_rol_nombre ON usuarios(activo, rol, nombre)")
 
+                    # Profesores (relación con usuarios)
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profesores_usuario_id ON profesores(usuario_id)")
+
                     # Pagos
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pagos_usuario_id ON pagos(usuario_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pagos_fecha ON pagos(fecha_pago)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pagos_month_year ON pagos ((EXTRACT(MONTH FROM fecha_pago)), (EXTRACT(YEAR FROM fecha_pago)))")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pagos_usuario_fecha_desc ON pagos(usuario_id, fecha_pago DESC)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pagos_usuario_mes_anio ON pagos(usuario_id, año, mes)")
+
+                    # Detalles de pago
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pago_detalles_pago_id ON pago_detalles(pago_id)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_pago_detalles_concepto_id ON pago_detalles(concepto_id)")
 
                     # Asistencias
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_asistencias_usuario_id ON asistencias(usuario_id)")
@@ -14060,6 +15138,10 @@ class DatabaseManager:
                     # Clases / horarios
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clases_tipo_clase_id ON clases (tipo_clase_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clases_horarios_clase_id ON clases_horarios(clase_id)")
+
+                    # Horarios de profesores (disponibilidad)
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_horarios_profesores_profesor_id ON horarios_profesores(profesor_id)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_horarios_profesores_dia_inicio ON horarios_profesores(dia_semana, hora_inicio)")
 
                     # Lista de espera
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clase_lista_espera_clase ON clase_lista_espera (clase_horario_id)")
@@ -14078,12 +15160,22 @@ class DatabaseManager:
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clase_asistencia_historial_fecha ON clase_asistencia_historial(fecha_clase)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_clase_asistencia_historial_estado ON clase_asistencia_historial(estado_asistencia)")
 
+                    # Sesiones de profesores (horas trabajadas)
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profesor_horas_fecha ON profesor_horas_trabajadas(fecha)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profesor_horas_profesor_fecha ON profesor_horas_trabajadas(profesor_id, fecha)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profesor_horas_activa_inicio ON profesor_horas_trabajadas(profesor_id, hora_inicio) WHERE hora_fin IS NULL")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_profesor_horas_cerrada_profesor_fecha_inicio ON profesor_horas_trabajadas(profesor_id, fecha, hora_inicio) WHERE hora_fin IS NOT NULL")
+
                     # Estados de usuario e historial
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_estados_usuario_id ON usuario_estados(usuario_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_estados_creado_por ON usuario_estados(creado_por)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_estados_usuario_fecha_inicio_desc ON usuario_estados(usuario_id, fecha_inicio DESC)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_estados_usuario_activo_fecha_inicio_desc ON usuario_estados(usuario_id, activo, fecha_inicio DESC)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_estados_activo_vencimiento ON usuario_estados(activo, fecha_vencimiento)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_historial_estados_usuario_id ON historial_estados(usuario_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_historial_estados_estado_id ON historial_estados(estado_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_historial_estados_fecha ON historial_estados(fecha_accion)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_historial_estados_usuario_fecha_desc ON historial_estados(usuario_id, fecha_accion DESC)")
 
                     # Comprobantes
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_comprobantes_pago_pago_id ON comprobantes_pago(pago_id)")
@@ -14096,6 +15188,57 @@ class DatabaseManager:
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_table_name ON audit_logs(table_name)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_record_id ON audit_logs(record_id)")
+
+                    # Acciones masivas pendientes
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_acciones_masivas_estado_fecha ON acciones_masivas_pendientes(estado, fecha_creacion)")
+
+                    # WhatsApp templates y config
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_templates_active_name ON whatsapp_templates(active, template_name)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_config_active_created ON whatsapp_config(active, created_at)")
+
+                    # WhatsApp messages (anti-spam reciente)
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_messages_user_type_date ON whatsapp_messages(user_id, message_type, sent_at)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_whatsapp_messages_user_type_date_nofailed ON whatsapp_messages(user_id, message_type, sent_at) WHERE status <> 'failed'")
+
+                    # Auditoría: índices opcionales si existen columnas avanzadas
+                    try:
+                        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cinfo:
+                            cinfo.execute(
+                                """
+                                SELECT column_name FROM information_schema.columns
+                                WHERE table_schema = 'public' AND table_name = 'audit_logs'
+                                """
+                            )
+                            cols = {row['column_name'] for row in (cinfo.fetchall() or [])}
+                        # Crear índices sólo si las columnas existen
+                        if 'level' in cols:
+                            _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_level ON audit_logs(level)")
+                        if 'category' in cols:
+                            _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_category ON audit_logs(category)")
+                        if 'source' in cols:
+                            _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_source ON audit_logs(source)")
+                        if {'timestamp', 'level', 'category'} <= cols:
+                            _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_ts_level_cat ON audit_logs(timestamp, level, category)")
+                    except Exception as e:
+                        logging.debug(f"No se pudieron verificar/crear índices opcionales de audit_logs: {e}")
+
+                    # Notas de usuarios
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_notas_usuario_activa_fecha ON usuario_notas(usuario_id, activa, fecha_creacion)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_notas_categoria_activa_fecha ON usuario_notas(categoria, activa, fecha_creacion)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_notas_importancia_activa_fecha ON usuario_notas(importancia, activa, fecha_creacion)")
+
+                    # Etiquetas
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etiquetas_activo ON etiquetas(activo)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_etiquetas_activo_nombre ON etiquetas(activo, nombre)")
+
+                    # Conceptos y métodos de pago
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conceptos_pago_activo ON conceptos_pago(activo)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_metodos_pago_activo ON metodos_pago(activo)")
+
+                    # Relación usuario-etiquetas
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_etiquetas_usuario_id ON usuario_etiquetas(usuario_id)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_etiquetas_etiqueta_id ON usuario_etiquetas(etiqueta_id)")
 
                 # ANALYZE sin bloquear
                 try:
@@ -14308,10 +15451,10 @@ class DatabaseManager:
                 return False
     
     def migrar_lista_espera_legacy(self, drop_legacy: bool = True) -> Dict[str, int]:
-        """Migra la tabla legacy 'lista_espera' a 'clase_lista_espera'.
+        """Migra la tabla anterior 'lista_espera' a 'clase_lista_espera'.
         - Respeta el orden por fecha_inscripcion para asignar posiciones.
         - Marca registros como activo=true.
-        - Si drop_legacy=True, elimina la tabla legacy al finalizar.
+        - Si drop_legacy=True, elimina la tabla anterior al finalizar.
         Retorna contadores del proceso.
         """
         resultados = {"procesados": 0, "insertados_actualizados": 0, "errores": 0}
@@ -14378,10 +15521,10 @@ class DatabaseManager:
                             cursor.execute("DROP TABLE IF EXISTS lista_espera")
                             conn.commit()
                         except Exception as de:
-                            logging.error(f"Error eliminando tabla legacy lista_espera: {de}")
+                            logging.error(f"Error eliminando tabla anterior lista_espera: {de}")
             return resultados
         except Exception as e:
-            logging.error(f"Error en migrar_lista_espera_legacy: {e}")
+            logging.error(f"Error en migrar_lista_espera_legacy (anterior): {e}")
             return resultados
 
     # --- MÉTODOS PARA HISTORIAL DE ASISTENCIA ---
@@ -14414,31 +15557,6 @@ class DatabaseManager:
                                estado_asistencia, hora_llegada, observaciones, registrado_por))
             result = cursor.fetchone()
             conn.commit()
-            # Encolar sincronización upstream (upsert)
-            try:
-                dni_val = None
-                try:
-                    cursor.execute("SELECT dni FROM usuarios WHERE id = %s", (usuario_id,))
-                    r = cursor.fetchone()
-                    if r is not None:
-                        try:
-                            dni_val = r.get('dni') if isinstance(r, dict) else r[0]
-                        except Exception:
-                            dni_val = None
-                except Exception:
-                    dni_val = None
-                payload = {
-                    'user_id': int(usuario_id),
-                    'dni': dni_val,
-                    'clase_horario_id': int(clase_horario_id),
-                    'fecha_clase': str(fecha_clase),
-                    'estado_asistencia': estado_asistencia,
-                    'hora_llegada': hora_llegada,
-                    'observaciones': observaciones,
-                }
-                enqueue_operations([op_class_attendance_update(payload)])
-            except Exception:
-                pass
             return result['id'] if result else None
     
     def obtener_historial_asistencia_usuario_completo(self, usuario_id: int, fecha_desde: str = None, 
@@ -14723,7 +15841,9 @@ class DatabaseManager:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
             sql = (
-                "SELECT * FROM profesor_horas_trabajadas "
+                "SELECT id, profesor_id, fecha, hora_inicio, hora_fin, "
+                "minutos_totales, horas_totales, tipo_actividad, clase_id, notas, fecha_creacion "
+                "FROM profesor_horas_trabajadas "
                 "WHERE profesor_id = %s "
                 "AND hora_fin IS NOT NULL"
             )
@@ -14905,14 +16025,10 @@ class DatabaseManager:
                     ip_address TEXT,
                     user_agent TEXT,
                     session_id TEXT,
-                    logical_ts BIGINT NOT NULL DEFAULT 0,
-                    last_op_id UUID,
                     FOREIGN KEY (user_id) REFERENCES usuarios(id)
                 )
             """)
-            # Índices adicionales para campos lógicos
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_logical_ts ON audit_logs(logical_ts)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_last_op_id ON audit_logs(last_op_id)")
+            # Índices para auditoría (sin campos lógicos)
             
             # Tabla de diagnósticos del sistema
             cursor.execute("""
@@ -15570,11 +16686,6 @@ class DatabaseManager:
                 self.cache.set('tipos', cache_key, tipos)
             except Exception:
                 pass
-            try:
-                if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                    self.offline_sync_manager.cache_read_result('obtener_tipos_cuota', (solo_activos,), {}, tipos)
-            except Exception:
-                pass
             return tipos
         except Exception as e:
             msg = str(e).lower()
@@ -15602,22 +16713,10 @@ class DatabaseManager:
                         self.cache.set('tipos', cache_key, tipos2)
                     except Exception:
                         pass
-                    try:
-                        if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                            self.offline_sync_manager.cache_read_result('obtener_tipos_cuota', (solo_activos,), {}, tipos2)
-                    except Exception:
-                        pass
                     return tipos2
                 except Exception:
                     pass
-            # Fallback a caché persistente/memoria
-            try:
-                if hasattr(self, 'offline_sync_manager') and self.offline_sync_manager:
-                    cached_persist = self.offline_sync_manager.get_cached_read_result('obtener_tipos_cuota', (solo_activos,), {})
-                    if cached_persist is not None:
-                        return cached_persist
-            except Exception:
-                pass
+            # Fallback a caché en memoria
             try:
                 cached_mem = self.cache.get('tipos', cache_key)
                 if cached_mem is not None:
@@ -15678,7 +16777,7 @@ class DatabaseManager:
             return {}
 
     def ensure_indexes_secondary(self) -> None:
-        """Duplicado legacy: delega en ensure_indexes primario."""
+        """Duplicado anterior: delega en ensure_indexes primario."""
         try:
             return self.ensure_indexes()
         except Exception:
@@ -16326,13 +17425,21 @@ class DatabaseManager:
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                
-                if fecha_inicio and fecha_fin:
-                    # Rango de fechas específico
-                    sql = """
-                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
-                           mp.nombre AS metodo_pago,
-                           COALESCE(agg.concepto_pago, '') AS concepto_pago
+
+                # Columnas explícitas para evitar SELECT * y mejorar planificación
+                base_select = """
+                    SELECT 
+                        p.id,
+                        p.usuario_id,
+                        p.monto,
+                        p.mes,
+                        p.año,
+                        p.fecha_pago,
+                        p.metodo_pago_id,
+                        u.nombre AS usuario_nombre,
+                        u.dni,
+                        mp.nombre AS metodo_pago,
+                        COALESCE(agg.concepto_pago, '') AS concepto_pago
                     FROM pagos p
                     JOIN usuarios u ON p.usuario_id = u.id
                     LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
@@ -16342,48 +17449,21 @@ class DatabaseManager:
                         LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
                         WHERE pd.pago_id = p.id
                     ) AS agg ON TRUE
-                    WHERE p.fecha_pago BETWEEN %s AND %s
-                    ORDER BY p.fecha_pago DESC
-                    """
+                """
+
+                if fecha_inicio and fecha_fin:
+                    # Rango de fechas específico (utiliza índice en fecha_pago)
+                    sql = base_select + "\nWHERE p.fecha_pago BETWEEN %s AND %s\nORDER BY p.fecha_pago DESC"
                     cursor.execute(sql, (fecha_inicio, fecha_fin))
                 elif fecha_inicio:
-                    # Solo fecha de inicio - filtrar por día específico
-                    sql = """
-                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
-                           mp.nombre AS metodo_pago,
-                           COALESCE(agg.concepto_pago, '') AS concepto_pago
-                    FROM pagos p
-                    JOIN usuarios u ON p.usuario_id = u.id
-                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
-                    LEFT JOIN LATERAL (
-                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
-                        FROM pago_detalles pd
-                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
-                        WHERE pd.pago_id = p.id
-                    ) AS agg ON TRUE
-                    WHERE DATE(p.fecha_pago) = %s
-                    ORDER BY p.fecha_pago DESC
-                    """
-                    cursor.execute(sql, (fecha_inicio,))
+                    # Día específico: reescribir como rango [fecha, fecha + 1 día) para usar índice
+                    sql = base_select + "\nWHERE p.fecha_pago >= %s AND p.fecha_pago < (%s::date + INTERVAL '1 day')\nORDER BY p.fecha_pago DESC"
+                    cursor.execute(sql, (fecha_inicio, fecha_inicio))
                 else:
-                    # Si no se proporcionan fechas, obtener todos los pagos
-                    sql = """
-                    SELECT p.*, u.nombre AS usuario_nombre, u.dni,
-                           mp.nombre AS metodo_pago,
-                           COALESCE(agg.concepto_pago, '') AS concepto_pago
-                    FROM pagos p
-                    JOIN usuarios u ON p.usuario_id = u.id
-                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
-                    LEFT JOIN LATERAL (
-                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
-                        FROM pago_detalles pd
-                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
-                        WHERE pd.pago_id = p.id
-                    ) AS agg ON TRUE
-                    ORDER BY p.fecha_pago DESC
-                    """
+                    # Todos los pagos con orden por fecha
+                    sql = base_select + "\nORDER BY p.fecha_pago DESC"
                     cursor.execute(sql)
-                
+
                 return [dict(row) for row in cursor.fetchall()]
                 
         except Exception as e:
@@ -17382,9 +18462,23 @@ class DatabaseManager:
                     'datos_relacionados': {}
                 }
                 
-                # Obtener datos de usuarios
+                # Obtener datos de usuarios con columnas explícitas
                 placeholders = ','.join(['%s' for _ in usuario_ids])
-                cursor.execute(f"SELECT * FROM usuarios WHERE id IN ({placeholders})", usuario_ids)
+                def _get_columns(table: str) -> List[str]:
+                    cursor.execute(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = %s
+                        ORDER BY ordinal_position
+                        """,
+                        (table,)
+                    )
+                    return [r['column_name'] for r in (cursor.fetchall() or [])]
+
+                usuario_cols = _get_columns('usuarios')
+                usuarios_select = ", ".join(usuario_cols) if usuario_cols else "id, nombre, rol, activo"
+                cursor.execute(f"SELECT {usuarios_select} FROM usuarios WHERE id IN ({placeholders})", usuario_ids)
                 usuarios = cursor.fetchall()
                 
                 for usuario in usuarios:
@@ -17405,33 +18499,43 @@ class DatabaseManager:
                         if not usuario['activo']:
                             resultado['validaciones'].append(f"Usuario {usuario['nombre']} está inactivo")
                 
-                # Datos relacionados
+                # Datos relacionados (selecciones explícitas por tabla)
                 if incluir_relacionados:
                     # Pagos
-                    cursor.execute(f"SELECT * FROM pagos WHERE usuario_id IN ({placeholders})", usuario_ids)
+                    pagos_cols = _get_columns('pagos')
+                    pagos_sel = ", ".join(pagos_cols) if pagos_cols else "id, usuario_id, monto, mes, año, fecha_pago, metodo_pago_id"
+                    cursor.execute(f"SELECT {pagos_sel} FROM pagos WHERE usuario_id IN ({placeholders})", usuario_ids)
                     pagos = cursor.fetchall()
                     backup_data['datos_relacionados']['pagos'] = [dict(p) for p in pagos]
                     
                     # Asistencias
-                    cursor.execute(f"SELECT * FROM asistencias WHERE usuario_id IN ({placeholders})", usuario_ids)
+                    asist_cols = _get_columns('asistencias')
+                    asist_sel = ", ".join(asist_cols) if asist_cols else "id, usuario_id, fecha, hora_registro, hora_entrada"
+                    cursor.execute(f"SELECT {asist_sel} FROM asistencias WHERE usuario_id IN ({placeholders})", usuario_ids)
                     asistencias = cursor.fetchall()
                     backup_data['datos_relacionados']['asistencias'] = [dict(a) for a in asistencias]
                     
                     # Estados
-                    cursor.execute(f"SELECT * FROM usuario_estados WHERE usuario_id IN ({placeholders})", usuario_ids)
+                    estados_cols = _get_columns('usuario_estados')
+                    estados_sel = ", ".join(estados_cols) if estados_cols else "id, usuario_id, estado, descripcion, fecha_inicio, fecha_vencimiento, activo, creado_por"
+                    cursor.execute(f"SELECT {estados_sel} FROM usuario_estados WHERE usuario_id IN ({placeholders})", usuario_ids)
                     estados = cursor.fetchall()
                     backup_data['datos_relacionados']['estados'] = [dict(e) for e in estados]
                     
                     # Notas
-                    cursor.execute(f"SELECT * FROM usuario_notas WHERE usuario_id IN ({placeholders})", usuario_ids)
+                    notas_cols = _get_columns('usuario_notas')
+                    notas_sel = ", ".join(notas_cols) if notas_cols else "id, usuario_id, categoria, titulo, contenido, importancia, fecha_creacion, fecha_modificacion, activa, autor_id"
+                    cursor.execute(f"SELECT {notas_sel} FROM usuario_notas WHERE usuario_id IN ({placeholders})", usuario_ids)
                     notas = cursor.fetchall()
                     backup_data['datos_relacionados']['notas'] = [dict(n) for n in notas]
                     
-                    # Etiquetas
+                    # Etiquetas (explicitar columnas de ue y nombre de etiqueta)
+                    ue_cols = _get_columns('usuario_etiquetas')
+                    ue_cols_aliased = ", ".join([f"ue.{c}" for c in ue_cols]) if ue_cols else "ue.id, ue.usuario_id, ue.etiqueta_id, ue.asignado_por, ue.fecha_asignacion"
                     cursor.execute(f"""
-                        SELECT ue.*, e.nombre as etiqueta_nombre 
-                        FROM usuario_etiquetas ue 
-                        JOIN etiquetas e ON ue.etiqueta_id = e.id 
+                        SELECT {ue_cols_aliased}, e.nombre AS etiqueta_nombre
+                        FROM usuario_etiquetas ue
+                        JOIN etiquetas e ON ue.etiqueta_id = e.id
                         WHERE ue.usuario_id IN ({placeholders})
                     """, usuario_ids)
                     etiquetas = cursor.fetchall()
@@ -17522,7 +18626,11 @@ class DatabaseManager:
                     
                     # Construir consulta
                     try:
-                        query = "SELECT * FROM acciones_masivas_pendientes WHERE 1=1"
+                        query = (
+                            "SELECT id, operation_id, tipo, descripcion, usuario_ids, parametros, "
+                            "estado, fecha_creacion, fecha_completado, resultado, created_by, error_message "
+                            "FROM acciones_masivas_pendientes WHERE 1=1"
+                        )
                         params = []
                         
                         if usuario_id:
@@ -17844,9 +18952,7 @@ class DatabaseManager:
                             body_text TEXT NOT NULL,
                             variables JSONB,
                             active BOOLEAN DEFAULT TRUE,
-                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            logical_ts BIGINT NOT NULL DEFAULT 0,
-                            last_op_id UUID
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                         )
                     """)
                     
@@ -17858,9 +18964,7 @@ class DatabaseManager:
                             waba_id VARCHAR(50) NOT NULL,
                             access_token TEXT,
                             active BOOLEAN DEFAULT TRUE,
-                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            logical_ts BIGINT NOT NULL DEFAULT 0,
-                            last_op_id UUID
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
                         )
                     """)
                     
@@ -17925,7 +19029,9 @@ class DatabaseManager:
             with self.get_connection_context() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     cursor.execute("""
-                        SELECT * FROM whatsapp_templates 
+                        SELECT 
+                            id, template_name, header_text, body_text, variables, active, created_at
+                        FROM whatsapp_templates 
                         WHERE template_name = %s AND active = TRUE
                     """, (template_name,))
                     
@@ -17943,13 +19049,17 @@ class DatabaseManager:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     if activas_solo:
                         cursor.execute("""
-                            SELECT * FROM whatsapp_templates 
+                            SELECT 
+                                id, template_name, header_text, body_text, variables, active, created_at
+                            FROM whatsapp_templates 
                             WHERE active = TRUE
                             ORDER BY template_name
                         """)
                     else:
                         cursor.execute("""
-                            SELECT * FROM whatsapp_templates 
+                            SELECT 
+                                id, template_name, header_text, body_text, variables, active, created_at
+                            FROM whatsapp_templates 
                             ORDER BY template_name
                         """)
                     
@@ -17965,7 +19075,9 @@ class DatabaseManager:
             with self.get_connection_context() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     cursor.execute("""
-                        SELECT * FROM whatsapp_config 
+                        SELECT 
+                            id, phone_id, waba_id, access_token, active, created_at
+                        FROM whatsapp_config 
                         WHERE active = TRUE 
                         ORDER BY created_at DESC 
                         LIMIT 1
@@ -18065,7 +19177,10 @@ class DatabaseManager:
             with self.get_connection_context() as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     query = """
-                        SELECT wm.*, u.nombre as usuario_nombre
+                        SELECT 
+                            wm.id, wm.user_id, wm.message_type, wm.template_name, wm.phone_number,
+                            wm.message_id, wm.sent_at, wm.status, wm.message_content, wm.created_at,
+                            u.nombre AS usuario_nombre
                         FROM whatsapp_messages wm
                         LEFT JOIN usuarios u ON wm.user_id = u.id
                         WHERE 1=1
@@ -18570,3 +19685,603 @@ class DatabaseManager:
                 'detalles_errores': [error_msg],
                 'fecha_procesamiento': datetime.now().isoformat()
             }
+
+    def limpiar_datos_innecesarios(
+        self,
+        whatsapp_days: int = 120,
+        audit_logs_days: int = 180,
+        auditoria_days: int = 180,
+        notificaciones_days: int = 90,
+        sysdiag_days: int = 180,
+    ) -> Dict[str, int]:
+        """Limpia datos no esenciales de forma sencilla y directa.
+        
+        Operaciones:
+        - Borra mensajes de WhatsApp más antiguos que `whatsapp_days`.
+        - Borra registros de `audit_logs` y `auditoria` por antigüedad.
+        - Borra `notificaciones_cupos` leídas/inactivas según `notificaciones_days`.
+        - Borra registros antiguos en `system_diagnostics`.
+        
+        Devuelve un diccionario con conteos por tabla.
+        """
+        resultados: Dict[str, int] = {}
+        try:
+            # WhatsApp: reutiliza método existente
+            try:
+                resultados['whatsapp_messages'] = int(self.limpiar_mensajes_antiguos_whatsapp(whatsapp_days))
+            except Exception as e:
+                logging.warning(f"Limpieza WhatsApp falló: {e}")
+                resultados['whatsapp_messages'] = 0
+
+            with self.get_connection_context() as conn:
+                with conn.cursor() as cursor:
+                    # audit_logs por antigüedad
+                    try:
+                        cursor.execute(
+                            "DELETE FROM audit_logs WHERE timestamp < NOW() - INTERVAL %s",
+                            (f"{audit_logs_days} days",)
+                        )
+                        resultados['audit_logs'] = cursor.rowcount
+                    except Exception as e:
+                        logging.warning(f"No se pudo limpiar audit_logs: {e}")
+                        resultados['audit_logs'] = 0
+
+                    # auditoria por antigüedad
+                    try:
+                        cursor.execute(
+                            "DELETE FROM auditoria WHERE timestamp < NOW() - INTERVAL %s",
+                            (f"{auditoria_days} days",)
+                        )
+                        resultados['auditoria'] = cursor.rowcount
+                    except Exception as e:
+                        logging.warning(f"No se pudo limpiar auditoria: {e}")
+                        resultados['auditoria'] = 0
+
+                    # notificaciones_cupos leídas/inactivas antiguas
+                    try:
+                        cursor.execute(
+                            """
+                            DELETE FROM notificaciones_cupos
+                            WHERE (leida = TRUE OR activa = FALSE)
+                              AND COALESCE(fecha_lectura, fecha_creacion) < NOW() - INTERVAL %s
+                            """,
+                            (f"{notificaciones_days} days",)
+                        )
+                        resultados['notificaciones_cupos'] = cursor.rowcount
+                    except Exception as e:
+                        logging.warning(f"No se pudo limpiar notificaciones_cupos: {e}")
+                        resultados['notificaciones_cupos'] = 0
+
+                    # system_diagnostics por antigüedad (si existe)
+                    try:
+                        cursor.execute(
+                            "DELETE FROM system_diagnostics WHERE timestamp < NOW() - INTERVAL %s",
+                            (f"{sysdiag_days} days",)
+                        )
+                        resultados['system_diagnostics'] = cursor.rowcount
+                    except Exception as e:
+                        logging.info(f"system_diagnostics no limpiado: {e}")
+                        resultados['system_diagnostics'] = 0
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+
+            logging.info(f"Limpieza simple completada: {resultados}")
+            return resultados
+        except Exception as e:
+            logging.error(f"Error en limpiar_datos_innecesarios: {e}")
+            return resultados
+
+    def eliminar_objetos_sync_antiguos(self) -> Dict[str, Any]:
+        """Elimina definitivamente objetos antiguos de sincronización ya no utilizados.
+
+        Incluye:
+        - Tablas: public.sync_outbox, public.sync_inbox
+        - Funciones: public.sync_outbox_capture, public.sync_outbox_ins, public.sync_outbox_upd, public.sync_outbox_del
+        Devuelve resumen con estado por objeto.
+        """
+        resumen: Dict[str, Any] = {"tables": {}, "functions": {}}
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor() as cur:
+                    # Eliminar tablas si existen
+                    for t in ("sync_outbox", "sync_inbox"):
+                        try:
+                            cur.execute(
+                                """
+                                SELECT EXISTS (
+                                    SELECT 1 FROM information_schema.tables 
+                                    WHERE table_schema = 'public' AND table_name = %s
+                                )
+                                """,
+                                (t,)
+                            )
+                            exists = bool(cur.fetchone()[0])
+                            if exists:
+                                cur.execute(f"DROP TABLE IF EXISTS public.{t} CASCADE")
+                                resumen["tables"][t] = "dropped"
+                            else:
+                                resumen["tables"][t] = "absent"
+                        except Exception as e:
+                            resumen["tables"][t] = f"error: {e}"
+
+                    # Eliminar funciones si existen (todas las variantes por firma)
+                    func_names = [
+                        "sync_outbox_capture",
+                        "sync_outbox_ins",
+                        "sync_outbox_upd",
+                        "sync_outbox_del",
+                    ]
+                    try:
+                        cur.execute(
+                            """
+                            SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) AS args
+                            FROM pg_proc p
+                            JOIN pg_namespace n ON n.oid = p.pronamespace
+                            WHERE n.nspname = 'public' AND p.proname = ANY(%s)
+                            """,
+                            (func_names,)
+                        )
+                        rows = cur.fetchall() or []
+                        for nspname, proname, args in rows:
+                            ident_args = args or ""
+                            stmt = f"DROP FUNCTION IF EXISTS {nspname}.{proname}({ident_args}) CASCADE"
+                            try:
+                                cur.execute(stmt)
+                                resumen["functions"][f"{nspname}.{proname}({ident_args})"] = "dropped"
+                            except Exception as fe:
+                                resumen["functions"][f"{nspname}.{proname}({ident_args})"] = f"error: {fe}"
+                        if not rows:
+                            resumen["functions"]["public.sync_outbox_*"] = "absent"
+                    except Exception as e:
+                        resumen["functions"]["public.sync_outbox_*"] = f"error: {e}"
+
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+
+            logging.info(f"Objetos de sincronización antiguos eliminados: {resumen}")
+            return resumen
+        except Exception as e:
+            logging.error(f"Error eliminando objetos de sincronización antiguos: {e}")
+            return resumen
+
+
+# ==================== QTHREAD WORKERS PARA OPERACIONES ASÍNCRONAS ====================
+
+class DatabaseWorker(QThread):
+    """Worker asíncrono para operaciones de base de datos sin bloquear la UI"""
+    
+    # Señales para comunicación con la UI
+    started = pyqtSignal(str)  # Mensaje de inicio
+    finished = pyqtSignal(object)  # Resultado de la operación
+    error = pyqtSignal(str)  # Mensaje de error
+    progress = pyqtSignal(int)  # Progreso 0-100
+    
+    def __init__(self, db_manager: DatabaseManager, operation: str, params: Dict = None):
+        super().__init__()
+        self.db_manager = db_manager
+        self.operation = operation
+        self.params = params or {}
+        self._is_running = True
+        
+    def run(self):
+        """Ejecuta la operación de base de datos en segundo plano"""
+        try:
+            self.started.emit(f"Iniciando operación: {self.operation}")
+            
+            if self.operation == "get_usuarios":
+                result = self._get_usuarios()
+            elif self.operation == "get_usuario_by_id":
+                result = self._get_usuario_by_id()
+            elif self.operation == "get_pagos_by_usuario":
+                result = self._get_pagos_by_usuario()
+            elif self.operation == "get_asistencias_today":
+                result = self._get_asistencias_today()
+            elif self.operation == "get_asistencias_by_usuario":
+                result = self._get_asistencias_by_usuario()
+            elif self.operation == "get_clases_activas":
+                result = self._get_clases_activas()
+            elif self.operation == "get_profesores_activos":
+                result = self._get_profesores_activos()
+            elif self.operation == "search_usuarios":
+                result = self._search_usuarios()
+            elif self.operation == "get_reporte_pagos":
+                result = self._get_reporte_pagos()
+            elif self.operation == "get_reporte_asistencias":
+                result = self._get_reporte_asistencias()
+            else:
+                raise ValueError(f"Operación no soportada: {self.operation}")
+            
+            if self._is_running:
+                self.finished.emit(result)
+                
+        except Exception as e:
+            error_msg = f"Error en operación {self.operation}: {str(e)}"
+            self.error.emit(error_msg)
+            logging.error(error_msg)
+    
+    def stop(self):
+        """Detiene el worker de manera segura"""
+        self._is_running = False
+    
+    def _get_usuarios(self):
+        """Obtiene lista de usuarios con paginación"""
+        self.progress.emit(10)
+        limit = self.params.get('limit', 100)
+        offset = self.params.get('offset', 0)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, nombre, dni, telefono, rol, activo, tipo_cuota, fecha_registro
+                    FROM usuarios 
+                    ORDER BY nombre 
+                    LIMIT %s OFFSET %s
+                """, (limit, offset))
+                self.progress.emit(80)
+                return cur.fetchall()
+    
+    def _get_usuario_by_id(self):
+        """Obtiene un usuario por ID"""
+        usuario_id = self.params.get('usuario_id')
+        if not usuario_id:
+            raise ValueError("usuario_id es requerido")
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, nombre, dni, telefono, rol, activo, tipo_cuota, 
+                           fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago
+                    FROM usuarios 
+                    WHERE id = %s
+                """, (usuario_id,))
+                return cur.fetchone()
+    
+    def _get_pagos_by_usuario(self):
+        """Obtiene pagos de un usuario"""
+        usuario_id = self.params.get('usuario_id')
+        limit = self.params.get('limit', 50)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT p.id, p.monto, p.fecha_pago, p.mes, p.año, mp.nombre as metodo_pago
+                    FROM pagos p
+                    LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
+                    WHERE p.usuario_id = %s
+                    ORDER BY p.fecha_pago DESC
+                    LIMIT %s
+                """, (usuario_id, limit))
+                return cur.fetchall()
+    
+    def _get_asistencias_today(self):
+        """Obtiene asistencias del día actual"""
+        self.progress.emit(20)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT a.id, a.usuario_id, a.fecha, a.hora_registro, u.nombre
+                    FROM asistencias a
+                    JOIN usuarios u ON u.id = a.usuario_id
+                    WHERE a.fecha = CURRENT_DATE
+                    ORDER BY a.hora_registro DESC
+                """)
+                self.progress.emit(80)
+                return cur.fetchall()
+    
+    def _get_asistencias_by_usuario(self):
+        """Obtiene asistencias de un usuario en un rango de fechas"""
+        usuario_id = self.params.get('usuario_id')
+        fecha_inicio = self.params.get('fecha_inicio', date.today() - timedelta(days=30))
+        fecha_fin = self.params.get('fecha_fin', date.today())
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT fecha, COUNT(*) as cantidad
+                    FROM asistencias
+                    WHERE usuario_id = %s AND fecha BETWEEN %s AND %s
+                    GROUP BY fecha
+                    ORDER BY fecha DESC
+                """, (usuario_id, fecha_inicio, fecha_fin))
+                return cur.fetchall()
+    
+    def _get_clases_activas(self):
+        """Obtiene clases activas"""
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT c.id, c.nombre, c.descripcion, c.activa
+                    FROM clases c
+                    WHERE c.activa = true
+                    ORDER BY c.nombre
+                """)
+                return cur.fetchall()
+    
+    def _get_profesores_activos(self):
+        """Obtiene profesores activos"""
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT p.id, u.nombre, u.telefono
+                    FROM profesores p
+                    JOIN usuarios u ON u.id = p.usuario_id
+                    ORDER BY u.nombre
+                """)
+                return cur.fetchall()
+    
+    def _search_usuarios(self):
+        """Búsqueda de usuarios"""
+        query = self.params.get('query', '')
+        limit = self.params.get('limit', 50)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, nombre, dni, telefono, rol, activo
+                    FROM usuarios
+                    WHERE LOWER(nombre) LIKE LOWER(%s) 
+                       OR dni LIKE %s 
+                       OR telefono LIKE %s
+                    ORDER BY activo DESC, nombre ASC
+                    LIMIT %s
+                """, (f'%{query}%', f'%{query}%', f'%{query}%', limit))
+                return cur.fetchall()
+    
+    def _get_reporte_pagos(self):
+        """Obtiene reporte de pagos por mes"""
+        mes = self.params.get('mes', date.today().month)
+        anio = self.params.get('anio', date.today().year)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        DATE_TRUNC('day', fecha_pago) as fecha,
+                        COUNT(*) as cantidad_pagos,
+                        SUM(monto) as total_monto
+                    FROM pagos
+                    WHERE mes = %s AND año = %s
+                    GROUP BY DATE_TRUNC('day', fecha_pago)
+                    ORDER BY fecha
+                """, (mes, anio))
+                return cur.fetchall()
+    
+    def _get_reporte_asistencias(self):
+        """Obtiene reporte de asistencias por día"""
+        dias = self.params.get('dias', 30)
+        fecha_inicio = date.today() - timedelta(days=dias)
+        
+        with self.db_manager.readonly_session() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT 
+                        fecha,
+                        COUNT(*) as cantidad_asistencias
+                    FROM asistencias
+                    WHERE fecha >= %s
+                    GROUP BY fecha
+                    ORDER BY fecha DESC
+                """, (fecha_inicio,))
+                return cur.fetchall()
+
+
+class BulkDatabaseWorker(QThread):
+    """Worker para operaciones masivas de base de datos"""
+    
+    started = pyqtSignal(str)
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(int)
+    
+    def __init__(self, db_manager: DatabaseManager, operation: str, data: List[Dict]):
+        super().__init__()
+        self.db_manager = db_manager
+        self.operation = operation
+        self.data = data
+        self._is_running = True
+        
+    def run(self):
+        """Ejecuta operación masiva en segundo plano"""
+        try:
+            self.started.emit(f"Iniciando operación masiva: {self.operation}")
+            
+            if self.operation == "bulk_insert_usuarios":
+                result = self._bulk_insert_usuarios()
+            elif self.operation == "bulk_update_pagos":
+                result = self._bulk_update_pagos()
+            elif self.operation == "bulk_insert_asistencias":
+                result = self._bulk_insert_asistencias()
+            else:
+                raise ValueError(f"Operación masiva no soportada: {self.operation}")
+            
+            if self._is_running:
+                self.finished.emit(result)
+                
+        except Exception as e:
+            error_msg = f"Error en operación masiva {self.operation}: {str(e)}"
+            self.error.emit(error_msg)
+            logging.error(error_msg)
+    
+    def stop(self):
+        """Detiene el worker"""
+        self._is_running = False
+    
+    def _bulk_insert_usuarios(self):
+        """Inserta múltiples usuarios"""
+        total = len(self.data)
+        inserted = 0
+        
+        with self.db_manager.connection() as conn:
+            with conn.cursor() as cur:
+                for i, usuario in enumerate(self.data):
+                    if not self._is_running:
+                        break
+                    
+                    try:
+                        cur.execute("""
+                            INSERT INTO usuarios (nombre, dni, telefono, rol, activo, tipo_cuota)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (
+                            usuario.get('nombre'),
+                            usuario.get('dni'),
+                            usuario.get('telefono'),
+                            usuario.get('rol', 'socio'),
+                            usuario.get('activo', True),
+                            usuario.get('tipo_cuota', 'estandar')
+                        ))
+                        inserted += 1
+                        
+                        # Actualizar progreso cada 10 registros
+                        if i % 10 == 0:
+                            progress = int((i / total) * 100)
+                            self.progress.emit(progress)
+                            
+                    except Exception as e:
+                        logging.warning(f"Error insertando usuario {usuario.get('nombre')}: {e}")
+                        continue
+                
+                conn.commit()
+        
+        self.progress.emit(100)
+        return {'inserted': inserted, 'total': total}
+    
+    def _bulk_update_pagos(self):
+        """Actualiza múltiples pagos"""
+        total = len(self.data)
+        updated = 0
+        
+        with self.db_manager.connection() as conn:
+            with conn.cursor() as cur:
+                for i, pago in enumerate(self.data):
+                    if not self._is_running:
+                        break
+                    
+                    try:
+                        cur.execute("""
+                            UPDATE pagos 
+                            SET monto = %s, fecha_pago = %s, metodo_pago_id = %s
+                            WHERE id = %s
+                        """, (
+                            pago.get('monto'),
+                            pago.get('fecha_pago'),
+                            pago.get('metodo_pago_id'),
+                            pago.get('id')
+                        ))
+                        updated += cur.rowcount
+                        
+                        if i % 10 == 0:
+                            progress = int((i / total) * 100)
+                            self.progress.emit(progress)
+                            
+                    except Exception as e:
+                        logging.warning(f"Error actualizando pago {pago.get('id')}: {e}")
+                        continue
+                
+                conn.commit()
+        
+        self.progress.emit(100)
+        return {'updated': updated, 'total': total}
+    
+    def _bulk_insert_asistencias(self):
+        """Inserta múltiples asistencias"""
+        total = len(self.data)
+        inserted = 0
+        
+        with self.db_manager.connection() as conn:
+            with conn.cursor() as cur:
+                for i, asistencia in enumerate(self.data):
+                    if not self._is_running:
+                        break
+                    
+                    try:
+                        cur.execute("""
+                            INSERT INTO asistencias (usuario_id, fecha, hora_registro)
+                            VALUES (%s, %s, %s)
+                        """, (
+                            asistencia.get('usuario_id'),
+                            asistencia.get('fecha'),
+                            asistencia.get('hora_registro')
+                        ))
+                        inserted += 1
+                        
+                        if i % 20 == 0:
+                            progress = int((i / total) * 100)
+                            self.progress.emit(progress)
+                            
+                    except Exception as e:
+                        logging.warning(f"Error insertando asistencia: {e}")
+                        continue
+                
+                conn.commit()
+        
+        self.progress.emit(100)
+        return {'inserted': inserted, 'total': total}
+
+
+class DatabaseOperationManager(QObject):
+    """Gestor de operaciones de base de datos asíncronas"""
+    
+    operation_started = pyqtSignal(str)
+    operation_finished = pyqtSignal(str, object)
+    operation_error = pyqtSignal(str, str)
+    operation_progress = pyqtSignal(str, int)
+    
+    def __init__(self, db_manager: DatabaseManager):
+        super().__init__()
+        self.db_manager = db_manager
+        self.active_workers = {}
+        self.worker_counter = 0
+        
+    def execute_operation(self, operation: str, params: Dict = None, operation_type: str = 'single'):
+        """Ejecuta una operación de base de datos de manera asíncrona"""
+        self.worker_counter += 1
+        worker_id = f"worker_{self.worker_counter}"
+        
+        if operation_type == 'bulk':
+            data = params.get('data', []) if params else []
+            worker = BulkDatabaseWorker(self.db_manager, operation, data)
+        else:
+            worker = DatabaseWorker(self.db_manager, operation, params)
+        
+        # Conectar señales
+        worker.started.connect(lambda msg: self.operation_started.emit(f"{worker_id}: {msg}"))
+        worker.finished.connect(lambda result: self._on_operation_finished(worker_id, operation, result))
+        worker.error.connect(lambda error: self._on_operation_error(worker_id, operation, error))
+        worker.progress.connect(lambda progress: self.operation_progress.emit(worker_id, progress))
+        
+        # Guardar referencia
+        self.active_workers[worker_id] = worker
+        
+        # Iniciar operación
+        worker.start()
+        
+        return worker_id
+    
+    def _on_operation_finished(self, worker_id: str, operation: str, result):
+        """Maneja la finalización de una operación"""
+        self.operation_finished.emit(operation, result)
+        self._cleanup_worker(worker_id)
+    
+    def _on_operation_error(self, worker_id: str, operation: str, error: str):
+        """Maneja errores de operación"""
+        self.operation_error.emit(operation, error)
+        self._cleanup_worker(worker_id)
+    
+    def _cleanup_worker(self, worker_id: str):
+        """Limpia el worker terminado"""
+        if worker_id in self.active_workers:
+            worker = self.active_workers[worker_id]
+            worker.quit()
+            worker.wait()
+            del self.active_workers[worker_id]
+    
+    def cancel_operation(self, worker_id: str):
+        """Cancela una operación en progreso"""
+        if worker_id in self.active_workers:
+            self.active_workers[worker_id].stop()
+            self._cleanup_worker(worker_id)

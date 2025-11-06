@@ -22,8 +22,6 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 HARDCODED_CREDS = {
     'DEV_PASSWORD': 'Matute03',
     'DB_LOCAL_PASSWORD': 'Matute03',
-    'DB_REMOTE_PASSWORD': 'uDEvhRmVlvaiyRWPPRuSPfVKavIKwmLm',
-    'SYNC_UPLOAD_TOKEN': 'gymms_sync_b3d2a9f6c1e5470ab9d83b7e4c59f12a7d8c3e1f5a9b2c4d6e7f8091a2b3c4d5',
     'WEBAPP_SESSION_SECRET': 'XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY',
     'WHATSAPP_ACCESS_TOKEN': 'EAFc4zmSDeIcBPkyEjkbO7FLad9wQJ3ZCEY7yZCZBxje8HWl7WZBAvzmgOTBZC9h1g3orNYieuZCASlfdqVP9j18NZBqxRGpZBk2uPEze00JHvPEMwYgdwMip3ZBIwrK6yJGSFqG1eeZCe04gZBZAdjyLt02Bb2D0UA3zAvTKZAYQXgwCDXdfZClu0Wz1TtZBVQQipK0HpwbNAZDZD',
     'TAILSCALE_AUTH_KEY': 'tskey-auth-k1mBHcH6W721CNTRL-pLYHgRKssWBYdjXscMWwVBHcnKdCSYNwX',
@@ -75,17 +73,7 @@ def create_env_file():
     env_content.append(f"DB_LOCAL_PASSWORD={db_local.get('password', HARDCODED_CREDS['DB_LOCAL_PASSWORD'])}")
     env_content.append("")
     
-    # Base de datos remota
-    env_content.append("# =============================================================================")
-    env_content.append("# BASE DE DATOS REMOTA")
-    env_content.append("# =============================================================================")
-    db_remote = config.get('db_remote', {})
-    env_content.append(f"DB_REMOTE_HOST={db_remote.get('host', 'shuttle.proxy.rlwy.net')}")
-    env_content.append(f"DB_REMOTE_PORT={db_remote.get('port', 45685)}")
-    env_content.append(f"DB_REMOTE_DATABASE={db_remote.get('database', 'railway')}")
-    env_content.append(f"DB_REMOTE_USER={db_remote.get('user', 'postgres')}")
-    env_content.append(f"DB_REMOTE_PASSWORD={db_remote.get('password', HARDCODED_CREDS['DB_REMOTE_PASSWORD'])}")
-    env_content.append("")
+    # Replicación eliminada - se usa base de datos única Neon
     
     # Seguridad
     env_content.append("# =============================================================================")
@@ -93,7 +81,6 @@ def create_env_file():
     env_content.append("# =============================================================================")
     env_content.append(f"DEV_PASSWORD={HARDCODED_CREDS['DEV_PASSWORD']}")
     env_content.append(f"OWNER_PASSWORD={HARDCODED_CREDS['OWNER_PASSWORD']}")
-    env_content.append(f"SYNC_UPLOAD_TOKEN={config.get('sync_upload_token', HARDCODED_CREDS['SYNC_UPLOAD_TOKEN'])}")
     env_content.append(f"WEBAPP_SESSION_SECRET={config.get('webapp_session_secret', HARDCODED_CREDS['WEBAPP_SESSION_SECRET'])}")
     env_content.append("")
     
@@ -121,20 +108,16 @@ def create_env_file():
     env_content.append("# =============================================================================")
     scheduled = config.get('scheduled_tasks', {})
     env_content.append(f"SCHEDULED_TASKS_ENABLED={scheduled.get('enabled', True)}")
-    uploader = scheduled.get('uploader', {})
-    env_content.append(f"UPLOADER_ENABLED={uploader.get('enabled', True)}")
-    env_content.append(f"UPLOADER_INTERVAL_MINUTES={uploader.get('interval_minutes', 3)}")
-    env_content.append(f"RECONCILE_R2L_ENABLED={scheduled.get('reconcile_r2l', {}).get('enabled', True)}")
+    # Solo tareas nativas
+    cleanup = scheduled.get('cleanup', {})
+    backup = scheduled.get('backup', {})
+    env_content.append(f"CLEANUP_ENABLED={cleanup.get('enabled', True)}")
+    env_content.append(f"CLEANUP_TIME={cleanup.get('time', '03:15')}")
+    env_content.append(f"BACKUP_ENABLED={backup.get('enabled', True)}")
+    env_content.append(f"BACKUP_TIME={backup.get('time', '02:30')}")
     env_content.append("")
     
-    # Replicación
-    env_content.append("# =============================================================================")
-    env_content.append("# REPLICACIÓN")
-    env_content.append("# =============================================================================")
-    replication = config.get('replication', {})
-    env_content.append(f"REPLICATION_SUBSCRIPTION_NAME={replication.get('subscription_name', 'gym_sub')}")
-    env_content.append(f"REPLICATION_PUBLICATION_NAME={replication.get('publication_name', 'gym_pub')}")
-    env_content.append(f"REMOTE_CAN_REACH_LOCAL={replication.get('remote_can_reach_local', False)}")
+    # Replicación eliminada - se usa base de datos única Neon
     env_content.append("")
     
     # Túnel público
@@ -172,17 +155,16 @@ def create_security_checklist():
     content.append("")
     content.append("### 1. Rotación de Credenciales (URGENTE)")
     content.append("- [ ] **Cambiar contraseña de base de datos local**")
-    content.append("- [ ] **Cambiar contraseña de base de datos remota (Railway)**")
     content.append("- [ ] **Revocar y regenerar token de WhatsApp Business API**")
     content.append("- [ ] **Cambiar DEV_PASSWORD (contraseña de desarrollador)**")
     content.append("- [ ] **Cambiar OWNER_PASSWORD (contraseña del propietario)**")
-    content.append("- [ ] **Generar nuevos SYNC_UPLOAD_TOKEN y WEBAPP_SESSION_SECRET**")
+    content.append("- [ ] **Generar nuevo WEBAPP_SESSION_SECRET**")
     content.append("- [ ] **Cambiar TAILSCALE_AUTH_KEY si se usa**")
     content.append("")
     content.append("### 2. Configuración del Entorno")
     content.append("- [ ] Actualizar archivo .env con las nuevas credenciales")
     content.append("- [ ] Configurar SERVER_PUBLIC_IP con la IP real del servidor")
-    content.append("- [ ] Verificar que DB_PROFILE esté correcto (local/remote)")
+    content.append("- [ ] Verificar que DB_PROFILE esté configurado en 'local'")
     content.append("- [ ] Ajustar WEBAPP_BASE_URL y CLIENT_BASE_URL si es necesario")
     content.append("")
     content.append("### 3. Verificación de Seguridad")

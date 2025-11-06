@@ -12,15 +12,21 @@ class SearchManager(QObject):
     """Gestor de búsqueda unificada para todo el sistema"""
     
     # Señales para comunicar resultados
+    search_started = pyqtSignal(str)       # query
     search_completed = pyqtSignal(str, list)  # query, results
     suggestions_updated = pyqtSignal(list)    # suggestions
     
     def __init__(self, db_manager: DatabaseManager):
         super().__init__()
         self.db_manager = db_manager
+        # Cache de búsquedas con TTL/LRU: { key: { 'data': list, 'ts': float } }
         self.search_cache = {}
         self.suggestion_cache = []
         self.last_cache_update = None
+        # Configuración de TTL/LRU
+        self.search_ttl_seconds = 300  # 5 minutos
+        self.max_search_cache_entries = 200
+        self.suggestions_ttl_seconds = 1800  # 30 minutos
         
         # Timer para búsqueda con delay (evitar búsquedas excesivas)
         self.search_timer = QTimer()
@@ -63,14 +69,30 @@ class SearchManager(QObject):
                 query = self.pending_query
                 categories = self.pending_categories
 
+                # Notificar inicio de búsqueda para mostrar indicadores de carga en la UI
+                try:
+                    self.search_started.emit(query)
+                except Exception:
+                    pass
+
                 # Verificar cache
                 cache_key = f"{query}_{'-'.join(sorted(categories))}"
-                if cache_key in self.search_cache:
-                    try:
-                        self.search_completed.emit(query, self.search_cache[cache_key])
-                    except Exception:
-                        pass
-                    return
+                cache_entry = self.search_cache.get(cache_key)
+                if cache_entry:
+                    ts = cache_entry.get('ts', 0)
+                    # Validar TTL del cache
+                    if (time.time() - ts) <= self.search_ttl_seconds:
+                        try:
+                            self.search_completed.emit(query, cache_entry.get('data', []))
+                        except Exception:
+                            pass
+                        return
+                    else:
+                        # Expirar entrada
+                        try:
+                            del self.search_cache[cache_key]
+                        except Exception:
+                            pass
 
                 results = []
 
@@ -101,7 +123,20 @@ class SearchManager(QObject):
 
                 # Guardar en cache
                 try:
-                    self.search_cache[cache_key] = results
+                    self.search_cache[cache_key] = {
+                        'data': results,
+                        'ts': time.time()
+                    }
+                    # Evicción LRU simple al superar el máximo
+                    if len(self.search_cache) > self.max_search_cache_entries:
+                        try:
+                            oldest_key = min(
+                                self.search_cache.items(),
+                                key=lambda kv: kv[1].get('ts', 0)
+                            )[0]
+                            del self.search_cache[oldest_key]
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
@@ -365,6 +400,12 @@ class SearchManager(QObject):
     
     def get_suggestions(self, query: str = "") -> List[str]:
         """Obtiene sugerencias para autocompletado"""
+        # Refrescar cache de sugerencias si expiró
+        try:
+            if not self.last_cache_update or (datetime.now() - self.last_cache_update).total_seconds() > self.suggestions_ttl_seconds:
+                self._update_suggestion_cache()
+        except Exception:
+            pass
         if not query:
             return self.suggestion_cache[:20]
         
@@ -405,7 +446,11 @@ class SearchManager(QObject):
             
             self.suggestion_cache = sorted(list(suggestions))
             self.last_cache_update = datetime.now()
-            
+            try:
+                self.suggestions_updated.emit(self.suggestion_cache)
+            except Exception:
+                pass
+        
         except Exception as e:
             logging.error(f"Error actualizando cache de sugerencias: {e}")
     

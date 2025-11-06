@@ -52,15 +52,11 @@ htmlcov/
 # Archivos específicos a ignorar
 cache_metrics.json
 status.json
-sync_state.json
-config/sync_state.json
 
 # Carpetas específicas a ignorar
 rutinas_exportadas/
 recibos/
 backups/
-scripts/_archive/
-_archive/
 
 # Artefactos de build
 build/
@@ -91,7 +87,6 @@ ehthumbs.db
 # Marcadores/estado de runtime y secretos locales
 config/first_run_prereqs/
 config/device_id.txt
-config/sync_outbox.jsonl
 
 # Salidas generadas
 exports/

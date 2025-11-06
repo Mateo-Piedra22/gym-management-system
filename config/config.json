@@ -1,60 +1,18 @@
 {
-  "host": "localhost",
-  "port": 5432,
-  "database": "gimnasio",
-  "user": "postgres",
-  "sslmode": "prefer",
-  "connect_timeout": 10,
-  "application_name": "gym_management_system",
-  "db_profile": "local",
-  "db_local": {
-    "host": "localhost",
+  "db_connection": {
+    "host": "ep-cool-bread-acbiozdg-pooler.sa-east-1.aws.neon.tech",
     "port": 5432,
-    "database": "gimnasio",
-    "user": "postgres",
-    "password": "Matute03",
-    "sslmode": "prefer",
-    "connect_timeout": 10,
-    "application_name": "gym_management_system",
-    "dsn": "host=<SERVER_PUBLIC_IP> port=5433 dbname=gimnasio user=postgres password=Matute03 sslmode=require application_name=gym_management_system connect_timeout=10"
-  },
-  "db_remote": {
-    "host": "shuttle.proxy.rlwy.net",
-    "port": 45685,
-    "database": "railway",
-    "user": "postgres",
-    "password": "uDEvhRmVlvaiyRWPPRuSPfVKavIKwmLm",
+    "database": "Zurka",
+    "user": "neondb_owner",
+    "password": "npg_GuA0SwThpON4",
     "sslmode": "require",
     "connect_timeout": 10,
     "application_name": "gym_management_system"
   },
-  "replication": {
-    "subscription_name": "gym_sub",
-    "publication_name": "gym_pub",
-    "remote_can_reach_local": false
-  },
   "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
-  "public_tunnel": {
-    "subdomain": "gym-ms-zrk",
-    "enabled": false
-  },
-  "client_base_url": "",
-  "sync_upload_token": "gymms_sync_b3d2a9f6c1e5470ab9d83b7e4c59f12a7d8c3e1f5a9b2c4d6e7f8091a2b3c4d5",
   "webapp_session_secret": "XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY",
   "scheduled_tasks": {
     "enabled": true,
-    "uploader": {
-      "enabled": true,
-      "interval_minutes": 3
-    },
-    "reconcile_r2l": {
-      "enabled": true,
-      "interval_minutes": 15
-    },
-    "reconcile_l2r": {
-      "enabled": true,
-      "time": "02:00"
-    },
     "cleanup": {
       "enabled": true,
       "time": "03:15"
@@ -63,9 +21,5 @@
       "enabled": true,
       "time": "02:30"
     }
-  },
-  "vpn": {
-    "provider": "wireguard",
-    "wireguard_config_path": "C:\\Users\\mateo\\OneDrive\\Escritorio\\GYM MANAGEMENT SYSTEM\\gym-management-system\\config\\vpn\\gymms.conf"
   }
 }

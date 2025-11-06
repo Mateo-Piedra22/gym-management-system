@@ -376,40 +376,8 @@ python initialize_database.py
 python main.py
 ```
 
-### 🔁 Replicación lógica PostgreSQL (bidireccional)
-
-La aplicación no incluye ni inicia motores externos de replicación. La sincronización entre la base local y la base en Railway se realiza mediante replicación lógica nativa de PostgreSQL (publications/subscriptions), administrada exclusivamente desde los servidores de base de datos.
-
-Guía de alto nivel:
-- Crear una `PUBLICATION` en la base origen para las tablas a replicar.
-- Crear una `SUBSCRIPTION` en la base destino apuntando a la publicación, con un rol y conexión seguros.
-- Ajustar filtros de tablas según necesidad (excluir temporales/auditoría si corresponde).
-
-Ejemplo mínimo (adaptar a tu esquema y credenciales):
-
-```sql
--- En la base origen (Railway o local, según diseño):
-CREATE PUBLICATION gym_pub FOR ALL TABLES;
-
--- En la base destino:
-CREATE SUBSCRIPTION gym_sub
-  CONNECTION 'host=<HOST> port=<PORT> dbname=<DB> user=<USER> password=<PASS> sslmode=require'
-  PUBLICATION gym_pub;
-```
-
-Verificación rápida (PostgreSQL):
-- Consultar `pg_stat_subscription` en la base destino para ver el estado de la suscripción.
-- Consultar `pg_publication`/`pg_publication_tables` en la base origen para revisar la publicación.
-- Probar inserciones/actualizaciones/eliminaciones y confirmar reflectancia en la contraparte.
-
-Automatización con script:
-- Ejecuta `python scripts/setup_logical_replication.py` para crear/asegurar la `PUBLICATION` remota (`gym_pub`) y la `SUBSCRIPTION` local (`gym_sub`).
-- El script lee `config/config.json` y admite variables de entorno: `PGREMOTE_DSN`, `PGREMOTE_PASSWORD`, `PGREMOTE_USER`, `PGLOCAL_DSN`, `PGLOCAL_PASSWORD`.
-- Si no hay contraseña remota en entorno/DSN, intenta obtenerla de `keyring` (Windows Credential Manager) bajo el servicio `GymMS_DB`.
-- Tras ejecutar, verifica estado con: `SELECT subname, sync_state, apply_lag FROM pg_stat_subscription;` en la base local.
-
-Limpieza de artefactos antiguos:
-- Si existen objetos heredados `sym_%` de motores previos de replicación, elimínalos manualmente (DROP) o con tus propios scripts; este proyecto no incluye `scripts/cleanup_symmetricds.sql`.
+### 🔁 Modelo de Base Única
+El sistema usa una única base de datos Neon; no requiere ni soporta replicación. No hay pasos de configuración de publicaciones/suscripciones ni túneles VPN.
 
 ### 🔧 **Configuración Inicial**
 1. **Base de Datos**: Configurar conexión PostgreSQL en `config.py`
@@ -584,7 +552,7 @@ python build_installer.py --mode onefile
 #### ✅ Verificaciones previas al build
 - Crea `logs/` en el proyecto si no existe para evitar `FileNotFoundError` en runtime.
 - Muestra versiones detectadas de dependencias clave (`fastapi`, `uvicorn`, `starlette`, `psycopg2`) y las compara con `requirements.txt`.
-- Genera bootstrap remoto desde variables de entorno si están definidas.
+- No genera bootstrap remoto; la configuración es local y el build es determinista.
 
 #### 🧩 psycopg2 y dependencias nativas
 - Detecta la carpeta `psycopg2.libs` y la incluye en el build (`libpq`, `ssl`, etc.).
@@ -611,106 +579,15 @@ python build_installer.py --mode onefile
 - Al salir, se intenta terminar procesos del túnel público (`terminate_tunnel_processes`) y cualquier `ssh.exe` residual (`terminate_ssh_processes`).
 - Existe un cierre defensivo adicional reutilizado desde `main.py`.
 
-## 🔄 Sincronización Nativa PostgreSQL
-- Replicación lógica nativa de PostgreSQL (bidireccional) completamente automatizada.
-- Sistema legacy de outbox y sincronización manual eliminado por completo.
-
-### ⏱️ Versión lógica para reconciliación (`logical_ts`/`last_op_id`)
-- Las rutinas de reconciliación utilizan los campos `logical_ts` (entero monotónico) y `last_op_id` (UUID de la última operación) para decidir qué cambio es más reciente.
-- El sistema migra todas las tablas del esquema `public` para incluir estos campos y sus triggers de mantenimiento.
-
-#### Aplicar migración lógica
-Ejecuta la migración idempotente que crea `logical_ts`/`last_op_id`, elimina `updated_at` y configura los triggers:
-
-```powershell
-python scripts/auto_setup.py --apply-logical-migration
-```
-
-Si prefieres aplicar solo el SQL:
-
-```powershell
-psql "<CONN_STR_LOCAL>" -f scripts/migrate_to_logical_ts.sql
-psql "<CONN_STR_REMOTE>" -f scripts/migrate_to_logical_ts.sql
-```
-
-Detalles de la migración:
-- Añade columnas `logical_ts BIGINT NOT NULL DEFAULT 0` y `last_op_id UUID NOT NULL DEFAULT gen_random_uuid()` en todas las tablas de `public` (excepto `node_state`).
-- Inicializa valores para filas existentes sin romper triggers restrictivos (p.ej., usuarios con rol "dueño").
-- Crea `public.node_state` y secuencias auxiliares para la numeración lógica.
-- Elimina columna, funciones, índices y triggers legacy de `updated_at`.
-- Crea un único trigger `ensure_logical_fields()` por tabla para mantener `last_op_id` y `logical_ts` en escrituras.
-
-#### Ejecutar reconciliaciones
-Tras la migración, puedes ejecutar las reconciliaciones manualmente:
-
-```powershell
-python scripts/reconcile_local_remote_once.py --dry-run
-python scripts/reconcile_remote_to_local_once.py --force
-```
+## 🔄 Modelo de Datos
+El sistema opera con una única base de datos Neon (sin replicación ni reconciliación locales).
+- Tareas recomendadas y soportadas:
+  - `GymMS_BackupDaily` (diaria 02:30): ejecuta `scripts/essential/run_backup_scheduled.ps1`.
+  - `GymMS_DataCleanup` (diaria 03:15): ejecuta `scripts/essential/run_cleanup_scheduled.ps1`.
 
 Notas:
-- Los scripts de reconciliación omiten actualizaciones sobre usuarios con rol "dueño" por políticas de seguridad.
-- La comparación de versiones se basa exclusivamente en `logical_ts` y `last_op_id`.
-
-#### Reconciliación programada (Windows)
-- Se crean dos tareas diarias para mantener sincronía automática:
-  - `GymMS_Reconcile_LocalToRemote` a las `03:10` ejecuta `scripts/run_reconcile_scheduled_hidden.vbs` → `scripts/run_reconcile_scheduled.ps1` → `scripts/reconcile_local_remote_once.py`.
-  - `GymMS_Reconcile_RemoteToLocal` a las `03:40` ejecuta `scripts/run_reconcile_remote_to_local_scheduled_hidden.vbs` → `scripts/run_reconcile_remote_to_local_scheduled.ps1` → `scripts/reconcile_remote_to_local_once.py`.
-- Logs generados:
-  - Local→Remoto: `backups/reconcile_local_remote_once.log`
-  - Remoto→Local: `backups/reconcile_remote_to_local_once.log`
-- Para ajustar o verificar:
-  - Ejecutar manualmente: `schtasks /Run /TN "GymMS_Reconcile_LocalToRemote"` y `schtasks /Run /TN "GymMS_Reconcile_RemoteToLocal"`
-  - Consultar detalle: `schtasks /Query /TN "GymMS_Reconcile_LocalToRemote" /V /FO LIST`
-  - Cambiar horario: `schtasks /Change /TN "GymMS_Reconcile_LocalToRemote" /ST 03:10`
-- Notas:
-  - Los wrappers usan PowerShell con ruta absoluta y `PYTHONIOENCODING=utf-8` para evitar errores de codificación.
-  - Los wrappers implementan rotación de logs cuando superan ~10MB y escriben eventos en `backups/job_status.jsonl` (`event=skipped` cuando hay gate o conectividad remota ausente, `event=finished` al finalizar).
-  - Anti-reentradas (gate): `cleanup_retention` 30 min, `backup` 120 min. El uploader y reconciliaciones incluyen chequeos adicionales (p. ej. conectividad remota para reconciliaciones) y registro JSONL.
-  - Por defecto corren en modo "Interactivo" del usuario actual. Para ejecutar sin sesión iniciada, recrea las tareas con `/RU` y `/RP`.
-
-#### Tareas semanales de replicación nativa
-- `GymMS_ReplicationHealthWeekly` (domingos 00:45): ejecuta `scripts/run_replication_health_check.ps1` y registra `replication_health.log`.
-- `GymMS_PublicationVerifyWeekly` (domingos 00:30): ejecuta `scripts/run_publication_verification.ps1` para revisar opciones de publicación remota.
-
-Para ajustar o verificar:
-- Ejecutar manualmente: `schtasks /Run /TN "GymMS_ReplicationHealthWeekly"`, `schtasks /Run /TN "GymMS_PublicationVerifyWeekly"`.
-- Consultar detalle: `schtasks /Query /TN "GymMS_ReplicationHealthWeekly" /V /FO LIST` (equivalente para las otras).
+- Las tareas marcadas previamente como de replicación fueron retiradas definitivamente.
+- La comparación de versiones se realiza exclusivamente con `logical_ts/last_op_id`.
 
 ### Deprecated
-- `scripts/ensure_updated_at_triggers.py` y `scripts/test_updated_at_verification.py` quedan obsoletos tras la migración lógica.
-- Se trasladan a `scripts/_archive/` para referencia histórica; no se usan en producción.
-- La comparación de versiones se hace exclusivamente con `logical_ts/last_op_id`.
-
-### Token de seguridad: `SYNC_UPLOAD_TOKEN`
-Para autorizar la subida de cambios locales al servidor, cliente y servidor deben compartir el mismo token.
-
-#### Generar y configurar en Windows (PowerShell)
-
-```powershell
-# Generar un token aleatorio robusto
-$token = "gymms_sync_" + ([Guid]::NewGuid().ToString("N")) + ([Guid]::NewGuid().ToString("N"))
-
-# Usar el token en esta sesión y persistirlo para futuras sesiones
-$env:SYNC_UPLOAD_TOKEN = $token
-setx SYNC_UPLOAD_TOKEN $token
-
-# (Opcional) Verificar
-[Environment]::GetEnvironmentVariable("SYNC_UPLOAD_TOKEN", "User")
-```
-
-#### Configurar en el servidor (Railway u otro)
-- En el panel del servicio web, añade una variable de entorno `SYNC_UPLOAD_TOKEN` con el mismo valor.
-- Reinicia el servicio para que tome el nuevo valor.
-
-#### Validación de replicación nativa
-- La replicación nativa de PostgreSQL está configurada automáticamente.
-- Verifica el estado con: `python verify_system_status.py`
-- La sincronización ocurre en tiempo real sin intervención manual.
-
-#### Nota sobre URL del servidor
-Si el cliente no detecta automáticamente la URL del webapp, define `WEBAPP_BASE_URL`:
-
-```powershell
-setx WEBAPP_BASE_URL "https://tu-servidor.ejemplo"
-```
+- Artefactos y scripts relacionados con replicación local fueron retirados del repositorio.

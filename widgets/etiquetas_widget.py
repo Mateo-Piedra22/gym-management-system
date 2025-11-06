@@ -776,16 +776,17 @@ class EtiquetasWidget(QWidget):
             etiquetas_seleccionadas = dialog.obtener_etiquetas_seleccionadas()
             
             try:
-                # Primero desasignar todas las etiquetas del usuario
-                etiquetas_actuales = self.db_manager.obtener_etiquetas_usuario(self.usuario_actual.id)
-                for etiqueta in etiquetas_actuales:
-                    self.db_manager.desasignar_etiqueta_usuario(self.usuario_actual.id, etiqueta.id)
-                
-                # Luego asignar las nuevas etiquetas
-                for etiqueta_id in etiquetas_seleccionadas:
-                    self.db_manager.asignar_etiqueta_usuario(self.usuario_actual.id, etiqueta_id)
-                
-                QMessageBox.information(self, "Éxito", "Etiquetas asignadas correctamente.")
+                # Operación chunky: establecer etiquetas en una sola transacción con inserciones por lote
+                resultado = self.db_manager.asignar_etiquetas_usuario_bulk(
+                    self.usuario_actual.id,
+                    etiquetas_seleccionadas,
+                    asignado_por=None
+                )
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    f"Etiquetas asignadas correctamente. (+{resultado.get('inserted', 0)} nuevas, -{resultado.get('deleted', 0)} removidas)"
+                )
                 self.cargar_etiquetas_usuario()
                 self.etiquetas_changed.emit()
             except Exception as e:

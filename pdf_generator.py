@@ -34,26 +34,55 @@ class PDFGenerator:
             pass
         return fallback_color 
 
-    def generar_recibo(self, pago: Pago, usuario: Usuario, numero_comprobante: str = None, detalles: Optional[List[PagoDetalle]] = None, totales: Optional[Dict[str, float]] = None) -> str:
+    def generar_recibo(self, pago: Pago, usuario: Usuario, numero_comprobante: str = None, detalles: Optional[List[PagoDetalle]] = None, totales: Optional[Dict[str, float]] = None, observaciones: Optional[str] = None, emitido_por: Optional[str] = None,
+                       titulo: Optional[str] = None, gym_name: Optional[str] = None, gym_address: Optional[str] = None, fecha_emision: Optional[str] = None,
+                       metodo_pago: Optional[str] = None, usuario_nombre: Optional[str] = None, usuario_dni: Optional[str] = None,
+                       detalles_override: Optional[List[Dict]] = None, mostrar_logo: Optional[bool] = True, mostrar_metodo: Optional[bool] = True, mostrar_dni: Optional[bool] = True,
+                       tipo_cuota: Optional[str] = None, periodo: Optional[str] = None) -> str:
         fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"recibo_{pago.id}_{fecha_str}.pdf"
         filepath = os.path.join(self.output_dir_recibos, filename)
 
-        doc = SimpleDocTemplate(filepath, pagesize=letter)
+        doc = SimpleDocTemplate(
+            filepath,
+            pagesize=letter,
+            rightMargin=inch/2,
+            leftMargin=inch/2,
+            topMargin=inch/2,
+            bottomMargin=inch/2,
+        )
         styles = getSampleStyleSheet()
         elements = []
 
-        header_data = [['', 'RECIBO DE PAGO']]
-        if os.path.exists(self.logo_path):
+        # Colores consistentes con el branding
+        header_bg_color = colors.HexColor(self._get_dynamic_color('alt_background_color', '#434C5E'))
+        body_bg_color = colors.HexColor(self._get_dynamic_color('table_body_color', '#D8DEE9'))
+
+        # Header (titulo, logo y bloque de número/fecha integrado)
+        header_text = (titulo or 'RECIBO DE PAGO')
+        # Usar número de comprobante si está disponible, sino usar ID del pago
+        recibo_numero = numero_comprobante if numero_comprobante else str(pago.id)
+        # Fecha de emisión (override si viene, sino usar fecha del pago)
+        try:
+            fecha_str_disp = (fecha_emision or pago.fecha_pago.strftime('%d/%m/%Y'))
+        except Exception:
+            fecha_str_disp = (fecha_emision or datetime.now().strftime('%d/%m/%Y'))
+
+        right_info_style = ParagraphStyle(name='RightInfo', parent=styles['Normal'], alignment=TA_RIGHT)
+        right_info_para = Paragraph(f"Comprobante N°: {recibo_numero}<br/>Fecha: {fecha_str_disp}", right_info_style)
+
+        header_data = [['', header_text, right_info_para]]
+        if mostrar_logo is not False and os.path.exists(self.logo_path):
             from reportlab.platypus import Image
             logo = Image(self.logo_path, width=1*inch, height=1*inch)
             header_data[0][0] = logo
 
-        header_table = Table(header_data, colWidths=[1.7*inch, 5.8*inch])
+        header_table = Table(header_data, colWidths=[1.7*inch, 4.3*inch, 1.5*inch])
         header_table.setStyle(TableStyle([
             ('ALIGN', (0, 0), (0, 0), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ALIGN', (1, 0), (1, 0), 'RIGHT'), ('TEXTCOLOR', (1, 0), (1, 0), colors.darkblue),
+            ('ALIGN', (1, 0), (1, 0), 'CENTER'), ('TEXTCOLOR', (1, 0), (1, 0), colors.darkblue),
             ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'), ('FONTSIZE', (1, 0), (1, 0), 24),
+            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
         ]))
         elements.append(header_table)
         elements.append(Spacer(1, 0.25*inch))
@@ -61,21 +90,13 @@ class PDFGenerator:
         # Usar número de comprobante si está disponible, sino usar ID del pago
         recibo_numero = numero_comprobante if numero_comprobante else str(pago.id)
         
-        info_data = [
-            [self.gym_name, f"Comprobante N°: {recibo_numero}"],
-            [self.gym_address, f"Fecha: {pago.fecha_pago.strftime('%d/%m/%Y')}"]
-        ]
-        info_table = Table(info_data, colWidths=[4*inch, 3.5*inch])
-        info_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica'), ('FONTNAME', (1, 0), (1, 1), 'Helvetica-Bold'),
-            ('ALIGN', (1, 0), (1, 1), 'RIGHT'),
-        ]))
-        elements.append(info_table)
-        elements.append(Spacer(1, 0.4*inch))
+        gym_name_disp = (gym_name or self.gym_name)
+        gym_addr_disp = (gym_address or self.gym_address)
+        elements.append(Spacer(1, 0.3*inch))
 
-        # Mostrar método de pago
+        # Resolver método de pago para detalles del pago
+        metodo_nombre = None
         try:
-            metodo_nombre = None
             # Si el nombre del método de pago ya viene en el objeto pago, usarlo
             if hasattr(pago, 'metodo_pago_nombre') and getattr(pago, 'metodo_pago_nombre'):
                 metodo_nombre = getattr(pago, 'metodo_pago_nombre')
@@ -92,23 +113,67 @@ class PDFGenerator:
                             metodo_nombre = r[0]
                 except Exception:
                     metodo_nombre = None
-            if not metodo_nombre:
-                metodo_nombre = "No especificado"
-            elements.append(Paragraph(f"Método de Pago: {metodo_nombre}", styles['Normal']))
-            elements.append(Spacer(1, 0.2*inch))
+            # Override si viene
+            if metodo_pago:
+                metodo_nombre = metodo_pago
         except Exception:
-            # En caso de cualquier error, continuar sin bloquear la generación del PDF
-            pass
+            metodo_nombre = metodo_pago or None
 
-        elements.append(Paragraph("<b>FACTURAR A:</b>", styles['Normal']))
-        elements.append(Paragraph(usuario.nombre, styles['Normal']))
-        if getattr(usuario, 'dni', None):
-            elements.append(Paragraph(f"DNI: {usuario.dni}", styles['Normal']))
-        elements.append(Spacer(1, 0.4*inch))
+        # Panel de INFORMACIÓN DEL RECIBO en una sola tabla
+        try:
+            nombre_disp = (usuario_nombre or getattr(usuario, 'nombre', '') or '')
+            dni_disp = (usuario_dni if usuario_dni is not None else getattr(usuario, 'dni', None))
+
+            meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+            periodo_def = f"{meses[(getattr(pago, 'mes', 1) or 1) - 1]} {getattr(pago, 'año', datetime.now().year)}"
+            periodo_disp = (periodo or periodo_def)
+            tipo_cuota_disp = (tipo_cuota or getattr(usuario, 'tipo_cuota', None) or "No especificado")
+
+            info_rows = [[Paragraph('<b>INFORMACIÓN DEL RECIBO</b>', styles['Normal']), '']]
+            info_rows.append(['Nombre', nombre_disp])
+            if mostrar_dni is not False and dni_disp:
+                info_rows.append(['DNI', str(dni_disp)])
+            if mostrar_metodo is not False:
+                info_rows.append(['Método de Pago', (metodo_nombre or 'No especificado')])
+            info_rows.append(['Tipo de Cuota', tipo_cuota_disp])
+            info_rows.append(['Periodo', periodo_disp])
+
+            info_table_unificada = Table(info_rows, colWidths=[2.4*inch, 5.1*inch])
+            info_table_unificada.setStyle(TableStyle([
+                ('SPAN', (0, 0), (1, 0)),
+                ('BACKGROUND', (0, 0), (1, 0), header_bg_color),
+                ('TEXTCOLOR', (0, 0), (1, 0), colors.whitesmoke),
+                ('FONTNAME', (0, 0), (1, 0), 'Helvetica-Bold'),
+                ('ALIGN', (0, 0), (1, 0), 'LEFT'),
+                ('BACKGROUND', (0, 1), (1, -1), body_bg_color),
+                ('GRID', (0, 0), (1, -1), 1, colors.black),
+                ('VALIGN', (0, 1), (1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 1), (1, -1), 6),
+                ('RIGHTPADDING', (0, 1), (1, -1), 6),
+            ]))
+            elements.append(info_table_unificada)
+            elements.append(Spacer(1, 0.35*inch))
+        except Exception:
+            pass
 
         # Tabla de detalles
         pago_details_data = [['Descripción', 'Cantidad', 'Precio Unitario', 'Subtotal']]
-        if detalles and len(detalles) > 0:
+        if detalles_override and isinstance(detalles_override, list) and len(detalles_override) > 0:
+            for det in detalles_override:
+                try:
+                    desc = str(det.get('descripcion') or det.get('concepto') or 'Concepto')
+                    cantidad = float(det.get('cantidad') or 1)
+                    precio = float(det.get('precio_unitario') or det.get('precio') or 0)
+                    subtotal = cantidad * precio
+                    pago_details_data.append([
+                        desc,
+                        f"{cantidad:g}",
+                        f"${precio:,.2f} ARS",
+                        f"${subtotal:,.2f} ARS",
+                    ])
+                except Exception:
+                    continue
+        elif detalles and len(detalles) > 0:
             for det in detalles:
                 desc = det.concepto_nombre or 'Concepto'
                 cantidad_str = f"{det.cantidad:g}"
@@ -124,10 +189,19 @@ class PDFGenerator:
 
         pago_table = Table(pago_details_data, colWidths=[3.5*inch, 1*inch, 1.5*inch, 1.5*inch])
         pago_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ('BACKGROUND', (0, 0), (-1, 0), header_bg_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), body_bg_color),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            # Alineación por columna para presentación profesional
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'CENTER'),
+            ('ALIGN', (2, 1), (3, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LEFTPADDING', (0, 1), (0, -1), 8),
+            ('RIGHTPADDING', (0, 1), (0, -1), 8),
         ]))
         elements.append(pago_table)
         elements.append(Spacer(1, 0.4*inch))
@@ -142,7 +216,13 @@ class PDFGenerator:
             total_val = float(totales.get('total', subtotal_val + comision_val))
         else:
             # Fallback si no se provee totales
-            subtotal_val = sum([d.subtotal for d in detalles]) if detalles else float(pago.monto or 0.0)
+            if detalles_override and len(detalles_override) > 0:
+                try:
+                    subtotal_val = sum([(float(d.get('cantidad') or 1) * float(d.get('precio_unitario') or d.get('precio') or 0)) for d in detalles_override])
+                except Exception:
+                    subtotal_val = float(pago.monto or 0.0)
+            else:
+                subtotal_val = sum([d.subtotal for d in detalles]) if detalles else float(pago.monto or 0.0)
             total_val = subtotal_val
             comision_val = 0.0
 
@@ -157,16 +237,65 @@ class PDFGenerator:
 
         total_table = Table(total_rows, colWidths=[5*inch, 1*inch, 1.5*inch])
         total_table.setStyle(TableStyle([
-            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'), ('FONTNAME', (1, 0), (-1, -1), 'Helvetica-Bold'),
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (1, 0), (-1, -1), 'Helvetica-Bold'),
             ('FONTSIZE', (1, 0), (-1, -1), 12),
+            # Resaltar el TOTAL con los colores del sistema
+            ('BACKGROUND', (-3, -1), (-1, -1), header_bg_color),
+            ('TEXTCOLOR', (-3, -1), (-1, -1), colors.whitesmoke),
         ]))
         elements.append(total_table)
-        elements.append(Spacer(1, 0.8*inch))
+        elements.append(Spacer(1, 0.5*inch))
+
+        # Observaciones y emitido por unificados en panel (si se proporcionan)
+        try:
+            if observaciones or emitido_por:
+                header_notes = Paragraph('<b>OBSERVACIONES Y EMISIÓN</b>', styles['Normal'])
+                notes_text_parts = []
+                if observaciones:
+                    notes_text_parts.append(f"Observaciones: {observaciones}")
+                if emitido_por:
+                    notes_text_parts.append(f"Emitido por: {emitido_por}")
+                notes_para = Paragraph('<br/>'.join(notes_text_parts), styles['Normal'])
+                notes_table = Table([[header_notes], [notes_para]], colWidths=[7.5*inch])
+                notes_table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), header_bg_color),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('ALIGN', (0, 0), (-1, 0), 'LEFT'),
+                    ('BACKGROUND', (0, 1), (-1, 1), body_bg_color),
+                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ]))
+                elements.append(notes_table)
+                elements.append(Spacer(1, 0.3*inch))
+        except Exception:
+            pass
+
         elements.append(Paragraph("¡Gracias por tu pago!", styles['h3']))
-        elements.append(Paragraph(self.gym_name, styles['Normal']))
-        
-        doc.build(elements)
+        elements.append(Paragraph(gym_name_disp, styles['Normal']))
+        elements.append(Paragraph(gym_addr_disp, styles['Normal']))
+
+        doc.build(elements, onFirstPage=self._footer, onLaterPages=self._footer)
         return filepath
+
+    def _footer(self, canvas, doc):
+        try:
+            canvas.saveState()
+            width, height = doc.pagesize
+            # Línea superior del pie de página con color de branding
+            footer_color = colors.HexColor(self._get_dynamic_color('alt_background_color', '#434C5E'))
+            canvas.setStrokeColor(footer_color)
+            canvas.setLineWidth(0.5)
+            canvas.line(inch/2, 0.75*inch, width - inch/2, 0.75*inch)
+            # Texto centrado con nombre y dirección del gimnasio
+            canvas.setFillColor(colors.black)
+            canvas.setFont("Helvetica", 9)
+            text = f"{self.gym_name} • {self.gym_address}"
+            canvas.drawCentredString(width/2, 0.55*inch, text)
+            canvas.restoreState()
+        except Exception:
+            # Si por algún motivo falla el pie de página, continuar sin interrumpir
+            pass
 
     # --- NUEVO MÉTODO PARA EXPORTAR RUTINAS ---
     def generar_pdf_rutina(self, rutina: Rutina, usuario: Usuario, exercises_by_day: dict) -> str:

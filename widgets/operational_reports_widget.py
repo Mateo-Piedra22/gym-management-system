@@ -341,6 +341,12 @@ class OperationalReportsWidget(QWidget):
         super().__init__(parent)
         self.db_manager = db_manager
         self.report_thread = None
+        # Flag de destrucción para evitar actualizaciones y diálogos cuando el widget ya no está activo
+        self._destroyed = False
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         self.setup_ui()
         
     def setup_ui(self):
@@ -442,6 +448,8 @@ class OperationalReportsWidget(QWidget):
     def _on_tab_changed(self, index: int):
         """Carga diferida según preferencia de autoload."""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             if self.auto_load_checkbox.isChecked():
                 self.refresh_all_reports()
         except Exception:
@@ -450,8 +458,51 @@ class OperationalReportsWidget(QWidget):
     def open_cache_metrics(self):
         """Abre el diálogo de métricas de caché."""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             dlg = CacheMetricsDialog(self.db_manager, self)
             dlg.exec()
+        except Exception:
+            pass
+    
+    def _cleanup_on_destroy(self, *args, **kwargs):
+        """Limpieza segura al destruir el widget."""
+        try:
+            self._destroyed = True
+            # Detener y limpiar hilo si existe
+            if hasattr(self, 'report_thread') and self.report_thread:
+                try:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    if self.report_thread.isRunning():
+                        # Esperar un momento a que finalice
+                        self.report_thread.wait(1000)
+                except Exception:
+                    pass
+                try:
+                    self.report_thread.deleteLater()
+                except Exception:
+                    pass
+                self.report_thread = None
+            # Desconectar cargas automáticas en cambio de pestaña
+            try:
+                self.tab_widget.currentChanged.disconnect(self._on_tab_changed)
+            except Exception:
+                pass
+            # Ocultar barra de progreso y deshabilitar botones
+            try:
+                self._stop_loading()
+                self.refresh_button.setEnabled(False)
+                self.export_button.setEnabled(False)
+                self.cache_metrics_button.setEnabled(False)
+            except Exception:
+                pass
         except Exception:
             pass
     
@@ -581,6 +632,8 @@ class OperationalReportsWidget(QWidget):
     
     def refresh_all_reports(self):
         """Actualiza todos los reportes"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         current_tab = self.tab_widget.currentIndex()
         
         if current_tab == 0:  # Asistencia
@@ -596,6 +649,8 @@ class OperationalReportsWidget(QWidget):
     
     def _start_loading(self):
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             self.progress_bar.setVisible(True)
             self.progress_bar.setRange(0, 0)  # indeterminate
             self.refresh_button.setEnabled(False)
@@ -605,6 +660,8 @@ class OperationalReportsWidget(QWidget):
         
     def _stop_loading(self):
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             self.progress_bar.setVisible(False)
             self.progress_bar.setRange(0, 100)
             self.refresh_button.setEnabled(True)
@@ -614,8 +671,28 @@ class OperationalReportsWidget(QWidget):
     
     def load_attendance_report(self):
         """Carga el reporte de asistencia diaria"""
-        if self.report_thread and self.report_thread.isRunning():
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
             return
+        if self.report_thread:
+            try:
+                if self.report_thread.isRunning():
+                    return
+                else:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.deleteLater()
+                    except Exception:
+                        pass
+                    self.report_thread = None
+            except Exception:
+                self.report_thread = None
         
         self._start_loading()
         self.report_thread = OperationalReportsThread(self.db_manager, 'daily_attendance')
@@ -626,6 +703,8 @@ class OperationalReportsWidget(QWidget):
     def update_attendance_display(self, data):
         """Actualiza la visualización de asistencia"""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             # Actualizar estadísticas
             self.total_attendance_label.setText(f"Total: {data.get('total_attendance', 0)}")
             self.unique_users_label.setText(f"Usuarios únicos: {data.get('unique_users', 0)}")
@@ -659,8 +738,28 @@ class OperationalReportsWidget(QWidget):
     
     def load_peak_hours_report(self):
         """Carga el reporte de horas pico"""
-        if self.report_thread and self.report_thread.isRunning():
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
             return
+        if self.report_thread:
+            try:
+                if self.report_thread.isRunning():
+                    return
+                else:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.deleteLater()
+                    except Exception:
+                        pass
+                    self.report_thread = None
+            except Exception:
+                self.report_thread = None
         
         self._start_loading()
         self.report_thread = OperationalReportsThread(self.db_manager, 'peak_hours')
@@ -671,6 +770,8 @@ class OperationalReportsWidget(QWidget):
     def update_peak_hours_display(self, data):
         """Actualiza la visualización de horas pico"""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             peak_data = data.get('peak_hours_analysis', [])
             
             # Actualizar tabla
@@ -711,8 +812,28 @@ class OperationalReportsWidget(QWidget):
     
     def load_occupancy_report(self):
         """Carga el reporte de ocupación de clases"""
-        if self.report_thread and self.report_thread.isRunning():
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
             return
+        if self.report_thread:
+            try:
+                if self.report_thread.isRunning():
+                    return
+                else:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.deleteLater()
+                    except Exception:
+                        pass
+                    self.report_thread = None
+            except Exception:
+                self.report_thread = None
         
         self._start_loading()
         self.report_thread = OperationalReportsThread(self.db_manager, 'class_occupancy')
@@ -723,6 +844,8 @@ class OperationalReportsWidget(QWidget):
     def update_occupancy_display(self, data):
         """Actualiza la visualización de ocupación"""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             occupancy_data = data.get('class_occupancy', [])
             
             # Actualizar tabla
@@ -755,8 +878,28 @@ class OperationalReportsWidget(QWidget):
     
     def load_payments_report(self):
         """Carga el reporte de pagos pendientes"""
-        if self.report_thread and self.report_thread.isRunning():
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
             return
+        if self.report_thread:
+            try:
+                if self.report_thread.isRunning():
+                    return
+                else:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.deleteLater()
+                    except Exception:
+                        pass
+                    self.report_thread = None
+            except Exception:
+                self.report_thread = None
         
         self._start_loading()
         self.report_thread = OperationalReportsThread(self.db_manager, 'payment_due')
@@ -767,6 +910,8 @@ class OperationalReportsWidget(QWidget):
     def update_payments_display(self, data):
         """Actualiza la visualización de pagos"""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             # Actualizar estadísticas
             self.total_members_label.setText(f"Total socios: {data.get('total_members', 0)}")
             self.payments_made_label.setText(f"Pagos realizados: {data.get('payments_made', 0)}")
@@ -797,8 +942,28 @@ class OperationalReportsWidget(QWidget):
     
     def load_professors_report(self):
         """Carga el reporte de eficiencia de profesores"""
-        if self.report_thread and self.report_thread.isRunning():
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
             return
+        if self.report_thread:
+            try:
+                if self.report_thread.isRunning():
+                    return
+                else:
+                    try:
+                        self.report_thread.report_ready.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.error_occurred.disconnect()
+                    except Exception:
+                        pass
+                    try:
+                        self.report_thread.deleteLater()
+                    except Exception:
+                        pass
+                    self.report_thread = None
+            except Exception:
+                self.report_thread = None
         
         self._start_loading()
         self.report_thread = OperationalReportsThread(self.db_manager, 'professor_efficiency')
@@ -809,6 +974,8 @@ class OperationalReportsWidget(QWidget):
     def update_professors_display(self, data):
         """Actualiza la visualización de profesores"""
         try:
+            if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                return
             professor_data = data.get('professor_efficiency', [])
             
             # Actualizar tabla
@@ -842,6 +1009,8 @@ class OperationalReportsWidget(QWidget):
     def handle_report_error(self, error_message):
         """Maneja errores en la generación de reportes"""
         try:
+            if getattr(self, "_destroyed", False):
+                return
             # Evitar mostrar diálogos si el widget ya no es visible o fue destruido
             if hasattr(self, 'isVisible') and self.isVisible():
                 QMessageBox.warning(
@@ -857,6 +1026,8 @@ class OperationalReportsWidget(QWidget):
     
     def export_reports(self):
         """Exporta los reportes actuales"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         from PyQt6.QtWidgets import QFileDialog, QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QDialogButtonBox, QLabel
         import csv
         import json
@@ -909,38 +1080,38 @@ class OperationalReportsWidget(QWidget):
                 "Seleccionar directorio de exportación",
                 os.path.expanduser("~/Desktop")
             )
-            
+
             if export_dir:
                 try:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     exported_files = []
-                    
+
                     # Exportar cada reporte seleccionado
                     if self.export_attendance_check.isChecked():
                         file_path = self._export_attendance_report(export_dir, timestamp)
                         if file_path:
                             exported_files.append(file_path)
-                    
+
                     if self.export_peak_hours_check.isChecked():
                         file_path = self._export_peak_hours_report(export_dir, timestamp)
                         if file_path:
                             exported_files.append(file_path)
-                    
+
                     if self.export_occupancy_check.isChecked():
                         file_path = self._export_occupancy_report(export_dir, timestamp)
                         if file_path:
                             exported_files.append(file_path)
-                    
+
                     if self.export_payments_check.isChecked():
                         file_path = self._export_payments_report(export_dir, timestamp)
                         if file_path:
                             exported_files.append(file_path)
-                    
+
                     if self.export_professors_check.isChecked():
                         file_path = self._export_professors_report(export_dir, timestamp)
                         if file_path:
                             exported_files.append(file_path)
-                    
+
                     if exported_files:
                         files_list = "\n".join([os.path.basename(f) for f in exported_files])
                         try:
@@ -962,18 +1133,18 @@ class OperationalReportsWidget(QWidget):
                                 )
                         except RuntimeError:
                             pass
-                        
+
                 except Exception as e:
                     try:
                         if hasattr(self, 'isVisible') and self.isVisible():
                             QMessageBox.critical(
-                                 self,
-                                 "Error de Exportación",
-                                 f"Error al exportar reportes: {str(e)}"
+                                self,
+                                "Error de Exportación",
+                                f"Error al exportar reportes: {str(e)}"
                             )
                     except RuntimeError:
                         pass
-    
+
     def _export_attendance_report(self, export_dir, timestamp):
         """Exporta el reporte de asistencia diaria"""
         try:
@@ -1088,4 +1259,18 @@ class OperationalReportsWidget(QWidget):
         except Exception as e:
             print(f"Error exportando reporte de profesores: {e}")
             return None
+
+    def closeEvent(self, event):
+        """Asegura limpieza al cerrar el widget."""
+        try:
+            self._cleanup_on_destroy()
+        except Exception:
+            pass
+        try:
+            super().closeEvent(event)
+        except Exception:
+            try:
+                event.accept()
+            except Exception:
+                pass
 

@@ -85,3 +85,57 @@ input::placeholder, textarea::placeholder { color: var(--muted); }
 input:hover, select:hover, textarea:hover, .control:hover, .input:hover { border-color: var(--accent); }
 input:focus, select:focus, textarea:focus, .control:focus, .input:focus { outline: none; border-color: var(--primary); }
 .panel-controls label { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Rutinas: grid por días y tiles de ejercicios */
+#rutina-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; align-items: start; }
+.day-col { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 220px; }
+.day-header { display: flex; align-items: center; justify-content: space-between; font-weight: 600; color: var(--text); padding-bottom: 6px; border-bottom: 1px dashed var(--border); }
+.day-list { display: grid; gap: 8px; }
+.ejercicio-tile { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; transition: transform .08s ease, border-color .15s ease, background-color .15s ease; }
+.ejercicio-tile:hover { transform: translateY(-1px); border-color: var(--accent); background: rgba(255,255,255,0.06); cursor: pointer; }
+.ejercicio-name { color: var(--text); font-size: 14px; font-weight: 500; }
+.ejercicio-meta { color: var(--muted); font-size: 12px; }
+.ejercicio-actions { display: inline-flex; align-items: center; gap: 6px; }
+.ejercicio-actions .btn { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
+
+/* Panel flotante de edición de ejercicio */
+#rutina-preview-float { background: var(--card) !important; border: 1px solid var(--border) !important; border-radius: 12px !important; padding: 10px !important; color: var(--text); width: 280px; }
+#rutina-preview-float-title { font-size: 14px; font-weight: 600; color: var(--text); }
+#rutina-preview-float label span { color: var(--muted); font-size: 12px; }
+#rutina-preview-float input, #rutina-preview-float select { width: 100%; }
+#rutina-preview-float .btn { padding: 6px 10px; font-size: 12px; }
+
+/* Modal: cabecera y footer más compactos */
+.modal-header { display: flex; align-items: center; justify-content: space-between; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Modales: backdrop y contenedor scrollable */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 999; }
+.modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-width: 960px; width: 100%; max-height: 85vh; overflow: auto; }
+.modal-body { display: flex; flex-direction: column; gap: 12px; }
+.modal-close { background: transparent; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
+
+/* Badges de categoría */
+.badge { display: inline-block; border-radius: 12px; padding: 4px 8px; font-size: 12px; border: 1px solid var(--border); }
+.badge-cat-general { background: rgba(245, 158, 11, 0.12); color: var(--accent); border-color: rgba(245, 158, 11, 0.35); }
+.badge-cat-fuerza { background: rgba(43, 138, 62, 0.12); color: #52d071; border-color: rgba(43, 138, 62, 0.35); }
+.badge-cat-hipertrofia { background: rgba(30, 58, 138, 0.12); color: #6ea8ff; border-color: rgba(30, 58, 138, 0.35); }
+.badge-cat-resistencia { background: rgba(148, 163, 184, 0.12); color: #93c5fd; border-color: rgba(148, 163, 184, 0.35); }
+.badge-cat-fullbody, .badge-cat-full-body { background: rgba(99, 102, 241, 0.12); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.35); }
+
+/* Indicadores de orden en tabla */
+.th-sortable { cursor: pointer; user-select: none; }
+.th-sortable:hover { color: var(--accent); }
+.th-sorted-asc::after { content: " \25B2"; }
+.th-sorted-desc::after { content: " \25BC"; }
+
+/* Formularios: filas */
+.form-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.form-row > label { min-width: 160px; color: var(--muted); }
+.form-row > div { flex: 1; }
+
+/* Tablas: filas y acciones */
+table { width: 100%; border-collapse: collapse; }
+th, td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+tr:hover td { background: rgba(255,255,255,0.03); }

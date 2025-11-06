@@ -40,6 +40,7 @@ from widgets.system_diagnostics_widget import SystemDiagnosticsWidget
 from widgets.audit_dashboard_widget import AuditDashboardWidget
 from payment_manager import PaymentManager
 from models import ConceptoPago, MetodoPago
+from widgets.loading_spinner import DatabaseLoadingManager
 from utils_modules.async_runner import TaskThread
 from utils_modules.ui_constants import (
     PLACEHOLDER_LOADING_USERS,
@@ -751,6 +752,8 @@ class ConfigTabWidget(QWidget):
     precio_actualizado = pyqtSignal()
     feature_toggled = pyqtSignal(dict)
     usuarios_modificados = pyqtSignal()
+    conceptos_pago_modificados = pyqtSignal()
+    metodos_pago_modificados = pyqtSignal()
 
     def __init__(self, db_manager: DatabaseManager, export_manager: ExportManager):
         super().__init__()
@@ -1892,6 +1895,11 @@ class ConfigTabWidget(QWidget):
         exercise_layout.setContentsMargins(0, 0, 0, 0)
         # Sin espaciado entre filas para ocupar el área máxima
         exercise_layout.setSpacing(0)
+        # Gestor de overlay de carga para el banco de ejercicios
+        try:
+            self.exercises_loading = DatabaseLoadingManager(exercise_container)
+        except Exception:
+            self.exercises_loading = None
 
         # Filtros
         filters_row = QHBoxLayout()
@@ -2596,62 +2604,177 @@ class ConfigTabWidget(QWidget):
         if not hasattr(self, 'exercise_table'):
             return
         self.exercise_table.setRowCount(0)
+        filtro = self.exercise_filter_input.text().strip() if hasattr(self, 'exercise_filter_input') else ""
+        objetivo = self.exercise_objective_filter.currentText() if hasattr(self, 'exercise_objective_filter') else ""
+        grupo = self.exercise_group_filter.currentText() if hasattr(self, 'exercise_group_filter') else ""
+        if objetivo == "Todos":
+            objetivo = ""
+        if grupo == "Todos":
+            grupo = ""
+        op_id = "exercise_bank_load"
         try:
-            filtro = self.exercise_filter_input.text().strip() if hasattr(self, 'exercise_filter_input') else ""
-            objetivo = self.exercise_objective_filter.currentText() if hasattr(self, 'exercise_objective_filter') else ""
-            grupo = self.exercise_group_filter.currentText() if hasattr(self, 'exercise_group_filter') else ""
-            if objetivo == "Todos":
-                objetivo = ""
-            if grupo == "Todos":
-                grupo = ""
-            ejercicios = self.db_manager.obtener_ejercicios(filtro=filtro, objetivo=objetivo, grupo_muscular=grupo)
-            self.exercise_table.setRowCount(len(ejercicios))
-            for row, ej in enumerate(ejercicios):
-                id_item = QTableWidgetItem(str(ej.id)); id_item.setData(Qt.ItemDataRole.UserRole, ej)
-                self.exercise_table.setItem(row, 0, id_item)
-                self.exercise_table.setItem(row, 1, QTableWidgetItem(ej.nombre or ""))
-                self.exercise_table.setItem(row, 2, QTableWidgetItem((ej.grupo_muscular or "")))
-                objetivo_val = getattr(ej, 'objetivo', None) or "general"
-                self.exercise_table.setItem(row, 3, QTableWidgetItem(objetivo_val))
+            if getattr(self, 'exercises_loading', None):
+                try:
+                    self.exercises_loading.show_loading(
+                        operation_id=op_id,
+                        message="Cargando ejercicios...",
+                        spinner_type="dots",
+                        spinner_size=64,
+                        background_opacity=0.3,
+                        show_message=True,
+                    )
+                except Exception:
+                    pass
+            def _load():
+                return self.db_manager.obtener_ejercicios(
+                    filtro=filtro, objetivo=objetivo, grupo_muscular=grupo
+                )
+            def _on_success(ejercicios):
+                try:
+                    self.exercise_table.setRowCount(len(ejercicios))
+                    for row, ej in enumerate(ejercicios):
+                        id_item = QTableWidgetItem(str(ej.id))
+                        id_item.setData(Qt.ItemDataRole.UserRole, ej)
+                        self.exercise_table.setItem(row, 0, id_item)
+                        self.exercise_table.setItem(row, 1, QTableWidgetItem(ej.nombre or ""))
+                        self.exercise_table.setItem(row, 2, QTableWidgetItem((ej.grupo_muscular or "")))
+                        objetivo_val = getattr(ej, 'objetivo', None) or "general"
+                        self.exercise_table.setItem(row, 3, QTableWidgetItem(objetivo_val))
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+            def _on_error(msg):
+                try:
+                    QMessageBox.critical(self, "Error", f"No se pudo cargar el banco de ejercicios: {msg}")
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+            TaskThread(_load, on_success=_on_success, on_error=_on_error, parent=self).start()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cargar el banco de ejercicios: {e}")
 
     def reload_exercise_filters(self):
+        op_id = "exercise_filters_load"
         try:
-            ejercicios = self.db_manager.obtener_ejercicios()
-            grupos = sorted({e.grupo_muscular for e in ejercicios if getattr(e, 'grupo_muscular', None)})
-            objetivos = sorted({getattr(e, 'objetivo', 'general') or 'general' for e in ejercicios})
+            if getattr(self, 'exercises_loading', None):
+                try:
+                    self.exercises_loading.show_loading(
+                        operation_id=op_id,
+                        message="Actualizando filtros...",
+                        spinner_type="dots",
+                        spinner_size=64,
+                        background_opacity=0.3,
+                        show_message=True,
+                    )
+                except Exception:
+                    pass
 
-            cur_grupo = self.exercise_group_filter.currentText() if hasattr(self, 'exercise_group_filter') else "Todos"
-            cur_obj = self.exercise_objective_filter.currentText() if hasattr(self, 'exercise_objective_filter') else "Todos"
+            def _load():
+                ejercicios = self.db_manager.obtener_ejercicios()
+                grupos = sorted({e.grupo_muscular for e in ejercicios if getattr(e, 'grupo_muscular', None)})
+                objetivos = sorted({getattr(e, 'objetivo', 'general') or 'general' for e in ejercicios})
+                return (grupos, objetivos)
 
-            self.exercise_group_filter.blockSignals(True)
-            self.exercise_group_filter.clear()
-            self.exercise_group_filter.addItem("Todos")
-            for g in grupos:
-                self.exercise_group_filter.addItem(g)
-            idx = self.exercise_group_filter.findText(cur_grupo)
-            if idx >= 0:
-                self.exercise_group_filter.setCurrentIndex(idx)
-            self.exercise_group_filter.blockSignals(False)
+            def _on_success(result):
+                grupos, objetivos = result
+                try:
+                    cur_grupo = self.exercise_group_filter.currentText() if hasattr(self, 'exercise_group_filter') else "Todos"
+                    cur_obj = self.exercise_objective_filter.currentText() if hasattr(self, 'exercise_objective_filter') else "Todos"
 
-            self.exercise_objective_filter.blockSignals(True)
-            self.exercise_objective_filter.clear()
-            self.exercise_objective_filter.addItem("Todos")
-            for o in objetivos:
-                self.exercise_objective_filter.addItem(o)
-            idx2 = self.exercise_objective_filter.findText(cur_obj)
-            if idx2 >= 0:
-                self.exercise_objective_filter.setCurrentIndex(idx2)
-            self.exercise_objective_filter.blockSignals(False)
-        except Exception as e:
+                    self.exercise_group_filter.blockSignals(True)
+                    self.exercise_group_filter.clear()
+                    self.exercise_group_filter.addItem("Todos")
+                    for g in grupos:
+                        self.exercise_group_filter.addItem(g)
+                    idx = self.exercise_group_filter.findText(cur_grupo)
+                    if idx >= 0:
+                        self.exercise_group_filter.setCurrentIndex(idx)
+                    self.exercise_group_filter.blockSignals(False)
+
+                    self.exercise_objective_filter.blockSignals(True)
+                    self.exercise_objective_filter.clear()
+                    self.exercise_objective_filter.addItem("Todos")
+                    for o in objetivos:
+                        self.exercise_objective_filter.addItem(o)
+                    idx2 = self.exercise_objective_filter.findText(cur_obj)
+                    if idx2 >= 0:
+                        self.exercise_objective_filter.setCurrentIndex(idx2)
+                    self.exercise_objective_filter.blockSignals(False)
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            def _on_error(msg):
+                try:
+                    logging.exception("Error reloading exercise filters")
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            TaskThread(_load, on_success=_on_success, on_error=_on_error, parent=self).start()
+        except Exception:
             logging.exception("Error reloading exercise filters")
 
     def add_exercise(self):
         dialog = ExerciseBankDialog(self)
         if dialog.exec():
-            try: self.db_manager.crear_ejercicio(dialog.get_ejercicio()); self.populate_exercise_bank_table()
-            except Exception as e: QMessageBox.critical(self, "Error", f"No se pudo crear el ejercicio (¿quizás el nombre ya existe?): {e}")
+            op_id = "exercise_add"
+            try:
+                if getattr(self, 'exercises_loading', None):
+                    try:
+                        self.exercises_loading.show_loading(
+                            operation_id=op_id,
+                            message="Creando ejercicio...",
+                            spinner_type="dots",
+                            spinner_size=64,
+                            background_opacity=0.3,
+                            show_message=True,
+                        )
+                    except Exception:
+                        pass
+
+                ejercicio = dialog.get_ejercicio()
+
+                def _save():
+                    self.db_manager.crear_ejercicio(ejercicio)
+                    return True
+
+                def _on_success(_):
+                    try:
+                        self.reload_exercise_filters()
+                        self.populate_exercise_bank_table()
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                def _on_error(msg):
+                    try:
+                        QMessageBox.critical(self, "Error", f"No se pudo crear el ejercicio (¿quizás el nombre ya existe?): {msg}")
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                TaskThread(_save, on_success=_on_success, on_error=_on_error, parent=self).start()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo crear el ejercicio: {e}")
 
     def edit_exercise(self):
         selected_row = self.exercise_table.currentRow()
@@ -2659,89 +2782,266 @@ class ConfigTabWidget(QWidget):
         exercise_to_edit = self.exercise_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
         dialog = ExerciseBankDialog(self, ejercicio=exercise_to_edit)
         if dialog.exec():
-            try: self.db_manager.actualizar_ejercicio(dialog.get_ejercicio()); self.populate_exercise_bank_table()
-            except Exception as e: QMessageBox.critical(self, "Error", f"No se pudo actualizar el ejercicio: {e}")
+            op_id = "exercise_edit"
+            try:
+                if getattr(self, 'exercises_loading', None):
+                    try:
+                        self.exercises_loading.show_loading(
+                            operation_id=op_id,
+                            message="Actualizando ejercicio...",
+                            spinner_type="dots",
+                            spinner_size=64,
+                            background_opacity=0.3,
+                            show_message=True,
+                        )
+                    except Exception:
+                        pass
+
+                ejercicio = dialog.get_ejercicio()
+
+                def _update():
+                    self.db_manager.actualizar_ejercicio(ejercicio)
+                    return True
+
+                def _on_success(_):
+                    try:
+                        self.reload_exercise_filters()
+                        self.populate_exercise_bank_table()
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                def _on_error(msg):
+                    try:
+                        QMessageBox.critical(self, "Error", f"No se pudo actualizar el ejercicio: {msg}")
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                TaskThread(_update, on_success=_on_success, on_error=_on_error, parent=self).start()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo actualizar el ejercicio: {e}")
 
     def delete_exercise(self):
         selected_row = self.exercise_table.currentRow()
         if selected_row < 0: QMessageBox.warning(self, "Sin selección", "Seleccione un ejercicio para eliminar."); return
         exercise_to_delete = self.exercise_table.item(selected_row, 0).data(Qt.ItemDataRole.UserRole)
         if QMessageBox.question(self, "Confirmar Eliminación", f"¿Seguro que desea eliminar '{exercise_to_delete.nombre}'? Será eliminado de todas las rutinas.", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-            try: self.db_manager.eliminar_ejercicio(exercise_to_delete.id); self.populate_exercise_bank_table()
-            except Exception as e: QMessageBox.critical(self, "Error", f"No se pudo eliminar el ejercicio: {e}")
+            op_id = "exercise_delete"
+            try:
+                if getattr(self, 'exercises_loading', None):
+                    try:
+                        self.exercises_loading.show_loading(
+                            operation_id=op_id,
+                            message="Eliminando ejercicio...",
+                            spinner_type="dots",
+                            spinner_size=64,
+                            background_opacity=0.3,
+                            show_message=True,
+                        )
+                    except Exception:
+                        pass
+
+                def _delete():
+                    self.db_manager.eliminar_ejercicio(exercise_to_delete.id)
+                    return True
+
+                def _on_success(_):
+                    try:
+                        self.reload_exercise_filters()
+                        self.populate_exercise_bank_table()
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                def _on_error(msg):
+                    try:
+                        QMessageBox.critical(self, "Error", f"No se pudo eliminar el ejercicio: {msg}")
+                    finally:
+                        try:
+                            if getattr(self, 'exercises_loading', None):
+                                self.exercises_loading.hide_loading(op_id)
+                        except Exception:
+                            pass
+
+                TaskThread(_delete, on_success=_on_success, on_error=_on_error, parent=self).start()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"No se pudo eliminar el ejercicio: {e}")
 
     def export_exercise_bank(self):
         try:
-            ejercicios = self.db_manager.obtener_ejercicios()
-            if not ejercicios: QMessageBox.information(self, "Vacío", "El banco de ejercicios está vacío."); return
             filepath, _ = QFileDialog.getSaveFileName(self, "Exportar Banco de Ejercicios", "banco_ejercicios.xlsx", "Excel Files (*.xlsx)")
-            if filepath: self.export_manager.exportar_banco_ejercicios_excel(filepath, ejercicios); QMessageBox.information(self, "Éxito", f"Banco de ejercicios exportado a:\n{filepath}")
-        except Exception as e: QMessageBox.critical(self, "Error", f"No se pudo exportar el banco de ejercicios: {e}")
+            if not filepath:
+                return
+            op_id = "exercise_export"
+            if getattr(self, 'exercises_loading', None):
+                try:
+                    self.exercises_loading.show_loading(
+                        operation_id=op_id,
+                        message="Exportando banco de ejercicios...",
+                        spinner_type="dots",
+                        spinner_size=64,
+                        background_opacity=0.3,
+                        show_message=True,
+                    )
+                except Exception:
+                    pass
+
+            def _export():
+                ejercicios = self.db_manager.obtener_ejercicios()
+                if not ejercicios:
+                    return "empty"
+                self.export_manager.exportar_banco_ejercicios_excel(filepath, ejercicios)
+                return "ok"
+
+            def _on_success(status):
+                try:
+                    if status == "empty":
+                        QMessageBox.information(self, "Vacío", "El banco de ejercicios está vacío.")
+                    else:
+                        QMessageBox.information(self, "Éxito", f"Banco de ejercicios exportado a:\n{filepath}")
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            def _on_error(msg):
+                try:
+                    QMessageBox.critical(self, "Error", f"No se pudo exportar el banco de ejercicios: {msg}")
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            TaskThread(_export, on_success=_on_success, on_error=_on_error, parent=self).start()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"No se pudo exportar el banco de ejercicios: {e}")
 
     def import_exercise_bank(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Importar Banco de Ejercicios", "", "Excel Files (*.xlsx)")
         if not filepath:
             return
         try:
-            df = pd.read_excel(filepath)
-            required_cols = ['nombre']
-            # columnas opcionales compatibles con export masivo
-            optional_cols = ['grupo_muscular', 'descripcion', 'objetivo']
-            if not all(col in df.columns for col in required_cols):
-                QMessageBox.critical(self, "Error de Formato", f"El archivo Excel debe contener la columna obligatoria: {', '.join(required_cols)}");
-                return
             overwrite = getattr(self, 'overwrite_exercises_checkbox', None)
             overwrite_enabled = bool(overwrite.isChecked()) if overwrite else False
 
-            added_count, updated_count, skipped_count = 0, 0, 0
-            for _, row in df.iterrows():
-                nombre = str(row.get('nombre', '')).strip()
-                if not nombre:
-                    continue
-                grupo = row.get('grupo_muscular', None)
-                desc = row.get('descripcion', None)
-                objetivo = row.get('objetivo', None)
-                # Normalizar NaN a None
-                grupo = None if pd.isna(grupo) else str(grupo).strip() if grupo is not None else None
-                desc = None if pd.isna(desc) else str(desc).strip() if desc is not None else None
-                objetivo = None if pd.isna(objetivo) else str(objetivo).strip() if objetivo is not None else None
-
+            op_id = "exercise_import"
+            if getattr(self, 'exercises_loading', None):
                 try:
-                    # Buscar si existe por nombre
-                    existentes = self.db_manager.obtener_ejercicios(filtro=nombre)
-                    existente = next((e for e in existentes if (getattr(e, 'nombre', e.get('nombre')) or '').strip().lower() == nombre.lower()), None)
-                    if existente and overwrite_enabled:
-                        # Construir objeto Ejercicio para actualizar
-                        eid = getattr(existente, 'id', existente.get('id'))
-                        ej_obj = Ejercicio(
-                            id=eid,
-                            nombre=nombre,
-                            grupo_muscular=grupo,
-                            descripcion=desc,
-                            objetivo=objetivo or getattr(existente, 'objetivo', existente.get('objetivo', 'general')) or 'general'
-                        )
-                        self.db_manager.actualizar_ejercicio(ej_obj)
-                        updated_count += 1
-                    elif existente and not overwrite_enabled:
-                        skipped_count += 1
-                    else:
-                        ej_new = Ejercicio(nombre=nombre, grupo_muscular=grupo, descripcion=desc, objetivo=objetivo or 'general')
-                        self.db_manager.crear_ejercicio(ej_new)
-                        added_count += 1
-                except Exception as ex:
-                    logging.exception("Error importing exercise row")
-                    skipped_count += 1
-                    continue
+                    self.exercises_loading.show_loading(
+                        operation_id=op_id,
+                        message="Importando banco de ejercicios...",
+                        spinner_type="dots",
+                        spinner_size=64,
+                        background_opacity=0.3,
+                        show_message=True,
+                    )
+                except Exception:
+                    pass
 
-            QMessageBox.information(
-                self,
-                "Importación Completa",
-                f"Añadidos: {added_count}\nActualizados: {updated_count}\nOmitidos: {skipped_count}"
-            )
-            # Refrescar filtros y tabla
-            if hasattr(self, 'reload_exercise_filters'):
-                self.reload_exercise_filters()
-            self.populate_exercise_bank_table()
+            def _import():
+                df = pd.read_excel(filepath)
+                required_cols = ['nombre']
+                optional_cols = ['grupo_muscular', 'descripcion', 'objetivo']
+                if not all(col in df.columns for col in required_cols):
+                    raise Exception(f"El archivo Excel debe contener la columna obligatoria: {', '.join(required_cols)}")
+
+                added_count, updated_count, skipped_count = 0, 0, 0
+                for _, row in df.iterrows():
+                    nombre = str(row.get('nombre', '')).strip()
+                    if not nombre:
+                        continue
+                    grupo = row.get('grupo_muscular', None)
+                    desc = row.get('descripcion', None)
+                    objetivo = row.get('objetivo', None)
+                    # Normalizar NaN a None
+                    grupo = None if pd.isna(grupo) else str(grupo).strip() if grupo is not None else None
+                    desc = None if pd.isna(desc) else str(desc).strip() if desc is not None else None
+                    objetivo = None if pd.isna(objetivo) else str(objetivo).strip() if objetivo is not None else None
+
+                    try:
+                        existentes = self.db_manager.obtener_ejercicios(filtro=nombre)
+                        existente = None
+                        for e in existentes:
+                            nom = getattr(e, 'nombre', None)
+                            if nom is None and isinstance(e, dict):
+                                nom = (e.get('nombre') or '').strip()
+                            else:
+                                nom = (nom or '').strip()
+                            if nom.lower() == nombre.lower():
+                                existente = e
+                                break
+
+                        if existente and overwrite_enabled:
+                            eid = getattr(existente, 'id', None)
+                            if eid is None and isinstance(existente, dict):
+                                eid = existente.get('id')
+                            ej_obj = Ejercicio(
+                                id=eid,
+                                nombre=nombre,
+                                grupo_muscular=grupo,
+                                descripcion=desc,
+                                objetivo=objetivo or getattr(existente, 'objetivo', existente.get('objetivo', 'general')) or 'general'
+                            )
+                            self.db_manager.actualizar_ejercicio(ej_obj)
+                            updated_count += 1
+                        elif existente and not overwrite_enabled:
+                            skipped_count += 1
+                        else:
+                            ej_new = Ejercicio(nombre=nombre, grupo_muscular=grupo, descripcion=desc, objetivo=objetivo or 'general')
+                            self.db_manager.crear_ejercicio(ej_new)
+                            added_count += 1
+                    except Exception as ex:
+                        logging.exception("Error importing exercise row")
+                        skipped_count += 1
+                        continue
+
+                return (added_count, updated_count, skipped_count)
+
+            def _on_success(result):
+                added_count, updated_count, skipped_count = result
+                try:
+                    QMessageBox.information(
+                        self,
+                        "Importación Completa",
+                        f"Añadidos: {added_count}\nActualizados: {updated_count}\nOmitidos: {skipped_count}"
+                    )
+                    try:
+                        self.reload_exercise_filters()
+                    except Exception:
+                        pass
+                    self.populate_exercise_bank_table()
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            def _on_error(msg):
+                try:
+                    QMessageBox.critical(self, "Error de Lectura", f"No se pudo leer el archivo Excel: {msg}")
+                finally:
+                    try:
+                        if getattr(self, 'exercises_loading', None):
+                            self.exercises_loading.hide_loading(op_id)
+                    except Exception:
+                        pass
+
+            TaskThread(_import, on_success=_on_success, on_error=_on_error, parent=self).start()
         except Exception as e:
             QMessageBox.critical(self, "Error de Lectura", f"No se pudo leer el archivo Excel: {e}")
 
@@ -3600,6 +3900,11 @@ class ConfigTabWidget(QWidget):
             # Limpiar formulario y recargar tabla
             self.clear_concept_form()
             self.load_payment_concepts(force=True)
+            # Notificar a otras pestañas que los conceptos cambiaron
+            try:
+                self.conceptos_pago_modificados.emit()
+            except Exception:
+                pass
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo guardar el concepto: {e}")
@@ -3703,6 +4008,11 @@ class ConfigTabWidget(QWidget):
                 self.payment_manager.actualizar_concepto_pago(concepto_actualizado)
                 QMessageBox.information(self, "Éxito", f"Concepto '{concepto.nombre}' {accion}do correctamente.")
                 self.load_payment_concepts(force=True)
+                # Emitir señal global para refrescar consumidores
+                try:
+                    self.conceptos_pago_modificados.emit()
+                except Exception:
+                    pass
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cambiar el estado del concepto: {e}")
@@ -3728,6 +4038,11 @@ class ConfigTabWidget(QWidget):
                 self.payment_manager.eliminar_concepto_pago(concepto.id)
                 QMessageBox.information(self, "Éxito", f"Concepto '{concepto.nombre}' eliminado correctamente.")
                 self.load_payment_concepts(force=True)
+                # Emitir señal global para refrescar consumidores
+                try:
+                    self.conceptos_pago_modificados.emit()
+                except Exception:
+                    pass
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo eliminar el concepto: {e}")
@@ -4598,6 +4913,11 @@ class ConfigTabWidget(QWidget):
             # Limpiar formulario y recargar tabla
             self.clear_method_form()
             self.load_payment_methods(force=True)
+            # Notificar a otras pestañas que los métodos cambiaron
+            try:
+                self.metodos_pago_modificados.emit()
+            except Exception:
+                pass
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo guardar el método de pago: {e}")
@@ -4660,6 +4980,11 @@ class ConfigTabWidget(QWidget):
                 self.payment_manager.actualizar_metodo_pago(metodo_actualizado)
                 QMessageBox.information(self, "Éxito", f"Método '{metodo.nombre}' {accion}do correctamente.")
                 self.load_payment_methods(force=True)
+                # Emitir señal global para refrescar consumidores
+                try:
+                    self.metodos_pago_modificados.emit()
+                except Exception:
+                    pass
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo cambiar el estado del método: {e}")
@@ -4685,6 +5010,11 @@ class ConfigTabWidget(QWidget):
                 self.payment_manager.eliminar_metodo_pago(metodo.id)
                 QMessageBox.information(self, "Éxito", f"Método '{metodo.nombre}' eliminado correctamente.")
                 self.load_payment_methods(force=True)
+                # Emitir señal global para refrescar consumidores
+                try:
+                    self.metodos_pago_modificados.emit()
+                except Exception:
+                    pass
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"No se pudo eliminar el método: {e}")
@@ -5518,8 +5848,10 @@ class ConfigTabWidget(QWidget):
                                 if row_count > 0:
                                     f.write(f"-- Datos de tabla: {table_name} ({row_count} registros)\n")
                                     
-                                    # Obtener todos los datos
-                                    cursor.execute(f"SELECT * FROM {table_name}")
+                                    # Obtener datos con columnas explícitas
+                                    col_names = [col['column_name'] for col in columns]
+                                    column_list = ", ".join(col_names) if col_names else "*"
+                                    cursor.execute(f"SELECT {column_list} FROM {table_name}")
                                     rows = cursor.fetchall()
                                     
                                     if rows:
@@ -5614,12 +5946,12 @@ class ConfigTabWidget(QWidget):
                 with self.db_manager.get_connection_context() as conn:
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                     cursor.execute("""
-                        SELECT u.id, u.nombre, u.apellido, u.email, u.telefono, 
+                        SELECT u.id, u.nombre, u.email, u.telefono, 
                                u.fecha_nacimiento, u.fecha_registro, u.activo,
                                m.nombre as membresia
                         FROM usuarios u
                         LEFT JOIN membresias m ON u.membresia_id = m.id
-                        ORDER BY u.nombre, u.apellido
+                        ORDER BY u.nombre
                     """)
                     usuarios = cursor.fetchall()
                 
@@ -5634,7 +5966,7 @@ class ConfigTabWidget(QWidget):
                         writer.writerow({
                             'ID': usuario['id'],
                             'Nombre': usuario['nombre'],
-                            'Apellido': usuario['apellido'],
+                            'Apellido': usuario.get('apellido', ''),
                             'Email': usuario['email'],
                             'Teléfono': usuario['telefono'],
                             'Fecha Nacimiento': usuario['fecha_nacimiento'],
@@ -5684,7 +6016,7 @@ class ConfigTabWidget(QWidget):
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                     cursor.execute("""
                         SELECT p.id,
-                               u.nombre || ' ' || u.apellido AS usuario,
+                               TRIM(COALESCE(u.nombre,'')) AS usuario,
                                COALESCE(c.nombre, 'Sin concepto') AS concepto,
                                p.monto,
                                p.fecha_pago,
@@ -5868,8 +6200,8 @@ class ConfigTabWidget(QWidget):
                         email = row.get('email', '').strip()
                         telefono = row.get('telefono', row.get('teléfono', '')).strip()
                         
-                        if not nombre or not apellido or not email:
-                            errors.append(f"Fila {i+1}: Faltan campos obligatorios (nombre, apellido, email)")
+                        if not nombre or not email:
+                            errors.append(f"Fila {i+1}: Faltan campos obligatorios (nombre, email)")
                             continue
                         
                         # Verificar si el usuario ya existe
@@ -5879,10 +6211,12 @@ class ConfigTabWidget(QWidget):
                             continue
                         
                         # Insertar usuario
+                        # Combinar nombre y apellido si está presente, para esquemas sin 'apellido'
+                        full_name = (f"{nombre} {apellido}" if apellido else nombre).strip()
                         cursor.execute("""
-                            INSERT INTO usuarios (nombre, apellido, email, telefono, fecha_registro, activo)
-                            VALUES (%s, %s, %s, %s, CURRENT_DATE, true)
-                        """, (nombre, apellido, email, telefono))
+                            INSERT INTO usuarios (nombre, email, telefono, fecha_registro, activo)
+                            VALUES (%s, %s, %s, CURRENT_DATE, true)
+                        """, (full_name, email, telefono))
                         
                         imported_count += 1
                         

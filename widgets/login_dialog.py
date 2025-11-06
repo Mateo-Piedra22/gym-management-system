@@ -1722,7 +1722,7 @@ class LoginDialog(QDialog):
                 QMessageBox.warning(self, "Acceso Denegado", "Ingrese la contraseña.")
                 return
 
-            # 1) Base de datos (fuente de verdad)
+            # 1) Base de datos (fuente de verdad) con verificación segura
             db_pwd = None
             try:
                 if hasattr(self, 'db_manager') and self.db_manager and hasattr(self.db_manager, 'obtener_configuracion'):
@@ -1730,16 +1730,36 @@ class LoginDialog(QDialog):
             except Exception:
                 db_pwd = None
 
-            # 2) Fallback desarrollador solo si DB no devuelve valor
-            valid_pwd = db_pwd
-            if not valid_pwd:
+            verified = False
+            if db_pwd:
                 try:
-                    from managers import DeveloperManager
-                    valid_pwd = getattr(DeveloperManager, 'DEV_PASSWORD', None)
+                    db_pwd_str = str(db_pwd).strip()
+                    # Si es bcrypt, verificar de forma segura; si no, retrocompatibilidad texto plano
+                    if db_pwd_str.startswith('$2b$') or db_pwd_str.startswith('$2a$'):
+                        from security_utils import SecurityUtils
+                        verified = SecurityUtils.verify_password(input_pwd, db_pwd_str)
+                    else:
+                        verified = (input_pwd == db_pwd_str)
                 except Exception:
-                    valid_pwd = None
+                    verified = False
 
-            if valid_pwd and input_pwd == str(valid_pwd).strip():
+            # 2) Fallback desarrollador sólo si DB no verifica y no está desactivado
+            if not verified:
+                try:
+                    import os
+                    dev_login_disabled = str(os.getenv('DISABLE_DEV_LOGIN', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                except Exception:
+                    dev_login_disabled = False
+                if not dev_login_disabled:
+                    try:
+                        from managers import DeveloperManager
+                        dev_pwd = getattr(DeveloperManager, 'DEV_PASSWORD', None)
+                    except Exception:
+                        dev_pwd = None
+                    if dev_pwd:
+                        verified = (input_pwd == str(dev_pwd).strip())
+
+            if verified:
                 self.logged_in_role = "dueño"
                 try:
                     self.logged_in_user = {'id': 1, 'rol': 'dueño', 'nombre': 'Dueño'}
@@ -1810,11 +1830,24 @@ class LoginDialog(QDialog):
                 # Validaciones rápidas en UI
                 new_pwd = new_input.text().strip()
                 confirm_pwd = confirm_input.text().strip()
-                if not new_pwd or len(new_pwd) < 4:
-                    QMessageBox.warning(self, "Error", "La nueva contraseña debe tener al menos 4 caracteres.")
-                    return
                 if new_pwd != confirm_pwd:
                     QMessageBox.warning(self, "Error", "La confirmación no coincide.")
+                    return
+
+                # Validación de fortaleza de contraseña
+                try:
+                    from security_utils import SecurityUtils
+                    strength = SecurityUtils.validate_password_strength(new_pwd)
+                    if not (isinstance(strength, dict) and strength.get('valid')):
+                        QMessageBox.warning(
+                            self,
+                            "Error",
+                            "La nueva contraseña es débil. Debe tener mínimo 8 caracteres y combinar mayúsculas, minúsculas, dígitos y símbolos."
+                        )
+                        return
+                except Exception:
+                    # Si falla la validación, evitar continuar por seguridad
+                    QMessageBox.warning(self, "Error", "No se pudo validar la fortaleza de la contraseña.")
                     return
 
                 old_pwd = old_input.text()
@@ -1826,26 +1859,46 @@ class LoginDialog(QDialog):
                 def _change_owner_password():
                     # Obtener contraseña actual y actualizar en ambas bases si coincide
                     try:
-                        # Fuente de verdad: base de datos. DEV_PASSWORD sólo como último respaldo para leer.
+                        # Fuente de verdad: base de datos. DEV_PASSWORD sólo como último respaldo para leer (si no está desactivado).
                         current = None
                         if hasattr(self, 'db_manager') and self.db_manager:
                             current = self.db_manager.obtener_configuracion('owner_password')
                         if not current:
                             try:
-                                from managers import DeveloperManager
-                                current = DeveloperManager.DEV_PASSWORD
+                                import os
+                                dev_login_disabled = str(os.getenv('DISABLE_DEV_LOGIN', '')).strip().lower() in ('1', 'true', 'yes', 'on')
+                                if not dev_login_disabled:
+                                    from managers import DeveloperManager
+                                    current = DeveloperManager.DEV_PASSWORD
                             except Exception:
                                 current = None
                         if not current:
                             return {'ok': False, 'msg': 'No se pudo obtener la contraseña actual.'}
-                        if old_pwd != current:
+                        
+                        # Verificar contraseña actual usando bcrypt o texto plano (retrocompatibilidad)
+                        is_valid = False
+                        
+                        # Primero intentar verificar con bcrypt
+                        if current.startswith('$2b$') or current.startswith('$2a$'):
+                            # Es un hash bcrypt
+                            from security_utils import SecurityUtils
+                            is_valid = SecurityUtils.verify_password(old_pwd, current)
+                        else:
+                            # Es texto plano (retrocompatibilidad)
+                            is_valid = (old_pwd == current)
+                        
+                        if not is_valid:
                             return {'ok': False, 'msg': 'La contraseña actual no coincide.'}
 
-                        # Actualizar en la base local
+                        # Hashear la nueva contraseña antes de guardarla
+                        from security_utils import SecurityUtils
+                        hashed_pwd = SecurityUtils.hash_password(new_pwd)
+                        
+                        # Actualizar únicamente en la base local de forma segura
                         local_ok = False
                         if hasattr(self, 'db_manager') and self.db_manager:
                             try:
-                                local_ok = bool(self.db_manager.actualizar_configuracion('owner_password', new_pwd))
+                                local_ok = bool(self.db_manager.actualizar_configuracion('owner_password', hashed_pwd))
                                 # Refrescar cachés locales inmediatamente para evitar valores antiguos
                                 try:
                                     if hasattr(self.db_manager, 'prefetch_owner_credentials_async'):
@@ -1855,82 +1908,8 @@ class LoginDialog(QDialog):
                             except Exception:
                                 local_ok = False
 
-                        # Intentar actualizar en la base remota vía WebApp; fallback a conexión directa si falla
-                        remote_ok = False
-                        try:
-                            import os, json
-                            import requests
-                            from utils import get_webapp_base_url
-                            # Resolver DEV_PASSWORD para autorización del endpoint
-                            dev_pass = None
-                            try:
-                                from managers import DeveloperManager
-                                dev_pass = str(getattr(DeveloperManager, 'DEV_PASSWORD', '') or '').strip()
-                            except Exception:
-                                dev_pass = None
-                            if not dev_pass:
-                                dev_pass = os.getenv('DEV_PASSWORD', '').strip()
-                            base_url = str(get_webapp_base_url() or '').strip()
-                            if base_url:
-                                url = (base_url.rstrip('/') + '/api/admin/owner-password')
-                                resp = requests.post(url, json={'dev_password': dev_pass, 'new_password': new_pwd}, timeout=6)
-                                if resp.ok:
-                                    try:
-                                        data = resp.json()
-                                    except Exception:
-                                        data = {}
-                                    if isinstance(data, dict) and data.get('success') is True:
-                                        remote_ok = True
-                        except Exception:
-                            remote_ok = False
-
-                        # Fallback: intentar actualización directa en DB remota definida en config.json si WebApp no funcionó
-                        if not remote_ok:
-                            try:
-                                import os, json
-                                import psycopg2
-                                base_dir = os.path.dirname(os.path.dirname(__file__))
-                                cfg_path = os.path.join(base_dir, 'config', 'config.json')
-                                remote = {}
-                                if os.path.exists(cfg_path):
-                                    with open(cfg_path, 'r', encoding='utf-8') as f:
-                                        cfg = json.load(f)
-                                        remote = cfg.get('db_remote') or {}
-                                host = remote.get('host'); port = remote.get('port'); dbn = remote.get('database')
-                                user = remote.get('user'); pwd = remote.get('password')
-                                sslmode = remote.get('sslmode') or 'require'
-                                appname = remote.get('application_name') or 'gym_management_system'
-                                timeout = int(remote.get('connect_timeout') or 10)
-                                if host and dbn and user and (pwd is not None):
-                                    conn = psycopg2.connect(host=host, port=port, dbname=dbn, user=user, password=pwd, sslmode=sslmode, application_name=appname, connect_timeout=timeout)
-                                    cur = conn.cursor()
-                                    try:
-                                        cur.execute("""
-                        CREATE TABLE IF NOT EXISTS configuracion (
-                            clave TEXT PRIMARY KEY,
-                            valor TEXT
-                        )
-                        """)
-                                    except Exception:
-                                        pass
-                                    cur.execute(
-                        """
-                        INSERT INTO configuracion (clave, valor)
-                        VALUES (%s, %s)
-                        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
-                        """,
-                        ('owner_password', new_pwd),
-                    )
-                                    conn.commit()
-                                    cur.close(); conn.close()
-                                    remote_ok = True
-                            except Exception:
-                                remote_ok = False
-
                         if not local_ok:
-                            return {'ok': False, 'msg': 'No se pudo actualizar la contraseña en la base local.'}
-                        if not remote_ok:
-                            return {'ok': False, 'msg': 'Contraseña actualizada en local, pero falló la actualización remota.'}
+                            return {'ok': False, 'msg': 'No se pudo actualizar la contraseña.'}
 
                         return {'ok': True}
                     except Exception as e:
@@ -1976,7 +1955,7 @@ class LoginDialog(QDialog):
     def _shutdown_threads_before_accept(self):
         """Apaga explícitamente los hilos activos del diálogo antes de aceptar."""
         try:
-            # Referencia legacy a _proxy_watchdog eliminada
+            # Referencia anterior a _proxy_watchdog eliminada
             if hasattr(self, '_branding_thread') and self._branding_thread:
                 try:
                     if self._branding_thread.isRunning():
@@ -2044,46 +2023,20 @@ class LoginDialog(QDialog):
         import sys
         import logging
 
-        def _safe_flush():
-            try:
-                if getattr(sys, 'stdout', None) and hasattr(sys.stdout, 'flush'):
-                    sys.stdout.flush()
-            except Exception:
-                pass
-        
-        print("\n" + "="*50)
-        print("🔍 DEBUG: INICIANDO PROCESO DE LOGIN DE PROFESOR")
-        print("="*50)
-        _safe_flush()
-        
         selected_prof_index = self.profesor_selector.currentIndex()
-        print(f"📋 Índice seleccionado: {selected_prof_index}")
-        _safe_flush()
         
         if selected_prof_index < 0:
-            print("❌ ERROR: No hay profesor seleccionado")
-            _safe_flush()
+            QMessageBox.warning(self, "Datos Incompletos", "Seleccione un profesor e ingrese el PIN.")
             return
 
         selected_prof = self.profesor_selector.itemData(selected_prof_index)
         pin_ingresado = self.profesor_pin_input.text()
-        
-        print(f"👤 Profesor seleccionado: {selected_prof}")
-        print(f"🔑 PIN ingresado: {'*' * len(pin_ingresado) if pin_ingresado else 'VACÍO'}")
-        _safe_flush()
 
         if not selected_prof or not pin_ingresado:
-            print("❌ ERROR: Datos incompletos")
-            _safe_flush()
             QMessageBox.warning(self, "Datos Incompletos", "Seleccione un profesor e ingrese el PIN.")
             return
 
-        print(f"🔐 Verificando PIN para usuario ID: {selected_prof['usuario_id']}")
-        _safe_flush()
-        
         if self.db_manager.verificar_pin_usuario(selected_prof['usuario_id'], pin_ingresado):
-            print("✅ PIN CORRECTO - Iniciando sesión")
-            _safe_flush()
             self.logged_in_role = "profesor"
             self.logged_in_user = selected_prof
             # Establecer contexto de auditoría con el usuario y sesión
@@ -2095,32 +2048,10 @@ class LoginDialog(QDialog):
             except Exception:
                 pass
             
-            print(f"\n🎯 SESIÓN INICIADA EXITOSAMENTE")
-            print(f"👤 Rol: {self.logged_in_role}")
-            print(f"📊 Datos del profesor logueado:")
-            print(f"   - Nombre: {selected_prof.get('nombre', 'N/A')}")
-            print(f"   - Usuario ID: {selected_prof.get('usuario_id', 'N/A')}")
-            print(f"   - DNI: {selected_prof.get('dni', 'N/A')}")
-            print(f"   - Todos los datos: {selected_prof}")
-            _safe_flush()
-            
             # Iniciar sesión de trabajo solo para profesores de musculación
             try:
                 # Obtener información del profesor para verificar su tipo
                 profesor_info = self.db_manager.obtener_profesor_por_usuario_id(selected_prof['usuario_id'])
-                print(f"\n=== DEBUG INFORMACIÓN DEL PROFESOR ===")
-                print(f"Usuario ID consultado: {selected_prof['usuario_id']}")
-                print(f"Información obtenida de la BD: {profesor_info}")
-                if profesor_info:
-                    print(f"Atributos disponibles: {dir(profesor_info)}")
-                    print(f"Tipo de profesor (get): '{profesor_info.get('tipo', 'NO ENCONTRADO')}'")
-                    print(f"Tipo de profesor (attr): '{getattr(profesor_info, 'tipo_profesor', 'NO ENCONTRADO')}'")
-                    print(f"¿Es musculación (get)?: {profesor_info.get('tipo', '').lower() == 'musculación'}")
-                    print(f"¿Es musculación (attr)?: {getattr(profesor_info, 'tipo_profesor', '').lower() == 'musculación'}")
-                else:
-                    print("❌ ERROR: No se pudo obtener información del profesor desde la BD")
-                print("=== FIN DEBUG INFORMACIÓN ===")
-                _safe_flush()
                 
                 # Normalizar el tipo para comparación (manejar tildes y mayúsculas)
                 import unicodedata
@@ -2128,24 +2059,11 @@ class LoginDialog(QDialog):
                 tipo_profesor = getattr(profesor_info, 'tipo_profesor', '') if profesor_info else ''
                 tipo_normalizado = unicodedata.normalize('NFD', tipo_profesor.lower()).encode('ascii', 'ignore').decode('ascii')
                 
-                print(f"🔍 DEBUG COMPARACIÓN DE TIPOS:")
-                print(f"   Tipo original: '{tipo_profesor}'")
-                print(f"   Tipo normalizado: '{tipo_normalizado}'")
-                print(f"   ¿Es musculación?: {tipo_normalizado == 'musculacion'}")
-                _safe_flush()
-                
                 if profesor_info and tipo_normalizado == 'musculacion':
-                    print(f"\n💪 PROFESOR DE MUSCULACIÓN DETECTADO - Iniciando gestión de sesión de trabajo")
-                    _safe_flush()
-                    
                     # Obtener el profesor_id correcto (no el ID del usuario)
                     profesor_id = getattr(profesor_info, 'profesor_id', None)
-                    print(f"🆔 Profesor ID obtenido: {profesor_id}")
-                    _safe_flush()
                     
                     if not profesor_id:
-                        print("❌ ERROR: No se pudo obtener el ID del profesor")
-                        _safe_flush()
                         QMessageBox.warning(self, "Error", "No se pudo obtener el ID del profesor")
                         return
                     
@@ -2203,17 +2121,9 @@ class LoginDialog(QDialog):
                                     )
                     else:
                         # No hay sesión activa, iniciar una nueva
-                        print(f"🚀 No hay sesión activa - Iniciando nueva sesión de trabajo")
-                        _safe_flush()
-                        
                         resultado_inicio = self.db_manager.iniciar_sesion_trabajo_profesor(profesor_id)
                         
-                        print(f"📋 Resultado de iniciar sesión: {resultado_inicio}")
-                        _safe_flush()
-                        
                         if resultado_inicio.get('success'):
-                            print(f"✅ SESIÓN DE TRABAJO INICIADA EXITOSAMENTE")
-                            _safe_flush()
                             QMessageBox.information(
                                 self, "Sesión Iniciada", 
                                 f"✅ Sesión de trabajo iniciada para {selected_prof['nombre']}"

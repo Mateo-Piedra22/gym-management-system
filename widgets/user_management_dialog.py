@@ -147,14 +147,11 @@ class UserManagementDialog(QDialog):
 
             def _load_all():
                 uid = getattr(self.usuario, 'id', None)
-                notas = self.db_manager.obtener_notas_usuario(uid)
-                etiquetas = self.db_manager.obtener_etiquetas_usuario(uid)
+                data = self.db_manager.obtener_notas_y_etiquetas_usuario(uid)
                 estados = self.db_manager.obtener_estados_usuario(uid)
-                return {
-                    'notas': notas,
-                    'etiquetas': etiquetas,
-                    'estados': estados,
-                }
+                data = data or {}
+                data['estados'] = estados
+                return data
 
             thread = TaskThread(_load_all)
             thread.success.connect(self._populate_user_data)

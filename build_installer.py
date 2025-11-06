@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 ENTRY_SCRIPT = PROJECT_ROOT / "main.py"
 GYMMSW_SCRIPT = PROJECT_ROOT / "GymMSW.py"
 DB_CONFIG_SCRIPT = PROJECT_ROOT / "cdbconfig.py"
-AUTO_SETUP_SCRIPT = PROJECT_ROOT / "scripts" / "auto_setup.py"
+FIRST_TIME_SETUP_SCRIPT = PROJECT_ROOT / "first_time_setup.py"
 APP_NAME = "Gym Management System"
 ICON_PATH = PROJECT_ROOT / "assets" / "gym_logo.ico"
 DIST_DIR = PROJECT_ROOT / "dist"
@@ -217,109 +217,8 @@ def _env_get(name: str) -> str | None:
 
 
 def generate_remote_bootstrap_from_env(config_dir: Path) -> bool:
-    try:
-        config_dir.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-
-    dsn = _env_get("PGREMOTE_DSN") or _env_get("DATABASE_URL_REMOTE")
-    host = _env_get("PGREMOTE_HOST")
-    port = _env_get("PGREMOTE_PORT")
-    db = _env_get("PGREMOTE_DB") or _env_get("PGREMOTE_DATABASE")
-    user = _env_get("PGREMOTE_USER")
-    password = _env_get("PGREMOTE_PASSWORD")
-    sslmode = _env_get("PGREMOTE_SSLMODE")
-    appname = _env_get("PGREMOTE_APPNAME") or "gym_management_system"
-    timeout = _env_get("PGREMOTE_TIMEOUT")
-
-    vpn_provider = (_env_get("VPN_PROVIDER") or "").lower()
-    ts_authkey = _env_get("TAILSCALE_AUTHKEY")
-    ts_hostname_prefix = _env_get("TAILSCALE_HOSTNAME_PREFIX")
-    ts_control_url = _env_get("TAILSCALE_CONTROL_URL")
-    ts_accept_routes = _env_get("TAILSCALE_ACCEPT_ROUTES")
-    ts_accept_dns = _env_get("TAILSCALE_ACCEPT_DNS")
-    ts_advertise_tags = _env_get("TAILSCALE_ADVERTISE_TAGS")
-
-    wg_config_b64 = _env_get("WIREGUARD_CONFIG_B64")
-    wg_config_path = _env_get("WIREGUARD_CONFIG_PATH")
-
-    remote_present = any([dsn, host, user, password, db])
-    vpn_present = any([
-        vpn_provider,
-        ts_authkey, ts_hostname_prefix, ts_control_url, ts_accept_routes, ts_accept_dns, ts_advertise_tags,
-        wg_config_b64, wg_config_path,
-    ])
-
-    if not (remote_present or vpn_present):
-        return False
-
-    payload = {"remote": {}, "vpn": {}}
-    r = payload["remote"]
-    if dsn:
-        r["dsn"] = dsn
-    if host:
-        r["host"] = host
-    if port:
-        try:
-            r["port"] = int(port)
-        except Exception:
-            r["port"] = port
-    if db:
-        r["database"] = db
-    if user:
-        r["user"] = user
-    if password:
-        r["password"] = password
-    if sslmode:
-        r["sslmode"] = sslmode
-    if appname:
-        r["application_name"] = appname
-    if timeout:
-        try:
-            r["connect_timeout"] = int(timeout)
-        except Exception:
-            r["connect_timeout"] = timeout
-
-    v = payload["vpn"]
-    if vpn_provider:
-        v["provider"] = vpn_provider
-    if ts_authkey:
-        v["tailscale_auth_key"] = ts_authkey
-    if ts_hostname_prefix:
-        v["hostname_prefix"] = ts_hostname_prefix
-    if ts_control_url:
-        v["control_url"] = ts_control_url
-    def _to_bool(s: str | None) -> bool | None:
-        if s is None:
-            return None
-        s2 = str(s).strip().lower()
-        if s2 in {"1", "true", "yes", "y"}:
-            return True
-        if s2 in {"0", "false", "no", "n"}:
-            return False
-        return None
-    br = _to_bool(ts_accept_routes)
-    bd = _to_bool(ts_accept_dns)
-    if br is not None:
-        v["accept_routes"] = br
-    if bd is not None:
-        v["accept_dns"] = bd
-    if ts_advertise_tags:
-        v["advertise_tags"] = [t.strip() for t in ts_advertise_tags.split(",") if t.strip()]
-    if wg_config_b64:
-        v["wireguard_config_b64"] = wg_config_b64
-    if wg_config_path:
-        v["wireguard_config_path"] = wg_config_path
-
-    out_path = config_dir / "remote_bootstrap.json"
-    try:
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"- Generado {out_path} desde entorno (remoto/VPN).")
-        return True
-    except Exception as e:
-        print(f"[WARNING] No se pudo generar remote_bootstrap.json: {e}")
-        return False
+    # Sin bootstrap remoto/VPN: modelo de base única Neon
+    return False
 
 
 def build_with_pyinstaller(script_path: Path, target_name: str, base_dist_dir: Path):
@@ -441,7 +340,6 @@ def main():
     ensure_pyinstaller_installed()
     ensure_runtime_dirs_present()
     check_dependency_versions()
-    generate_remote_bootstrap_from_env(PROJECT_ROOT / "config")
 
     # Crear directorio temporal para builds individuales fuera de OneDrive
     base_dist = LOCAL_BUILD_ROOT
@@ -449,12 +347,12 @@ def main():
         shutil.rmtree(base_dist)
     base_dist.mkdir(parents=True, exist_ok=True)  # Asegurarse de que se creen los directorios padres
 
-    # Compilar los tres ejecutables
+    # Compilar ejecutables principales
     executables = [
         (ENTRY_SCRIPT, APP_NAME.replace(" ", "_")),
         (GYMMSW_SCRIPT, "GymMSW"),
         (DB_CONFIG_SCRIPT, "cdbconfig"),
-        (AUTO_SETUP_SCRIPT, "auto_setup"),
+        (FIRST_TIME_SETUP_SCRIPT, "first_time_setup"),
     ]
 
     build_results = []
@@ -505,21 +403,30 @@ def main():
             data_pairs.append((str(templates_dir), os.path.join("assets", "templates")))
         copy_data_to_dist(data_pairs, DIST_DIR)
 
-        # Asegurar que remote_bootstrap.json este en dist/config/
-        remote_bootstrap_src = PROJECT_ROOT / "config" / "remote_bootstrap.json"
-        if remote_bootstrap_src.exists():
-            (DIST_DIR / "config").mkdir(exist_ok=True)
-            shutil.copy2(remote_bootstrap_src, DIST_DIR / "config" / "remote_bootstrap.json")
+        # Sin remote_bootstrap.json; configuración remota/VPN removida
 
         # Limpieza
         shutil.rmtree(base_dist, ignore_errors=True)
 
         main_exe = DIST_DIR / (APP_NAME.replace(" ", "_") + (".exe" if platform.system() == "Windows" else ""))
+        first_setup_exe = DIST_DIR / ("first_time_setup" + (".exe" if platform.system() == "Windows" else ""))
+        
         if main_exe.exists():
             try:
                 size_mb = main_exe.stat().st_size / (1024 * 1024)
                 print(f"\n[OK] Listo! Ejecutable principal: {main_exe} ({size_mb:.2f} MB)")
                 print("[INFO] Distribucion completa en 'dist/' (formato onedir)")
+                
+                # Verificar ejecutables adicionales
+                if first_setup_exe.exists():
+                    print(f"[OK] Ejecutable de instalación inicial: {first_setup_exe.name}")
+                    
+                print("\n📋 Ejecutables generados:")
+                print("   • main.exe - Aplicación principal")
+                print("   • first_time_setup.exe - Configuración inicial automatizada")
+                print("   • cdbconfig.exe - Configuración de base de datos")
+                # auto_setup eliminado: configuración automatizada consolidada en first_time_setup
+                
             except Exception:
                 print(f"\n[OK] Listo! Ejecutable principal: {main_exe}")
                 print("[INFO] Distribucion completa en 'dist/' (formato onedir)")

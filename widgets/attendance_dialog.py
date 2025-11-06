@@ -171,7 +171,7 @@ class AttendanceDialog(QDialog):
                     record['observaciones'],
                     None   # registrado_por
                 )
-                # Sin encolado manual: la replicación se gestiona por replicación lógica (PostgreSQL)
+                # Operación aplicada directamente; sincronización gestionada por la base de datos
             
             if owner_skipped:
                 QMessageBox.information(self, "Acción aplicada", "Se ignoró la asistencia para el usuario Dueño.")

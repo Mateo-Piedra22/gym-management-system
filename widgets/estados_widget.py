@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from models import UsuarioEstado
 from database import DatabaseManager
+from utils_modules.async_utils import run_in_background
 
 class EstadoDialog(QDialog):
     """Diálogo para crear/editar estados temporales de usuario."""
@@ -214,12 +215,19 @@ class EstadoItemWidget(QWidget):
     def __init__(self, estado: UsuarioEstado, parent=None):
         super().__init__(parent)
         self.estado = self._convertir_a_usuario_estado(estado)
+        # Bandera de destrucción para gating y limpieza segura
+        self._destroyed = False
         self.setup_ui()
         
         # Timer para actualizar el estado de vencimiento
         self.timer = QTimer()
         self.timer.timeout.connect(self.actualizar_estado_vencimiento)
         self.timer.start(60000)  # Actualizar cada minuto
+        # Conectar limpieza segura en destrucción
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
     
     def _convertir_a_usuario_estado(self, estado):
         """Convierte un diccionario a objeto UsuarioEstado si es necesario."""
@@ -399,6 +407,9 @@ class EstadoItemWidget(QWidget):
     
     def actualizar_estado_vencimiento(self):
         """Actualiza el indicador visual del estado de vencimiento."""
+        # Evitar trabajo si el widget está destruido u oculto
+        if getattr(self, "_destroyed", False) or not self.isVisible():
+            return
         ahora = datetime.now().date()
         
         try:
@@ -470,6 +481,15 @@ class EstadoItemWidget(QWidget):
             self.estado_badge.style().polish(self.estado_badge)
             self.update()
 
+    def _cleanup_on_destroy(self):
+        """Detiene el temporizador y marca el widget como destruido."""
+        try:
+            self._destroyed = True
+            if hasattr(self, 'timer') and self.timer is not None:
+                self.timer.stop()
+        except Exception:
+            pass
+
 class EstadosWidget(QWidget):
     """Widget principal para gestión de estados temporales de usuarios."""
     
@@ -482,6 +502,9 @@ class EstadosWidget(QWidget):
         self.usuario_actual = None
         self.estados_usuario = []
         self.main_window = None
+        self._cleaning_loading = False
+        # Bandera de destrucción para gating y limpieza segura
+        self._destroyed = False
         
         # Señales
         self.estado_creado = pyqtSignal()
@@ -491,6 +514,11 @@ class EstadosWidget(QWidget):
         self.setup_ui()
         self.conectar_señales()
         self.connect_accessibility_signals()
+        # Conectar limpieza segura al destruir el widget
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         
         # Timer para limpiar estados vencidos
         self.timer_limpieza = QTimer()
@@ -664,6 +692,8 @@ class EstadosWidget(QWidget):
     
     def establecer_usuario(self, usuario):
         """Establece el usuario actual y carga sus estados."""
+        if getattr(self, "_destroyed", False):
+            return
         self.usuario_actual = usuario
         # Bloquear asignación de estados para usuario 'dueño'
         self.agregar_btn.setEnabled(usuario is not None and getattr(usuario, 'rol', None) != 'dueño')
@@ -686,6 +716,8 @@ class EstadosWidget(QWidget):
     
     def cargar_estados(self):
         """Carga los estados del usuario actual."""
+        if getattr(self, "_destroyed", False) or not self.isVisible():
+            return
         if not self.usuario_actual:
             return
         
@@ -697,6 +729,8 @@ class EstadosWidget(QWidget):
     
     def mostrar_estados(self):
         """Muestra los estados en la interfaz."""
+        if getattr(self, "_destroyed", False) or not self.isVisible():
+            return
         self.limpiar_estados()
         
         estados_filtrados = self.filtrar_estados()
@@ -717,6 +751,8 @@ class EstadosWidget(QWidget):
     
     def limpiar_estados(self):
         """Limpia la lista de estados."""
+        if getattr(self, "_destroyed", False):
+            return
         while self.estados_layout.count():
             child = self.estados_layout.takeAt(0)
             if child.widget():
@@ -794,10 +830,14 @@ class EstadosWidget(QWidget):
     
     def aplicar_filtros(self):
         """Aplica los filtros y actualiza la vista."""
+        if getattr(self, "_destroyed", False) or not self.isVisible():
+            return
         self.mostrar_estados()
     
     def agregar_estado(self):
         """Abre el diálogo para agregar un nuevo estado."""
+        if getattr(self, "_destroyed", False):
+            return
         if not self.usuario_actual:
             return
         
@@ -826,6 +866,8 @@ class EstadosWidget(QWidget):
     
     def editar_estado(self, estado: UsuarioEstado):
         """Abre el diálogo para editar un estado."""
+        if getattr(self, "_destroyed", False):
+            return
         dialog = EstadoDialog(self, estado=estado)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             datos = dialog.obtener_datos()
@@ -856,6 +898,8 @@ class EstadosWidget(QWidget):
     
     def eliminar_estado(self, estado: UsuarioEstado):
         """Elimina un estado después de confirmar."""
+        if getattr(self, "_destroyed", False):
+            return
         # Obtener valores del estado (dict o objeto)
         estado_nombre = estado.get('estado', '') if isinstance(estado, dict) else getattr(estado, 'estado', '')
         estado_id = estado.get('id') if isinstance(estado, dict) else getattr(estado, 'id', None)
@@ -949,20 +993,60 @@ class EstadosWidget(QWidget):
             pass
     
     def limpiar_estados_vencidos(self):
-        """Limpia automáticamente los estados vencidos."""
+        """Limpia automáticamente los estados vencidos en segundo plano, evitando solapamientos."""
+        # Evitar trabajo si el widget está destruido u oculto
+        if getattr(self, "_destroyed", False) or not self.isVisible():
+            return
+        if self._cleaning_loading:
+            return
+        self._cleaning_loading = True
+
+        def _clean():
+            return self.db_manager.limpiar_estados_vencidos()
+
+        def _on_success(estados_eliminados):
+            try:
+                if getattr(self, "_destroyed", False):
+                    return
+                eliminados = int(estados_eliminados or 0)
+                if eliminados > 0:
+                    if self.isVisible():
+                        QMessageBox.information(
+                            self, "Limpieza completada",
+                            f"Se eliminaron {eliminados} estado(s) vencido(s)."
+                        )
+                    if self.usuario_actual:
+                        self.cargar_estados()
+                else:
+                    if self.isVisible():
+                        QMessageBox.information(self, "Limpieza completada", "No hay estados vencidos para eliminar.")
+            finally:
+                self._cleaning_loading = False
+
+        def _on_error(err):
+            try:
+                if getattr(self, "_destroyed", False):
+                    return
+                if self.isVisible():
+                    QMessageBox.critical(self, "Error", f"Error al limpiar estados vencidos: {str(err)}")
+            finally:
+                self._cleaning_loading = False
+
         try:
-            estados_eliminados = self.db_manager.limpiar_estados_vencidos()
-            if estados_eliminados > 0:
-                QMessageBox.information(
-                    self, "Limpieza completada",
-                    f"Se eliminaron {estados_eliminados} estado(s) vencido(s)."
-                )
-                if self.usuario_actual:
-                    self.cargar_estados()
-            else:
-                QMessageBox.information(self, "Limpieza completada", "No hay estados vencidos para eliminar.")
+            run_in_background(
+                _clean,
+                on_success=_on_success,
+                on_error=_on_error,
+                parent=self,
+                timeout_ms=8000,
+                description="Limpieza estados vencidos",
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al limpiar estados vencidos: {str(e)}")
+            try:
+                if self.isVisible():
+                    QMessageBox.critical(self, "Error", f"Error al iniciar limpieza: {str(e)}")
+            finally:
+                self._cleaning_loading = False
     
     def set_user(self, usuario):
         """Establece el usuario actual (método requerido por UserTabWidget)."""
@@ -970,5 +1054,18 @@ class EstadosWidget(QWidget):
     
     def clear(self):
         """Limpia el widget (método requerido por UserTabWidget)."""
+        if getattr(self, "_destroyed", False):
+            return
         self.establecer_usuario(None)
+
+    def _cleanup_on_destroy(self):
+        """Detiene el temporizador y marca el widget como destruido para evitar tareas tardías."""
+        try:
+            self._destroyed = True
+            if hasattr(self, 'timer_limpieza') and self.timer_limpieza is not None:
+                self.timer_limpieza.stop()
+            # Reiniciar cualquier estado de carga para evitar bloqueos
+            self._cleaning_loading = False
+        except Exception:
+            pass
 

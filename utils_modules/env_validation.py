@@ -7,17 +7,11 @@ REQUIRED_ENV: Dict[str, List[str]] = {
         'DB_LOCAL_HOST', 'DB_LOCAL_PORT', 'DB_LOCAL_DATABASE',
         'DB_LOCAL_USER', 'DB_LOCAL_PASSWORD'
     ],
-    'remote': [
-        'DB_REMOTE_HOST', 'DB_REMOTE_PORT', 'DB_REMOTE_DATABASE',
-        'DB_REMOTE_USER', 'DB_REMOTE_PASSWORD'
-    ],
 }
 
 OPTIONAL_ENV: List[str] = [
-    'DB_LOCAL_SSLMODE', 'DB_REMOTE_SSLMODE',
-    'DB_LOCAL_CONNECT_TIMEOUT', 'DB_REMOTE_CONNECT_TIMEOUT',
-    'REPLICATION_SUBSCRIPTION_NAME', 'REPLICATION_PUBLICATION_NAME',
-    'REMOTE_CAN_REACH_LOCAL',
+    'DB_LOCAL_SSLMODE',
+    'DB_LOCAL_CONNECT_TIMEOUT',
 ]
 
 
@@ -26,8 +20,8 @@ def validate_environment() -> Dict[str, object]:
 
     Devuelve un dict con `ok`, `missing`, `present` y `profile`.
     """
-    profile = str(os.getenv('DB_PROFILE', 'local')).lower()
-    required = REQUIRED_ENV.get(profile, REQUIRED_ENV['local'])
+    profile = 'local'
+    required = REQUIRED_ENV['local']
     missing: List[str] = []
     present: List[Tuple[str, str]] = []
 

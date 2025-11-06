@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
+from security_utils import SecurityUtils
 
 # Cargar variables de entorno desde archivo .env
 env_path = Path(__file__).parent / '.env'
@@ -78,38 +79,49 @@ class SecureConfig:
     @classmethod
     def get_db_config(cls, profile: str = None) -> Dict[str, Any]:
         """
-        Obtiene configuración de base de datos según el perfil.
-        
-        Args:
-            profile: 'local' o 'remote'. Si es None, usa DB_PROFILE
-            
-        Returns:
-            Diccionario con configuración de base de datos
+        Obtiene configuración de base de datos para el modelo único Neon.
+        Prioriza variables genéricas `DB_*` y acepta `DB_LOCAL_*` como fallback.
         """
         if profile is None:
             profile = cls.get_env_variable('DB_PROFILE', 'local')
         
         if profile == 'local':
+            # Resolver host/port/db/user con genéricos primero
+            host = os.getenv('DB_HOST') or cls.get_env_variable('DB_LOCAL_HOST', 'localhost', required=False) or 'localhost'
+            try:
+                port = int(os.getenv('DB_PORT') or '')
+            except Exception:
+                port = 0
+            if not port:
+                port = cls.get_env_int('DB_LOCAL_PORT', 5432)
+
+            database = os.getenv('DB_NAME') or cls.get_env_variable('DB_LOCAL_DATABASE', 'gimnasio', required=False) or 'gimnasio'
+            user = os.getenv('DB_USER') or cls.get_env_variable('DB_LOCAL_USER', 'postgres', required=False) or 'postgres'
+
+            # Password desde múltiples fuentes de entorno (no se usa config.json aquí)
+            password = os.getenv('DB_PASSWORD') or os.getenv('DB_LOCAL_PASSWORD') or os.getenv('PGPASSWORD')
+            if not (password and str(password).strip()):
+                raise ValueError('Variable de entorno requerida no configurada: DB_PASSWORD/DB_LOCAL_PASSWORD/PGPASSWORD')
+
+            sslmode = os.getenv('DB_SSLMODE') or cls.get_env_variable('DB_LOCAL_SSLMODE', 'prefer', required=False) or 'prefer'
+            try:
+                connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT') or '')
+            except Exception:
+                connect_timeout = 0
+            if not connect_timeout:
+                connect_timeout = cls.get_env_int('DB_LOCAL_CONNECT_TIMEOUT', 10)
+
+            application_name = os.getenv('DB_APPLICATION_NAME') or cls.get_env_variable('DB_LOCAL_APPLICATION_NAME', 'gym_management_system', required=False) or 'gym_management_system'
+
             return {
-                'host': cls.get_env_variable('DB_LOCAL_HOST', 'localhost'),
-                'port': cls.get_env_int('DB_LOCAL_PORT', 5432),
-                'database': cls.get_env_variable('DB_LOCAL_DATABASE', 'gimnasio'),
-                'user': cls.get_env_variable('DB_LOCAL_USER', 'postgres'),
-                'password': cls.get_env_variable('DB_LOCAL_PASSWORD', required=True),
-                'sslmode': cls.get_env_variable('DB_LOCAL_SSLMODE', 'prefer'),
-                'connect_timeout': cls.get_env_int('DB_LOCAL_CONNECT_TIMEOUT', 10),
-                'application_name': cls.get_env_variable('DB_LOCAL_APPLICATION_NAME', 'gym_management_system')
-            }
-        elif profile == 'remote':
-            return {
-                'host': cls.get_env_variable('DB_REMOTE_HOST', required=True),
-                'port': cls.get_env_int('DB_REMOTE_PORT', required=True),
-                'database': cls.get_env_variable('DB_REMOTE_DATABASE', required=True),
-                'user': cls.get_env_variable('DB_REMOTE_USER', required=True),
-                'password': cls.get_env_variable('DB_REMOTE_PASSWORD', required=True),
-                'sslmode': cls.get_env_variable('DB_REMOTE_SSLMODE', 'require'),
-                'connect_timeout': cls.get_env_int('DB_REMOTE_CONNECT_TIMEOUT', 10),
-                'application_name': cls.get_env_variable('DB_REMOTE_APPLICATION_NAME', 'gym_management_system')
+                'host': host,
+                'port': port,
+                'database': database,
+                'user': user,
+                'password': password,
+                'sslmode': sslmode,
+                'connect_timeout': connect_timeout,
+                'application_name': application_name,
             }
         else:
             raise ValueError(f"Perfil de base de datos no válido: {profile}")
@@ -129,11 +141,6 @@ class SecureConfig:
         return cls.get_env_variable('OWNER_PASSWORD', required=True)
     
     @classmethod
-    def get_sync_upload_token(cls) -> str:
-        """Obtiene el token de sincronización."""
-        return cls.get_env_variable('SYNC_UPLOAD_TOKEN', required=True)
-    
-    @classmethod
     def get_webapp_session_secret(cls) -> str:
         """Obtiene el secreto de sesión de la aplicación web."""
         return cls.get_env_variable('WEBAPP_SESSION_SECRET', required=True)
@@ -147,6 +154,52 @@ class SecureConfig:
     def get_tailscale_auth_key(cls) -> Optional[str]:
         """Obtiene la clave de autenticación de Tailscale."""
         return cls.get_env_variable('TAILSCALE_AUTH_KEY', required=False)
+    
+    # =============================================================================
+    # MÉTODOS DE SEGURIDAD CON BCRYPT
+    # =============================================================================
+    
+    @classmethod
+    def verify_owner_password(cls, password: str) -> bool:
+        """
+        Verifica la contraseña del propietario usando bcrypt.
+        
+        Args:
+            password: Contraseña en texto plano
+            
+        Returns:
+            True si la contraseña es válida, False en caso contrario
+        """
+        stored_hash = cls.get_env_variable('OWNER_PASSWORD_HASH', required=False)
+        
+        # Si no hay hash almacenado, usar la contraseña en texto plano (retrocompatibilidad)
+        if not stored_hash:
+            stored_password = cls.get_env_variable('OWNER_PASSWORD', required=False)
+            return stored_password and password == stored_password
+        
+        # Verificar con bcrypt
+        return SecurityUtils.verify_password(password, stored_hash)
+    
+    @classmethod
+    def verify_dev_password(cls, password: str) -> bool:
+        """
+        Verifica la contraseña de desarrollador usando bcrypt.
+        
+        Args:
+            password: Contraseña en texto plano
+            
+        Returns:
+            True si la contraseña es válida, False en caso contrario
+        """
+        stored_hash = cls.get_env_variable('DEV_PASSWORD_HASH', required=False)
+        
+        # Si no hay hash almacenado, usar la contraseña en texto plano (retrocompatibilidad)
+        if not stored_hash:
+            stored_password = cls.get_env_variable('DEV_PASSWORD', required=False)
+            return stored_password and password == stored_password
+        
+        # Verificar con bcrypt
+        return SecurityUtils.verify_password(password, stored_hash)
     
     # =============================================================================
     # CONFIGURACIONES DE APLICACIÓN
@@ -173,30 +226,23 @@ class SecureConfig:
     
     @classmethod
     def get_scheduled_tasks_config(cls) -> Dict[str, Any]:
-        """Obtiene configuración de tareas programadas."""
+        """Obtiene configuración de tareas programadas (sin replicación)."""
         return {
             'enabled': cls.get_env_bool('SCHEDULED_TASKS_ENABLED', True),
-            'uploader': {
-                'enabled': cls.get_env_bool('UPLOADER_ENABLED', True),
-                'interval_minutes': cls.get_env_int('UPLOADER_INTERVAL_MINUTES', 3)
+            # Solo tareas esenciales: limpieza y respaldo
+            'cleanup': {
+                'enabled': cls.get_env_bool('CLEANUP_ENABLED', True),
+                'time': cls.get_env_variable('CLEANUP_TIME', '03:15'),
             },
-            'reconcile_r2l': {
-                'enabled': cls.get_env_bool('RECONCILE_R2L_ENABLED', True)
-            }
+            'backup': {
+                'enabled': cls.get_env_bool('BACKUP_ENABLED', True),
+                'time': cls.get_env_variable('BACKUP_TIME', '02:30'),
+            },
         }
     
     # =============================================================================
-    # CONFIGURACIONES DE REPLICACIÓN
+    # CONFIGURACIONES DE REPLICACIÓN (DEPRECADO - SE USA BASE DE DATOS ÚNICA NEON)
     # =============================================================================
-    
-    @classmethod
-    def get_replication_config(cls) -> Dict[str, Any]:
-        """Obtiene configuración de replicación."""
-        return {
-            'subscription_name': cls.get_env_variable('REPLICATION_SUBSCRIPTION_NAME', 'gym_sub'),
-            'publication_name': cls.get_env_variable('REPLICATION_PUBLICATION_NAME', 'gym_pub'),
-            'remote_can_reach_local': cls.get_env_bool('REMOTE_CAN_REACH_LOCAL', False)
-        }
     
     # =============================================================================
     # CONFIGURACIONES DE TÚNEL PÚBLICO

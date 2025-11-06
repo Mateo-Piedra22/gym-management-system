@@ -170,137 +170,258 @@ class BulkImportExportThread(QThread):
         self.progress_updated.emit(100)
     
     def _import_usuarios(self):
-        """Importa usuarios desde Excel"""
+        """Importa usuarios desde Excel en lotes (chunky)"""
         df = pd.read_excel(self.file_path)
         required_cols = ['nombre']
-        
+
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"El archivo debe contener las columnas: {', '.join(required_cols)}")
-        
-        imported_count = 0
+
         total_rows = len(df)
-        
-        for index, row in df.iterrows():
+        if total_rows == 0:
+            self.status_updated.emit("No hay filas para importar")
+            return
+
+        items: list[dict] = []
+        for _, row in df.iterrows():
             try:
-                usuario = Usuario(
-                    nombre=str(row['nombre']).strip(),
-                    telefono=str(row.get('telefono', '')).strip() or None,
-                    activo=bool(row.get('activo', True)),
-                    rol=str(row.get('rol', 'socio'))
-                )
-                
-                self.db_manager.crear_usuario(usuario)
-                imported_count += 1
-                
+                item = {
+                    'nombre': str(row['nombre']).strip(),
+                    'dni': (str(row.get('dni')).strip() if row.get('dni') is not None else None),
+                    'telefono': (str(row.get('telefono')).strip() if row.get('telefono') is not None else None),
+                    'pin': (str(row.get('pin')).strip() if row.get('pin') is not None else None),
+                    'rol': (str(row.get('rol', 'socio')).strip().lower() or 'socio'),
+                    'activo': bool(row.get('activo', True)),
+                    'tipo_cuota': row.get('tipo_cuota'),
+                    'notas': row.get('notas'),
+                }
+                items.append(item)
             except Exception as e:
-                logging.warning(f"Error importando usuario en fila {index + 1}: {e}")
-                continue
-            
-            progress = int((index + 1) / total_rows * 100)
+                logging.warning(f"Error preparando usuario: {e}")
+
+        if not items:
+            self.status_updated.emit("No se pudieron preparar usuarios para importar")
+            return
+
+        opts = self.options or {}
+        page_size = int(opts.get('page_size', 250))
+        skip_duplicates = bool(opts.get('skip_duplicates', True))
+
+        total_insertados = 0
+        total_actualizados = 0
+        omitidos_total = []
+
+        for start in range(0, len(items), page_size):
+            chunk = items[start:start + page_size]
+            try:
+                result = self.db_manager.registrar_usuarios_batch(chunk, skip_duplicates=skip_duplicates, validate_data=True)
+                total_insertados += len(result.get('insertados', []))
+                total_actualizados += len(result.get('actualizados', []))
+                omitidos_total.extend(result.get('omitidos', []))
+            except Exception as e:
+                logging.warning(f"Error importando lote de usuarios: {e}")
+
+            progress = int(min(100, (start + len(chunk)) / len(items) * 100))
             self.progress_updated.emit(progress)
-            self.status_updated.emit(f"Importando usuarios... {imported_count}/{total_rows}")
-        
-        self.status_updated.emit(f"Importación completada: {imported_count} usuarios importados")
+            self.status_updated.emit(f"Importando usuarios... {start + len(chunk)}/{len(items)}")
+
+        self.status_updated.emit(
+            f"Importación completada: {total_insertados} insertados, {total_actualizados} actualizados, {len(omitidos_total)} omitidos"
+        )
     
     def _import_ejercicios(self):
-        """Importa ejercicios desde Excel"""
+        """Importa ejercicios desde Excel en lotes (chunky)"""
         df = pd.read_excel(self.file_path)
         required_cols = ['nombre']
-        
+
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"El archivo debe contener las columnas: {', '.join(required_cols)}")
-        
-        imported_count = 0
+
         total_rows = len(df)
-        
-        for index, row in df.iterrows():
+        if total_rows == 0:
+            self.status_updated.emit("No hay filas para importar")
+            return
+
+        # Preparar items para batch
+        items: list[dict] = []
+        for _, row in df.iterrows():
             try:
-                ejercicio = Ejercicio(
-                    nombre=str(row['nombre']).strip(),
-                    grupo_muscular=str(row.get('grupo_muscular', '')).strip() or None,
-                    descripcion=str(row.get('descripcion', '')).strip() or None,
-                    objetivo=str(row.get('objetivo', '')).strip() or None
-                )
-                
-                self.db_manager.crear_ejercicio(ejercicio)
-                imported_count += 1
-                
+                item = {
+                    'nombre': str(row['nombre']).strip(),
+                    'grupo_muscular': (str(row.get('grupo_muscular')).strip() if row.get('grupo_muscular') is not None else None),
+                    'descripcion': (str(row.get('descripcion')).strip() if row.get('descripcion') is not None else None),
+                }
+                items.append(item)
             except Exception as e:
-                logging.warning(f"Error importando ejercicio en fila {index + 1}: {e}")
-                continue
-            
-            progress = int((index + 1) / total_rows * 100)
+                logging.warning(f"Error preparando ejercicio: {e}")
+
+        if not items:
+            self.status_updated.emit("No se pudieron preparar ejercicios para importar")
+            return
+
+        # Chunking y batch
+        opts = self.options or {}
+        page_size = int(opts.get('page_size', 250))
+        skip_duplicates = bool(opts.get('skip_duplicates', True))
+
+        total_insertados = 0
+        total_actualizados = 0
+        omitidos_total = []
+
+        for start in range(0, len(items), page_size):
+            chunk = items[start:start + page_size]
+            try:
+                result = self.db_manager.registrar_ejercicios_batch(chunk, skip_duplicates=skip_duplicates, validate_data=True)
+                total_insertados += len(result.get('insertados', []))
+                total_actualizados += len(result.get('actualizados', []))
+                omitidos_total.extend(result.get('omitidos', []))
+            except Exception as e:
+                logging.warning(f"Error importando lote de ejercicios: {e}")
+
+            progress = int(min(100, (start + len(chunk)) / len(items) * 100))
             self.progress_updated.emit(progress)
-            self.status_updated.emit(f"Importando ejercicios... {imported_count}/{total_rows}")
-        
-        self.status_updated.emit(f"Importación completada: {imported_count} ejercicios importados")
+            self.status_updated.emit(f"Importando ejercicios... {start + len(chunk)}/{len(items)}")
+
+        self.status_updated.emit(
+            f"Importación completada: {total_insertados} insertados, {total_actualizados} actualizados, {len(omitidos_total)} omitidos"
+        )
     
     def _import_clases(self):
-        """Importa clases desde Excel"""
+        """Importa clases desde Excel en lotes (chunky)"""
         df = pd.read_excel(self.file_path)
         required_cols = ['nombre']
-        
+
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"El archivo debe contener las columnas: {', '.join(required_cols)}")
-        
-        imported_count = 0
+
         total_rows = len(df)
-        
-        for index, row in df.iterrows():
+        if total_rows == 0:
+            self.status_updated.emit("No hay filas para importar")
+            return
+
+        items: list[dict] = []
+        for _, row in df.iterrows():
             try:
-                clase = Clase(
-                    nombre=str(row['nombre']).strip(),
-                    descripcion=str(row.get('descripcion', '')).strip() or None,
-                    capacidad_maxima=int(row.get('capacidad_maxima', 20))
-                )
-                
-                self.db_manager.crear_clase(clase)
-                imported_count += 1
-                
+                cap_raw = row.get('capacidad_maxima')
+                capacidad = int(cap_raw) if pd.notna(cap_raw) else 20
+                item = {
+                    'nombre': str(row['nombre']).strip(),
+                    'descripcion': (str(row.get('descripcion')).strip() if row.get('descripcion') is not None else None),
+                    'capacidad_maxima': capacidad,
+                }
+                items.append(item)
             except Exception as e:
-                logging.warning(f"Error importando clase en fila {index + 1}: {e}")
-                continue
-            
-            progress = int((index + 1) / total_rows * 100)
+                logging.warning(f"Error preparando clase: {e}")
+
+        if not items:
+            self.status_updated.emit("No se pudieron preparar clases para importar")
+            return
+
+        opts = self.options or {}
+        page_size = int(opts.get('page_size', 250))
+        skip_duplicates = bool(opts.get('skip_duplicates', True))
+
+        total_insertados = 0
+        total_actualizados = 0
+        omitidos_total = []
+
+        for start in range(0, len(items), page_size):
+            chunk = items[start:start + page_size]
+            try:
+                result = self.db_manager.registrar_clases_batch(chunk, skip_duplicates=skip_duplicates, validate_data=True)
+                total_insertados += len(result.get('insertados', []))
+                total_actualizados += len(result.get('actualizados', []))
+                omitidos_total.extend(result.get('omitidos', []))
+            except Exception as e:
+                logging.warning(f"Error importando lote de clases: {e}")
+
+            progress = int(min(100, (start + len(chunk)) / len(items) * 100))
             self.progress_updated.emit(progress)
-            self.status_updated.emit(f"Importando clases... {imported_count}/{total_rows}")
-        
-        self.status_updated.emit(f"Importación completada: {imported_count} clases importadas")
+            self.status_updated.emit(f"Importando clases... {start + len(chunk)}/{len(items)}")
+
+        self.status_updated.emit(
+            f"Importación completada: {total_insertados} insertados, {total_actualizados} actualizados, {len(omitidos_total)} omitidos"
+        )
     
     def _import_pagos(self):
-        """Importa pagos desde Excel"""
+        """Importa pagos desde Excel usando inserción/actualización en lote"""
         df = pd.read_excel(self.file_path)
         required_cols = ['usuario_id', 'monto', 'fecha_pago']
-        
+
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"El archivo debe contener las columnas: {', '.join(required_cols)}")
-        
-        imported_count = 0
+
         total_rows = len(df)
-        
-        for index, row in df.iterrows():
+        if total_rows == 0:
+            self.status_updated.emit("No hay filas para importar")
+            return
+
+        # Construir items de importación compatibles con registrar_pagos_batch
+        items: list[dict] = []
+        for _, row in df.iterrows():
             try:
-                pago = Pago(
-                    usuario_id=int(row['usuario_id']),
-                    monto=float(row['monto']),
-                    fecha_pago=pd.to_datetime(row['fecha_pago']).date(),
-                    metodo_pago=str(row.get('metodo_pago', 'efectivo')),
-                    mes_pagado=int(row.get('mes_pagado', pd.to_datetime(row['fecha_pago']).month)),
-                    año_pagado=int(row.get('año_pagado', pd.to_datetime(row['fecha_pago']).year))
-                )
-                
-                self.db_manager.crear_pago(pago)
-                imported_count += 1
-                
+                fecha_raw = row['fecha_pago']
+                # to_datetime maneja múltiples formatos
+                fecha_dt = pd.to_datetime(fecha_raw, errors='coerce')
+                if pd.isna(fecha_dt):
+                    fecha_dt = pd.Timestamp.now()
+
+                item = {
+                    'usuario_id': int(row['usuario_id']),
+                    'monto': float(row['monto']),
+                    'fecha_pago': fecha_dt.to_pydatetime(),
+                }
+                # Soportar columnas opcionales
+                if 'metodo_pago_id' in df.columns and pd.notna(row.get('metodo_pago_id')):
+                    try:
+                        item['metodo_pago_id'] = int(row.get('metodo_pago_id'))
+                    except Exception:
+                        pass
+                if 'metodo_pago' in df.columns and pd.notna(row.get('metodo_pago')):
+                    item['metodo_pago'] = str(row.get('metodo_pago')).strip()
+                # Alias para mes/año
+                if 'mes' in df.columns and pd.notna(row.get('mes')):
+                    item['mes'] = int(row.get('mes'))
+                elif 'mes_pagado' in df.columns and pd.notna(row.get('mes_pagado')):
+                    item['mes'] = int(row.get('mes_pagado'))
+                if 'año' in df.columns and pd.notna(row.get('año')):
+                    item['año'] = int(row.get('año'))
+                elif 'año_pagado' in df.columns and pd.notna(row.get('año_pagado')):
+                    item['año'] = int(row.get('año_pagado'))
+
+                items.append(item)
             except Exception as e:
-                logging.warning(f"Error importando pago en fila {index + 1}: {e}")
-                continue
-            
-            progress = int((index + 1) / total_rows * 100)
+                logging.warning(f"Error preparando pago: {e}")
+
+        if not items:
+            self.status_updated.emit("No se pudieron preparar pagos válidos")
+            return
+
+        # Ejecutar en chunks para grandes volúmenes
+        chunk_size = int(self.options.get('chunk_size', 500))
+        skip_dup = bool(self.options.get('skip_duplicates', False))
+        validate_data = bool(self.options.get('validate_data', True))
+
+        imported_count = 0
+        omitted_count = 0
+        total_chunks = max(1, (len(items) + chunk_size - 1) // chunk_size)
+
+        for i in range(0, len(items), chunk_size):
+            chunk = items[i:i + chunk_size]
+            try:
+                result = self.db_manager.registrar_pagos_batch(chunk, skip_duplicates=skip_dup, validate_data=validate_data)
+                imported_count += int(result.get('count') or 0)
+                omitted_count += len(result.get('omitidos') or [])
+            except Exception as e:
+                logging.exception(f"Error importando chunk de pagos: {e}")
+                # contar este chunk como omitido completo
+                omitted_count += len(chunk)
+
+            progress = int(((i // chunk_size) + 1) / total_chunks * 100)
             self.progress_updated.emit(progress)
             self.status_updated.emit(f"Importando pagos... {imported_count}/{total_rows}")
-        
-        self.status_updated.emit(f"Importación completada: {imported_count} pagos importados")
+
+        self.status_updated.emit(f"Importación completada: {imported_count} pagos importados, {omitted_count} omitidos")
 
 class BulkImportExportWidget(QWidget):
     """Widget para importación y exportación masiva de datos"""

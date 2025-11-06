@@ -11,13 +11,7 @@ from typing import List, Dict, Any, Optional, Callable
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QWidget, QMessageBox
 
-# Deshabilitar integración de sincronización manual legado; la replicación se gestiona por PostgreSQL (replicación lógica)
-enqueue_operations = None  # type: ignore
-op_user_add = None  # type: ignore
-op_user_update = None  # type: ignore
-op_user_delete = None  # type: ignore
-op_routine_assign = None  # type: ignore
-op_routine_unassign = None  # type: ignore
+# Integración de sincronización manual anterior eliminada; PostgreSQL gestiona replicación
 
 class Action:
     """Representa una acción que puede ser deshecha/rehecha"""
@@ -244,50 +238,18 @@ class ActionHistoryManager(QObject):
                         data['user_id'] = result
                 except Exception:
                     pass
-                # Encolar operación hacia proxy local (fire-and-forget)
-                try:
-                    if enqueue_operations and op_user_add:
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': data.get('dni'),
-                            'name': data.get('name'),
-                            'phone': data.get('phone'),
-                            'membership_type': data.get('membership_type'),
-                            'start_date': data.get('start_date'),
-                        }
-                        enqueue_operations([op_user_add(payload)])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
             elif action_type == 'update_user':
                 result = database_manager.update_user(
                     data['user_id'], data['name'], 
                     data['phone'], data['membership_type']
                 )
-                try:
-                    if enqueue_operations and op_user_update:
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': data.get('dni'),
-                            'name': data.get('name'),
-                            'phone': data.get('phone'),
-                            'membership_type': data.get('membership_type'),
-                        }
-                        enqueue_operations([op_user_update(payload)])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
             elif action_type == 'delete_user':
                 result = database_manager.delete_user(data['user_id'])
-                try:
-                    if enqueue_operations and op_user_delete:
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': data.get('dni')
-                        }
-                        enqueue_operations([op_user_delete(payload)])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
         
         def undo_user_action(data):
@@ -323,95 +285,17 @@ class ActionHistoryManager(QObject):
         
         def execute_payment_action(data):
             from datetime import datetime
-            # Sistema outbox legacy eliminado - replicación nativa PostgreSQL
-            enqueue_operations = None  # type: ignore
-            op_payment_update = None  # type: ignore
-            op_payment_delete = None  # type: ignore
+            # Operaciones aplicadas directamente; sincronización gestionada por la base de datos
 
             if action_type == 'process_payment':
                 result = payment_manager.process_payment(
                     data['user_id'], data['amount'], data['payment_type']
                 )
-                # Después de persistir localmente, encolar sync con claves naturales
-                try:
-                    if enqueue_operations and op_payment_update:
-                        # Resolver DNI del usuario
-                        dni = None
-                        try:
-                            with payment_manager.db_manager.get_connection_context() as conn:
-                                cur = conn.cursor()
-                                cur.execute("SELECT dni FROM usuarios WHERE id = %s", (data['user_id'],))
-                                row = cur.fetchone()
-                                if row is not None:
-                                    try:
-                                        dni = row[0]
-                                    except Exception:
-                                        dni = row.get('dni') if isinstance(row, dict) else None
-                        except Exception:
-                            dni = None
-                        now = datetime.now()
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': dni,
-                            'mes': now.month,
-                            'año': now.year,
-                            'monto': data.get('amount'),
-                            'fecha_pago': now.date().isoformat(),
-                        }
-                        enqueue_operations([op_payment_update(payload)])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
             elif action_type == 'refund_payment':
                 result = payment_manager.refund_payment(data['payment_id'])
-                # Intentar obtener datos naturales del pago para propagar delete
-                try:
-                    if enqueue_operations and op_payment_delete:
-                        dni = None
-                        uid = None
-                        mes = None
-                        anio = None
-                        with payment_manager.db_manager.get_connection_context() as conn:
-                            cur = conn.cursor()
-                            try:
-                                cur.execute(
-                                    """
-                                    SELECT p.usuario_id, p.mes, p.año, u.dni
-                                    FROM pagos p JOIN usuarios u ON u.id = p.usuario_id
-                                    WHERE p.id = %s
-                                    """,
-                                    (data['payment_id'],),
-                                )
-                            except Exception:
-                                cur.execute(
-                                    """
-                                    SELECT p.usuario_id, p.mes, p.ano, u.dni
-                                    FROM pagos p JOIN usuarios u ON u.id = p.usuario_id
-                                    WHERE p.id = ?
-                                    """,
-                                    (data['payment_id'],),
-                                )
-                            row = cur.fetchone()
-                            if row is not None:
-                                try:
-                                    uid = row[0]
-                                    mes = row[1]
-                                    anio = row[2]
-                                    dni = row[3]
-                                except Exception:
-                                    uid = row.get('usuario_id') if isinstance(row, dict) else None
-                                    mes = row.get('mes') if isinstance(row, dict) else None
-                                    anio = row.get('año') or row.get('ano') if isinstance(row, dict) else None
-                                    dni = row.get('dni') if isinstance(row, dict) else None
-                        payload = {
-                            'user_id': uid or data.get('user_id'),
-                            'dni': dni,
-                            'mes': mes,
-                            'año': anio,
-                        }
-                        enqueue_operations([op_payment_delete(payload)])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
         
         def undo_payment_action(data):
@@ -434,67 +318,16 @@ class ActionHistoryManager(QObject):
                              description: str,
                              attendance_data: Dict[str, Any],
                              database_manager) -> Action:
-        """Crea una acción para operaciones de asistencia y las encola para sync."""
+        """Crea una acción para operaciones de asistencia."""
 
         def execute_attendance_action(data):
             from datetime import datetime
-            # Sistema outbox legacy eliminado - replicación nativa PostgreSQL
-            enqueue_operations = None  # type: ignore
-            op_attendance_update = None  # type: ignore
-            op_attendance_delete = None  # type: ignore
+            # Operaciones aplicadas directamente; sincronización gestionada por la base de datos
 
             if action_type in ('mark_attendance', 'attendance_add', 'attendance_update'):
                 # Se asume que database_manager ya registró la asistencia
-                try:
-                    if enqueue_operations and op_attendance_update:
-                        dni = None
-                        try:
-                            with database_manager.get_connection_context() as conn:
-                                cur = conn.cursor()
-                                cur.execute("SELECT dni FROM usuarios WHERE id = %s", (data['user_id'],))
-                                row = cur.fetchone()
-                                if row is not None:
-                                    try:
-                                        dni = row[0]
-                                    except Exception:
-                                        dni = row.get('dni') if isinstance(row, dict) else None
-                        except Exception:
-                            dni = None
-                        fecha = data.get('fecha') or datetime.now().date().isoformat()
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': dni,
-                            'fecha': fecha,
-                            'hora': data.get('hora'),
-                        }
-                        enqueue_operations([op_attendance_update(payload)])
-                except Exception:
-                    pass
                 return True
             elif action_type in ('attendance_delete', 'attendance_remove'):
-                try:
-                    if enqueue_operations and op_attendance_delete:
-                        dni = None
-                        try:
-                            with database_manager.get_connection_context() as conn:
-                                cur = conn.cursor()
-                                cur.execute("SELECT dni FROM usuarios WHERE id = %s", (data['user_id'],))
-                                row = cur.fetchone()
-                                if row is not None:
-                                    try:
-                                        dni = row[0]
-                                    except Exception:
-                                        dni = row.get('dni') if isinstance(row, dict) else None
-                        except Exception:
-                            dni = None
-                        payload = {
-                            'user_id': data.get('user_id'),
-                            'dni': dni,
-                            'fecha': data.get('fecha'),
-                        }
-                        enqueue_operations([op_attendance_delete(payload)])
-                except Exception:
-                    pass
                 return True
 
         def undo_attendance_action(data):
@@ -522,25 +355,13 @@ class ActionHistoryManager(QObject):
                 result = database_manager.assign_routine_to_user(
                     data['user_id'], data['routine_id']
                 )
-                try:
-                    if enqueue_operations and op_routine_assign:
-                        enqueue_operations([
-                            op_routine_assign({'user_id': data.get('user_id'), 'routine_id': data.get('routine_id')})
-                        ])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
             elif action_type == 'unassign_routine':
                 result = database_manager.unassign_routine_from_user(
                     data['user_id'], data['routine_id']
                 )
-                try:
-                    if enqueue_operations and op_routine_unassign:
-                        enqueue_operations([
-                            op_routine_unassign({'user_id': data.get('user_id'), 'routine_id': data.get('routine_id')})
-                        ])
-                except Exception:
-                    pass
+                # Operación registrada directamente
                 return result
         
         def undo_routine_action(data):

@@ -9,16 +9,34 @@ from PyQt6.QtWidgets import (
     QGroupBox, QTabWidget, QColorDialog, QFileDialog, QLineEdit,
     QTextEdit, QSpinBox, QComboBox, QCheckBox, QFrame, QScrollArea,
     QMessageBox, QSlider, QFormLayout, QSizePolicy, QListWidget, QListWidgetItem,
-    QDialog
+    QDialog, QProgressBar
 )
 from PyQt6.QtGui import QFont, QPixmap, QPalette, QColor, QIcon, QPainter
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QThread, QObject, pyqtSlot
 from utils_modules.async_utils import run_in_background
 
 from database import DatabaseManager
 from utils import resource_path, get_gym_name
 from widgets.schedule_dialog import ScheduleDialog
 from widgets.event_dialog import EventDialog
+
+class _DBCallWorker(QObject):
+    success = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__()
+        self._fn = fn
+        self._args = args
+        self._kwargs = kwargs
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            result = self._fn(*self._args, **self._kwargs)
+            self.success.emit(result)
+        except Exception as e:
+            self.error.emit(str(e))
 
 class ColorPreviewWidget(QWidget):
     """Widget para mostrar una vista previa del color seleccionado"""
@@ -121,13 +139,12 @@ class BrandingCustomizationWidget(QWidget):
         self._themes_cache = None
         self._themes_cache_ts = None
         self._advanced_cfg_cache_ts = None
+        # Cachés de programación/eventos
+        self._schedules_cache = []
+        self._events_cache = []
 
-        # CRÍTICO: Cargar datos del gimnasio desde gym_data.txt INMEDIATAMENTE después de load_branding_config
-        # para que estén disponibles cuando se configure la interfaz
-        self.sync_gym_data_with_branding()
-        
-        # DEBUG: Verificar que los datos se cargaron correctamente
-        logging.info(f"Datos después de sync_gym_data_with_branding: {self.current_branding}")
+        # Datos de branding cargados desde configuración; se evita sincronización anterior
+        logging.info("Branding cargado; sincronización anterior deshabilitada")
         
         # Inicializar configuración avanzada
         self.advanced_config = {
@@ -563,6 +580,16 @@ class BrandingCustomizationWidget(QWidget):
         # self.schedules_list.setMaximumHeight(150)  # Removido para permitir expansión
         schedule_layout.addWidget(QLabel("Programaciones activas:"))
         schedule_layout.addWidget(self.schedules_list)
+        # Indicadores de carga para programaciones
+        self.schedules_loading_label = QLabel("")
+        self.schedules_loading_label.setVisible(False)
+        schedule_layout.addWidget(self.schedules_loading_label)
+
+        self.schedules_progress = QProgressBar()
+        self.schedules_progress.setRange(0, 0)
+        self.schedules_progress.setTextVisible(False)
+        self.schedules_progress.setVisible(False)
+        schedule_layout.addWidget(self.schedules_progress)
         
         # Botones de gestión de programaciones
         schedule_buttons_layout = QHBoxLayout()
@@ -600,6 +627,16 @@ class BrandingCustomizationWidget(QWidget):
         # self.events_list.setMaximumHeight(120)  # Removido para permitir expansión
         events_layout.addWidget(QLabel("Eventos programados:"))
         events_layout.addWidget(self.events_list)
+        # Indicadores de carga para eventos
+        self.events_loading_label = QLabel("")
+        self.events_loading_label.setVisible(False)
+        events_layout.addWidget(self.events_loading_label)
+
+        self.events_progress = QProgressBar()
+        self.events_progress.setRange(0, 0)
+        self.events_progress.setTextVisible(False)
+        self.events_progress.setVisible(False)
+        events_layout.addWidget(self.events_progress)
         
         # Botones de gestión de eventos
         events_buttons_layout = QHBoxLayout()
@@ -2220,15 +2257,13 @@ class BrandingCustomizationWidget(QWidget):
                     """
                     CREATE TABLE IF NOT EXISTS scheduling_config (
                         id SERIAL PRIMARY KEY,
-                        enabled BOOLEAN DEFAULT 0,
-                        logical_ts BIGINT NOT NULL DEFAULT 0,
-                        last_op_id UUID
+                        enabled BOOLEAN DEFAULT 0
                     )
                     """
                 )
                 conn.commit()
 
-# Upsert del estado; el trigger de logical_ts/last_op_id gestiona el contador lógico
+                # Upsert del estado persistente (sin campos de replicación)
                 cursor.execute(
                     """
                     INSERT INTO scheduling_config (id, enabled)
@@ -2347,48 +2382,133 @@ class BrandingCustomizationWidget(QWidget):
             self.update_schedule_status()
     
     def load_schedules(self):
-        """Carga las programaciones desde la base de datos"""
-        try:
-            self.schedules_list.clear()
-            schedules = self._get_schedules_from_db()
-            
-            for schedule in schedules:
+        """Carga las programaciones desde la base de datos sin bloquear"""
+        # Mostrar spinner
+        self.schedules_loading_label.setText("Cargando programaciones...")
+        self.schedules_loading_label.setVisible(True)
+        self.schedules_progress.setVisible(True)
+        self.schedules_list.setEnabled(False)
+        self.schedules_list.clear()
+
+        def _load():
+            return self._get_schedules_from_db()
+
+        def _on_success(schedules):
+            # Actualizar caché
+            self._schedules_cache = schedules or []
+
+            for schedule in self._schedules_cache:
                 item_text = f"{schedule['name']} - {schedule['start_time']} a {schedule['end_time']}"
                 if schedule.get('days'):
                     item_text += f" ({', '.join(schedule['days'])})"
-                
+
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, schedule['id'])
                 self.schedules_list.addItem(item)
-                
-        except Exception as e:
-            print(f"Error al cargar programaciones: {e}")
+
+            # Ocultar spinner y reactivar UI
+            self.schedules_loading_label.setVisible(False)
+            self.schedules_progress.setVisible(False)
+            self.schedules_list.setEnabled(True)
+            # Actualizar estado activo usando caché
+            self.update_schedule_status()
+
+        def _on_error(msg: str):
+            QMessageBox.warning(self, "Advertencia", f"Error al cargar programaciones: {msg}")
+            self.schedules_loading_label.setVisible(False)
+            self.schedules_progress.setVisible(False)
+            self.schedules_list.setEnabled(True)
+
+        # Configurar QThread + Worker
+        self._schedules_thread = QThread(self)
+        self._schedules_worker = _DBCallWorker(_load)
+        self._schedules_worker.moveToThread(self._schedules_thread)
+        self._schedules_thread.started.connect(self._schedules_worker.run)
+        self._schedules_worker.success.connect(_on_success)
+        self._schedules_worker.error.connect(_on_error)
+        self._schedules_worker.success.connect(lambda _: self._schedules_thread.quit())
+        self._schedules_worker.error.connect(lambda _: self._schedules_thread.quit())
+        self._schedules_thread.finished.connect(self._schedules_thread.deleteLater)
+        self._schedules_thread.start()
     
     def load_events(self):
-        """Carga los eventos desde la base de datos"""
-        try:
-            self.events_list.clear()
-            events = self._get_events_from_db()
-            
-            for event in events:
+        """Carga los eventos desde la base de datos sin bloquear"""
+        # Mostrar spinner
+        self.events_loading_label.setText("Cargando eventos...")
+        self.events_loading_label.setVisible(True)
+        self.events_progress.setVisible(True)
+        self.events_list.setEnabled(False)
+        self.events_list.clear()
+
+        def _load():
+            return self._get_events_from_db()
+
+        def _on_success(events):
+            # Actualizar caché
+            self._events_cache = events or []
+
+            for event in self._events_cache:
                 item_text = f"{event['name']} - {event['start_date']} a {event['end_date']}"
-                
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, event['id'])
                 self.events_list.addItem(item)
-                
-        except Exception as e:
-            print(f"Error al cargar eventos: {e}")
+
+            # Ocultar spinner y reactivar UI
+            self.events_loading_label.setVisible(False)
+            self.events_progress.setVisible(False)
+            self.events_list.setEnabled(True)
+            # Actualizar estado activo usando caché
+            self.update_schedule_status()
+
+        def _on_error(msg: str):
+            QMessageBox.warning(self, "Advertencia", f"Error al cargar eventos: {msg}")
+            self.events_loading_label.setVisible(False)
+            self.events_progress.setVisible(False)
+            self.events_list.setEnabled(True)
+
+        # Configurar QThread + Worker
+        self._events_thread = QThread(self)
+        self._events_worker = _DBCallWorker(_load)
+        self._events_worker.moveToThread(self._events_thread)
+        self._events_thread.started.connect(self._events_worker.run)
+        self._events_worker.success.connect(_on_success)
+        self._events_worker.error.connect(_on_error)
+        self._events_worker.success.connect(lambda _: self._events_thread.quit())
+        self._events_worker.error.connect(lambda _: self._events_thread.quit())
+        self._events_thread.finished.connect(self._events_thread.deleteLater)
+        self._events_thread.start()
     
     def update_schedule_status(self):
-        """Actualiza el estado actual de la programación"""
+        """Actualiza el estado actual usando caché sin consultar la base de datos"""
         try:
             current_time = datetime.now().time()
             current_date = datetime.now().date()
             current_day = datetime.now().strftime('%A').lower()
-            
-            # Verificar eventos activos
-            active_event = self._get_active_event(current_date)
+
+            # Verificar eventos activos desde caché
+            active_event = None
+            for ev in self._events_cache:
+                try:
+                    start = ev['start_date']
+                    end = ev['end_date']
+                    # Convertir a date si vienen como string
+                    if isinstance(start, str):
+                        try:
+                            # Intentar formato ISO
+                            start = datetime.fromisoformat(start).date()
+                        except Exception:
+                            start = current_date  # fallback seguro
+                    if isinstance(end, str):
+                        try:
+                            end = datetime.fromisoformat(end).date()
+                        except Exception:
+                            end = current_date
+                    if start <= current_date <= end:
+                        active_event = ev
+                        break
+                except Exception:
+                    continue
+
             if active_event:
                 self.current_schedule_label.setText(f"Evento activo: {active_event['name']}")
                 self.current_schedule_label.setStyleSheet("""
@@ -2401,9 +2521,31 @@ class BrandingCustomizationWidget(QWidget):
                     }
                 """)
                 return
-            
-            # Verificar programaciones activas
-            active_schedule = self._get_active_schedule(current_time, current_day)
+
+            # Verificar programaciones activas desde caché
+            active_schedule = None
+            for sch in self._schedules_cache:
+                try:
+                    # Días guardados como nombres en inglés
+                    if sch.get('days') and current_day in [d.lower() for d in sch['days']]:
+                        st = sch['start_time']
+                        et = sch['end_time']
+                        if isinstance(st, str):
+                            try:
+                                st = datetime.strptime(st, '%H:%M').time()
+                            except Exception:
+                                st = datetime.now().replace(hour=0, minute=0, second=0).time()
+                        if isinstance(et, str):
+                            try:
+                                et = datetime.strptime(et, '%H:%M').time()
+                            except Exception:
+                                et = datetime.now().replace(hour=23, minute=59, second=59).time()
+                        if st <= current_time <= et:
+                            active_schedule = sch
+                            break
+                except Exception:
+                    continue
+
             if active_schedule:
                 self.current_schedule_label.setText(f"Programación activa: {active_schedule['name']}")
                 self.current_schedule_label.setStyleSheet("""
@@ -3463,33 +3605,6 @@ class BrandingCustomizationWidget(QWidget):
         """Verifica si el archivo de datos del gimnasio existe"""
         return os.path.exists(self.get_gym_data_file_path())
     
-    def sync_gym_data_with_branding(self):
-        """Sincroniza los datos del archivo gym_data.txt con la configuración de branding"""
-        try:
-            # Cargar datos del archivo
-            gym_data = self.load_gym_data_from_file()
-            
-            # Actualizar SOLO la configuración de branding actual (NO guardar en base de datos)
-            # Los datos del gimnasio se manejan EXCLUSIVAMENTE desde el archivo gym_data.txt
-            self.current_branding.update({
-                'gym_name': gym_data.get('gym_name', 'Gimnasio'),
-                'gym_slogan': gym_data.get('gym_slogan', ''),
-                'gym_address': gym_data.get('gym_address', ''),
-                'gym_phone': gym_data.get('gym_phone', ''),
-                'gym_email': gym_data.get('gym_email', ''),
-                'gym_website': gym_data.get('gym_website', ''),
-                'facebook': gym_data.get('facebook', ''),
-                'instagram': gym_data.get('instagram', ''),
-                'twitter': gym_data.get('twitter', '')
-            })
-            
-            logging.info(f"Datos del gimnasio cargados desde archivo: {gym_data}")
-            logging.info("Datos del gimnasio sincronizados con la configuración de branding (solo en memoria)")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error sincronizando datos del gimnasio: {e}")
-            return False
     
     def save_branding_to_gym_data(self):
         """Guarda la información del gimnasio desde branding al archivo gym_data.txt"""

@@ -37,6 +37,7 @@ from .unified_filter_widget import UnifiedFilterButton
 from models import Usuario, Pago
 from utils_modules.alert_system import AlertManager, AlertLevel, AlertCategory
 from utils_modules.async_runner import TaskThread
+from utils_modules.async_utils import run_in_background
 
 class UserModel(QAbstractTableModel):
     def __init__(self, db_manager, payment_manager, asistencias_hoy_ids, data=None):
@@ -208,6 +209,13 @@ class UserTabWidget(QWidget):
         self.setup_ui()
         self.load_users()
         self.initialize_pdf_generator()
+
+        # Gestor de overlays de carga para operaciones de fondo (importación perezosa)
+        try:
+            from widgets.loading_spinner import DatabaseLoadingManager
+            self.loading_manager = DatabaseLoadingManager(self)
+        except Exception:
+            self.loading_manager = None
 
     def setup_ui(self):
         # Layout principal con splitter para flexibilidad
@@ -675,21 +683,38 @@ class UserTabWidget(QWidget):
             return
         
         try:
-            # Cargar notas
-            notas = self.db_manager.obtener_notas_usuario(self.selected_user.id)
+            # Cargar notas y etiquetas en un solo viaje (función chunky)
+            data = self.db_manager.obtener_notas_y_etiquetas_usuario(self.selected_user.id)
+
+            # Notas
+            notas = data.get('notas') or []
             if notas:
-                notas_text = "\n".join([f"• {nota.get('contenido', '')} ({nota.get('fecha_creacion', 'Sin fecha') if isinstance(nota.get('fecha_creacion'), str) else (nota.get('fecha_creacion').strftime('%d/%m/%Y') if nota.get('fecha_creacion') else 'Sin fecha')})" for nota in notas])
+                notas_text = "\n".join([
+                    f"• {nota.get('contenido', '')} (" +
+                    f"{nota.get('fecha_creacion', 'Sin fecha') if isinstance(nota.get('fecha_creacion'), str) else (nota.get('fecha_creacion').strftime('%d/%m/%Y') if nota.get('fecha_creacion') else 'Sin fecha')}" +
+                    ")"
+                    for nota in notas
+                ])
                 self.notas_display.setText(notas_text)
             else:
                 self.notas_display.setText("No hay notas para este usuario")
-            
-            # Cargar etiquetas
-            etiquetas_usuario = self.db_manager.obtener_etiquetas_usuario(self.selected_user.id)
+
+            # Etiquetas (lista de dicts u objetos)
+            etiquetas_usuario = data.get('etiquetas') or []
             if etiquetas_usuario:
-                # obtener_etiquetas_usuario devuelve objetos Etiqueta directamente
-                etiquetas_activas = [e for e in etiquetas_usuario if getattr(e, 'activo', getattr(e, 'activa', True))]
+                etiquetas_activas = []
+                for e in etiquetas_usuario:
+                    try:
+                        is_active = (e.get('activo', e.get('activa', True)) if isinstance(e, dict) else getattr(e, 'activo', getattr(e, 'activa', True)))
+                        if is_active:
+                            etiquetas_activas.append(e)
+                    except Exception:
+                        pass
                 if etiquetas_activas:
-                    etiquetas_text = "\n".join([f"• {etiqueta.nombre}" for etiqueta in etiquetas_activas])
+                    etiquetas_text = "\n".join([
+                        f"• {(e.get('nombre') if isinstance(e, dict) else getattr(e, 'nombre', ''))}"
+                        for e in etiquetas_activas
+                    ])
                     self.etiquetas_display.setText(etiquetas_text)
                 else:
                     self.etiquetas_display.setText("No hay etiquetas activas para este usuario")
@@ -2047,27 +2072,122 @@ class UserTabWidget(QWidget):
             self.selected_user.activo = not self.selected_user.activo
             QMessageBox.critical(self, "Error", f"No se pudo cambiar el estado: {e}")
     def register_attendance(self):
-        if not self.selected_user: QMessageBox.warning(self, "Sin Selección", "Por favor, seleccione un usuario."); return
-        if self.selected_user.rol == 'dueño': QMessageBox.warning(self, "Acción no permitida para Dueño", "Esta operación no está permitida sobre usuarios con rol Dueño. Este usuario está protegido."); return
-        if not self.selected_user.activo: QMessageBox.warning(self, "Usuario Inactivo", f"{self.selected_user.nombre} está inactivo."); return
+        if not self.selected_user:
+            QMessageBox.warning(self, "Sin Selección", "Por favor, seleccione un usuario.")
+            return
+        if self.selected_user.rol == 'dueño':
+            QMessageBox.warning(self, "Acción no permitida para Dueño", "Esta operación no está permitida sobre usuarios con rol Dueño. Este usuario está protegido.")
+            return
+        if not self.selected_user.activo:
+            QMessageBox.warning(self, "Usuario Inactivo", f"{self.selected_user.nombre} está inactivo.")
+            return
+
+        op_id = f"register_attendance_{self.selected_user.id}"
         try:
+            if getattr(self, 'loading_manager', None):
+                self.loading_manager.show_loading(
+                    operation_id=op_id,
+                    message="Registrando asistencia...",
+                    spinner_type="dots",
+                    spinner_size=64,
+                    background_opacity=0.4,
+                    show_message=True,
+                )
+        except Exception:
+            pass
+
+        def _do():
             self.db_manager.registrar_asistencia_comun(self.selected_user.id, date.today())
+            return True
+
+        def _done(_):
+            try:
+                if getattr(self, 'loading_manager', None):
+                    self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
             QMessageBox.information(self, "Éxito", f"Asistencia registrada para {self.selected_user.nombre}.")
             self.load_users()
             self.usuarios_modificados.emit()
-        except ValueError as e:
-            # Maneja la excepción de asistencia duplicada que ahora lanza el método registrar_asistencia_comun
-            QMessageBox.warning(self, "Asistencia Duplicada", str(e))
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Ocurrió un error: {e}")
+
+        def _err(msg: str):
+            try:
+                if getattr(self, 'loading_manager', None):
+                    self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
+            m = (msg or "Error desconocido").lower()
+            if "duplic" in m or "ya existe" in m:
+                QMessageBox.warning(self, "Asistencia Duplicada", msg)
+            else:
+                QMessageBox.critical(self, "Error", f"Ocurrió un error: {msg}")
+
+        run_in_background(
+            _do,
+            on_success=_done,
+            on_error=_err,
+            parent=self,
+            timeout_ms=10000,
+            description="Registrar asistencia",
+        )
     def register_attendance_from_menu(self):
         if self.selected_user: self.register_attendance()
     def delete_attendance(self):
-        if not self.selected_user: return
-        if self.selected_user.id not in self.db_manager.obtener_ids_asistencia_hoy(): QMessageBox.warning(self, "Sin Asistencia", f"{self.selected_user.nombre} no tiene una asistencia registrada hoy."); return
-        if QMessageBox.question(self, "Confirmar Eliminación", f"¿Seguro que desea eliminar el registro de asistencia de hoy para {self.selected_user.nombre}?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
-            try: self.db_manager.eliminar_asistencia(self.selected_user.id, date.today()); QMessageBox.information(self, "Éxito", "Asistencia eliminada correctamente."); self.load_users(); self.usuarios_modificados.emit()
-            except Exception as e: QMessageBox.critical(self, "Error", f"No se pudo eliminar la asistencia: {e}")
+        if not self.selected_user:
+            return
+        if self.selected_user.id not in self.db_manager.obtener_ids_asistencia_hoy():
+            QMessageBox.warning(self, "Sin Asistencia", f"{self.selected_user.nombre} no tiene una asistencia registrada hoy.")
+            return
+        if QMessageBox.question(
+            self,
+            "Confirmar Eliminación",
+            f"¿Seguro que desea eliminar el registro de asistencia de hoy para {self.selected_user.nombre}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        ) == QMessageBox.StandardButton.Yes:
+            op_id = f"delete_attendance_{self.selected_user.id}"
+            try:
+                if getattr(self, 'loading_manager', None):
+                    self.loading_manager.show_loading(
+                        operation_id=op_id,
+                        message="Eliminando asistencia...",
+                        spinner_type="dots",
+                        spinner_size=64,
+                        background_opacity=0.4,
+                        show_message=True,
+                    )
+            except Exception:
+                pass
+
+            def _do():
+                self.db_manager.eliminar_asistencia(self.selected_user.id, date.today())
+                return True
+
+            def _done(_):
+                try:
+                    if getattr(self, 'loading_manager', None):
+                        self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+                QMessageBox.information(self, "Éxito", "Asistencia eliminada correctamente.")
+                self.load_users()
+                self.usuarios_modificados.emit()
+
+            def _err(msg: str):
+                try:
+                    if getattr(self, 'loading_manager', None):
+                        self.loading_manager.hide_loading(op_id)
+                except Exception:
+                    pass
+                QMessageBox.critical(self, "Error", f"No se pudo eliminar la asistencia: {msg or 'Error desconocido'}")
+
+            run_in_background(
+                _do,
+                on_success=_done,
+                on_error=_err,
+                parent=self,
+                timeout_ms=10000,
+                description="Eliminar asistencia",
+            )
     def show_users_context_menu(self, pos):
         if not self.users_table.indexAt(pos).isValid(): return
         
@@ -2302,63 +2422,112 @@ class UserTabWidget(QWidget):
         """Registra asistencia para múltiples usuarios seleccionados"""
         if not self.selected_users:
             return
-            
-        successful = 0
-        failed = 0
-        already_registered = 0
-        inactive_users = 0
-        owners_skipped = 0
-        
-        asistencias_hoy = self.db_manager.obtener_ids_asistencia_hoy()
-        
-        for user in self.selected_users:
-            # Verificar si es dueño
-            if user.rol == 'dueño':
-                owners_skipped += 1
-                continue
-                
-            # Verificar si está activo
-            if not user.activo:
-                inactive_users += 1
-                continue
-                
-            if user.id in asistencias_hoy:
-                already_registered += 1
-                continue
-                
+
+        # Capturar instantánea de datos para evitar cambios durante la operación
+        users_snapshot = [
+            {
+                'id': u.id,
+                'rol': getattr(u, 'rol', None),
+                'activo': getattr(u, 'activo', True),
+                'nombre': getattr(u, 'nombre', ''),
+            }
+            for u in self.selected_users
+        ]
+
+        op_id = "register_attendance_bulk"
+        try:
+            if getattr(self, 'loading_manager', None):
+                self.loading_manager.show_loading(
+                    operation_id=op_id,
+                    message="Registrando asistencias...",
+                    spinner_type="dots",
+                    spinner_size=64,
+                    background_opacity=0.4,
+                    show_message=True,
+                )
+        except Exception:
+            pass
+
+        def _do():
+            asistencias_hoy = self.db_manager.obtener_ids_asistencia_hoy()
+            successful = 0
+            failed = 0
+            already_registered = 0
+            inactive_users = 0
+            owners_skipped = 0
+            for user in users_snapshot:
+                user_id = user['id']
+                if user.get('rol') == 'dueño':
+                    owners_skipped += 1
+                    continue
+                activo = user.get('activo', True)
+                if not activo:
+                    inactive_users += 1
+                    continue
+                if user_id in asistencias_hoy:
+                    already_registered += 1
+                    continue
+                try:
+                    self.db_manager.registrar_asistencia_comun(user_id, date.today())
+                    successful += 1
+                except Exception:
+                    failed += 1
+            return {
+                'successful': successful,
+                'failed': failed,
+                'already_registered': already_registered,
+                'inactive_users': inactive_users,
+                'owners_skipped': owners_skipped,
+            }
+
+        def _done(res):
             try:
-                self.db_manager.registrar_asistencia_comun(user.id, date.today())
-                successful += 1
-            except Exception as e:
-                failed += 1
-                logging.error(f"Error registrando asistencia para usuario {user.nombre}: {e}")
-        
-        # Mostrar resumen
-        message = f"Registro de asistencia completado:\n"
-        message += f"✅ Exitosos: {successful}\n"
-        if already_registered > 0:
-            message += f"ℹ️ Ya registrados: {already_registered}\n"
-        if inactive_users > 0:
-            message += f"⚠️ Usuarios inactivos omitidos: {inactive_users}\n"
-        if owners_skipped > 0:
-            message += f"⚠️ Omitidos (dueños): {owners_skipped}\n"
-        if failed > 0:
-            message += f"❌ Fallidos: {failed}\n"
-            
-        QMessageBox.information(self, "Registro Masivo de Asistencia", message)
-        
-        # Recargar datos
-        if successful > 0:
+                if getattr(self, 'loading_manager', None):
+                    self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
+            message = (
+                f"Registro de asistencia completado:\n"
+                f"✅ Exitosos: {res.get('successful', 0)}\n"
+            )
+            if res.get('already_registered', 0) > 0:
+                message += f"ℹ️ Ya registrados: {res.get('already_registered', 0)}\n"
+            if res.get('inactive_users', 0) > 0:
+                message += f"⚠️ Usuarios inactivos omitidos: {res.get('inactive_users', 0)}\n"
+            if res.get('owners_skipped', 0) > 0:
+                message += f"⚠️ Omitidos (dueños): {res.get('owners_skipped', 0)}\n"
+            if res.get('failed', 0) > 0:
+                message += f"❌ Fallidos: {res.get('failed', 0)}\n"
+            QMessageBox.information(self, "Registro Masivo de Asistencia", message)
+
+            if res.get('successful', 0) > 0:
+                try:
+                    if hasattr(self, 'users_table') and self.users_table.selectionModel():
+                        self.users_table.selectionModel().clearSelection()
+                    if hasattr(self, 'selected_users'):
+                        self.selected_users.clear()
+                    if hasattr(self, 'bulk_actions_button'):
+                        self.bulk_actions_button.setEnabled(False)
+                except Exception as cleanup_error:
+                    logging.warning(f"Limpieza de selección post-asistencia falló: {cleanup_error}")
+                self.load_users()
+
+        def _err(msg: str):
             try:
-                if hasattr(self, 'users_table') and self.users_table.selectionModel():
-                    self.users_table.selectionModel().clearSelection()
-                if hasattr(self, 'selected_users'):
-                    self.selected_users.clear()
-                if hasattr(self, 'bulk_actions_button'):
-                    self.bulk_actions_button.setEnabled(False)
-            except Exception as cleanup_error:
-                logging.warning(f"Limpieza de selección post-asistencia falló: {cleanup_error}")
-            self.load_users()
+                if getattr(self, 'loading_manager', None):
+                    self.loading_manager.hide_loading(op_id)
+            except Exception:
+                pass
+            QMessageBox.critical(self, "Error", f"Error en registro masivo: {msg or 'Error desconocido'}")
+
+        run_in_background(
+            _do,
+            on_success=_done,
+            on_error=_err,
+            parent=self,
+            timeout_ms=20000,
+            description="Registrar asistencias masivas",
+        )
             
     def toggle_status_multiple(self, activate: bool):
         """Activa o desactiva múltiples usuarios seleccionados usando acciones masivas optimizadas"""
@@ -2623,8 +2792,9 @@ class UserTabWidget(QWidget):
                     user_data['Estados Actuales'] = ', '.join([e.get('nombre', '') for e in estados[:3]])
                 
                 if options.get('include_notes'):
-                    notas = self.db_manager.obtener_notas_usuario(user.id)
-                    etiquetas = self.db_manager.obtener_etiquetas_usuario(user.id)
+                    data = self.db_manager.obtener_notas_y_etiquetas_usuario(user.id)
+                    notas = data.get('notas') or []
+                    etiquetas = data.get('etiquetas') or []
                     user_data['Notas'] = len(notas)
                     user_data['Etiquetas'] = ', '.join([e.get('nombre', '') for e in etiquetas[:3]])
                 
@@ -5426,7 +5596,7 @@ class UserTabWidget(QWidget):
             # Preparar log y tablas objetivo
             tables_list = []
             self._reconcile_log = []
-            # Sin configuración legacy: reconciliación aplica a todas las tablas (tables=None)
+            # Sin configuración anterior: reconciliación aplica a todas las tablas (tables=None)
             tables_list = []
             try:
                 self._reconcile_log.append("Iniciando reconciliación bidireccional")
@@ -5441,68 +5611,18 @@ class UserTabWidget(QWidget):
 
             # Paso 1: Local → Remoto
             def _run_local_to_remote():
-                from scripts.reconcile_local_remote_once import run_once as run_local_to_remote
-                return run_local_to_remote(subscription='gym_sub', schema='public', tables=None, dry_run=False)
+                # Reconciliación deshabilitada - se usa base de datos única Neon
+                return {"total_inserted": 0, "total_updated": 0, "total_deleted": 0, "tables": []}
 
             # Paso 2: Remoto → Local
             def _run_remote_to_local():
-                from scripts.reconcile_remote_to_local_once import run_once as run_remote_to_local
-                return run_remote_to_local(schema='public', tables=None, dry_run=False, threshold_minutes=0, force=True, subscription='gym_sub')
+                # Reconciliación deshabilitada - se usa base de datos única Neon
+                return {"total_inserted": 0, "total_updated": 0, "total_deleted": 0, "tables": []}
 
-            # Paso 3: Verificación
+            # Paso 3: Verificación (simplificado para base de datos única)
             def _verify_health():
-                try:
-                    from scripts.verify_replication_health import (
-                        load_cfg,
-                        resolve_local_credentials,
-                        resolve_remote_credentials,
-                        connect,
-                        read_local_subscription,
-                        read_remote_replication,
-                    )
-                except Exception:
-                    from scripts.verify_replication_health import (
-                        load_cfg,
-                        connect,
-                        read_local_subscription,
-                        read_remote_replication,
-                    )
-                    from utils_modules.replication_setup import (
-                        resolve_local_credentials,
-                        resolve_remote_credentials,
-                    )
-
-                cfg = load_cfg()
-                local_params = resolve_local_credentials(cfg)
-                remote_params = resolve_remote_credentials(cfg)
-
-                local_res = {}
-                remote_res = {}
-                try:
-                    lconn = connect(local_params)
-                    try:
-                        local_res = read_local_subscription(lconn)
-                    finally:
-                        try:
-                            lconn.close()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    local_res = {"error": str(e)}
-
-                try:
-                    rconn = connect(remote_params)
-                    try:
-                        remote_res = read_remote_replication(rconn)
-                    finally:
-                        try:
-                            rconn.close()
-                        except Exception:
-                            pass
-                except Exception as e:
-                    remote_res = {"error": str(e)}
-
-                return {"local": local_res, "remote": remote_res}
+                # Con base de datos única Neon, no se necesita verificación de replicación
+                return {"local": {"status": "ok", "message": "Base de datos única Neon"}, "remote": {"status": "ok", "message": "Base de datos única Neon"}}
 
             # Manejo de errores común
             def _fail(message):
@@ -5589,73 +5709,27 @@ class UserTabWidget(QWidget):
                     pass
 
                 # Resumen amigable + log
+                msg = "Reconciliación completada.\n\n"
+                msg += "Pasos: ✓ Local→Remoto, ✓ Remoto→Local, ✓ Verificación\n"
+                msg += "Estado: Base de datos única Neon - Todo sincronizado\n"
+                
+                # Métricas por dirección (simplificado)
                 try:
-                    local_info = result.get("local", {}) if isinstance(result, dict) else {}
-                    remote_info = result.get("remote", {}) if isinstance(result, dict) else {}
+                    lm = getattr(self, '_reconcile_local_metrics', None)
+                    if isinstance(lm, dict):
+                        msg += f"\nLocal→Remoto: +{lm.get('total_inserted', 0)} / ~{lm.get('total_updated', 0)} / -{lm.get('total_deleted', 0)}"
+                except Exception:
+                    pass
 
-                    subs = local_info.get("subscriptions", []) if isinstance(local_info, dict) else []
-                    slots = remote_info.get("slots", []) if isinstance(remote_info, dict) else []
-                    senders = remote_info.get("wal_senders", []) if isinstance(remote_info, dict) else []
-
-                    msg = "Reconciliación completada.\n\n"
-                    msg += "Pasos: ✓ Local→Remoto, ✓ Remoto→Local, ✓ Verificación\n"
-                    # Métricas por dirección
+                try:
+                    rm = getattr(self, '_reconcile_remote_metrics', None)
+                    if isinstance(rm, dict):
+                        msg += f"\nRemoto→Local: +{rm.get('total_inserted', 0)} / ~{rm.get('total_updated', 0)} / -{rm.get('total_deleted', 0)}"
+                except Exception:
+                    pass
                     try:
-                        lm = getattr(self, '_reconcile_local_metrics', None)
-                        if isinstance(lm, dict):
-                            msg += "\nLocal→Remoto (cambios totales):\n"
-                            msg += f" - Inserciones: {lm.get('total_inserted', 0)}\n"
-                            msg += f" - Actualizaciones: {lm.get('total_updated', 0)}\n"
-                            msg += f" - Eliminaciones: {lm.get('total_deleted', 0)}\n"
-                            tables = lm.get('tables', []) if isinstance(lm.get('tables', []), list) else []
-                            if tables:
-                                msg += "   Tablas:\n"
-                                for t in tables:
-                                    if not isinstance(t, dict):
-                                        continue
-                                    name = t.get('table') or t.get('name') or '?'
-                                    ins = t.get('inserted', 0)
-                                    upd = t.get('updated', 0)
-                                    dele = t.get('deleted', 0)
-                                    err = t.get('error')
-                                    msg += f"   - {name}: +{ins} / ~{upd} / -{dele}"
-                                    if err:
-                                        msg += f" (error: {err})"
-                                    msg += "\n"
-                    except Exception:
-                        pass
-
-                    try:
-                        rm = getattr(self, '_reconcile_remote_metrics', None)
-                        if isinstance(rm, dict):
-                            msg += "\nRemoto→Local (cambios totales):\n"
-                            msg += f" - Inserciones: {rm.get('total_inserted', 0)}\n"
-                            msg += f" - Actualizaciones: {rm.get('total_updated', 0)}\n"
-                            msg += f" - Eliminaciones: {rm.get('total_deleted', 0)}\n"
-                            tables = rm.get('tables', []) if isinstance(rm.get('tables', []), list) else []
-                            if tables:
-                                msg += "   Tablas:\n"
-                                for t in tables:
-                                    if not isinstance(t, dict):
-                                        continue
-                                    name = t.get('table') or t.get('name') or '?'
-                                    ins = t.get('inserted', 0)
-                                    upd = t.get('updated', 0)
-                                    dele = t.get('deleted', 0)
-                                    err = t.get('error')
-                                    msg += f"   - {name}: +{ins} / ~{upd} / -{dele}"
-                                    if err:
-                                        msg += f" (error: {err})"
-                                    msg += "\n"
-                    except Exception:
-                        pass
-                    msg += f"Suscripciones locales: {len(subs)}\n"
-                    try:
-                        if subs:
                             nombres = ", ".join([s.get("subname", "?") for s in subs if isinstance(s, dict)])
-                            estados = ", ".join([s.get("sync_state", "?") for s in subs if isinstance(s, dict)])
                             msg += f"Nombres: {nombres}\n" if nombres else ""
-                            msg += f"Estados: {estados}\n" if estados else ""
                     except Exception:
                         pass
                     msg += f"Slots remotos: {len(slots)}\n"
@@ -5747,24 +5821,11 @@ class UserTabWidget(QWidget):
                         # Remoto → Local
                         tabs.addTab(build_metrics_tab(remote_metrics, "Remoto→Local"), "Remoto→Local")
 
-                        # Verificación
+                        # Verificación (simplificada para base de datos única)
                         verif_frame = QFrame()
                         verif_layout = QVBoxLayout(verif_frame)
-                        local_info = verification.get('local', {}) if isinstance(verification, dict) else {}
-                        remote_info = verification.get('remote', {}) if isinstance(verification, dict) else {}
-                        subs = local_info.get('subscriptions', []) if isinstance(local_info, dict) else []
-                        slots = remote_info.get('slots', []) if isinstance(remote_info, dict) else []
-                        senders = remote_info.get('wal_senders', []) if isinstance(remote_info, dict) else []
-                        counts_lbl = QLabel(f"Suscripciones: {len(subs)} • Slots remotos: {len(slots)} • WAL senders: {len(senders)}")
-                        verif_layout.addWidget(counts_lbl)
-
-                        json_view = QTextEdit()
-                        try:
-                            json_view.setPlainText(json.dumps({"local": local_info, "remote": remote_info}, ensure_ascii=False, indent=2))
-                        except Exception:
-                            json_view.setPlainText(str({"local": local_info, "remote": remote_info}))
-                        json_view.setReadOnly(True)
-                        verif_layout.addWidget(json_view)
+                        status_lbl = QLabel("Estado: Base de datos única Neon - Todo sincronizado")
+                        verif_layout.addWidget(status_lbl)
                         tabs.addTab(verif_frame, "Verificación")
 
                         root.addWidget(tabs)

@@ -415,6 +415,12 @@ class SystemDiagnosticsWidget(QWidget):
         self.health_analyzer = None
         self.current_report = None
         self.problems_list = []
+        # Bandera de destrucción y conexión de cleanup
+        self._destroyed = False
+        try:
+            self.destroyed.connect(self._cleanup_on_destroy)
+        except Exception:
+            pass
         self.setup_ui()
         self.setup_health_analyzer()
     
@@ -499,7 +505,7 @@ class SystemDiagnosticsWidget(QWidget):
         
         layout.addWidget(metrics_group)
 
-        # Panel de observabilidad de cola offline (legacy eliminado)
+        # Panel de observabilidad de cola offline (anterior eliminado)
         # Espacio reservado para métricas futuras de replicación lógica (PostgreSQL)
         
         # Controles
@@ -523,7 +529,7 @@ class SystemDiagnosticsWidget(QWidget):
         
         self.tab_widget.addTab(tab, "🏥 Resumen de Salud")
 
-    # Legacy OfflineSyncManager snapshot/metrics removidos
+    # OfflineSyncManager anterior: snapshot/métricas eliminados
 
     # Espacio reservado para futuras métricas de replicación lógica (PostgreSQL)
     
@@ -848,6 +854,8 @@ class SystemDiagnosticsWidget(QWidget):
     
     def start_health_analysis(self):
         """Inicia el análisis de salud automático"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         if self.health_analyzer and not self.health_analyzer.isRunning():
             self.health_analyzer.start()
             self.start_analysis_btn.setEnabled(False)
@@ -856,6 +864,8 @@ class SystemDiagnosticsWidget(QWidget):
     
     def stop_health_analysis(self):
         """Detiene el análisis de salud"""
+        if getattr(self, "_destroyed", False):
+            return
         if self.health_analyzer and self.health_analyzer.isRunning():
             self.health_analyzer.stop()
             self.start_analysis_btn.setEnabled(True)
@@ -864,6 +874,8 @@ class SystemDiagnosticsWidget(QWidget):
     
     def force_health_check(self):
         """Fuerza un chequeo inmediato de salud"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         if self.health_analyzer:
             # Crear un analizador temporal para un chequeo único
             temp_analyzer = SystemHealthAnalyzer()
@@ -873,6 +885,8 @@ class SystemDiagnosticsWidget(QWidget):
     @pyqtSlot(dict)
     def update_health_display(self, report):
         """Actualiza la visualización de salud del sistema"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         self.current_report = report
         
         # Actualizar puntuación de salud
@@ -1049,6 +1063,8 @@ ALMACENAMIENTO:
     @pyqtSlot(str, str)
     def add_detected_problem(self, problem_type, description):
         """Agrega un problema detectado a la lista"""
+        if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+            return
         if not self.enable_alerts.isChecked():
             return
         
@@ -1077,7 +1093,12 @@ ALMACENAMIENTO:
         
         # Mostrar notificación si es crítico
         if severity == "Crítico":
-            QMessageBox.critical(self, "Problema Crítico Detectado", description)
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Problema Crítico Detectado", description)
+            except RuntimeError:
+                pass
     
     def update_problems_table(self):
         """Actualiza la tabla de problemas"""
@@ -1113,7 +1134,12 @@ ALMACENAMIENTO:
     def export_health_report(self):
         """Exporta el reporte de salud a un archivo"""
         if not self.current_report:
-            QMessageBox.warning(self, "Advertencia", "No hay reporte disponible para exportar.")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.warning(self, "Advertencia", "No hay reporte disponible para exportar.")
+            except RuntimeError:
+                pass
             return
         
         try:
@@ -1126,10 +1152,20 @@ ALMACENAMIENTO:
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(self.current_report, f, indent=2, ensure_ascii=False)
             
-            QMessageBox.information(self, "Éxito", f"Reporte exportado a: {filepath}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.information(self, "Éxito", f"Reporte exportado a: {filepath}")
+            except RuntimeError:
+                pass
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error exportando reporte: {e}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Error", f"Error exportando reporte: {e}")
+            except RuntimeError:
+                pass
     
     def save_alert_config(self):
         """Guarda la configuración de alertas"""
@@ -1144,52 +1180,111 @@ ALMACENAMIENTO:
             os.makedirs('config', exist_ok=True)
             with open('config/alert_config.json', 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=2)
-            
-            QMessageBox.information(self, "Éxito", "Configuración de alertas guardada.")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.information(self, "Éxito", "Configuración de alertas guardada.")
+            except RuntimeError:
+                pass
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error guardando configuración: {e}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Error", f"Error guardando configuración: {e}")
+            except RuntimeError:
+                pass
     
     def quick_optimize_database(self):
         """Optimización rápida de la base de datos (centralizada)."""
         try:
             db_manager = DatabaseManager()
             ok = db_manager.optimizar_base_datos()
-            if ok:
-                QMessageBox.information(self, "Éxito", "Base de datos optimizada correctamente.")
-            else:
-                QMessageBox.warning(self, "Advertencia", "La optimización no se completó.")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                if ok:
+                    QMessageBox.information(self, "Éxito", "Base de datos optimizada correctamente.")
+                else:
+                    QMessageBox.warning(self, "Advertencia", "La optimización no se completó.")
+            except RuntimeError:
+                pass
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error optimizando BD: {e}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Error", f"Error optimizando BD: {e}")
+            except RuntimeError:
+                pass
 
     def quick_clean_temp_files(self):
         """Limpieza rápida de temporales usando utilidades centralizadas."""
         try:
             candidates = collect_temp_candidates(retention_days=7)
             deleted, errors = delete_files(candidates)
-            QMessageBox.information(
-                self,
-                "Éxito",
-                f"Se eliminaron {deleted} archivos temporales." + (f"\nErrores: {errors}" if errors else "")
-            )
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.information(
+                    self,
+                    "Éxito",
+                    f"Se eliminaron {deleted} archivos temporales." + (f"\nErrores: {errors}" if errors else "")
+                )
+            except RuntimeError:
+                pass
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error limpiando temporales: {e}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Error", f"Error limpiando temporales: {e}")
+            except RuntimeError:
+                pass
     
     def quick_backup_database(self):
         """Backup rápido de la base de datos (unificado)."""
         try:
             from utils_modules.backup_utils import perform_quick_backup
             rc, out_path = perform_quick_backup()
-            if rc == 0:
-                QMessageBox.information(self, "Éxito", f"Backup creado: {out_path}")
-            else:
-                QMessageBox.warning(self, "Advertencia", f"Backup con problemas (código {rc}). Revisa backups/backup_daily.log")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                if rc == 0:
+                    QMessageBox.information(self, "Éxito", f"Backup creado: {out_path}")
+                else:
+                    QMessageBox.warning(self, "Advertencia", f"Backup con problemas (código {rc}). Revisa backups/backup_daily.log")
+            except RuntimeError:
+                pass
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error creando backup: {e}")
+            try:
+                if getattr(self, "_destroyed", False) or (hasattr(self, "isVisible") and not self.isVisible()):
+                    return
+                QMessageBox.critical(self, "Error", f"Error creando backup: {e}")
+            except RuntimeError:
+                pass
     
     def closeEvent(self, event):
         """Maneja el cierre del widget"""
         if self.health_analyzer and self.health_analyzer.isRunning():
             self.health_analyzer.stop()
+        # Marca destruido y aplica cleanup adicional
+        try:
+            self._cleanup_on_destroy()
+        except Exception:
+            pass
         super().closeEvent(event)
+
+    def _cleanup_on_destroy(self):
+        """Limpia recursos cuando el widget es destruido"""
+        self._destroyed = True
+        try:
+            if self.health_analyzer and self.health_analyzer.isRunning():
+                self.health_analyzer.stop()
+        except Exception:
+            pass
+        # Evitar futuras ventanas emergentes
+        try:
+            if hasattr(self, 'enable_alerts'):
+                self.enable_alerts.setChecked(False)
+        except Exception:
+            pass
 

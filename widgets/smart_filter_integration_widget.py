@@ -221,9 +221,6 @@ class SmartFilterIntegrationWidget(QWidget):
         self.clear_all_btn = QPushButton("🗑️ Limpiar")
         self.clear_all_btn.setObjectName("filter_clear_button")
         
-        self.sync_btn = QPushButton("🔄 Sincronizar")
-        self.sync_btn.setObjectName("filter_sync_button")
-        self.sync_btn.setToolTip("Sincronizar filtros entre modos")
         
         layout.addWidget(self.status_icon)
         layout.addWidget(self.status_text)
@@ -232,7 +229,6 @@ class SmartFilterIntegrationWidget(QWidget):
         layout.addWidget(QLabel("|"))
         layout.addWidget(self.current_mode_label)
         layout.addStretch()
-        layout.addWidget(self.sync_btn)
         layout.addWidget(self.clear_all_btn)
         
         return panel
@@ -252,7 +248,6 @@ class SmartFilterIntegrationWidget(QWidget):
         
         # Botones de acción
         self.clear_all_btn.clicked.connect(self.clear_all_filters)
-        self.sync_btn.clicked.connect(self.sync_filters)
     
     def on_mode_changed(self, mode: str):
         """Maneja el cambio de modo"""
@@ -263,8 +258,7 @@ class SmartFilterIntegrationWidget(QWidget):
             self.stacked_widget.setCurrentIndex(1)
             self.current_mode_label.setText("Modo: Inteligente")
         
-        # Sincronizar filtros al cambiar de modo
-        self.sync_filters()
+        # Sincronización anterior eliminada; el modo cambia sin replicar filtros
     
     def on_traditional_filters_changed(self, filters: Dict[str, Any]):
         """Maneja cambios en filtros tradicionales"""
@@ -310,17 +304,7 @@ class SmartFilterIntegrationWidget(QWidget):
         self.update_status()
         self.filters_cleared.emit()
     
-    def sync_filters(self):
-        """Sincroniza filtros entre modos"""
-        current_mode = self.mode_selector.get_current_mode()
-        
-        if current_mode == 'traditional':
-            # Aplicar filtros actuales al modo tradicional
-            for field_name, value in self.current_filters.items():
-                self.traditional_filter.set_filter_value(field_name, value)
-        else:
-            # Aplicar filtros actuales al modo inteligente
-            self.smart_filter.set_filters(self.current_filters)
+    # Eliminada: sync_filters (anterior)
     
     def get_current_filters(self) -> Dict[str, Any]:
         """Obtiene los filtros actuales"""
