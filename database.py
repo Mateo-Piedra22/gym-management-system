@@ -19,8 +19,51 @@ import json
 import functools
 import random
 import calendar
-# Importar PyQt6 para workers
-from PyQt6.QtCore import QThread, pyqtSignal, QObject
+# Importar PyQt6 para workers (con fallback seguro en entornos sin GUI)
+try:
+    from PyQt6.QtCore import QThread, pyqtSignal, QObject  # type: ignore
+    _HAS_QT = True
+except Exception:
+    _HAS_QT = False
+    # Stubs mínimos para permitir importación en entornos web (Railway) sin PyQt6
+    class QObject:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            pass
+
+    class QThread:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            pass
+        def start(self):
+            pass
+        def run(self):
+            pass
+        def isRunning(self):
+            return False
+        def quit(self):
+            pass
+        def wait(self, msecs: int | None = None):
+            pass
+        def setPriority(self, *args, **kwargs):
+            pass
+
+    def pyqtSignal(*args, **kwargs):  # type: ignore
+        class _Signal:
+            def __init__(self):
+                self._callbacks = []
+            def connect(self, cb):
+                try:
+                    self._callbacks.append(cb)
+                except Exception:
+                    pass
+            def emit(self, *a, **kw):
+                # Ejecutar callbacks de forma segura; en web normalmente no se usarán
+                for cb in list(self._callbacks):
+                    try:
+                        cb(*a, **kw)
+                    except Exception:
+                        # No bloquear por errores en callbacks
+                        pass
+        return _Signal()
 # Replicación nativa de PostgreSQL gestiona sincronización (sin cola local)
 
 # Importación del sistema de auditoría
@@ -1837,6 +1880,61 @@ class DatabaseManager:
                 base = {}
         except Exception:
             base = {}
+
+        # Si existe un DSN/URL en entorno, sobreponer los parámetros parseados.
+        # Esto permite compatibilidad inmediata con proveedores como Railway/Neon.
+        try:
+            dsn = str(os.getenv('DATABASE_URL', '')).strip()
+        except Exception:
+            dsn = ''
+        if dsn:
+            try:
+                from urllib.parse import urlparse, parse_qs
+                u = urlparse(dsn)
+                q = parse_qs(u.query or '')
+                parsed = {}
+                try:
+                    parsed['host'] = (u.hostname or base.get('host') or 'localhost')
+                except Exception:
+                    parsed['host'] = base.get('host', 'localhost')
+                try:
+                    parsed['port'] = int(u.port or base.get('port') or 5432)
+                except Exception:
+                    parsed['port'] = int(base.get('port') or 5432)
+                try:
+                    parsed['database'] = (u.path or '').lstrip('/') or base.get('database') or 'gimnasio'
+                except Exception:
+                    parsed['database'] = base.get('database', 'gimnasio')
+                try:
+                    parsed['user'] = u.username or base.get('user') or 'postgres'
+                except Exception:
+                    parsed['user'] = base.get('user', 'postgres')
+                try:
+                    parsed['password'] = u.password or base.get('password') or ''
+                except Exception:
+                    parsed['password'] = base.get('password', '')
+                try:
+                    parsed['sslmode'] = (q.get('sslmode') or [base.get('sslmode', 'prefer')])[0]
+                except Exception:
+                    parsed['sslmode'] = base.get('sslmode', 'prefer')
+                try:
+                    parsed['application_name'] = (q.get('application_name') or [base.get('application_name', 'gym_management_system')])[0]
+                except Exception:
+                    parsed['application_name'] = base.get('application_name', 'gym_management_system')
+                try:
+                    parsed['connect_timeout'] = int((q.get('connect_timeout') or [base.get('connect_timeout', 5)])[0])
+                except Exception:
+                    parsed['connect_timeout'] = int(base.get('connect_timeout') or 5)
+
+                # Aplicar merge preferiendo los valores del DSN
+                try:
+                    base.update(parsed)
+                except Exception:
+                    # Si por alguna razón base no es dict, recrear
+                    base = dict(parsed)
+            except Exception:
+                # Ignorar DSN inválido y continuar con env/genéricos
+                pass
 
         # Fallbacks genéricos (DB_*) si faltan claves específicas
         host = base.get('host') or str(os.getenv('DB_HOST', 'localhost'))

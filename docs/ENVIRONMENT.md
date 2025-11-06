@@ -23,6 +23,14 @@ El sistema utiliza un único PostgreSQL (Neon). Tanto el Programa Desktop como l
 Si prefieres mantener nombres `DB_LOCAL_*`, el sistema los tomará como fallback:
 - `DB_LOCAL_HOST`, `DB_LOCAL_PORT`, `DB_LOCAL_DATABASE`, `DB_LOCAL_USER`, `DB_LOCAL_PASSWORD`, `DB_LOCAL_SSLMODE`, `DB_LOCAL_CONNECT_TIMEOUT`, `DB_LOCAL_APPLICATION_NAME`.
 
+### Uso de `DATABASE_URL` (DSN)
+Para despliegues en plataformas como Railway y proveedores como Neon, también puedes definir una única URL/DSN de conexión en `DATABASE_URL`.
+
+- Formato: `postgresql://usuario:contraseña@host:puerto/base?sslmode=require&connect_timeout=12&application_name=app`
+- Si `DATABASE_URL` está presente, se usa por encima de `DB_*` y `DB_LOCAL_*`.
+- Detección de Neon: cuando el host contiene `neon.tech`, se deshabilitan automáticamente las opciones de sesión (`options`) no soportadas por el proveedor.
+- Mantén `sslmode=require` para conexiones TLS seguras.
+
 ### Ejemplo de configuración para Neon
 ```
 DB_HOST=ep-tu-cluster.neon.tech
@@ -34,6 +42,11 @@ DB_SSLMODE=require
 DB_CONNECT_TIMEOUT=10
 DB_APPLICATION_NAME=gym_management_system
 DB_PROFILE=local
+```
+
+#### Ejemplo con `DATABASE_URL` (Railway/Neon)
+```
+DATABASE_URL=postgresql://neon_user:neon_pass@ep-tu-cluster.neon.tech:5432/neondb?sslmode=require&connect_timeout=12&application_name=railway
 ```
 
 ### Manejo de secretos
