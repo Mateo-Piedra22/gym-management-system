@@ -40,7 +40,11 @@ except Exception:
 # Importar gestor de base de datos SIN modificar el programa principal
 try:
     from database import DatabaseManager  # type: ignore
-except Exception:
+except Exception as e:
+    try:
+        logging.exception(f"Import de DatabaseManager falló: {e}")
+    except Exception:
+        pass
     DatabaseManager = None  # type: ignore
 
 # Importar dataclasses de modelos para payloads del API
@@ -1000,7 +1004,15 @@ def _force_db_init() -> Optional[DatabaseManager]:
             if _db is not None:
                 return _db
             _db_initializing = True
-            _db = DatabaseManager()
+            # Evitar NoneType si la importación falló
+            if DatabaseManager is None:
+                try:
+                    logging.error("_force_db_init: DatabaseManager no disponible (import falló)")
+                except Exception:
+                    pass
+                _db = None
+            else:
+                _db = DatabaseManager()
             try:
                 if hasattr(_db, 'ensure_indexes'):
                     _db.ensure_indexes()  # type: ignore

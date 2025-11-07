@@ -1884,7 +1884,8 @@ class DatabaseManager:
         # Si existe un DSN/URL en entorno, sobreponer los parámetros parseados.
         # Esto permite compatibilidad inmediata con proveedores como Railway/Neon.
         try:
-            dsn = str(os.getenv('DATABASE_URL', '')).strip()
+            # Aceptar también RAILWAY_DATABASE_URL como fallback cuando DATABASE_URL no esté presente
+            dsn = str(os.getenv('DATABASE_URL', '') or os.getenv('RAILWAY_DATABASE_URL', '')).strip()
         except Exception:
             dsn = ''
         if dsn:
