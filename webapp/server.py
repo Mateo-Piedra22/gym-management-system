@@ -3514,7 +3514,7 @@ async def gestion_auth(request: Request):
 
     db = _get_db()
     if db is None:
-        return JSONResponse({"success": False, "message": "DatabaseManager no disponible"}, status_code=500)
+        return RedirectResponse(url="/gestion/login?error=Base%20de%20datos%20no%20disponible", status_code=303)
 
     # Modo Dueño: usuario_id == "__OWNER__" y contraseña
     if isinstance(usuario_id_raw, str) and usuario_id_raw == "__OWNER__":
