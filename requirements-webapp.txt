@@ -3,7 +3,10 @@ uvicorn[standard]
 Jinja2
 python-multipart
 python-dotenv
+<<<<<<< HEAD
 itsdangerous
+=======
+>>>>>>> 3e5904ae1ec84be2bfcb14ae4ffbd7dbd63ac1e3
 requests
 psutil
 psycopg2-binary
