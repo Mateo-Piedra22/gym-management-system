@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="/static/style.css" />
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script src="/static/js/toast.js"></script>
   <style>
@@ -155,9 +157,9 @@
           </div>
         </div>
         <div class="brand-actions">
-          <button class="btn secondary" id="export">Exportar CSV</button>
+          <button class="btn info" id="export">Exportar CSV</button>
           <form method="post" action="/dashboard/logout">
-            <button class="btn" type="submit">Cerrar sesión</button>
+            <button class="btn outline neutral" type="submit">Cerrar sesión</button>
           </form>
         </div>
       </div>
@@ -281,8 +283,8 @@
       <section class="card full">
         <h3 class="muted" style="margin-top:0">Datos detallados</h3>
         <div style="display:flex; gap:8px; margin-bottom:8px;">
-          <button class="btn secondary" id="tab-btn-usuarios" title="Ver tabla completa de usuarios, con datos y actividad">Usuarios</button>
-          <button class="btn secondary" id="tab-btn-profesores" title="Ver tabla de profesores, contactos y horarios">Profesores</button>
+          <button class="btn tertiary" id="tab-btn-usuarios" title="Ver tabla completa de usuarios, con datos y actividad">Usuarios</button>
+          <button class="btn tertiary" id="tab-btn-profesores" title="Ver tabla de profesores, contactos y horarios">Profesores</button>
         </div>
         <div id="tab-usuarios" style="display:block;">
           <!-- Descripción eliminada -->
@@ -330,8 +332,8 @@
           <label>Mostrar
             <select id="as-todos-limit"><option value="100">100</option><option value="250">250</option><option value="500" selected>500</option></select>
           </label>
-          <button id="as-todos-prev" class="btn secondary">Prev</button>
-          <button id="as-todos-next" class="btn secondary">Next</button>
+          <button id="as-todos-prev" class="btn tertiary">Prev</button>
+          <button id="as-todos-next" class="btn tertiary">Next</button>
           
         </div>
             <div class="table-scroll">
@@ -397,9 +399,9 @@
           <label>Mostrar
             <select id="usuario-pagos-limit"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select>
           </label>
-          <button id="usuario-pagos-prev" class="btn secondary">Prev</button>
-          <button id="usuario-pagos-next" class="btn secondary">Next</button>
-          <button id="usuario-pagos-aplicar" class="btn">Aplicar</button>
+          <button id="usuario-pagos-prev" class="btn tertiary">Prev</button>
+          <button id="usuario-pagos-next" class="btn tertiary">Next</button>
+          <button id="usuario-pagos-aplicar" class="btn info">Aplicar</button>
         </div>
         <div class="table-scroll">
           <table id="tbl-usuario-pagos" class="data-table">
@@ -419,9 +421,9 @@
           <label>Mostrar
             <select id="usuario-asistencias-limit"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option></select>
           </label>
-          <button id="usuario-asistencias-prev" class="btn secondary">Prev</button>
-          <button id="usuario-asistencias-next" class="btn secondary">Next</button>
-          <button id="usuario-asistencias-aplicar" class="btn">Aplicar</button>
+          <button id="usuario-asistencias-prev" class="btn tertiary">Prev</button>
+          <button id="usuario-asistencias-next" class="btn tertiary">Next</button>
+          <button id="usuario-asistencias-aplicar" class="btn info">Aplicar</button>
         </div>
         <div class="table-scroll">
           <table id="tbl-usuario-asistencias" class="data-table">

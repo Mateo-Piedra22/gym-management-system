@@ -19001,7 +19001,7 @@ class DatabaseManager:
                         CREATE TABLE IF NOT EXISTS whatsapp_messages (
                             id SERIAL PRIMARY KEY,
                             user_id INTEGER REFERENCES usuarios(id),
-                            message_type VARCHAR(50) NOT NULL CHECK (message_type IN ('overdue', 'payment', 'welcome')),
+                            message_type VARCHAR(50) NOT NULL CHECK (message_type IN ('overdue','payment','welcome','deactivation','class_reminder','waitlist')),
                             template_name VARCHAR(255) NOT NULL,
                             phone_number VARCHAR(20) NOT NULL,
                             message_id VARCHAR(100),
@@ -19038,6 +19038,34 @@ class DatabaseManager:
                             END $$;
                         """)
                         cursor.execute("ALTER TABLE whatsapp_messages ADD CONSTRAINT whatsapp_messages_status_check CHECK (status IN ('sent','delivered','read','failed','received'))")
+                    except Exception:
+                        pass
+
+                    # Asegurar restricción de tipos de mensaje con valores actualizados
+                    try:
+                        cursor.execute(
+                            """
+                            DO $$
+                            DECLARE r RECORD;
+                            BEGIN
+                                FOR r IN
+                                    SELECT conname
+                                    FROM pg_constraint
+                                    WHERE contype = 'c'
+                                      AND conrelid = 'whatsapp_messages'::regclass
+                                      AND pg_get_constraintdef(oid) LIKE '%message_type%'
+                                LOOP
+                                    EXECUTE format('ALTER TABLE whatsapp_messages DROP CONSTRAINT %I', r.conname);
+                                END LOOP;
+                                BEGIN
+                                    ALTER TABLE whatsapp_messages ADD CONSTRAINT whatsapp_messages_type_check CHECK (message_type IN ('overdue','payment','welcome','deactivation','class_reminder','waitlist'));
+                                EXCEPTION WHEN others THEN
+                                    -- Si la restricción ya existe o falla por algún motivo, continuar sin interrumpir
+                                    NULL;
+                                END;
+                            END $$;
+                            """
+                        )
                     except Exception:
                         pass
                     
@@ -19084,7 +19112,19 @@ class DatabaseManager:
                         ('aviso_de_promocion_a_lista_principal_para_clase_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional',
                          'Promoción a clase',
                          'Hola {{1}}, Fuiste promovido desde la lista de espera a la clase de {{2}} del {{3}} a las {{4}}. Te esperamos!',
-                         '{"1": "nombre_completo", "2": "tipo_clase", "3": "fecha", "4": "hora"}')
+                         '{"1": "nombre_completo", "2": "tipo_clase", "3": "fecha", "4": "hora"}'),
+                        ('aviso_de_promocion_de_lista_de_espera_para_clase_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional',
+                         'Cupo disponible',
+                         'Hola {{1}}, se liberó un cupo para la clase de {{2}} del {{3}} a las {{4}}. ¿Querés confirmar tu inscripción?',
+                         '{"1": "nombre_completo", "2": "tipo_clase", "3": "fecha", "4": "hora"}'),
+                        ('aviso_de_recordatorio_de_horario_de_clase_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional',
+                         'Recordatorio de clase',
+                         'Hola {{1}}, te recordamos tu clase de {{2}} el {{3}} a las {{4}}.',
+                         '{"1": "nombre_completo", "2": "tipo_clase", "3": "fecha", "4": "hora"}'),
+                        ('aviso_de_desactivacion_por_falta_de_pago_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional',
+                         'Desactivación',
+                         'Hola {{1}}, tu cuenta será desactivada el {{2}} por {{3}}.',
+                         '{"1": "nombre_completo", "2": "fecha_desactivacion", "3": "motivo"}')
                         ON CONFLICT (template_name) DO NOTHING
                     """)
                     
@@ -19189,59 +19229,105 @@ class DatabaseManager:
             return None
     
     def obtener_configuracion_whatsapp_completa(self) -> Dict[str, Any]:
-        """Obtiene la configuración completa de WhatsApp con datos hardcodeados"""
+        """Obtiene la configuración completa de WhatsApp.
+
+        - Prioriza valores almacenados en base de datos (tabla `whatsapp_config`).
+        - Usa variables de entorno para el `access_token` si está disponible.
+        - Incluye preferencias adicionales desde la tabla genérica `configuracion`.
+        - No usa valores hardcodeados.
+        """
         try:
-            # Datos hardcodeados del archivo SISTEMA WHATSAPP.txt
-            # Obtener token de acceso desde variable de entorno
-            from secure_config import config as secure_config
+            # Token de acceso desde variable de entorno (preferido)
+            env_access_token = None
             try:
-                access_token = secure_config.get_whatsapp_access_token()
-            except ValueError:
-                # Si no hay token configurado, usar valor temporal (no para producción)
-                logger.warning("No se encontró token de WhatsApp en variables de entorno")
-                access_token = 'placeholder_token'
-            
-            config = {
-                'phone_id': '791155924083208',
-                'waba_id': '787533987071685', 
+                from secure_config import config as secure_config
+                try:
+                    env_access_token = secure_config.get_whatsapp_access_token()
+                except ValueError:
+                    env_access_token = None
+            except Exception:
+                env_access_token = None
+
+            # Configuración activa en BD
+            db_conf = self.obtener_configuracion_whatsapp() or {}
+
+            # IDs desde BD o entorno (si existen en entorno)
+            try:
+                import os as _os
+                env_phone_id = _os.getenv('WHATSAPP_PHONE_NUMBER_ID')
+                env_waba_id = _os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID')
+            except Exception:
+                env_phone_id = None
+                env_waba_id = None
+
+            phone_id = db_conf.get('phone_id') or env_phone_id
+            waba_id = db_conf.get('waba_id') or env_waba_id
+            access_token = env_access_token or db_conf.get('access_token')
+
+            # Preferencias adicionales en tabla `configuracion`
+            def _get_pref(key: str, default: str) -> str:
+                try:
+                    val = self.obtener_configuracion(key)
+                    return default if val is None else str(val)
+                except Exception:
+                    return default
+
+            cfg = {
+                'phone_id': phone_id,
+                'waba_id': waba_id,
                 'access_token': access_token,
-                'phone_number': '+5491155924083',
-                'active': True
+                'active': bool(db_conf.get('active', False)),
+                # Preferencias adicionales
+                'allowlist_numbers': _get_pref('allowlist_numbers', ''),
+                'allowlist_enabled': _get_pref('allowlist_enabled', 'false'),
+                'enable_webhook': _get_pref('enable_webhook', 'false'),
+                'max_retries': _get_pref('max_retries', '3'),
+                'retry_delay_seconds': _get_pref('retry_delay_seconds', '5'),
             }
-            
-            # Verificar si existe configuración en BD y actualizarla si es necesario
-            db_config = self.obtener_configuracion_whatsapp()
-            if not db_config:
-                self.actualizar_configuracion_whatsapp(
-                    phone_id=config['phone_id'],
-                    waba_id=config['waba_id'], 
-                    access_token=config['access_token']
-                )
-            
-            return config
-            
+
+            return cfg
+
         except Exception as e:
             logging.error(f"Error obteniendo configuración WhatsApp completa: {e}")
             return {}
     
-    def actualizar_configuracion_whatsapp(self, phone_id: str = None, waba_id: str = None, 
+    def actualizar_configuracion_whatsapp(self, phone_id: str = None, waba_id: str = None,
                                         access_token: str = None) -> bool:
-        """Actualiza la configuración de WhatsApp"""
+        """Actualiza la configuración activa de WhatsApp.
+
+        Soporta actualizaciones parciales: si algún parámetro es None, conserva el valor anterior.
+        """
         try:
+            # Obtener configuración previa para completar valores faltantes
+            prev = self.obtener_configuracion_whatsapp() or {}
+            new_phone_id = phone_id if phone_id is not None else prev.get('phone_id')
+            new_waba_id = waba_id if waba_id is not None else prev.get('waba_id')
+            new_access_token = access_token if access_token is not None else prev.get('access_token')
+
+            # Si no hay ningún valor definido, no insertar
+            if not (new_phone_id or new_waba_id or new_access_token):
+                return False
+
             with self.get_connection_context() as conn:
                 with conn.cursor() as cursor:
                     # Desactivar configuraciones anteriores
-                    cursor.execute("UPDATE whatsapp_config SET active = FALSE")
-                    
-                    # Insertar nueva configuración
-                    cursor.execute("""
+                    try:
+                        cursor.execute("UPDATE whatsapp_config SET active = FALSE")
+                    except Exception:
+                        pass
+
+                    # Insertar nueva configuración activa
+                    cursor.execute(
+                        """
                         INSERT INTO whatsapp_config (phone_id, waba_id, access_token, active)
                         VALUES (%s, %s, %s, TRUE)
-                    """, (phone_id, waba_id, access_token))
-                    
+                        """,
+                        (new_phone_id, new_waba_id, new_access_token)
+                    )
+
                     conn.commit()
                     return True
-                    
+
         except Exception as e:
             logging.error(f"Error actualizando configuración WhatsApp: {e}")
             return False

@@ -12,14 +12,15 @@ Este documento compara las funcionalidades del programa Desktop y la WebApp, des
 - ✅ Configuración de conceptos de pago (CRUD)
 - ✅ Configuración de tipos de cuota (CRUD)
 - ✅ Banco de ejercicios (CRUD)
-- ❌ Constructor de rutinas, asignación por usuario y exportación profesional (PDF/Excel)
+ - ✅ Constructor de rutinas, asignación por usuario y exportación PDF/Excel
 - ❌ Gestión de clases grupales (programación, cupos, inscripciones, asistencia por clase)
 - ✅ Registro de asistencias y check-in con QR/token (incluye portal de check-in)
 - ❌ WhatsApp: envío de mensajes salientes (la WebApp recibe webhooks y registra mensajes, sin envío desde la web)
+ - ✅ WhatsApp: envío de mensajes salientes desde Gestión (bienvenida, confirmación de pago, desactivación, recordatorios)
 - ✅ Gestión de profesores: datos, horarios, sesiones y métricas (horas trabajadas/proyectadas/extras)
 - ✅ KPIs y dashboard (ingresos, nuevos usuarios, ARPU/retención/cohortes)
 - ✅ Exportación CSV de listados (usuarios, pagos)
-- ❌ Exportaciones ejecutivas en PDF/Excel para reportes y rutinas (más allá de recibos)
+ - ❌ Exportaciones ejecutivas en PDF/Excel para reportes (más allá de recibos)
 - ✅ Administración avanzada: renumerar IDs y asegurar Dueño (RLS/triggers)
 - ❌ Auditoría detallada de seguridad y cambios críticos (panel dedicado)
 - ❌ Backups y mantenimiento automatizado de BD (respaldos, optimización, integridad)
@@ -35,7 +36,7 @@ Este documento compara las funcionalidades del programa Desktop y la WebApp, des
 - ✅ Gestión de usuarios (notas, etiquetas, estados) y pagos con filtros
 - ✅ Numeración de recibos configurable y generación de PDF
 - ✅ Banco de ejercicios (CRUD)
-- ❌ Gestión de rutinas desde la web (constructor, asignación, exportación)
+ - ✅ Gestión de rutinas desde la web (constructor, asignación, exportación)
 - ❌ Gestión de clases grupales desde la web (programación, inscripciones, asistencia por clase)
 - ✅ Check-in web para socios (QR/token) y registro de asistencia
 - ✅ Gestión de profesores: horarios, sesiones y métricas (incluye horas extra)
@@ -51,14 +52,15 @@ Este documento compara las funcionalidades del programa Desktop y la WebApp, des
 ## Notas y criterios
 
 - La WebApp ya cubre el núcleo operativo: usuarios, pagos, recibos, profesores, asistencias, KPIs y CSV. Las brechas principales están en rutinas/clases, auditoría/diagnósticos y funciones avanzadas de WhatsApp.
-- “Rutinas” existe en BD y en Desktop (exportaciones profesionales y plantilla), pero no se expone aún en la WebApp.
+ - “Rutinas” está implementado en BD, Desktop y WebApp (editor, asignación y exportación PDF/Excel).
 - En WhatsApp, la WebApp recibe y registra webhooks; el envío saliente y la configuración guiada permanecen en Desktop.
+ - En WhatsApp, la WebApp ahora envía mensajes desde Gestión y registra webhooks; la configuración guiada desde UI sigue pendiente y se realiza en Desktop.
+ - Accesibilidad en la WebApp: se incorporaron roles ARIA reforzados, navegación por teclado (tabindex, atajos con `aria-keyshortcuts`), estados `aria-live`/`aria-busy` y enfoque al abrir modales; el modo de alto contraste y opciones de personalización aún están pendientes.
 - Auditoría, backups y diagnósticos están implementados en Desktop (widgets dedicados) y no tienen contraparte en la WebApp.
 
 ## Recomendaciones para paridad completa
 
-- Construir módulo web de Rutinas: editor, asignación a usuarios y exportación PDF/Excel.
 - Añadir módulo de Clases grupales en la WebApp: horarios, cupos, inscripciones y asistencia por clase.
 - Exponer paneles web para Diagnósticos del sistema, Auditoría y Backups (estado, acciones y reportes).
-- Completar integración WhatsApp en WebApp: envío saliente y configuración desde UI.
+- Completar configuración WhatsApp en WebApp desde UI.
 - Incorporar accesibilidad avanzada (alto contraste, navegación por teclado, roles ARIA reforzados) y opciones de personalización.

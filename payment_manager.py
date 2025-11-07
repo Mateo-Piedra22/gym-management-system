@@ -1504,12 +1504,39 @@ class PaymentManager:
             return False
         
         try:
-            # Actualizar configuración en base de datos
-            for clave, valor in configuracion.items():
-                self.db_manager.actualizar_configuracion_whatsapp(clave, valor)
+            # Mapear claves específicas de WhatsApp a la tabla dedicada
+            phone_id = None
+            waba_id = None
+            access_token = None
+
+            if 'phone_number_id' in configuracion:
+                phone_id = str(configuracion.get('phone_number_id') or '').strip() or None
+            if 'whatsapp_business_account_id' in configuracion:
+                waba_id = str(configuracion.get('whatsapp_business_account_id') or '').strip() or None
+            if 'access_token' in configuracion:
+                access_token = str(configuracion.get('access_token') or '').strip() or None
+
+            if phone_id is not None or waba_id is not None or access_token is not None:
+                self.db_manager.actualizar_configuracion_whatsapp(phone_id=phone_id, waba_id=waba_id, access_token=access_token)
+
+            # Otras preferencias se guardan en la tabla genérica `configuracion`
+            for k in ('allowlist_numbers', 'allowlist_enabled', 'enable_webhook', 'max_retries', 'retry_delay_seconds'):
+                if k in configuracion:
+                    val = configuracion.get(k)
+                    # Normalizar a cadena
+                    try:
+                        val_str = str(val)
+                    except Exception:
+                        val_str = ''
+                    self.db_manager.actualizar_configuracion(k, val_str)
             
             # Reinicializar WhatsApp manager si es necesario
             if self.whatsapp_manager:
+                # Recargar configuración y verificar
+                try:
+                    self.whatsapp_manager.reinicializar_configuracion()
+                except Exception:
+                    pass
                 self.whatsapp_enabled = self.whatsapp_manager.verificar_configuracion()
             
             return self.whatsapp_enabled

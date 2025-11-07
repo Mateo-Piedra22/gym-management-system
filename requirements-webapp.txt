@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+Jinja2
+python-multipart
+python-dotenv
+requests
+psutil
+psycopg2-binary
+reportlab
+openpyxl
+xlsxtpl

@@ -19,6 +19,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import uuid
 import threading
 import psutil
+import shutil
+import subprocess
 import psycopg2
 import psycopg2.extras
 import time
@@ -307,6 +309,23 @@ app = FastAPI(
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
+
+# Verificación de LibreOffice en el arranque
+@app.on_event("startup")
+def _check_libreoffice_startup():
+    try:
+        path = shutil.which("soffice") or shutil.which("soffice.exe")
+        if path:
+            try:
+                res = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                ver = (res.stdout or "").strip()
+            except Exception:
+                ver = "(versión no disponible)"
+            logging.info(f"LibreOffice disponible: {path} | {ver}")
+        else:
+            logging.warning("LibreOffice NO encontrado en el sistema")
+    except Exception as e:
+        logging.exception(f"Error comprobando LibreOffice en startup: {e}")
 
 # Webhooks de WhatsApp: verificación (GET) y recepción (POST)
 @app.get("/webhooks/whatsapp")
@@ -1050,7 +1069,7 @@ def require_owner(request: Request):
 
 
 def require_gestion_access(request: Request):
-    if request.session.get("logged_in") or request.session.get("gestion_profesor_id"):
+    if request.session.get("logged_in") or request.session.get("gestion_profesor_id") or request.session.get("gestion_profesor_user_id"):
         return True
     raise HTTPException(status_code=401, detail="Acceso restringido a Gestión")
 
@@ -1082,7 +1101,7 @@ def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
         return {}
 
 @app.get("/api/rutinas/{rutina_id}/export/pdf")
-async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, _=Depends(require_gestion_access)):
+async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -1129,11 +1148,19 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, _=Depends(requir
         xlsx_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
         pdf_path = rm.convert_excel_to_pdf(xlsx_path)
         from starlette.responses import FileResponse
-        filename = os.path.basename(pdf_path)
-        # Entregar el PDF en modo inline para permitir la previsualización en iframe (alineado con recibos)
-        resp = FileResponse(pdf_path, media_type="application/pdf")
+        # Determinar nombre de archivo final (permite override por query param)
         try:
-            resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+            final_name = os.path.basename(filename) if filename else os.path.basename(pdf_path)
+            if not final_name.lower().endswith(".pdf"):
+                final_name = f"{final_name}.pdf"
+            # Limitar longitud para evitar encabezados problemáticos
+            final_name = final_name[:150]
+        except Exception:
+            final_name = os.path.basename(pdf_path)
+        # Entregar el PDF en modo inline para permitir la previsualización en iframe (alineado con recibos)
+        resp = FileResponse(pdf_path, media_type="application/pdf", filename=final_name)
+        try:
+            resp.headers["Content-Disposition"] = f'inline; filename="{final_name}"'
         except Exception:
             pass
         return resp
@@ -1144,7 +1171,7 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, _=Depends(requir
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/rutinas/{rutina_id}/export/excel")
-async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, _=Depends(require_gestion_access)):
+async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -1179,12 +1206,24 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, _=Depends(requ
                         self.nombre = nombre
                 usuario = _Usr("Plantilla")
         ejercicios_por_dia = _build_exercises_by_day(rutina)
+        # Asegurar semanas dentro de un rango razonable (evita valores extremos del cliente)
+        try:
+            weeks = max(1, min(int(weeks), 4))
+        except Exception:
+            weeks = 1
         out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
-        filename = os.path.basename(out_path)
+        # Determinar nombre de archivo final (permite override por query param)
+        try:
+            final_name = os.path.basename(filename) if filename else os.path.basename(out_path)
+            if not final_name.lower().endswith(".xlsx"):
+                final_name = f"{final_name}.xlsx"
+            final_name = final_name[:150]
+        except Exception:
+            final_name = os.path.basename(out_path)
         return FileResponse(
             out_path,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=filename,
+            filename=final_name,
         )
     except HTTPException:
         raise
@@ -1822,13 +1861,11 @@ async def do_login(request: Request):
 
 @app.post("/logout")
 async def do_logout(request: Request, _=Depends(require_owner)):
-    # No finalizar automáticamente sesiones de trabajo del profesor en logout POST
     request.session.clear()
     return RedirectResponse(url="/gestion/login", status_code=303)
 
 @app.get("/logout")
 async def logout_get(request: Request):
-    # No finalizar automáticamente sesiones de trabajo del profesor en logout GET
     request.session.clear()
     return RedirectResponse(url="/gestion/login", status_code=303)
 
@@ -1845,6 +1882,18 @@ async def dashboard_logout_get(request: Request):
 
 @app.get("/gestion/logout")
 async def gestion_logout_get(request: Request):
+    # Finalizar automáticamente sesión de trabajo del profesor si existe
+    try:
+        db = _get_db()
+        pid = request.session.get("gestion_profesor_id")
+        if db is not None and pid is not None:
+            try:
+                pid_int = int(pid)
+                db.finalizar_sesion_trabajo_profesor(pid_int)  # type: ignore
+            except Exception:
+                pass
+    except Exception:
+        pass
     request.session.clear()
     return RedirectResponse(url="/gestion/login", status_code=303)
 
@@ -2264,7 +2313,7 @@ async def dashboard(request: Request):
 @app.get("/gestion")
 async def gestion(request: Request):
     # Redirigir a login de Gestión si no hay sesión activa (dueño o profesor)
-    if not (request.session.get("logged_in") or request.session.get("gestion_profesor_id")):
+    if not (request.session.get("logged_in") or request.session.get("gestion_profesor_id") or request.session.get("gestion_profesor_user_id")):
         return RedirectResponse(url="/gestion/login", status_code=303)
     theme_vars = read_theme_vars(static_dir / "style.css")
     ctx = {
@@ -3200,14 +3249,18 @@ async def api_tipos_cuota_activos(_=Depends(require_gestion_access)):
     if guard:
         return guard
     try:
-        # Preferir SQL directo para robustez
-        with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT id, nombre, precio, duracion_dias, activo FROM tipos_cuota WHERE activo = true ORDER BY precio ASC, nombre ASC")
-            rows = cur.fetchall() or []
-            for r in rows:
-                r["nombre"] = (r.get("nombre") or "").strip()
-            return rows
+        tipos = db.obtener_tipos_cuota_activos()  # type: ignore
+        tipos = sorted(tipos or [], key=lambda t: (float(getattr(t, 'precio', 0.0) or 0.0), (getattr(t, 'nombre', '') or '')))
+        return [
+            {
+                "id": int(getattr(t, 'id')) if getattr(t, 'id') is not None else None,
+                "nombre": (getattr(t, 'nombre', '') or '').strip(),
+                "precio": float(getattr(t, 'precio', 0.0) or 0.0),
+                "duracion_dias": int(getattr(t, 'duracion_dias', 30) or 30),
+                "activo": bool(getattr(t, 'activo', True)),
+            }
+            for t in tipos
+        ]
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -3221,13 +3274,24 @@ async def api_tipos_cuota_catalogo(_=Depends(require_gestion_access)):
     if guard:
         return guard
     try:
-        with db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT id, nombre, precio, duracion_dias, activo, descripcion, icono_path FROM tipos_cuota ORDER BY activo DESC, precio ASC, nombre ASC")
-            rows = cur.fetchall() or []
-            for r in rows:
-                r["nombre"] = (r.get("nombre") or "").strip()
-            return rows
+        tipos = db.obtener_tipos_cuota(solo_activos=False)  # type: ignore
+        tipos = sorted(tipos or [], key=lambda t: (
+            0 if bool(getattr(t, 'activo', True)) else 1,
+            float(getattr(t, 'precio', 0.0) or 0.0),
+            (getattr(t, 'nombre', '') or '')
+        ))
+        return [
+            {
+                "id": int(getattr(t, 'id')) if getattr(t, 'id') is not None else None,
+                "nombre": (getattr(t, 'nombre', '') or '').strip(),
+                "precio": float(getattr(t, 'precio', 0.0) or 0.0),
+                "duracion_dias": int(getattr(t, 'duracion_dias', 30) or 30),
+                "activo": bool(getattr(t, 'activo', True)),
+                "descripcion": getattr(t, 'descripcion', None),
+                "icono_path": getattr(t, 'icono_path', None),
+            }
+            for t in tipos
+        ]
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -3284,6 +3348,10 @@ async def api_tipos_cuota_create(request: Request, _=Depends(require_gestion_acc
             if new_id is None:
                 raise HTTPException(status_code=500, detail="No se pudo crear el tipo de cuota")
             conn.commit()
+            try:
+                db.cache.invalidate('tipos')  # type: ignore
+            except Exception:
+                pass
             return {"ok": True, "id": new_id}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -3333,6 +3401,10 @@ async def api_tipos_cuota_update(tipo_id: int, request: Request, _=Depends(requi
             if not ok:
                 raise HTTPException(status_code=500, detail="No se pudo actualizar el tipo de cuota")
             conn.commit()
+            try:
+                db.cache.invalidate('tipos')  # type: ignore
+            except Exception:
+                pass
             return {"ok": True, "id": int(tipo_id)}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -3357,6 +3429,10 @@ async def api_tipos_cuota_delete(tipo_id: int, _=Depends(require_gestion_access)
             if not ok:
                 raise HTTPException(status_code=500, detail="No se pudo eliminar el tipo de cuota")
             conn.commit()
+            try:
+                db.cache.invalidate('tipos')  # type: ignore
+            except Exception:
+                pass
             return {"ok": True}
     except HTTPException:
         raise
@@ -3484,6 +3560,11 @@ async def gestion_auth(request: Request):
         profesor_id = None
 
     request.session["gestion_profesor_user_id"] = usuario_id
+    # Marcar rol para la UI y controles de sesión
+    try:
+        request.session["role"] = "profesor"
+    except Exception:
+        pass
     if profesor_id:
         request.session["gestion_profesor_id"] = int(profesor_id)
         try:
@@ -3501,6 +3582,24 @@ async def api_theme(_=Depends(require_owner)):
         return JSONResponse(theme_vars)
     except Exception as e:
         logging.exception("Error in /api/theme")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# Verificación de LibreOffice en runtime
+@app.get("/api/system/libreoffice")
+async def api_system_libreoffice(_=Depends(require_owner)):
+    try:
+        path = shutil.which("soffice") or shutil.which("soffice.exe")
+        available = bool(path)
+        version = None
+        if path:
+            try:
+                res = subprocess.run([path, "--version"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                version = (res.stdout or "").strip()
+            except Exception:
+                version = None
+        return JSONResponse({"available": available, "path": path, "version": version})
+    except Exception as e:
+        logging.exception("Error en /api/system/libreoffice")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -7088,3 +7187,555 @@ async def api_profesor_update(profesor_id: int, request: Request, _=Depends(requ
     except Exception as e:
         logging.exception("Error en PUT /api/profesores/{id}")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Endpoints de administración de WhatsApp (estado, estadísticas, control de servidor, configuración) ---
+
+@app.get("/api/whatsapp/state")
+async def api_whatsapp_state(_=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return {"disponible": False, "habilitado": False, "servidor_activo": False, "configuracion_valida": False}
+    guard = _circuit_guard_json(db, "/api/whatsapp/state")
+    if guard:
+        return guard
+    if pm is None:
+        return {"disponible": False, "habilitado": False, "servidor_activo": False, "configuracion_valida": False}
+    try:
+        return pm.obtener_estado_whatsapp()
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/whatsapp/stats")
+async def api_whatsapp_stats(_=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return {"error": "DB no disponible"}
+    guard = _circuit_guard_json(db, "/api/whatsapp/stats")
+    if guard:
+        return guard
+    if pm is None:
+        return {"error": "PaymentManager no disponible"}
+    try:
+        return pm.obtener_estadisticas_whatsapp()
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# --- Pendings, retry y limpieza de fallidos ---
+
+@app.get("/api/whatsapp/pendings")
+async def api_whatsapp_pendings(request: Request, _=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"items": []})
+    guard = _circuit_guard_json(db, "/api/whatsapp/pendings")
+    if guard:
+        return guard
+    try:
+        dias_param = request.query_params.get("dias")
+        try:
+            dias = int(dias_param) if dias_param else 30
+        except Exception:
+            dias = 30
+        limite_param = request.query_params.get("limit")
+        try:
+            limite = int(limite_param) if limite_param else 200
+        except Exception:
+            limite = 200
+        interval_str = f"{dias} days"
+        items: list[dict[str, Any]] = []
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT DISTINCT ON (wm.phone_number)
+                       wm.id,
+                       wm.user_id,
+                       COALESCE(u.nombre,'') AS usuario_nombre,
+                       COALESCE(u.telefono,'') AS usuario_telefono,
+                       wm.phone_number,
+                       wm.message_type,
+                       wm.template_name,
+                       wm.message_content,
+                       wm.status,
+                       wm.message_id,
+                       wm.sent_at AS fecha_envio
+                FROM whatsapp_messages wm
+                LEFT JOIN usuarios u ON u.id = wm.user_id
+                WHERE wm.status = 'failed'
+                  AND wm.sent_at >= CURRENT_TIMESTAMP - (%s::interval)
+                ORDER BY wm.phone_number, wm.sent_at DESC
+                LIMIT %s
+                """,
+                (interval_str, limite)
+            )
+            for row in cur.fetchall() or []:
+                try:
+                    r = dict(row)
+                except Exception:
+                    r = row  # type: ignore
+                # Asegurar serialización de fecha
+                if r.get("fecha_envio") is not None:
+                    try:
+                        r["fecha_envio"] = str(r["fecha_envio"])  # ISO-like
+                    except Exception:
+                        pass
+                items.append(r)
+        return {"items": items}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"error": str(e), "items": []}, status_code=500)
+
+@app.post("/api/whatsapp/retry")
+async def api_whatsapp_retry(request: Request, _=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/whatsapp/retry")
+    if guard:
+        return guard
+    if pm is None:
+        return JSONResponse({"success": False, "message": "PaymentManager no disponible"}, status_code=503)
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        telefono = str(payload.get("telefono") or payload.get("phone") or "").strip()
+        usuario_id = payload.get("usuario_id")
+
+        uid = None
+        if usuario_id is not None:
+            try:
+                uid = int(usuario_id)
+            except Exception:
+                uid = None
+        if uid is None and telefono:
+            try:
+                uid = db._obtener_user_id_por_telefono_whatsapp(telefono)  # type: ignore
+            except Exception:
+                uid = None
+        if uid is None:
+            return JSONResponse({"success": False, "message": "usuario_id no encontrado"}, status_code=400)
+
+        last_type = None
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if telefono:
+                cur.execute(
+                    """
+                    SELECT message_type, template_name, message_content
+                    FROM whatsapp_messages
+                    WHERE phone_number = %s AND status = 'failed'
+                    ORDER BY sent_at DESC
+                    LIMIT 1
+                    """,
+                    (telefono,)
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT message_type, template_name, message_content
+                    FROM whatsapp_messages
+                    WHERE user_id = %s AND status = 'failed'
+                    ORDER BY sent_at DESC
+                    LIMIT 1
+                    """,
+                    (uid,)
+                )
+            row = cur.fetchone() or {}
+            try:
+                last_type = (row.get("message_type") or "").strip().lower()
+            except Exception:
+                last_type = None
+
+        if last_type in ("welcome", "bienvenida"):
+            ok = pm.enviar_mensaje_bienvenida_whatsapp(int(uid))
+            return {"success": bool(ok), "tipo": last_type or "welcome"}
+        elif last_type in ("overdue", "recordatorio_vencida", "payment_reminder", "pago_recordatorio"):
+            if getattr(pm, 'whatsapp_manager', None):
+                ok = pm.whatsapp_manager.enviar_recordatorio_cuota_vencida(int(uid))
+                return {"success": bool(ok), "tipo": last_type or "recordatorio_vencida"}
+            else:
+                return JSONResponse({"success": False, "message": "Gestor WhatsApp no disponible"}, status_code=503)
+        elif last_type in ("class_reminder", "recordatorio_clase"):
+            return JSONResponse({"success": False, "message": "recordatorio_clase requiere datos de clase"}, status_code=400)
+        else:
+            ok = pm.enviar_mensaje_bienvenida_whatsapp(int(uid))
+            return {"success": bool(ok), "tipo": last_type or "welcome"}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/whatsapp/clear_failures")
+async def api_whatsapp_clear_failures(request: Request, _=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/whatsapp/clear_failures")
+    if guard:
+        return guard
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        telefono = str(payload.get("telefono") or payload.get("phone") or "").strip()
+        dias_param = payload.get("desde_dias") or payload.get("days")
+        try:
+            dias = int(dias_param) if dias_param is not None else 30
+        except Exception:
+            dias = 30
+        interval_str = f"{dias} days"
+
+        total_deleted = 0
+        phones: list[str] = []
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if telefono:
+                cur.execute(
+                    """
+                    DELETE FROM whatsapp_messages
+                    WHERE phone_number = %s AND status = 'failed'
+                      AND sent_at >= CURRENT_TIMESTAMP - (%s::interval)
+                    """,
+                    (telefono, interval_str)
+                )
+                try:
+                    total_deleted = int(cur.rowcount or 0)
+                except Exception:
+                    total_deleted = 0
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+                phones = [telefono] if telefono else []
+            else:
+                # Obtener teléfonos con fallidos recientes y limpiar todos
+                cur.execute(
+                    """
+                    SELECT DISTINCT phone_number
+                    FROM whatsapp_messages
+                    WHERE status = 'failed'
+                      AND sent_at >= CURRENT_TIMESTAMP - (%s::interval)
+                    ORDER BY phone_number
+                    """,
+                    (interval_str,)
+                )
+                phones = [r.get("phone_number") for r in (cur.fetchall() or []) if r.get("phone_number")]
+                for ph in phones:
+                    try:
+                        cur.execute(
+                            """
+                            DELETE FROM whatsapp_messages
+                            WHERE phone_number = %s AND status = 'failed'
+                              AND sent_at >= CURRENT_TIMESTAMP - (%s::interval)
+                            """,
+                            (ph, interval_str)
+                        )
+                        total_deleted += int(cur.rowcount or 0)
+                    except Exception:
+                        pass
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+        return {"success": True, "deleted": int(total_deleted), "phones": phones}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/whatsapp/server/start")
+async def api_whatsapp_server_start(_=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/whatsapp/server/start")
+    if guard:
+        return guard
+    if pm is None:
+        return JSONResponse({"success": False, "message": "PaymentManager no disponible"}, status_code=503)
+    try:
+        ok = pm.iniciar_servidor_whatsapp()
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/whatsapp/server/stop")
+async def api_whatsapp_server_stop(_=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/whatsapp/server/stop")
+    if guard:
+        return guard
+    if pm is None:
+        return JSONResponse({"success": False, "message": "PaymentManager no disponible"}, status_code=503)
+    try:
+        ok = pm.detener_servidor_whatsapp()
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/whatsapp/config")
+async def api_whatsapp_config(request: Request, _=Depends(require_owner)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/whatsapp/config")
+    if guard:
+        return guard
+    if pm is None:
+        return JSONResponse({"success": False, "message": "PaymentManager no disponible"}, status_code=503)
+    try:
+        content_type = request.headers.get("content-type", "")
+        if content_type.startswith("application/json"):
+            data = await request.json()
+        else:
+            data = await request.form()
+    except Exception:
+        data = {}
+    # Filtrar claves permitidas (configuración conocida)
+    allowed_keys = {
+        "phone_number_id", "whatsapp_business_account_id", "access_token",
+        "allowlist_numbers", "allowlist_enabled", "enable_webhook",
+        "max_retries", "retry_delay_seconds"
+    }
+    try:
+        cfg = {k: (data.get(k)) for k in allowed_keys if (k in data)}
+        # Normalizar booleanos
+        for bk in ("allowlist_enabled", "enable_webhook"):
+            if bk in cfg and cfg[bk] is not None:
+                val = cfg[bk]
+                if isinstance(val, bool):
+                    cfg[bk] = "true" if val else "false"
+                else:
+                    cfg[bk] = str(val).strip().lower()
+        ok = pm.configurar_whatsapp(cfg)
+        try:
+            pm.start_whatsapp_initialization(background=True, delay_seconds=1.5)
+        except Exception:
+            pass
+        return {"success": bool(ok), "applied_keys": list(cfg.keys())}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# --- Endpoints de WhatsApp por usuario (acciones puntuales desde Gestión) ---
+
+@app.post("/api/usuarios/{usuario_id}/whatsapp/bienvenida")
+async def api_usuario_whatsapp_bienvenida(usuario_id: int, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/bienvenida")
+    if guard:
+        return guard
+    if pm is None:
+        return JSONResponse({"success": False, "message": "PaymentManager no disponible"}, status_code=503)
+    try:
+        ok = pm.enviar_mensaje_bienvenida_whatsapp(int(usuario_id))
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/whatsapp/confirmacion_pago")
+async def api_usuario_whatsapp_confirmacion_pago(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    """Envía confirmación de pago por WhatsApp para un usuario.
+    Si no se proporcionan datos en el payload, intenta usar el último pago del usuario.
+    """
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/confirmacion_pago")
+    if guard:
+        return guard
+    if pm is None or not getattr(pm, 'whatsapp_manager', None):
+        return JSONResponse({"success": False, "message": "Gestor WhatsApp no disponible"}, status_code=503)
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        monto = payload.get("monto")
+        mes = payload.get("mes") or payload.get("month")
+        anio = payload.get("año") or payload.get("anio") or payload.get("year")
+
+        nombre = None
+        telefono = None
+        try:
+            u = db.obtener_usuario_por_id(int(usuario_id))  # type: ignore
+            if u:
+                nombre = getattr(u, 'nombre', None)
+                telefono = getattr(u, 'telefono', None)
+        except Exception:
+            pass
+
+        # Si faltan datos, intentar obtener el pago más reciente
+        if (monto is None or mes is None or anio is None):
+            try:
+                # Usa PaymentManager para obtener historial y tomar el más reciente
+                pagos = []
+                if pm and hasattr(pm, 'obtener_historial_pagos'):
+                    pagos = pm.obtener_historial_pagos(int(usuario_id), limit=1)  # type: ignore
+                if pagos:
+                    p0 = pagos[0]
+                    monto = getattr(p0, 'monto', None)
+                    mes = getattr(p0, 'mes', None)
+                    anio = getattr(p0, 'año', None)
+            except Exception:
+                pass
+
+        # Validar datos mínimos
+        if not telefono or monto is None or mes is None or anio is None:
+            return JSONResponse({"success": False, "message": "Datos insuficientes para confirmación"}, status_code=400)
+
+        payment_data = {
+            'user_id': int(usuario_id),
+            'phone': str(telefono),
+            'name': str(nombre or ""),
+            'amount': float(monto),
+            'date': f"{int(mes):02d}/{int(anio)}"
+        }
+
+        ok = pm.whatsapp_manager.send_payment_confirmation(payment_data)
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/whatsapp/desactivacion")
+async def api_usuario_whatsapp_desactivacion(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    """Envía notificación de desactivación por cuotas vencidas u otro motivo."""
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/desactivacion")
+    if guard:
+        return guard
+    if pm is None or not getattr(pm, 'whatsapp_manager', None):
+        return JSONResponse({"success": False, "message": "Gestor WhatsApp no disponible"}, status_code=503)
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        motivo = (payload.get("motivo") or "cuotas vencidas").strip()
+        ok = pm.whatsapp_manager.enviar_notificacion_desactivacion(usuario_id=int(usuario_id), motivo=motivo, force_send=True)
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/whatsapp/recordatorio_vencida")
+async def api_usuario_whatsapp_recordatorio_vencida(usuario_id: int, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/recordatorio_vencida")
+    if guard:
+        return guard
+    if pm is None or not getattr(pm, 'whatsapp_manager', None):
+        return JSONResponse({"success": False, "message": "Gestor WhatsApp no disponible"}, status_code=503)
+    try:
+        ok = pm.whatsapp_manager.enviar_recordatorio_cuota_vencida(int(usuario_id))
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/usuarios/{usuario_id}/whatsapp/recordatorio_clase")
+async def api_usuario_whatsapp_recordatorio_clase(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    pm = _get_pm()
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/recordatorio_clase")
+    if guard:
+        return guard
+    if pm is None or not getattr(pm, 'whatsapp_manager', None):
+        return JSONResponse({"success": False, "message": "Gestor WhatsApp no disponible"}, status_code=503)
+    try:
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        clase_info = {
+            'tipo_clase': (payload.get('tipo_clase') or payload.get('clase_nombre') or ''),
+            'fecha': (payload.get('fecha') or ''),
+            'hora': (payload.get('hora') or ''),
+        }
+        ok = pm.whatsapp_manager.enviar_recordatorio_horario_clase(int(usuario_id), clase_info)
+        return {"success": bool(ok)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# Último mensaje de WhatsApp del usuario
+@app.get("/api/usuarios/{usuario_id}/whatsapp/ultimo")
+async def api_usuario_whatsapp_ultimo(usuario_id: int, request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/ultimo")
+    if guard:
+        return guard
+    try:
+        direccion = request.query_params.get("direccion") or None
+        tipo = request.query_params.get("tipo") or None
+        if direccion not in (None, "enviado", "recibido"):
+            direccion = None
+        item = db.obtener_ultimo_mensaje_whatsapp(user_id=int(usuario_id), telefono=None, message_type=tipo, direccion=direccion)  # type: ignore
+        if not item:
+            return {"success": True, "item": None}
+        return {"success": True, "item": item}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# Historial de WhatsApp por usuario
+@app.get("/api/usuarios/{usuario_id}/whatsapp/historial")
+async def api_usuario_whatsapp_historial(usuario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/historial")
+    if guard:
+        return guard
+    try:
+        tipo = request.query_params.get("tipo") or None
+        limite_q = request.query_params.get("limit")
+        limite = 50
+        try:
+            limite = int(limite_q) if (limite_q and str(limite_q).isdigit()) else 50
+        except Exception:
+            limite = 50
+        items = db.obtener_historial_mensajes_whatsapp(user_id=int(usuario_id), message_type=(tipo or None), limit=int(limite))  # type: ignore
+        # Normalizar fechas a string para evitar problemas de serialización
+        for it in items or []:
+            for k in ("sent_at", "created_at"):
+                if it.get(k) is not None:
+                    try:
+                        it[k] = str(it[k])
+                    except Exception:
+                        pass
+        return {"success": True, "items": items}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)

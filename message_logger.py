@@ -440,7 +440,7 @@ class MessageLogger:
             return False
     
     def actualizar_configuracion_antispam(self, nueva_config: Dict[str, int]) -> bool:
-        """Actualiza la configuración anti-spam"""
+        """Actualiza la configuración anti-spam en la tabla genérica de configuración."""
         try:
             # Validar configuración
             campos_requeridos = [
@@ -455,12 +455,18 @@ class MessageLogger:
                         f"Campo {campo} requerido y debe ser entero"
                     )
 
-            # Actualizar configuración en base de datos
+            # Mapear a claves almacenadas en `configuracion`
+            mapping = {
+                'max_mensajes_por_hora': 'whatsapp_max_mensajes_hora',
+                'max_mensajes_por_dia': 'whatsapp_max_mensajes_dia',
+                'intervalo_minimo_minutos': 'whatsapp_intervalo_minimo',
+                'max_intentos_fallidos': 'whatsapp_max_intentos_fallidos',
+            }
+
+            # Actualizar configuración en base de datos (tabla genérica)
             for campo, valor in nueva_config.items():
-                if campo in campos_requeridos:
-                    self.db.actualizar_configuracion_whatsapp(
-                        campo, str(valor)
-                    )
+                if campo in mapping:
+                    self.db.actualizar_configuracion(mapping[campo], str(int(valor)))
 
             # Recargar configuración local
             self.config_antispam = self._cargar_configuracion_antispam()
