@@ -67,6 +67,92 @@ def run_cmd_capture(args: list, timeout: Optional[int] = 20) -> Tuple[int, str, 
 # Eliminado: verificación/instalación de Java ya no es requerida.
 
 
+def ensure_pywin32_installed() -> bool:
+    """
+    Verifica que pywin32 esté instalado para soporte COM en Windows.
+    Si falta, intenta instalarlo automáticamente con pip.
+    Retorna True si está disponible al finalizar.
+    """
+    try:
+        import win32com.client  # noqa: F401
+        return True
+    except Exception:
+        pass
+    try:
+        # Instalar silenciosamente pywin32
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pywin32"],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        import win32com.client  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def find_libreoffice_soffice() -> Optional[str]:
+    """
+    Localiza el ejecutable de LibreOffice (`soffice`/`soffice.exe`).
+    Prioriza PATH y luego rutas típicas de Windows.
+    """
+    try:
+        found = shutil.which("soffice") or shutil.which("soffice.exe")
+        if found:
+            return found
+    except Exception:
+        pass
+    # Rutas típicas en Windows
+    candidates = [
+        os.path.join("C:\\Program Files\\LibreOffice", "program", "soffice.exe"),
+        os.path.join("C:\\Program Files (x86)\\LibreOffice", "program", "soffice.exe"),
+    ]
+    for c in candidates:
+        try:
+            if os.path.exists(c):
+                return c
+        except Exception:
+            pass
+    # Buscar en disco por instalación alternativa (limitado para rendimiento)
+    try:
+        for base in ("C:\\Program Files", "C:\\Program Files (x86)"):
+            p = os.path.join(base, "LibreOffice", "program", "soffice.exe")
+            if os.path.exists(p):
+                return p
+    except Exception:
+        pass
+    return None
+
+
+def ensure_libreoffice_installed() -> Tuple[bool, str]:
+    """
+    Intenta instalar LibreOffice mediante winget si no está presente.
+    Retorna (ok, mensaje).
+    """
+    # Si ya está disponible, no hacer nada
+    try:
+        if find_libreoffice_soffice():
+            return True, "LibreOffice ya instalado"
+    except Exception:
+        pass
+    if not is_command_available("winget"):
+        return False, "winget no está disponible para instalar LibreOffice"
+    # Intento principal: ID oficial del proyecto
+    args_primary = [
+        "winget", "install", "-e", "--id", "TheDocumentFoundation.LibreOffice",
+        "--source", "winget", "--silent", "--accept-package-agreements", "--accept-source-agreements",
+    ]
+    code, out, err = run_cmd_capture(args_primary, timeout=1800)
+    if code == 0:
+        return True, out
+    # Intento alternativo por algunos catálogos
+    args_alt = [
+        "winget", "install", "-e", "--id", "LibreOffice.LibreOffice",
+        "--source", "winget", "--silent", "--accept-package-agreements", "--accept-source-agreements",
+    ]
+    code2, out2, err2 = run_cmd_capture(args_alt, timeout=1800)
+    ok = code2 == 0
+    msg = out2 if ok else ((err or "") + "\n" + (err2 or ""))
+    return ok, msg
+
+
 def is_postgresql_installed(required_major: int = 17) -> bool:
     # Detectar por comando y por ruta típica
     if is_command_available("psql"):

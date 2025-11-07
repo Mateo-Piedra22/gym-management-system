@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gestión • {{ gym_name }}</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
   <script>
     (function(){
       function loadScript(src){
@@ -130,9 +133,9 @@
      .table-actions { display:flex; gap:8px; justify-content:flex-end; flex-wrap: nowrap; white-space: nowrap; min-width: max-content; }
      .table-actions .btn { margin: 0; flex: 0 0 auto; }
     /* Modales */
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: var(--z-modal-backdrop); }
     /* Elevar el modal de configuración de numeración por encima del de vista previa */
-    #modal-recibo-config { z-index: 110; }
+    #modal-recibo-config { z-index: calc(var(--z-modal-backdrop) + 1); }
     .modal { width: 640px; max-width: 95vw; background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 20px 30px rgba(0,0,0,0.35); overflow: hidden; display:flex; flex-direction:column; }
     .modal-header { display:flex; align-items:center; justify-content:space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
     .modal-body { padding: 16px; flex: 1 1 auto; overflow-y: auto; }
@@ -176,7 +179,7 @@
     .btn.icon-only:hover { background: rgba(255,255,255,0.06); }
     .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
     /* Toasts */
-    .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; pointer-events: none; }
+    .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: var(--z-toast); pointer-events: none; }
     .toast { pointer-events: all; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .toast .message { flex: 1; }
     .toast .actions { display: flex; gap: 8px; }
@@ -205,11 +208,27 @@
     .loader-overlay .spinner{ width:24px; height:24px; border:3px solid var(--border); border-top-color:#22c55e; border-radius:50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Spinner pequeño para botones */
+    .btn-spinner{ display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:#22c55e; border-radius:50%; animation: spin .8s linear infinite; vertical-align: middle; }
+
+    /* Overrides: hover chips border accent unificado */
+    .chip:hover { border-color: var(--accent); }
+
+    /* Microajuste: chips sugeridos con fondo cálido y borde de acento */
+    .chips .chip[data-suggest]:hover { background: rgba(176,125,93,0.18); border-color: var(--accent); }
+
+    /* Overrides de layout para scroll: sidebar fijo y main desplazable */
+    .layout { overflow: hidden; }
+    .app-shell { display: grid; grid-template-columns: 280px 1fr; gap: 0; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+    .sidebar { position: sticky; top: 0; height: 100%; overflow: hidden; }
+    .main { overflow: auto; height: 100%; min-height: 0; -webkit-overflow-scrolling: touch; }
+
   </style>
 </head>
 <body>
+  <a href="#main-content" class="skip-link">Saltar al contenido</a>
   <div class="layout">
-    <header id="main-header">
+    <header id="main-header" class="app-header">
       <div class="brand">
         <div class="info">
           <img src="{{ logo_url }}" alt="Logo" />
@@ -223,11 +242,19 @@
                 data-role="{{ 'dueño' if request.session.get('logged_in') else ('profesor' if request.session.get('gestion_profesor_id') else '') }}"
                 data-prof-id="{{ request.session.get('gestion_profesor_id') or '' }}"
                 data-prof-uid="{{ request.session.get('gestion_profesor_user_id') or '' }}">Sesión: —</span>
-          <a class="btn icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir">
-            <img src="/assets/salir.png" alt="Salir" />
+          <button class="btn outline neutral icon-only" data-sidebar-toggle aria-label="Mostrar/ocultar navegación" title="Mostrar/ocultar navegación">
+            <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
+          </button>
+          <a class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir">
+            <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
           </a>
         </div>
       </div>
+      <nav class="breadcrumbs" aria-label="Breadcrumbs" style="padding: 0 24px 6px;">
+        <a href="/">Inicio</a>
+        <span class="sep">/</span>
+        <span>Gestión</span>
+      </nav>
       <nav class="tabs">
         <button class="tab active" data-tab="usuarios">Usuarios</button>
         {% if request.session.get('logged_in') %}
@@ -240,7 +267,24 @@
       </nav>
     </header>
 
-    <main>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegación lateral">
+        <div class="sidebar-header">
+          <span class="nav-label">Módulos</span>
+          <button class="btn icon-only ghost" data-sidebar-toggle aria-label="Colapsar barra" title="Colapsar barra"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
+        </div>
+        <nav class="nav-group">
+          <a href="#" class="nav-item active" data-tab="usuarios"><i class="bi bi-people" aria-hidden="true"></i><span>Usuarios</span></a>
+          {% if request.session.get('logged_in') %}
+          <a href="#" class="nav-item" data-tab="profesores"><i class="bi bi-person-badge" aria-hidden="true"></i><span>Profesores</span></a>
+          {% endif %}
+          <a href="#" class="nav-item" data-tab="pagos"><i class="bi bi-cash-coin" aria-hidden="true"></i><span>Pagos</span></a>
+          <a href="#" class="nav-item" data-tab="ejercicios"><i class="bi bi-bar-chart" aria-hidden="true"></i><span>Ejercicios</span></a>
+          <a href="#" class="nav-item" data-tab="rutinas"><i class="bi bi-list-check" aria-hidden="true"></i><span>Rutinas</span></a>
+          <a href="#" class="nav-item" data-tab="configuracion"><i class="bi bi-gear" aria-hidden="true"></i><span>Configuración</span></a>
+        </nav>
+      </aside>
+      <main class="main" id="main-content">
       <section id="panel-pagos" class="panel">
         <div class="split">
           <div class="split-main">
@@ -257,14 +301,14 @@
                 <option value="50" selected>50</option>
                 <option value="100">100</option>
               </select>
-              <button class="btn" id="pagos-refresh">Actualizar</button>
-              <button class="btn secondary" id="pagos-filtros-btn">Filtros avanzados</button>
-              <button class="btn" id="pagos-new">Nuevo Pago</button>
-              <button class="btn secondary" id="pagos-export-csv">Exportar CSV</button>
+              <button class="btn info" id="pagos-refresh">Actualizar</button>
+              <button class="btn outline neutral" id="pagos-filtros-btn">Filtros avanzados</button>
+              <button class="btn success" id="pagos-new">Nuevo Pago</button>
+              <button class="btn info" id="pagos-export-csv">Exportar CSV</button>
               <div id="recibo-controls" style="margin-left:auto; display:flex; align-items:center; gap:10px">
                 <span id="recibo-next" class="muted" title="Próximo número de recibo" style="padding:2px 8px; border:1px solid var(--border); border-radius:12px;">Recibo #—</span>
-                <button class="btn secondary" id="recibo-config-btn" title="Configurar numeración" style="padding:6px 10px; display:inline-flex; align-items:center; gap:8px">
-                  <img src="/assets/gear.png" alt="Configurar" style="width:16px; height:16px;" />
+                <button class="btn outline neutral" id="recibo-config-btn" title="Configurar numeración" style="padding:6px 10px; display:inline-flex; align-items:center; gap:8px">
+                  <i class="bi bi-gear" aria-hidden="true"></i>
                   <span style="font-size:12px">Numeración</span>
                 </button>
                 <span id="pagos-count" class="muted"></span>
@@ -300,7 +344,7 @@
                   <h3 style="margin:0; font-size:16px;">Pago seleccionado</h3>
                   <span id="pago-side-id" class="muted"></span>
                 </div>
-                <button class="btn secondary" id="pagos-clear-selection">Limpiar</button>
+                <button class="btn outline neutral" id="pagos-clear-selection">Limpiar</button>
               </div>
               <div class="block-body">
                 <div id="pago-side-empty" class="side-empty">Selecciona un pago para ver detalles.</div>
@@ -333,11 +377,11 @@
               <div class="block-header"><h3 style="margin:0; font-size:16px;">Acciones rápidas</h3></div>
               <div class="block-body">
                 <div class="input-row">
-                  <button class="btn" id="pago-side-ver-usuario">Ver usuario</button>
-                  <button class="btn secondary" id="pago-side-ver-detalle">Ver detalle</button>
-                  <button class="btn" id="pago-side-recibo">Ver recibo</button>
-                  <button class="btn" id="pago-side-editar">Editar pago</button>
-                  <button class="btn secondary" id="pago-side-eliminar">Eliminar pago</button>
+                  <button class="btn info" id="pago-side-ver-usuario">Ver usuario</button>
+                  <button class="btn info" id="pago-side-ver-detalle">Ver detalle</button>
+                  <button class="btn info" id="pago-side-recibo">Ver recibo</button>
+                  <button class="btn neutral" id="pago-side-editar">Editar pago</button>
+                  <button class="btn danger" id="pago-side-eliminar">Eliminar pago</button>
                 </div>
               </div>
             </div>
@@ -407,7 +451,7 @@
             <div id="ejercicio-side-descripcion" class="muted">—</div>
           </div>
           <div style="margin-top:8px">
-            <button class="btn secondary" id="ejercicio-side-edit" disabled>Editar</button>
+        <button class="btn neutral" id="ejercicio-side-edit" disabled>Editar</button>
             <button class="btn" id="ejercicio-side-delete" disabled>Eliminar</button>
           </div>
         </div>
@@ -461,7 +505,7 @@
         <label for="rutinas-usuario" id="rutinas-usuario-label">Usuario</label>
         <select id="rutinas-usuario"><option value="">Todos</option></select>
         <button class="btn" id="rutinas-refresh">Actualizar</button>
-        <button class="btn secondary" id="rutinas-export-csv">Exportar CSV</button>
+        <button class="btn info" id="rutinas-export-csv">Exportar CSV</button>
         <button class="btn" id="rutinas-new">Nueva Plantilla</button>
         <span id="rutinas-count" class="muted" style="margin-left:auto"></span>
       </div>
@@ -513,7 +557,7 @@
             <button class="btn" id="rutina-side-edit" disabled>Abrir</button>
             <button class="btn" id="rutina-side-delete" disabled>Eliminar</button>
             <button class="btn" id="rutina-side-assign" disabled>Asignar a usuario</button>
-            <button class="btn secondary" id="rutina-side-unassign" disabled>Desasignar</button>
+        <button class="btn outline neutral" id="rutina-side-unassign" disabled>Desasignar</button>
           </div>
         </div>
       </div>
@@ -542,7 +586,7 @@
               </select>
               <button class="btn" id="usuarios-refresh">Actualizar</button>
               <button class="btn" id="usuarios-new">Nuevo Usuario</button>
-              <button class="btn secondary" id="usuarios-export-csv">Exportar CSV</button>
+        <button class="btn info" id="usuarios-export-csv">Exportar CSV</button>
               <span id="usuarios-count" class="muted" style="margin-left:auto"></span>
             </div>
             <div class="table-scroll row-selectable">
@@ -570,7 +614,7 @@
                   <h3 style="margin:0; font-size:16px;">Usuario seleccionado</h3>
                   <span id="usuario-side-id" class="muted"></span>
                 </div>
-                <button class="btn secondary" id="usuarios-clear-selection">Limpiar</button>
+        <button class="btn outline neutral" id="usuarios-clear-selection">Limpiar</button>
               </div>
               <div class="block-body">
                 <div id="usuario-side-empty" class="side-empty">Selecciona un usuario para ver sus datos y pagos.</div>
@@ -611,15 +655,18 @@
               <div class="block-body">
                 <div class="input-row">
                   <button class="btn" id="usuario-side-editar">Editar usuario</button>
-                  <button class="btn secondary" id="usuario-side-eliminar">Eliminar</button>
+        <button class="btn danger" id="usuario-side-eliminar">Eliminar</button>
                   <button class="btn" id="usuario-side-ver-pagos">Ver pagos</button>
-                  <button class="btn secondary" id="usuario-side-toggle-activo">Activar/Inactivar</button>
+        <button class="btn warning" id="usuario-side-toggle-activo">Activar/Inactivar</button>
                   <button class="btn" id="usuario-side-registrar">Registrar pago</button>
                   <button class="btn" id="usuario-side-qr">Emitir QR Check-in</button>
-                  <button class="btn secondary" id="usuario-side-asistencia">Registrar asistencia</button>
+        <button class="btn success" id="usuario-side-asistencia">Registrar asistencia</button>
+                  <button class="btn" id="usuario-side-ficha">Ver ficha</button>
+                  
                 </div>
               </div>
             </div>
+            
             <div class="block" style="margin-top:12px">
               <div class="block-header"><h3 style="margin:0; font-size:16px;">Notas, Etiquetas y Estados</h3></div>
               <div class="block-body">
@@ -635,18 +682,18 @@
                     <span id="usuario-notas-counter" class="counter">0 caracteres</span>
                     <div style="display:flex; gap:8px; align-items:center">
                       <span id="usuario-notas-status" class="muted" role="status" aria-live="polite"></span>
-                      <button class="btn" id="usuario-notas-save">Guardar notas</button>
+                      <button class="btn success" id="usuario-notas-save">Guardar notas</button>
                     </div>
                   </div>
                 </div>
                 <div id="usuario-tab-etiquetas" class="tab-panel" style="display:none">
                   <div class="input-row">
                     <input id="usuario-etiqueta-input" type="text" placeholder="Nombre de etiqueta" style="flex:2" aria-label="Nombre de etiqueta">
-                    <button class="btn" id="usuario-etiqueta-add">Añadir etiqueta</button>
+                    <button class="btn success" id="usuario-etiqueta-add">Añadir etiqueta</button>
                   </div>
                   <div class="input-row" style="margin-top:6px">
                     <input id="usuario-etiqueta-filter" type="text" placeholder="Filtrar etiquetas" style="flex:1" aria-label="Filtrar etiquetas">
-                    <button id="usuario-etiqueta-filter-clear" class="btn secondary sm" title="Limpiar filtro">Limpiar</button>
+                    <button id="usuario-etiqueta-filter-clear" class="btn outline neutral sm" title="Limpiar filtro">Limpiar</button>
                   </div>
                   <div id="usuario-etiqueta-suggests" class="chips" style="margin-top:6px; display:none"></div>
                   <div id="usuario-etiquetas-list" class="chips" style="margin-top:8px"></div>
@@ -657,11 +704,11 @@
                     <select id="usuario-estado-template" style="flex:1" aria-label="Plantilla de estado"></select>
                     <input id="usuario-estado-descripcion" type="text" placeholder="Descripción" style="flex:2" aria-label="Descripción del estado">
                     <input id="usuario-estado-vencimiento" type="date" style="flex:1" aria-label="Fecha de vencimiento">
-                    <button class="btn" id="usuario-estado-add">Añadir estado</button>
+                    <button class="btn success" id="usuario-estado-add">Añadir estado</button>
                   </div>
                   <div class="input-row" style="margin-top:6px; align-items:center">
                     <input id="usuario-estados-filter" type="text" placeholder="Filtrar estados" style="flex:2" aria-label="Filtrar estados">
-                    <button id="usuario-estados-filter-clear" class="btn secondary sm" title="Limpiar filtro">Limpiar</button>
+                    <button id="usuario-estados-filter-clear" class="btn outline neutral sm" title="Limpiar filtro">Limpiar</button>
                     <label style="display:flex; align-items:center; gap:6px"><input id="usuario-estados-show-expired" type="checkbox" checked>Mostrar vencidos</label>
                   </div>
                   <div id="usuario-estados-list" style="margin-top:8px"></div>
@@ -671,13 +718,15 @@
             </div>
           </aside>
         </div>
-      </section>
-      <section id="panel-profesores" class="panel">
+  </section>
+  <section id="panel-profesores" class="panel">
   <div class="split">
     <div class="split-main">
       <div class="panel-controls">
         <select id="profesor-select" title="Seleccionar profesor" style="min-width:220px"></select>
-        <button class="btn" id="prof-refresh">Actualizar</button>
+        <button class="btn info" id="prof-refresh">Actualizar</button>
+        <button class="btn success" id="sesion-iniciar" title="Iniciar sesión de trabajo">Iniciar sesión</button>
+        <button class="btn danger" id="sesion-finalizar" title="Finalizar sesión de trabajo">Finalizar sesión</button>
         <span id="prof-sesion-estado" class="muted" style="margin-left:auto">Sesión: —</span>
       </div>
       <div class="subtabs" id="prof-subtabs" style="margin:8px 0">
@@ -690,7 +739,7 @@
           <div class="block-header">
             <h3>Datos del profesor</h3>
             <div class="panel-controls" style="margin-left:auto; gap:8px">
-              <button class="btn" id="prof-datos-save">Guardar</button>
+              <button class="btn success" id="prof-datos-save">Guardar</button>
             </div>
           </div>
           <div class="block-body">
@@ -703,6 +752,12 @@
               <input id="prof-dato-pin" type="text" placeholder="PIN" style="flex:1" />
               <label style="display:flex; align-items:center; gap:6px"><input id="prof-dato-activo" type="checkbox" />Activo</label>
               <span class="muted" id="prof-dato-rol-label" style="margin-left:auto">Rol: Profesor</span>
+            </div>
+            <div class="input-row" style="margin-top:8px; align-items:center">
+              <span class="muted" style="flex:1">Estado de sesión:</span>
+              <span id="sesion-estado" role="status" aria-live="polite" style="flex:1">—</span>
+              <span class="muted" style="flex:1">Duración:</span>
+              <span id="sesion-duracion" role="status" aria-live="polite" style="flex:1">—</span>
             </div>
           </div>
         </div>
@@ -756,7 +811,7 @@
             <input type="time" id="horario-fin" title="Fin" />
             <label style="display:flex; align-items:center; gap:6px"><input type="checkbox" id="horario-disponible" checked />Disponible</label>
             <button class="btn" id="horario-add">Añadir</button>
-            <button class="btn secondary" id="horario-cancel" style="display:none">Cancelar edición</button>
+        <button class="btn outline neutral" id="horario-cancel" style="display:none">Cancelar edición</button>
             <span id="horarios-count" class="muted"></span>
           </div>
         </div>
@@ -785,8 +840,8 @@
             <div class="panel-controls" style="margin-left:auto; gap:8px">
               <label>Inicio <input type="date" id="prof-ses-start" /></label>
               <label>Fin <input type="date" id="prof-ses-end" /></label>
-              <button class="btn secondary" id="prof-ses-week">Semana actual</button>
-              <button class="btn secondary" id="prof-ses-month">Mes actual</button>
+        <button class="btn tertiary" id="prof-ses-week">Semana actual</button>
+        <button class="btn tertiary" id="prof-ses-month">Mes actual</button>
               <button class="btn" id="prof-ses-refresh">Actualizar</button>
             </div>
           </div>
@@ -816,7 +871,7 @@
         <div class="block-header">
           <h3 style="margin:0; font-size:16px;">Configuración del profesor</h3>
           <div class="panel-controls" style="margin-left:auto; gap:8px">
-            <button class="btn" id="prof-config-save">Guardar</button>
+            <button class="btn success" id="prof-config-save">Guardar</button>
           </div>
         </div>
         <div class="block-body">
@@ -859,7 +914,32 @@
       </div>
     </aside>
   </div>
-</section>
+  </section>
+  
+  <!-- Modal: Recordatorio de clase por WhatsApp -->
+  <div id="modal-wa-clase" class="modal-overlay" style="display:none" aria-hidden="true">
+    <div class="modal" role="dialog" aria-labelledby="wa-clase-title">
+      <div class="modal-header">
+        <h3 id="wa-clase-title">Recordatorio de clase (WhatsApp)</h3>
+        <button class="btn secondary sm" id="wa-clase-close">Cerrar</button>
+      </div>
+      <div class="modal-body">
+        <div class="input-row" style="align-items:center">
+          <label class="muted">Usuario</label>
+          <div id="wa-clase-user-name">—</div>
+        </div>
+        <div class="input-row" style="margin-top:8px">
+          <input type="text" id="wa-clase-tipo" placeholder="Tipo de clase" style="flex:1" aria-label="Tipo de clase" />
+          <input type="date" id="wa-clase-fecha" style="flex:1" aria-label="Fecha de clase" />
+          <input type="time" id="wa-clase-hora" style="flex:1" aria-label="Hora de clase" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn outline neutral" id="wa-clase-cancel">Cancelar</button>
+        <button class="btn" id="wa-clase-send">Enviar</button>
+      </div>
+    </div>
+  </div>
 
 <section id="panel-configuracion" class="panel">
         <div class="split">
@@ -948,13 +1028,179 @@
                 <h3 style="margin:0; font-size:16px;">Mantenimiento</h3>
                 <div class="panel-controls" style="margin-left:auto">
                   <input id="config-renum-start" type="number" min="1" step="1" value="2" placeholder="ID inicial (ej. 2)" style="width:160px" aria-label="ID inicial" />
-                  <button class="btn secondary" id="config-renum-run">Renumerar IDs</button>
-                  <button class="btn secondary" id="config-secure-owner">Asegurar Dueño</button>
+        <button class="btn warning" id="config-renum-run">Renumerar IDs</button>
+        <button class="btn info" id="config-secure-owner">Asegurar Dueño</button>
                 </div>
               </div>
               <div class="block-body">
                 <p class="muted">Acción avanzada: renumera todos los IDs de usuarios consecutivamente desde el ID inicial. Solo dueño. Actualiza referencias en pagos, asistencias, rutinas, clases, notificaciones, etc. Operación irreversible; se recomienda respaldo previo.</p>
                 <p class="muted">Acción avanzada: asegura la existencia del Dueño en ID 1, crea si falta y restablece protecciones (RLS y triggers). Solo dueño.</p>
+              </div>
+            </div>
+
+            <div class="input-row" id="config-wa-row" style="margin-top:16px; align-items:flex-start; gap:12px;">
+              <div style="flex:1 1 100%">
+                {% if request.session.get('logged_in') %}
+                <div class="block" id="wa-config-block">
+                  <div class="block-header">
+                    <h3 style="margin:0; font-size:16px;">WhatsApp — Configuración</h3>
+                    <div class="panel-controls" style="margin-left:auto; gap:8px; flex-wrap:wrap">
+                      <button class="btn" id="config-wa-save" aria-label="Guardar configuración">Guardar</button>
+                      <button class="btn info" id="config-wa-check-state" aria-label="Verificar estado">Verificar estado</button>
+                      <button class="btn success" id="config-wa-server-toggle" aria-label="Iniciar servidor" aria-pressed="false">Iniciar servidor</button>
+                    </div>
+                  </div>
+                  <div class="block-body">
+                    <div class="input-row" style="gap:12px; flex-wrap:wrap">
+                      <div style="flex:1 1 280px">
+                        <label class="muted" for="wa-config-phone-number-id">ID de número de teléfono</label>
+                        <input id="wa-config-phone-number-id" type="text" inputmode="numeric" pattern="^[0-9]{5,}$" placeholder="Ej. 123456789" style="width:100%" aria-label="ID de número de teléfono" required />
+                      </div>
+                      <div style="flex:1 1 280px">
+                        <label class="muted" for="wa-config-business-account-id">ID de cuenta de WhatsApp Business</label>
+                        <input id="wa-config-business-account-id" type="text" placeholder="Ej. 987654321" style="width:100%" aria-label="ID de cuenta de WhatsApp Business" required />
+                      </div>
+                    </div>
+                    <div class="input-row" style="gap:12px; flex-wrap:wrap; margin-top:8px">
+                      <div style="flex:1 1 420px">
+                        <label class="muted" for="wa-config-access-token">Access Token (secreto)</label>
+                        <input id="wa-config-access-token" type="password" placeholder="Token de acceso de la aplicación" style="width:100%" aria-label="Access Token" required />
+                      </div>
+                    </div>
+                    <div class="input-row" style="gap:12px; flex-wrap:wrap; margin-top:8px">
+                      <div style="flex:1 1 420px">
+                        <label class="muted" for="wa-config-allowlist-text">Allowlist (teléfonos separados por coma)</label>
+                        <textarea id="wa-config-allowlist-text" rows="2" placeholder="Ej. +5491112345678, +5491123456789" style="width:100%" aria-label="Lista de teléfonos permitidos"></textarea>
+                        <p class="muted" id="wa-config-allowlist-help" style="margin-top:4px">Formato: prefijo país + número. Se aceptan espacios, guiones y paréntesis, que serán normalizados.</p>
+                      </div>
+                      <div style="flex:1 1 220px; display:flex; flex-direction:column; gap:8px">
+                        <label class="muted" style="display:flex; align-items:center; gap:8px"><input id="wa-config-allowlist-enabled" type="checkbox" aria-label="Habilitar Allowlist" /> Habilitar Allowlist</label>
+                        <label class="muted" style="display:flex; align-items:center; gap:8px"><input id="wa-config-enable-webhook" type="checkbox" aria-label="Habilitar Webhook" /> Habilitar Webhook</label>
+                      </div>
+                    </div>
+                    <div id="wa-config-errors" role="alert" aria-live="polite" style="display:none; color:#b00020; margin-top:8px"></div>
+                    <div id="wa-config-save-status" class="muted" role="status" aria-live="polite" style="margin-top:6px">—</div>
+                  </div>
+                </div>
+                {% endif %}
+                <div class="block" id="wa-gestion-block">
+                  <div class="block-header">
+                    <h3 style="margin:0; font-size:16px;">WhatsApp — Gestión</h3>
+                    <div class="panel-controls" style="margin-left:auto; gap:8px; flex-wrap:wrap">
+                      <button class="btn" id="config-wa-refresh" aria-label="Actualizar">Actualizar</button>
+        <button class="btn warning" id="config-wa-retry-all" aria-label="Reintentar todos">Reintentar todos</button>
+        <button class="btn outline neutral" id="config-wa-clear-all" aria-label="Limpiar fallidos">Limpiar fallidos</button>
+                      <select id="usuario-wa-user-select" title="Usuario" aria-label="Usuario">
+                        <option value="">Todos</option>
+                      </select>
+                      <select id="usuario-wa-filter" title="Tipo de mensaje" aria-label="Tipo de mensaje">
+                        <option value="">Todos</option>
+                        <option value="welcome">Bienvenida</option>
+                        <option value="payment">Confirmación de pago</option>
+                        <option value="deactivation">Desactivación</option>
+                        <option value="overdue">Recordatorio vencimiento</option>
+                        <option value="class_reminder">Recordatorio de clase</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="block-body">
+                    <div class="cards" style="margin-bottom:8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                      <div class="card" id="config-wa-state-card" aria-live="polite">
+                        <div class="card-title">Estado WhatsApp</div>
+                        <div class="card-value" style="display:flex; flex-direction:column; gap:4px">
+                          <span>Disponible: <strong id="config-wa-state-available">—</strong></span>
+                          <span>Habilitado: <strong id="config-wa-state-enabled">—</strong></span>
+                          <span>Servidor: <strong id="config-wa-state-server">—</strong></span>
+                          <span>Config válida: <strong id="config-wa-state-config">—</strong></span>
+                        </div>
+                      </div>
+                      <div class="card" id="config-wa-last-card" aria-live="polite">
+                        <div class="card-title">Último envío del usuario</div>
+                        <div class="card-value" style="display:flex; flex-direction:column; gap:4px">
+                          <span>Usuario: <strong id="config-wa-last-user">—</strong></span>
+                          <span>Tipo: <strong id="config-wa-last-type">—</strong></span>
+                          <span>Fecha: <strong id="config-wa-last-date">—</strong></span>
+                          <span>Estado: <strong id="config-wa-last-status">—</strong></span>
+                          <span>Detalle: <strong id="config-wa-last-detail">—</strong></span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap">
+                      <div style="flex:1 1 480px">
+                        <h4 style="margin:0 0 6px 0; font-size:14px;">Pendientes</h4>
+                        <div class="table-scroll row-selectable">
+                          <table id="config-wa-pendings-table" aria-label="Tabla de envíos pendientes de WhatsApp">
+                            <thead>
+                              <tr>
+                                <th>Usuario</th>
+                                <th>Teléfono</th>
+                                <th>Último envío</th>
+                                <th>Tipo</th>
+                                <th>Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody></tbody>
+                          </table>
+                        </div>
+                      </div>
+                      <div style="flex:1 1 420px">
+                        <h4 style="margin:0 0 6px 0; font-size:14px;">Por usuario</h4>
+                        <div class="cards" id="usuario-wa-cards" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                          <div class="card" id="usuario-wa-card-welcome">
+                            <div class="card-title">Bienvenida</div>
+                            <div class="card-value" id="usuario-wa-status-welcome">—</div>
+                            <div class="muted" id="usuario-wa-date-welcome">Fecha: —</div>
+                            <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+                              <button class="btn sm" data-type="welcome">Forzar envío</button>
+                            </div>
+                          </div>
+                          <div class="card" id="usuario-wa-card-payment">
+                            <div class="card-title">Confirmación de pago</div>
+                            <div class="card-value" id="usuario-wa-status-payment">—</div>
+                            <div class="muted" id="usuario-wa-date-payment">Fecha: —</div>
+                            <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+                              <button class="btn sm" data-type="payment">Forzar envío</button>
+                            </div>
+                          </div>
+                          <div class="card" id="usuario-wa-card-deactivation">
+                            <div class="card-title">Desactivación</div>
+                            <div class="card-value" id="usuario-wa-status-deactivation">—</div>
+                            <div class="muted" id="usuario-wa-date-deactivation">Fecha: —</div>
+                            <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+                              <button class="btn sm" data-type="deactivation">Forzar envío</button>
+                            </div>
+                          </div>
+                          <div class="card" id="usuario-wa-card-overdue">
+                            <div class="card-title">Recordatorio vencimiento</div>
+                            <div class="card-value" id="usuario-wa-status-overdue">—</div>
+                            <div class="muted" id="usuario-wa-date-overdue">Fecha: —</div>
+                            <div style="margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+                              <button class="btn sm" data-type="overdue">Forzar envío</button>
+                            </div>
+                          </div>
+                        </div>
+                        <div style="margin-top:10px">
+                          <h4 style="margin:0 0 6px 0; font-size:14px;">Historial de WhatsApp</h4>
+                          <div class="table-scroll table-compact">
+                            <table id="usuario-wa-historial-table" aria-label="Historial de WhatsApp del usuario">
+                              <thead>
+                                <tr>
+                                  <th>Fecha</th>
+                                  <th>Tipo</th>
+                                  <th>Estado</th>
+                                  <th>Contenido</th>
+                                  <th>Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody id="usuario-wa-historial-body"></tbody>
+                            </table>
+                          </div>
+                          <div id="usuario-wa-historial-empty" class="empty-hint" role="status" aria-live="polite" style="display:none; margin-top:6px">Sin historial</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -976,7 +1222,25 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="secure-owner-confirm">Asegurar</button>
-          <button class="btn secondary" id="secure-owner-cancel">Cancelar</button>
+        <button class="btn outline neutral" id="secure-owner-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal: Confirmación de salida para Profesor -->
+    <div class="modal-backdrop" id="modal-sesion-fin" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-fin-title">
+        <div class="modal-header">
+          <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Confirmar salida</h3>
+          <button class="btn icon-only" id="sesion-fin-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p>Al salir se finalizará tu sesión de trabajo automáticamente.</p>
+          <p class="muted">¿Deseas continuar?</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="sesion-fin-confirm">Sí, salir</button>
+          <button class="btn outline neutral" id="sesion-fin-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -985,24 +1249,9 @@
         </div>
       </section>
 
-    </main>
-
-    <!-- Modal: Finalizar sesión antes de salir -->
-    <div class="modal-backdrop" id="modal-sesion-fin" aria-hidden="true">
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-fin-title">
-        <div class="modal-header">
-          <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Finalizar sesión antes de salir</h3>
-          <button class="btn icon-only" id="sesion-fin-close" aria-label="Cerrar">×</button>
-        </div>
-        <div class="modal-body">
-          <p class="muted">¿Deseas finalizar tu sesión de trabajo antes de salir?</p>
-        </div>
-        <div class="modal-footer">
-          <button class="btn" id="sesion-fin-confirm">Finalizar y salir</button>
-          <button class="btn secondary" id="sesion-fin-cancel">Salir sin finalizar</button>
-        </div>
-      </div>
+      </main>
     </div>
+
 
     <!-- Modal: Eliminar sesión -->
     <div class="modal-backdrop" id="modal-sesion-delete" aria-hidden="true">
@@ -1016,7 +1265,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn danger" id="sesion-delete-confirm">Eliminar</button>
-          <button class="btn secondary" id="sesion-delete-cancel">Cancelar</button>
+        <button class="btn outline neutral" id="sesion-delete-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1042,7 +1291,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="pagos-filtros-aplicar">Aplicar</button>
-          <button class="btn secondary" id="pagos-filtros-cancelar">Cancelar</button>
+        <button class="btn outline neutral" id="pagos-filtros-cancelar">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1093,8 +1342,8 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn" id="recibo-config-save">Guardar</button>
-          <button class="btn secondary" id="recibo-config-cancel">Cancelar</button>
+          <button class="btn success" id="recibo-config-save">Guardar</button>
+        <button class="btn outline neutral" id="recibo-config-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1183,7 +1432,7 @@
                   </div>
                   <div id="recibo-items-rows" style="display:flex; flex-direction:column; gap:8px"></div>
                   <div>
-                    <button class="btn secondary" id="recibo-item-add" type="button">Agregar ítem</button>
+        <button class="btn success" id="recibo-item-add" type="button">Agregar ítem</button>
                   </div>
                 </div>
               </div>
@@ -1204,8 +1453,8 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="recibo-preview-download">Descargar PDF</button>
-          <button class="btn secondary" id="recibo-preview-config">Configurar numeración</button>
-          <button class="btn secondary" id="recibo-preview-close-btn">Cerrar</button>
+        <button class="btn outline neutral" id="recibo-preview-config">Configurar numeración</button>
+        <button class="btn outline neutral" id="recibo-preview-close-btn">Cerrar</button>
         </div>
       </div>
     </div>
@@ -1232,7 +1481,7 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn secondary" id="pago-detalle-cerrar">Cerrar</button>
+        <button class="btn outline neutral" id="pago-detalle-cerrar">Cerrar</button>
         </div>
       </div>
     </div>
@@ -1300,8 +1549,8 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn" id="usuarios-save">Guardar</button>
-          <button class="btn secondary" id="usuarios-cancel">Cancelar</button>
+          <button class="btn success" id="usuarios-save">Guardar</button>
+        <button class="btn outline neutral" id="usuarios-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1318,7 +1567,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="usuarios-delete-confirm">Eliminar</button>
-          <button class="btn secondary" id="usuarios-delete-cancel">Cancelar</button>
+        <button class="btn outline neutral" id="usuarios-delete-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1337,7 +1586,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="renum-confirm">Renumerar</button>
-          <button class="btn secondary" id="renum-cancel">Cancelar</button>
+        <button class="btn outline neutral" id="renum-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1354,7 +1603,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn" id="pagos-delete-confirm">Eliminar</button>
-          <button class="btn secondary" id="pagos-delete-cancel">Cancelar</button>
+        <button class="btn outline neutral" id="pagos-delete-cancel">Cancelar</button>
         </div>
       </div>
     </div>
@@ -1417,12 +1666,124 @@
           </div>
         </div>
         <div class="modal-footer">
-          <button class="btn" id="pago-save">Guardar</button>
-          <button class="btn secondary" id="pago-form-cancel">Cancelar</button>
+          <button class="btn success" id="pago-save">Guardar</button>
+        <button class="btn outline neutral" id="pago-form-cancel">Cancelar</button>
         </div>
       </div>
     </div>
 
+  </div>
+
+  <!-- Backdrop para side-sheets -->
+  <div class="side-sheet-backdrop" aria-hidden="true"></div>
+
+  <!-- Side‑sheet: Wizard Nuevo Pago -->
+  <div class="side-sheet" id="pago-wizard" role="dialog" aria-modal="true" aria-labelledby="pago-wizard-title" data-step="1">
+    <div class="side-sheet-header">
+      <h3 id="pago-wizard-title">Nuevo Pago</h3>
+      <button class="btn icon-only" data-close-sheet="#pago-wizard" aria-label="Cerrar">×</button>
+    </div>
+    <div class="side-sheet-body">
+      
+      <div class="wizard-step" data-step="1">
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="wiz-usuario">Usuario</label>
+            <select id="wiz-usuario" style="width:100%" aria-label="Usuario" required title="Selecciona el usuario para asociar el pago">
+              <option value="">Seleccionar usuario</option>
+            </select>
+            <div id="wiz-usuario-error" role="alert" aria-live="polite" style="display:none;color:#b00020;margin-top:4px;">Debes seleccionar un usuario.</div>
+          </div>
+        </div>
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="wiz-fecha">Fecha del pago</label>
+            <input id="wiz-fecha" type="date" style="width:100%" aria-label="Fecha del pago" />
+          </div>
+          <div style="flex:1">
+            <label class="muted" for="wiz-mes">Mes</label>
+            <input id="wiz-mes" type="number" min="1" max="12" placeholder="Ej. 7" style="width:100%" aria-label="Mes del período" />
+          </div>
+          <div style="flex:1">
+            <label class="muted" for="wiz-año">Año</label>
+            <input id="wiz-año" type="number" min="2000" max="2100" placeholder="Ej. 2025" style="width:100%" aria-label="Año del período" />
+          </div>
+        </div>
+      </div>
+      <div class="wizard-step" data-step="2">
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="wiz-concepto">Concepto</label>
+            <select id="wiz-concepto" style="width:100%" aria-label="Concepto" title="Opcional: si no se selecciona, se usa \"Cuota Mensual\"">
+              <option value="">Seleccionar concepto</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="wizard-step" data-step="3">
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="wiz-metodo">Método de pago</label>
+            <select id="wiz-metodo" style="width:100%" aria-label="Método de pago" title="Opcional: afecta comisión y total">
+              <option value="">Seleccionar (opcional)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="wizard-step" data-step="4">
+        <div class="input-row">
+          <div style="flex:1">
+            <label class="muted" for="wiz-monto">Monto</label>
+            <input id="wiz-monto" type="number" step="0.01" placeholder="Calculado automáticamente" style="width:100%" readonly aria-label="Monto" required title="Se calcula automáticamente según concepto y método" />
+            <div id="wiz-monto-error" role="alert" aria-live="polite" style="display:none;color:#b00020;margin-top:4px;">El monto no puede ser vacío.</div>
+          </div>
+        </div>
+        <div id="pago-wizard-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
+          <div><strong>Concepto:</strong> <span id="wiz-resumen-concepto">Cuota Mensual</span></div>
+          <div><strong>Base:</strong> $<span id="wiz-resumen-base">—</span></div>
+          <div><strong>Comisión:</strong> $<span id="wiz-resumen-comision">—</span> <span id="wiz-resumen-comision-porcentaje"></span></div>
+          <div><strong>Total:</strong> $<span id="wiz-resumen-total">—</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="side-sheet-footer">
+      <button class="btn outline neutral" data-close-sheet="#pago-wizard">Cancelar</button>
+      <div style="flex:1"></div>
+      <button class="btn success" id="pago-wizard-save" aria-keyshortcuts="Control+Enter" title="Atajo: Ctrl+Enter para guardar">Guardar</button>
+    </div>
+  </div>
+
+  <!-- Side‑sheet: Ficha de Usuario -->
+  <div class="side-sheet" id="usuario-sheet" role="dialog" aria-modal="true" aria-labelledby="usuario-sheet-title">
+    <div class="side-sheet-header">
+      <h3 id="usuario-sheet-title">Ficha de Usuario</h3>
+      <button class="btn icon-only" data-close-sheet="#usuario-sheet" aria-label="Cerrar">×</button>
+    </div>
+    <div class="side-sheet-body">
+      <div class="grid two-cols" style="gap:12px">
+        <div class="card"><div class="card-title">Estado</div><div class="card-value" id="usuario-sheet-estado">—</div></div>
+        <div class="card"><div class="card-title">Próximo vencimiento</div><div class="card-value" id="usuario-sheet-vencimiento">—</div></div>
+        <div class="card"><div class="card-title">Cuotas vencidas</div><div class="card-value" id="usuario-sheet-cuotas-vencidas">—</div></div>
+        <div class="card"><div class="card-title">Último pago</div><div class="card-value" id="usuario-sheet-ultimo-pago">—</div></div>
+      </div>
+      <div class="input-row" style="margin-top:12px">
+        <div style="flex:1"><label class="muted">Nombre</label><div id="usuario-sheet-nombre"></div></div>
+        <div style="flex:1"><label class="muted">DNI</label><div id="usuario-sheet-dni"></div></div>
+      </div>
+      <div class="input-row">
+        <div style="flex:1"><label class="muted">Teléfono</label><div id="usuario-sheet-telefono"></div></div>
+        <div style="flex:1"><label class="muted">Rol</label><div id="usuario-sheet-rol"></div></div>
+      </div>
+      <div class="input-row">
+        <div style="flex:1"><label class="muted">Tipo de cuota</label><div id="usuario-sheet-tipo-cuota"></div></div>
+      </div>
+    </div>
+    <div class="side-sheet-footer">
+      <button class="btn" id="usuario-sheet-registrar">Registrar pago</button>
+      <button class="btn" id="usuario-sheet-ver-pagos">Ver pagos</button>
+      <div style="flex:1"></div>
+      <button class="btn outline neutral" data-close-sheet="#usuario-sheet">Cerrar</button>
+    </div>
   </div>
 
   <!-- Modal: Sesión (Editar) -->
@@ -1469,8 +1830,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" id="sesion-save">Guardar</button>
-        <button class="btn secondary" id="sesion-form-cancel">Cancelar</button>
+        <button class="btn success" id="sesion-save">Guardar</button>
+        <button class="btn outline neutral" id="sesion-form-cancel">Cancelar</button>
       </div>
     </div>
   </div>
@@ -1514,8 +1875,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" id="save-tipo-cuota">Guardar</button>
-        <button class="btn" id="cancel-tipo-cuota">Cancelar</button>
+        <button class="btn success" id="save-tipo-cuota">Guardar</button>
+        <button class="btn outline neutral" id="cancel-tipo-cuota">Cancelar</button>
       </div>
     </div>
   </div>
@@ -1559,8 +1920,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" id="save-concepto">Guardar</button>
-        <button class="btn" id="cancel-concepto">Cancelar</button>
+        <button class="btn success" id="save-concepto">Guardar</button>
+        <button class="btn outline neutral" id="cancel-concepto">Cancelar</button>
       </div>
     </div>
   </div>
@@ -1600,8 +1961,8 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn" id="save-metodo">Guardar</button>
-        <button class="btn" id="cancel-metodo">Cancelar</button>
+        <button class="btn success" id="save-metodo">Guardar</button>
+        <button class="btn outline neutral" id="cancel-metodo">Cancelar</button>
       </div>
     </div>
   </div>
@@ -1824,7 +2185,7 @@
       <div id="rutina-preview-tools" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px">
         <label style="display:flex; gap:6px; align-items:center"><input id="rutina-preview-select-mode" type="checkbox" /> <span>Selección múltiple</span></label>
         <button class="btn secondary sm" id="rutina-preview-select-all">Seleccionar todo</button>
-        <button class="btn secondary" id="rutina-preview-collapse-days">Colapsar días</button>
+        <button class="btn tertiary" id="rutina-preview-collapse-days">Colapsar días</button>
       </div>
 
         <div id="rutina-preview-columns" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start">
@@ -1887,11 +2248,11 @@
           <div style="display:flex; gap:8px; margin-top:6px; align-items:center; flex-wrap:wrap">
             <button class="btn" id="rutina-preview-float-up" title="Subir orden">↑</button>
             <button class="btn" id="rutina-preview-float-down" title="Bajar orden">↓</button>
-            <button class="btn secondary" id="rutina-preview-float-dup" title="Duplicar ejercicio">Duplicar</button>
+        <button class="btn info" id="rutina-preview-float-dup" title="Duplicar ejercicio">Duplicar</button>
           </div>
           <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
             <button class="btn" id="rutina-preview-float-apply">Aplicar</button>
-            <button class="btn secondary" id="rutina-preview-float-remove">Eliminar</button>
+        <button class="btn danger" id="rutina-preview-float-remove">Eliminar</button>
             <button class="btn" id="rutina-preview-float-close">Cerrar</button>
           </div>
         </div>
@@ -1912,9 +2273,9 @@
       </div>
     </div>
     <div class="modal-footer">
-        <button class="btn" id="rutina-preview-save">Guardar cambios</button>
-        <button class="btn secondary" id="rutina-preview-export">Exportar Excel</button>
-        <button class="btn" id="rutina-preview-cancel">Cancelar</button>
+        <button class="btn success" id="rutina-preview-save">Guardar cambios</button>
+        <button class="btn info" id="rutina-preview-export">Exportar Excel</button>
+        <button class="btn outline neutral" id="rutina-preview-cancel">Cancelar</button>
     </div>
   </div>
   
@@ -1945,7 +2306,7 @@
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="rutina-export-all-series" type="number" min="1" placeholder="Series" style="width:120px" />
             <input id="rutina-export-all-reps" type="number" min="1" placeholder="Repeticiones" style="width:140px" />
-            <button class="btn secondary" id="rutina-export-apply-all">Aplicar a todas</button>
+        <button class="btn success" id="rutina-export-apply-all">Aplicar a todas</button>
           </div>
         </div>
       </div>
@@ -1968,16 +2329,16 @@
         <div style="display:flex; align-items:center; gap:8px; justify-content:space-between; flex-wrap:wrap">
           <span class="muted">Vista previa literal del Excel generado</span>
           <div style="display:flex; gap:8px; align-items:center">
-            <button class="btn secondary" id="rutina-export-preview-btn">Actualizar vista previa</button>
-            <button class="btn" id="rutina-export-save-btn">Guardar cambios</button>
+        <button class="btn info" id="rutina-export-preview-btn">Actualizar vista previa</button>
+            <button class="btn success" id="rutina-export-save-btn">Guardar cambios</button>
           </div>
         </div>
         <div id="rutina-export-preview" class="table-scroll" style="margin-top:8px"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" id="rutina-export-download">Descargar Excel</button>
-      <button class="btn" id="rutina-export-close-btn">Cerrar</button>
+      <button class="btn info" id="rutina-export-download">Descargar Excel</button>
+      <button class="btn outline neutral" id="rutina-export-close-btn">Cerrar</button>
     </div>
   </div>
 </div>
@@ -2017,8 +2378,8 @@
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn" id="save-extras">Guardar</button>
-      <button class="btn" id="cancel-extras">Cancelar</button>
+      <button class="btn success" id="save-extras">Guardar</button>
+      <button class="btn outline neutral" id="cancel-extras">Cancelar</button>
     </div>
   </div>
 </div>
@@ -2040,7 +2401,7 @@
         <div id="qr-status-msg" class="muted" style="margin-top:8px">Esperando confirmación…</div>
       </div>
       <div class="modal-footer">
-        <button class="btn secondary" id="qr-close-footer">Cerrar</button>
+        <button class="btn outline neutral" id="qr-close-footer">Cerrar</button>
       </div>
     </div>
   </div>
@@ -2050,7 +2411,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
+const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
 
     function fmtDate(d){
       if(!d) return '';
@@ -2068,6 +2429,151 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const day = String(dt.getDate()).padStart(2,'0');
       return `${y}-${m}-${day}`;
     }
+
+    // ===== WhatsApp por usuario — tarjetas y historial =====
+    function mapWATitle(type){
+      switch(String(type||'').trim()){
+        case 'welcome': return 'Bienvenida';
+        case 'payment': return 'Confirmación de pago';
+        case 'deactivation': return 'Desactivación';
+        case 'overdue': return 'Recordatorio vencimiento';
+        case 'class_reminder': return 'Recordatorio de clase';
+        default: return String(type||'');
+      }
+    }
+    async function loadUsuarioWAUsersOptions(selectedId){
+      try{
+        const sel = document.getElementById('usuario-wa-user-select');
+        if(!sel) return;
+        // Mantener opción "Todos"
+        sel.innerHTML = '<option value="">Todos</option>';
+        const r = await fetch('/api/usuarios?limit=300', { headers: { 'Accept':'application/json' } });
+        const list = await r.json().catch(()=> []);
+        if(Array.isArray(list)){
+          // Ordenar por nombre para facilitar búsqueda visual
+          list.sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')) || Number(a.id||a.usuario_id||0) - Number(b.id||b.usuario_id||0));
+          for(const u of list){
+            const id = u.id ?? u.usuario_id;
+            const opt = document.createElement('option');
+            opt.value = String(id);
+            const nombre = (u.nombre && String(u.nombre).trim() !== '') ? String(u.nombre) : `Usuario ${id}`;
+            const dni = u.dni ? ` (${u.dni})` : '';
+            opt.textContent = nombre + dni;
+            sel.appendChild(opt);
+          }
+        }
+        if(selectedId){ sel.value = String(selectedId); }
+      }catch(_){ /* silencioso */ }
+    }
+    function mapWAStatusText(st){
+      const s = String(st||'').trim().toLowerCase();
+      if(!s) return '—';
+      if(s === 'sent') return 'Enviado';
+      if(s === 'delivered') return 'Entregado';
+      if(s === 'read') return 'Leído';
+      if(s === 'failed') return 'Fallido';
+      if(s === 'received') return 'Recibido';
+      return st;
+    }
+    function getLastWAByType(items, type){
+      const arr = (Array.isArray(items) ? items : []).filter(m => String(m.message_type||'') === String(type));
+      if(arr.length === 0) return null;
+      arr.sort((a,b) => {
+        const ad = new Date(a.sent_at || a.created_at || 0).getTime();
+        const bd = new Date(b.sent_at || b.created_at || 0).getTime();
+        return bd - ad;
+      });
+      return arr[0] || null;
+    }
+    function renderUsuarioWACards(items){
+      const types = ['welcome','payment','deactivation','overdue'];
+      types.forEach(t => {
+        const last = getLastWAByType(items, t);
+        const stEl = document.getElementById(`usuario-wa-status-${t}`);
+        const dtEl = document.getElementById(`usuario-wa-date-${t}`);
+        const cardEl = document.getElementById(`usuario-wa-card-${t}`);
+        if(stEl) stEl.textContent = last ? mapWAStatusText(last.status) : 'Sin envío';
+        if(dtEl) dtEl.textContent = `Fecha: ${last ? fmtDate(last.sent_at || last.created_at) : '—'}`;
+        const btn = cardEl ? cardEl.querySelector('button[data-type]') : null;
+        const isSent = last && ['sent','delivered','read'].includes(String(last.status||'').toLowerCase());
+        if(btn){ btn.disabled = !!isSent; btn.title = isSent ? 'Ya enviado' : 'Forzar envío'; }
+      });
+    }
+    function renderUsuarioWAHistoryTable(items){
+      const tbody = document.getElementById('usuario-wa-historial-body');
+      const empty = document.getElementById('usuario-wa-historial-empty');
+      if(!tbody) return;
+      tbody.innerHTML = '';
+      const filter = document.getElementById('usuario-wa-filter');
+      const ft = filter ? String(filter.value||'').trim() : '';
+      const data = (Array.isArray(items)?items:[]).filter(m => !ft || String(m.message_type||'') === ft);
+      if(data.length === 0){ if(empty) empty.style.display = 'block'; return; }
+      if(empty) empty.style.display = 'none';
+      data.forEach(m => {
+        const tr = document.createElement('tr');
+        const fecha = m.sent_at || m.created_at || '';
+        const tipo = mapWATitle(m.message_type || '');
+        const estado = mapWAStatusText(m.status || '');
+        const contenido = String(m.message_content||'').slice(0, 100);
+        const canRetry = ['welcome','payment','deactivation','overdue','class_reminder'].includes(String(m.message_type||'')) && String(m.status||'').toLowerCase() === 'failed';
+        tr.innerHTML = `<td>${fmtDate(fecha)}</td><td>${tipo}</td><td>${estado}</td><td>${contenido}</td><td>${canRetry ? '<button class="btn sm" data-retry="'+String(m.message_type||'')+'">Reintentar</button>' : ''}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    async function loadUsuarioWhatsApp(usuario_id){
+      if(!usuario_id){ return; }
+      try {
+        const res = await fetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' } });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo cargar historial de WhatsApp', 'error', 4500); return; }
+        const json = await res.json();
+        const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
+        state.usuarioWAHistorial = items;
+        renderUsuarioWACards(items);
+        renderUsuarioWAHistoryTable(items);
+      } catch(e){ showToast('Error de red al cargar historial WA', 'error', 4500); }
+    }
+    async function forceSendWA(type){
+      const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario', 'warning', 4000); return; }
+      let url = '';
+      let body = {};
+      const t = String(type||'').trim();
+      if(t === 'welcome') url = `/api/usuarios/${u.id}/whatsapp/bienvenida`;
+      else if(t === 'payment') url = `/api/usuarios/${u.id}/whatsapp/confirmacion_pago`;
+      else if(t === 'deactivation'){ url = `/api/usuarios/${u.id}/whatsapp/desactivacion`; body = { motivo: 'cuotas vencidas' }; }
+      else if(t === 'overdue') url = `/api/usuarios/${u.id}/whatsapp/recordatorio_vencida`;
+      else if(t === 'class_reminder') url = `/api/usuarios/${u.id}/whatsapp/recordatorio_clase`;
+      else { showToast('Tipo de mensaje no soportado', 'warning', 3800); return; }
+      try {
+        const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: Object.keys(body).length ? JSON.stringify(body) : undefined });
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok){
+          const code = res.status;
+          let msg = data?.detail || data?.error || data?.message || '';
+          const metaText = String(data?.meta_detail || data?.meta_error || (data?.error && data.error.message) || '').toLowerCase();
+          let metaMsg = '';
+          if(metaText.includes('rate limit') || metaText.includes('too many')) metaMsg = 'Límite de mensajes de Meta alcanzado';
+          else if(metaText.includes('not allowed') || metaText.includes('policy')) metaMsg = 'Bloqueado por política o plantilla no aprobada';
+          else if(metaText.includes('could not be found') || metaText.includes('not found')) metaMsg = 'Número no registrado en WhatsApp';
+          else if(metaText.includes('unsupported')) metaMsg = 'Tipo de mensaje no soportado por plantilla';
+          if(code === 401){ msg = 'Falta WHATSAPP_ACCESS_TOKEN o token inválido'; }
+          else if(code === 403){ msg = 'No autorizado para enviar WhatsApp'; }
+          else if(code === 404){ msg = 'Usuario o recurso no encontrado'; }
+          else if(code === 408){ msg = 'Tiempo de espera al contactar API de WhatsApp'; }
+          else if(code === 429){ msg = 'Anti-spam: límite de envío alcanzado'; }
+          else if(code >= 500){ msg = 'Error del servidor al enviar WhatsApp'; }
+          else if(code === 400){ msg = msg || 'Datos incompletos o número inválido'; }
+          const finalMsg = (msg || 'No se pudo enviar el mensaje') + (metaMsg ? ` — ${metaMsg}` : '');
+          showToast(finalMsg, 'error', 5000);
+        } else {
+          const ok = (data && (data.success === true || data.ok === true)) || res.status < 300;
+          if(!ok){ showToast('Envío bloqueado o no exitoso', 'warning', 4500); }
+          else { showToast('Mensaje enviado', 'success', 3000); }
+        }
+      } catch(e){ showToast('Fallo de red al enviar mensaje', 'error', 5000); }
+      // Refrescar tarjetas e historial tras enviar
+      try { await loadUsuarioWhatsApp(u.id); } catch(_){ }
+      try { await loadWALastForUser(u.id); } catch(_){ }
+    }
     function defaultRange(){
       const end = new Date();
       const start = new Date(end);
@@ -2075,10 +2581,41 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       return { start: fmtDate(start), end: fmtDate(end) };
     }
     function switchTab(tab){
-      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+      // Cerrar cualquier side-sheet abierto al cambiar de módulo
+      try {
+        const opened = document.querySelectorAll('.side-sheet.open');
+        opened.forEach(s => {
+          try {
+            if (window.UI && typeof UI.closeSideSheet === 'function') {
+              UI.closeSideSheet(s);
+            } else {
+              s.classList.remove('open');
+            }
+          } catch(_){}
+        });
+        const backdrop = document.querySelector('.side-sheet-backdrop');
+        if(backdrop) backdrop.classList.remove('open');
+      } catch(_){}
+      // Activar pestaña en el header y actualizar accesibilidad
+      document.querySelectorAll('.tab').forEach(t => {
+        const isActive = (t.dataset.tab === tab);
+        t.classList.toggle('active', isActive);
+        t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      // Activar panel correspondiente
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       const panel = document.getElementById(`panel-${tab}`);
       if(panel) panel.classList.add('active');
+      // Sincronizar estado activo en el sidebar
+      const sidebarItems = document.querySelectorAll('.sidebar .nav-item[data-tab]');
+      sidebarItems.forEach(item => {
+        const isActive = (item.getAttribute('data-tab') || '') === String(tab);
+        item.classList.toggle('active', isActive);
+        if(isActive) item.setAttribute('aria-current', 'page');
+        else item.removeAttribute('aria-current');
+      });
+      // Persistir módulo activo
+      try { localStorage.setItem('gestion-active-tab', String(tab)); } catch(_){}
     }
 
     function openModal(id){
@@ -2162,6 +2699,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         showToast('El usuario ya asistió hoy. No se emite QR.', 'info', 3500);
         return;
       }
+    const btnQR = document.getElementById('usuario-side-qr');
+    const prevHTML = btnQR ? btnQR.innerHTML : '';
+    if(btnQR){
+      btnQR.disabled = true;
+      btnQR.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span>Generando QR…</span>';
+    }
       const expires_minutes = 5;
       try{
         const res = await fetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) });
@@ -2193,6 +2736,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }
         updateQRCountdown(); stopQRTimers(); qrState.countdownInt = setInterval(updateQRCountdown, 1000); qrState.pollInt = setInterval(pollTokenStatus, 2000);
       }catch(e){ showToast(`No se pudo emitir token: ${e.message}`, 'error', 4500); }
+    finally {
+      if(btnQR){
+        btnQR.disabled = false;
+        btnQR.innerHTML = prevHTML || 'Emitir QR Check-in';
+      }
+    }
     }
     async function registrarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       try{
@@ -2206,7 +2755,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
 
     async function eliminarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const hoy = fmtDate(new Date()); try{ const res = await fetch('/api/asistencias/eliminar', { method:'DELETE', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, fecha: hoy }) }); if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } await res.json().catch(() => ({})); showToast('Asistencia eliminada', 'success', 3000); await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); }catch(e){ showToast(`No se pudo eliminar asistencia: ${e.message}`, 'error', 4500); } }
 
-    function handleAsistenciaClick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const btn = document.getElementById('usuario-side-asistencia'); const hoy = fmtDate(new Date()); const arr = Array.isArray(state.usuarioAsistencias) ? state.usuarioAsistencias : []; const hasHoy = arr.some(a => { const f = a.fecha || a.fecha_asistencia || a.fechaAsistencia || ''; return fmtDate(f) === hoy; }); if(hasHoy){ eliminarAsistenciaQuick(); } else { registrarAsistenciaQuick(); } }
+  async function handleAsistenciaClick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const btn = document.getElementById('usuario-side-asistencia'); const hoy = fmtDate(new Date()); const arr = Array.isArray(state.usuarioAsistencias) ? state.usuarioAsistencias : []; const hasHoy = arr.some(a => { const f = a.fecha || a.fecha_asistencia || a.fechaAsistencia || ''; return fmtDate(f) === hoy; }); const prevHTML = btn ? btn.innerHTML : ''; if(btn){ btn.disabled = true; btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span>Procesando…</span>'; } try{ if(hasHoy){ await eliminarAsistenciaQuick(); } else { await registrarAsistenciaQuick(); } } finally { if(btn){ btn.disabled = false; btn.innerHTML = hasHoy ? 'Eliminar asistencia de hoy' : 'Registrar asistencia'; } } }
 
     function pagosAplicaFiltros(items){
       const metodo = (state.pagosFilters.metodo || '').trim().toLowerCase();
@@ -2217,6 +2766,25 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const c = String(row.concepto_pago || row.concepto || '').toLowerCase();
         return (!metodo || m === metodo || m.includes(metodo)) && (!concepto || c === concepto || c.includes(concepto));
       });
+    }
+
+    // Helpers: debounce y skeleton loaders para mejorar UX con latencia
+    function debounce(fn, ms = 300){ let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+    function showTableSkeleton(selector, colCount, rows = 8){
+      try {
+        const tbody = document.querySelector(`${selector} tbody`);
+        if(!tbody) return;
+        tbody.innerHTML = '';
+        for(let i = 0; i < rows; i++){
+          const tr = document.createElement('tr');
+          let html = '';
+          for(let j = 0; j < colCount; j++){
+            html += '<td><div class="skeleton" style="height:14px;width:100%"></div></td>';
+          }
+          tr.innerHTML = html;
+          tbody.appendChild(tr);
+        }
+      } catch(_){ /* noop */ }
     }
 
     async function loadPayments(){
@@ -2231,9 +2799,11 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       params.append('limit', String(limit));
       params.append('offset', '0');
       const url = `/api/pagos_detalle?${params.toString()}`;
+      // Mostrar skeleton mientras se carga
+      try { showTableSkeleton('#pagos-table', 7, Math.max(5, limit)); } catch(_){}
       try {
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         const itemsRaw = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.pagos = itemsRaw;
         const items = pagosAplicaFiltros(itemsRaw);
@@ -2248,6 +2818,13 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           const metodo = row.metodo_pago || row.metodo || '';
           const concepto = row.concepto_pago || row.concepto || '';
           const monto = row.monto != null ? row.monto : '';
+          const loginEl = document.getElementById('login-current');
+          const role = loginEl ? (loginEl.getAttribute('data-role') || '').trim() : '';
+          const actionsHTML = (role === 'dueño')
+            ? `<button class="btn info" data-action="recibo" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Recibo</button>
+               <button class="btn neutral" data-action="editar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Editar</button>
+               <button class="btn danger" data-action="eliminar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Borrar</button>`
+            : `<button class="btn info" data-action="recibo" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Recibo</button>`;
           tr.innerHTML = `
             <td>${fecha ? fmtDate(fecha) : ''}</td>
             <td>${nombre}</td>
@@ -2255,11 +2832,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
             <td>${metodo}</td>
             <td>${concepto}</td>
             <td>${monto}</td>
-            <td class="table-actions">
-              <button class="btn" data-action="recibo" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Recibo</button>
-              <button class="btn" data-action="editar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Editar</button>
-              <button class="btn secondary" data-action="eliminar" data-id="${row.id || row.pago_id || ''}" data-index="${idx}">Borrar</button>
-            </td>
+            <td class="table-actions">${actionsHTML}</td>
           `;
           tbody.appendChild(tr);
         });
@@ -2283,33 +2856,46 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       try {
         const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' } });
         const met = await res.json();
+        const items = Array.isArray(met) ? met : (Array.isArray(met?.metodos) ? met.metodos : []);
+        // Actualiza estado para que el wizard pueda poblar selects por ID
+        state.metodosPago = items;
+        state.metodosPagoMap = Object.fromEntries(items.map(m => [String(m.id), m]));
+        // Pobla el filtro por nombre (valor = nombre en minúsculas)
         const sel = document.getElementById('pagos-metodo');
-        sel.innerHTML = '<option value="">Todos</option>';
-        (Array.isArray(met) ? met : []).forEach(m => {
-          const opt = document.createElement('option');
-          const nombre = m.nombre ?? '';
-          opt.value = String(nombre).toLowerCase();
-          opt.textContent = nombre;
-          sel.appendChild(opt);
-        });
-        // Preselección actual
-        if(state.pagosFilters.metodo){ sel.value = state.pagosFilters.metodo; }
+        if(sel){
+          sel.innerHTML = '<option value="">Todos</option>';
+          items.forEach(m => {
+            const opt = document.createElement('option');
+            const nombre = m.nombre ?? '';
+            opt.value = String(nombre).toLowerCase();
+            opt.textContent = nombre;
+            sel.appendChild(opt);
+          });
+          if(state.pagosFilters.metodo){ sel.value = state.pagosFilters.metodo; }
+        }
       } catch(e){ console.warn('No se pudieron cargar métodos de pago:', e); }
     }
     async function loadConceptosPago(){
       try {
         const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' } });
         const conc = await res.json();
+        const items = Array.isArray(conc?.items) ? conc.items : (Array.isArray(conc) ? conc : []);
+        // Actualiza estado para el wizard (map por ID)
+        state.conceptosPago = items;
+        state.conceptosPagoMap = Object.fromEntries(items.map(c => [String(c.id), c]));
+        // Pobla el filtro por nombre (valor = nombre en minúsculas)
         const sel = document.getElementById('pagos-concepto');
-        sel.innerHTML = '<option value="">Todos</option>';
-        (Array.isArray(conc) ? conc : []).forEach(c => {
-          const nombre = c.nombre ?? '';
-          const opt = document.createElement('option');
-          opt.value = String(nombre).toLowerCase();
-          opt.textContent = nombre;
-          sel.appendChild(opt);
-        });
-        if(state.pagosFilters.concepto){ sel.value = state.pagosFilters.concepto; }
+        if(sel){
+          sel.innerHTML = '<option value="">Todos</option>';
+          items.forEach(c => {
+            const nombre = c.nombre ?? '';
+            const opt = document.createElement('option');
+            opt.value = String(nombre).toLowerCase();
+            opt.textContent = nombre;
+            sel.appendChild(opt);
+          });
+          if(state.pagosFilters.concepto){ sel.value = state.pagosFilters.concepto; }
+        }
       } catch(e){ console.warn('No se pudieron cargar conceptos:', e); }
     }
 
@@ -2356,15 +2942,17 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       params.append('limit', String(limit));
       params.append('offset', '0');
       const url = `/api/usuarios?${params.toString()}`;
+      // Mostrar skeleton mientras se carga
+      try { showTableSkeleton('#usuarios-table', 8, Math.max(5, limit)); } catch(_){}
       try {
         const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        const rows = await res.json();
+        const rows = await res.json().catch(() => []);
         state.usuarios = Array.isArray(rows) ? rows : [];
         // Obtener set de IDs con asistencia hoy
         const hoySet = await (async () => {
           try {
             const r = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' } });
-            const arr = await r.json();
+            const arr = await r.json().catch(() => []);
             const list = Array.isArray(arr) ? arr : [];
             return new Set(list.map(x => Number(x)));
           } catch(e) { return new Set(); }
@@ -2388,8 +2976,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
             <td>${activo ? 'Sí' : 'No'}</td>
             <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Asistió</span>' : '<span style="padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;">No asistió</span>'}</td>
             <td>
-              <button class="btn secondary" data-action="edit" data-id="${u.id}">Editar</button>
-              <button class="btn secondary" data-action="delete" data-id="${u.id}">Borrar</button>
+              <button class="btn neutral" data-action="edit" data-id="${u.id}">Editar</button>
+              <button class="btn danger" data-action="delete" data-id="${u.id}">Borrar</button>
             </td>
           `;
           tbody.appendChild(tr);
@@ -2463,6 +3051,9 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const act = document.getElementById('u-activo'); if(act) act.checked=true;
       closeModal('modal-usuario');
     }
+
+    // Banner de salud del sistema: muestra estado de /healthz y actualiza periódicamente
+    
 
     async function saveUser(){
       const f = (id) => document.getElementById(id);
@@ -2606,7 +3197,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
 
     function bindPagosEvents(){
       const tbody = document.querySelector('#pagos-table tbody');
-      tbody.addEventListener('click', (ev) => {
+      tbody.addEventListener('click', async (ev) => {
         const btn = ev.target.closest('button');
         if(btn){
           const action = btn.getAttribute('data-action');
@@ -2638,12 +3229,16 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
             openModal('modal-pagos-delete');
             return;
           }
-          if(action === 'recibo'){
-            const id = btn.getAttribute('data-id');
-            if(!id){ showToast('Pago inválido', 'error', 4500); return; }
-            openReciboPreview(id);
-            return;
-          }
+      if(action === 'recibo'){
+        const id = btn.getAttribute('data-id');
+        if(!id){ showToast('Pago inválido', 'error', 4500); return; }
+        const prevHTML = btn.innerHTML;
+        btn.disabled = true; btn.setAttribute('aria-busy','true');
+        btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span style="margin-left:6px">Abriendo…</span>';
+        try { await openReciboPreview(id); }
+        finally { btn.disabled = false; btn.removeAttribute('aria-busy'); btn.innerHTML = prevHTML; }
+        return;
+      }
         }
         const tr = ev.target.closest('tr');
         if(!tr) return;
@@ -2687,10 +3282,14 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }
       });
       const reciboBtn = document.getElementById('pago-side-recibo');
-      if(reciboBtn) reciboBtn.addEventListener('click', () => {
+      if(reciboBtn) reciboBtn.addEventListener('click', async () => {
         const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { showToast('Selecciona un pago válido', 'warning', 4000); return; }
         const id = p.id || p.pago_id;
-        openReciboPreview(id);
+        const prevHTML = reciboBtn.innerHTML;
+        reciboBtn.disabled = true; reciboBtn.setAttribute('aria-busy','true');
+        reciboBtn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span style="margin-left:6px">Abriendo…</span>';
+        try { await openReciboPreview(id); }
+        finally { reciboBtn.disabled = false; reciboBtn.removeAttribute('aria-busy'); reciboBtn.innerHTML = prevHTML; }
       });
       // Modal recibo preview controls
       const reciboPrevClose = document.getElementById('recibo-preview-close'); if(reciboPrevClose) reciboPrevClose.addEventListener('click', () => closeModal('modal-recibo-preview'));
@@ -2730,9 +3329,9 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         openModal('modal-pagos-delete');
       });
       const nuevoPagoBtn = document.getElementById('pagos-new');
-      if(nuevoPagoBtn) nuevoPagoBtn.addEventListener('click', () => showPagoForm(null));
+      if(nuevoPagoBtn) nuevoPagoBtn.addEventListener('click', () => showPagoWizard());
       const registrarPagoQuick = document.getElementById('usuario-side-registrar');
-      if(registrarPagoQuick) registrarPagoQuick.addEventListener('click', () => showPagoForm(null));
+      if(registrarPagoQuick) registrarPagoQuick.addEventListener('click', () => { try{ hidePagoWizard(); }catch(_){ } showPagoWizard(); });
       // Modal pago form controls
       const pagoClose = document.getElementById('pago-form-close'); if(pagoClose) pagoClose.addEventListener('click', hidePagoForm);
       const pagoCancel = document.getElementById('pago-form-cancel'); if(pagoCancel) pagoCancel.addEventListener('click', hidePagoForm);
@@ -3012,6 +3611,153 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       } catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 
+    // ==== Wizard Nuevo Pago (Side‑sheet) ====
+    function wizardSetStep(n){
+      try{
+        const root = document.getElementById('pago-wizard'); if(!root) return;
+        // Simplificado: mostrar todos los bloques a la vez y ocultar navegación
+        root.setAttribute('data-step', '4');
+        root.querySelectorAll('.wizard-step').forEach(s => { s.classList.add('active'); });
+        const stepsHeader = root.querySelector('.wizard-steps'); if(stepsHeader) stepsHeader.style.display = 'none';
+        const prevBtn = root.querySelector('#pago-wizard-prev'); const nextBtn = root.querySelector('#pago-wizard-next'); const saveBtn = root.querySelector('#pago-wizard-save');
+        if(prevBtn) prevBtn.style.display = 'none';
+        if(nextBtn) nextBtn.style.display = 'none';
+        if(saveBtn) saveBtn.style.display = '';
+      }catch(e){}
+    }
+    async function recalcPagoTotalWizard(){
+      try{
+        const usuarioEl = document.getElementById('wiz-usuario');
+        const metodoEl = document.getElementById('wiz-metodo');
+        const conceptoEl = document.getElementById('wiz-concepto');
+        const montoEl = document.getElementById('wiz-monto');
+        const uid = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null;
+        const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+        const concepto = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
+        let base = 0; let conceptoNombre = 'Cuota Mensual';
+        if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
+        if(uid){
+          const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+          const tipoVal = u ? (u.tipo_cuota ?? null) : null;
+          const tipoObj = resolveTipoCuota(tipoVal);
+          if(concepto && String(concepto.nombre||'').trim().toLowerCase() === 'cuota mensual'){
+            base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+          } else {
+            base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+          }
+        } else {
+          base = concepto ? Number(concepto.precio_base ?? 0) : 0;
+        }
+        const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
+        const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
+        const pct = metodo ? Number(metodo.comision_porcentaje ?? metodo.comision ?? 0) : 0;
+        const comision = round2(base * pct / 100);
+        const total = round2(base + comision);
+        if(montoEl){ montoEl.value = total > 0 ? String(total) : ''; }
+        const root = document.getElementById('pago-wizard'); if(root){
+          const cEl = root.querySelector('#wiz-resumen-concepto'); if(cEl) cEl.textContent = conceptoNombre;
+          const bEl = root.querySelector('#wiz-resumen-base'); if(bEl) bEl.textContent = base>0 ? String(base) : '—';
+          const comEl = root.querySelector('#wiz-resumen-comision'); if(comEl) comEl.textContent = comision>0 ? String(comision) : '—';
+          const pctEl = root.querySelector('#wiz-resumen-comision-porcentaje'); if(pctEl) pctEl.textContent = pct>0 ? `(${pct}% del método)` : '';
+          const tEl = root.querySelector('#wiz-resumen-total'); if(tEl) tEl.textContent = total>0 ? String(total) : '—';
+        }
+      } catch(e){ console.warn('No se pudo recalcular total en wizard:', e); }
+    }
+    async function populateWizardUsuarioSelect(selectedId){ const sel = document.getElementById('wiz-usuario'); if(!sel) return; sel.innerHTML = '<option value="">Seleccionar usuario</option>'; const arr = Array.isArray(state.usuarios) ? state.usuarios : []; arr.forEach(u => { const opt = document.createElement('option'); opt.value = String(u.id); opt.textContent = (u.nombre || '') + (u.dni ? ` • DNI ${u.dni}` : ''); sel.appendChild(opt); }); if(selectedId){ sel.value = String(selectedId); } }
+    async function populateWizardMetodoSelect(selectedId){ const sel = document.getElementById('wiz-metodo'); if(!sel) return; sel.innerHTML = '<option value="">Seleccionar (opcional)</option>'; if(!Array.isArray(state.metodosPago) || state.metodosPago.length===0){ try{ await loadMetodosPago(); }catch(_){} }
+      (Array.isArray(state.metodosPago) ? state.metodosPago : []).forEach(m => { const opt = document.createElement('option'); opt.value = String(m.id); opt.textContent = m.nombre || (`Método ${m.id}`); sel.appendChild(opt); }); if(selectedId){ sel.value = String(selectedId); } }
+    async function populateWizardConceptoSelect(selectedId){ const sel = document.getElementById('wiz-concepto'); if(!sel) return; sel.innerHTML = '<option value="">Seleccionar concepto</option>'; if(!Array.isArray(state.conceptosPago) || state.conceptosPago.length===0){ try{ await loadConceptosPago(); }catch(_){} }
+      (Array.isArray(state.conceptosPago) ? state.conceptosPago : []).forEach(c => { const opt = document.createElement('option'); opt.value = String(c.id); opt.textContent = c.nombre || (`Concepto ${c.id}`); sel.appendChild(opt); }); if(selectedId){ sel.value = String(selectedId); } }
+    async function showPagoWizard(){ try{
+      const root = document.getElementById('pago-wizard'); if(!root){ console.warn('No existe #pago-wizard'); return; }
+      // Defaults
+      const now = new Date(); const mesEl = document.getElementById('wiz-mes'); const añoEl = document.getElementById('wiz-año'); if(mesEl) mesEl.value = String(now.getMonth()+1); if(añoEl) añoEl.value = String(now.getFullYear());
+      await populateWizardUsuarioSelect(state.selectedUsuario && state.selectedUsuario.id ? state.selectedUsuario.id : null);
+      await populateWizardMetodoSelect(null);
+      await populateWizardConceptoSelect(null);
+      await recalcPagoTotalWizard();
+      // Bind events (idempotente)
+      const usuarioEl = document.getElementById('wiz-usuario'); if(usuarioEl){ usuarioEl.addEventListener('change', recalcPagoTotalWizard); usuarioEl.addEventListener('change', () => { try{ clearFieldError('wiz-usuario'); }catch(_){ } }); }
+      const conceptoEl = document.getElementById('wiz-concepto'); if(conceptoEl) conceptoEl.addEventListener('change', recalcPagoTotalWizard);
+      const metodoEl = document.getElementById('wiz-metodo'); if(metodoEl) metodoEl.addEventListener('change', recalcPagoTotalWizard);
+      const nextBtn = root.querySelector('#pago-wizard-next'); const prevBtn = root.querySelector('#pago-wizard-prev'); const saveBtn = root.querySelector('#pago-wizard-save');
+      if(nextBtn){ nextBtn.onclick = async function(){ const step = Number(root.getAttribute('data-step')||'1'); if(step===1){ const uid = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null; if(!uid){ showToast('Selecciona un usuario', 'warning', 3000); return; } wizardSetStep(2); }
+        else if(step===2){ const cid = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : ''; if(!cid){ showToast('Selecciona un concepto', 'warning', 3000); return; } wizardSetStep(3); }
+        else if(step===3){ await recalcPagoTotalWizard(); wizardSetStep(4); }
+      }; }
+      if(prevBtn){ prevBtn.onclick = function(){ const step = Number(root.getAttribute('data-step')||'1'); wizardSetStep(Math.max(1, step-1)); }; }
+      if(saveBtn){ saveBtn.onclick = savePagoWizard; }
+      wizardSetStep(4);
+      try {
+        if (window.UI && typeof UI.openSideSheet === 'function') {
+          UI.openSideSheet('pago-wizard');
+          // Foco inicial para accesibilidad
+          setTimeout(() => { try{ document.getElementById('wiz-usuario')?.focus(); }catch(_){} }, 10);
+        } else {
+          const sheet = document.getElementById('pago-wizard');
+          const backdrop = document.querySelector('.side-sheet-backdrop');
+          if (sheet) sheet.classList.add('open');
+          if (backdrop) backdrop.classList.add('open');
+        }
+      } catch(_){ /* noop */ }
+      // Guardado rápido con Ctrl+Enter
+      try{ root.addEventListener('keydown', (ev) => { if((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter'){ ev.preventDefault(); savePagoWizard(); } }); }catch(_){}
+    }catch(e){ console.warn('No se pudo abrir wizard:', e); }}
+    function hidePagoWizard(){
+      try {
+        if (window.UI && typeof UI.closeSideSheet === 'function') {
+          UI.closeSideSheet('pago-wizard');
+        } else {
+          const sheet = document.getElementById('pago-wizard');
+          const backdrop = document.querySelector('.side-sheet-backdrop');
+          if (sheet) sheet.classList.remove('open');
+          if (backdrop) backdrop.classList.remove('open');
+        }
+      } catch(_){ /* noop */ }
+    }
+    // Helpers de validación visual
+    function setFieldError(fieldId, message){ try{ const el = document.getElementById(fieldId); const err = document.getElementById(fieldId+'-error'); if(el){ el.setAttribute('aria-invalid','true'); el.classList.add('input-error'); } if(err){ err.textContent = message || err.textContent || 'Campo inválido'; err.style.display = ''; } }catch(_){ } }
+    function clearFieldError(fieldId){ try{ const el = document.getElementById(fieldId); const err = document.getElementById(fieldId+'-error'); if(el){ el.removeAttribute('aria-invalid'); el.classList.remove('input-error'); } if(err){ err.style.display = 'none'; } }catch(_){ } }
+    async function savePagoWizard(){
+      const usuarioEl = document.getElementById('wiz-usuario');
+      const montoEl = document.getElementById('wiz-monto');
+      const fechaEl = document.getElementById('wiz-fecha');
+      const mesEl = document.getElementById('wiz-mes');
+      const añoEl = document.getElementById('wiz-año');
+      const metodoEl = document.getElementById('wiz-metodo');
+      const conceptoEl = document.getElementById('wiz-concepto');
+      const usuario_id = usuarioEl && usuarioEl.value ? Number(usuarioEl.value) : null;
+      const monto = montoEl && montoEl.value ? Number(montoEl.value) : null;
+      const fecha_str = fechaEl && fechaEl.value ? fechaEl.value : null;
+      let mes = mesEl && mesEl.value ? Number(mesEl.value) : null;
+      let año = añoEl && añoEl.value ? Number(añoEl.value) : null;
+      const metodo_pago_id = metodoEl && metodoEl.value ? Number(metodoEl.value) : null;
+      const conceptoIdRaw = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+      const conceptoSel = conceptoIdRaw ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoIdRaw] : null) : null;
+      // Validación visual
+      clearFieldError('wiz-usuario');
+      clearFieldError('wiz-monto');
+      if(!usuario_id){ setFieldError('wiz-usuario', 'Debes seleccionar un usuario.'); showToast('Selecciona un usuario', 'warning', 3000); try{ usuarioEl?.focus(); }catch(_){ } return; }
+      if(!monto){ setFieldError('wiz-monto', 'El monto no puede ser vacío.'); showToast('El monto no puede ser vacío', 'warning', 3000); try{ usuarioEl?.focus(); }catch(_){ } return; }
+      let url = '/api/pagos'; let method = 'POST'; let body = {};
+      let concepto_id_final = conceptoSel ? Number(conceptoSel.id) : null;
+      if(!concepto_id_final){ const items = Array.isArray(state.conceptosPago) ? state.conceptosPago : []; const monthly = items.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual'); if(monthly) concepto_id_final = Number(monthly.id); }
+      let precio_unitario = 0; const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id); const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+      if(conceptoSel && String(conceptoSel.nombre||'').trim().toLowerCase() === 'cuota mensual'){ precio_unitario = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+      else { precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+      const conceptos = concepto_id_final ? [{ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }] : [];
+      body = { usuario_id, metodo_pago_id, conceptos };
+      if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
+      else { if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); } body['mes'] = mes; body['año'] = año; }
+      try{
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
+        await res.json().catch(()=>null);
+        hidePagoWizard();
+        await loadPayments();
+      }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
+    }
+
     async function deletePago(){
       const id = state.deletePagoId; if(!id){ closeModal('modal-pagos-delete'); return; }
       try{
@@ -3081,6 +3827,29 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       }
     }
 
+    function syncUsuarioSheetFromSide(){
+      try{
+        const copyText = (srcId, dstId) => { const src = document.getElementById(srcId); const dst = document.getElementById(dstId); if(dst) dst.textContent = src ? src.textContent : '—'; };
+        copyText('usuario-side-estado','usuario-sheet-estado');
+        copyText('usuario-side-vencimiento','usuario-sheet-vencimiento');
+        copyText('usuario-side-cuotas-vencidas','usuario-sheet-cuotas-vencidas');
+        copyText('usuario-side-ultimo-pago','usuario-sheet-ultimo-pago');
+        copyText('usuario-side-nombre','usuario-sheet-nombre');
+        copyText('usuario-side-dni','usuario-sheet-dni');
+        copyText('usuario-side-telefono','usuario-sheet-telefono');
+        copyText('usuario-side-rol','usuario-sheet-rol');
+        copyText('usuario-side-tipo-cuota','usuario-sheet-tipo-cuota');
+        const idEl = document.getElementById('usuario-side-id'); const title = document.getElementById('usuario-sheet-title'); if(title){ const base = 'Ficha de Usuario'; title.textContent = idEl && idEl.textContent ? (base + ' ' + idEl.textContent) : base; }
+      }catch(e){}
+    }
+
+    function openUsuarioSheet(){
+      const u = state.selectedUsuario;
+      if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 3500); return; }
+      syncUsuarioSheetFromSide();
+      try{ UI.openSideSheet('usuario-sheet'); } catch(_){ /* noop */ }
+    }
+
     async function selectUsuarioByIndex(idx){
       const u = (state.usuarios || [])[idx];
       if(!u) return;
@@ -3105,6 +3874,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){ await loadTiposCuotaActivos(); }
         try { await ensureTiposCuotaCatalogo(); } catch {}
         renderUsuarioSide(det || u, historial);
+        if(id){ try { await loadUsuarioWhatsApp(id); } catch(_){} }
         if(id){ try { await loadUsuarioEtiquetas(id); await loadUsuarioEstados(id); } catch(_){} }
         let recent = '—';
         let hasHoy = false;
@@ -3138,6 +3908,13 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const btnAsis = document.getElementById('usuario-side-asistencia'); if(btnAsis) btnAsis.disabled = true;
       const tbody = document.querySelector('#usuario-historial-table tbody');
       if(tbody) tbody.innerHTML = '';
+      const wtbody = document.getElementById('usuario-wa-historial-body'); if(wtbody) wtbody.innerHTML = '';
+      const wempty = document.getElementById('usuario-wa-historial-empty'); if(wempty) wempty.style.display = 'block';
+      ['welcome','payment','deactivation','overdue','class_reminder'].forEach(t => {
+        const stEl = document.getElementById(`usuario-wa-status-${t}`); if(stEl) stEl.textContent = '—';
+        const dtEl = document.getElementById(`usuario-wa-date-${t}`); if(dtEl) dtEl.textContent = 'Fecha: —';
+        const cardEl = document.getElementById(`usuario-wa-card-${t}`); const btn = cardEl ? cardEl.querySelector('button[data-type]') : null; if(btn) btn.disabled = false;
+      });
     }
 
     function bindUsuariosEvents(){
@@ -3167,10 +3944,21 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       document.getElementById('usuarios-clear-selection').addEventListener('click', clearUsuarioSelection);
       document.getElementById('usuarios-refresh').addEventListener('click', loadUsers);
       document.getElementById('usuarios-q').addEventListener('keydown', (e) => { if(e.key === 'Enter') loadUsers(); });
+      // Búsqueda con debounce para Usuarios
+      try {
+        const uq = document.getElementById('usuarios-q');
+        if(uq){ uq.addEventListener('input', debounce(() => { loadUsers(); }, 300)); }
+        const ul = document.getElementById('usuarios-limit');
+        if(ul){ ul.addEventListener('change', () => { loadUsers(); }); }
+      } catch(_){}
       document.getElementById('usuarios-new').addEventListener('click', () => showUserForm(null));
       document.getElementById('usuarios-save').addEventListener('click', saveUser);
       document.getElementById('usuarios-cancel').addEventListener('click', hideUserForm);
       document.getElementById('usuarios-modal-close').addEventListener('click', hideUserForm);
+      const waCards = document.getElementById('usuario-wa-cards');
+      if(waCards){ waCards.addEventListener('click', (ev) => { const btn = ev.target.closest('button[data-type]'); if(btn){ const type = btn.getAttribute('data-type'); forceSendWA(type); } }); }
+      const waRefresh = document.getElementById('usuario-wa-refresh'); if(waRefresh){ waRefresh.addEventListener('click', () => { const u = state.selectedUsuario; if(u && u.id) loadUsuarioWhatsApp(u.id); }); }
+      const waFilter = document.getElementById('usuario-wa-filter'); if(waFilter){ waFilter.addEventListener('change', () => renderUsuarioWAHistoryTable(state.usuarioWAHistorial || [])); }
       document.getElementById('usuarios-delete-close').addEventListener('click', () => closeModal('modal-usuarios-delete'));
       document.getElementById('usuarios-delete-cancel').addEventListener('click', () => closeModal('modal-usuarios-delete'));
       document.getElementById('usuarios-delete-confirm').addEventListener('click', async () => {
@@ -3193,14 +3981,22 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       if(qrBtn) qrBtn.addEventListener('click', emitirQRCheckin);
       const asisBtn = document.getElementById('usuario-side-asistencia');
       if(asisBtn) asisBtn.addEventListener('click', handleAsistenciaClick);
+      const fichaBtn = document.getElementById('usuario-side-ficha');
+      if(fichaBtn) fichaBtn.addEventListener('click', openUsuarioSheet);
+      const sheetRegistrar = document.getElementById('usuario-sheet-registrar');
+      if(sheetRegistrar) sheetRegistrar.addEventListener('click', function(){ try{ hidePagoWizard(); }catch(_){} showPagoWizard(); });
+      const sheetVerPagos = document.getElementById('usuario-sheet-ver-pagos');
+      if(sheetVerPagos) sheetVerPagos.addEventListener('click', function(){ try{ const tab = document.querySelector('.tab[data-tab="pagos"], [data-tab="pagos"]'); if(tab){ tab.dispatchEvent(new MouseEvent('click', { bubbles:true })); } } catch(_){ } });
       const qrCloseBtn = document.getElementById('qr-close-btn');
       if(qrCloseBtn) qrCloseBtn.addEventListener('click', closeQRModal);
       const qrCloseFooter = document.getElementById('qr-close-footer');
       if(qrCloseFooter) qrCloseFooter.addEventListener('click', closeQRModal);
+      // Acciones rápidas — WhatsApp eliminadas
       // Subpestañas y acciones de usuario
       const tabs = document.querySelectorAll('#usuario-tabs button');
       tabs.forEach(btn => btn.addEventListener('click', () => {
         const tab = btn.getAttribute('data-tab');
+        try{ localStorage.setItem('usuario:subtab', tab); }catch(_){}
         document.querySelectorAll('#usuario-tabs button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('#usuario-tab-notas, #usuario-tab-etiquetas, #usuario-tab-estados').forEach(panel => {
@@ -3210,6 +4006,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         if(tab === 'etiquetas'){ document.getElementById('usuario-etiqueta-input')?.focus(); }
         if(tab === 'estados'){ document.getElementById('usuario-estado-template')?.focus(); }
       }));
+      // Restaurar subtab Persistido
+      try{
+        const persistedSub = localStorage.getItem('usuario:subtab') || 'notas';
+        const btnInit = document.querySelector(`#usuario-tabs button[data-tab="${persistedSub}"]`);
+        if(btnInit){ btnInit.click(); }
+      }catch(_){}
       document.addEventListener('keydown', (ev) => {
         if((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'f'){
           ev.preventDefault();
@@ -3442,7 +4244,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       if(!sel) return;
       try{
         const res = await fetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' } });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.estadoPlantillas = items;
         state.estadoPlantillasMap = {};
@@ -3572,16 +4374,19 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const tr = document.createElement('tr');
         tr.setAttribute('data-id', String(t.id ?? ''));
         const isActivo = (t.activo === true || t.activo === 'true');
+        const roleEl = document.getElementById('login-current');
+        const isOwner = (roleEl && (roleEl.getAttribute('data-role') || '').trim()) === 'dueño';
+        const actionsHTML = isOwner
+          ? `<button class="btn neutral" data-action="edit-tipo" data-id="${t.id ?? ''}">Editar</button>
+             <button class="btn warning" data-action="toggle-tipo-activo" data-id="${t.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
+             <button class="btn danger" data-action="delete-tipo" data-id="${t.id ?? ''}">Borrar</button>`
+          : `<span class="muted">Solo dueño</span>`;
         tr.innerHTML = `
           <td>${t.nombre ?? ''}</td>
           <td>${t.precio != null ? t.precio : ''}</td>
           <td>${t.duracion_dias != null ? t.duracion_dias : ''}</td>
           <td>${isActivo ? 'Sí' : 'No'}</td>
-          <td class="table-actions">
-            <button class="btn" data-action="edit-tipo" data-id="${t.id ?? ''}">Editar</button>
-            <button class="btn secondary" data-action="toggle-tipo-activo" data-id="${t.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
-            <button class="btn secondary" data-action="delete-tipo" data-id="${t.id ?? ''}">Borrar</button>
-          </td>`;
+          <td class="table-actions">${actionsHTML}</td>`;
         tbody.appendChild(tr);
       });
     }
@@ -3671,11 +4476,13 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         tr.setAttribute('data-id', String(c.id ?? ''));
         const isActivo = (c.activo === true || c.activo === 'true');
         const isDefaultMonthly = (String(c.nombre || '').trim().toLowerCase() === 'cuota mensual');
-        const actions = `
-            <button class="btn" data-action="edit-concepto" data-id="${c.id ?? ''}">Editar</button>
-            <button class="btn secondary" data-action="toggle-concepto-activo" data-id="${c.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
-            ${isDefaultMonthly ? '' : `<button class="btn secondary" data-action="delete-concepto" data-id="${c.id ?? ''}">Borrar</button>`}
-          `;
+        const roleEl = document.getElementById('login-current');
+        const isOwner = (roleEl && (roleEl.getAttribute('data-role') || '').trim()) === 'dueño';
+        const actionsHTML = isOwner
+          ? `<button class="btn neutral" data-action="edit-concepto" data-id="${c.id ?? ''}">Editar</button>
+             <button class="btn warning" data-action="toggle-concepto-activo" data-id="${c.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
+             ${isDefaultMonthly ? '' : `<button class="btn danger" data-action="delete-concepto" data-id="${c.id ?? ''}">Borrar</button>`}`
+          : `<span class="muted">Solo dueño</span>`;
         tr.innerHTML = `
           <td>${c.nombre ?? ''}</td>
           <td>${c.precio_base != null ? c.precio_base : ''}</td>
@@ -3683,7 +4490,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           <td>${isActivo ? 'Sí' : 'No'}</td>
           <td>${c.categoria ?? ''}</td>
           <td class="table-actions">
-            ${actions}
+            ${actionsHTML}
           </td>`;
         tbody.appendChild(tr);
       });
@@ -3784,9 +4591,9 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           <td>${m.color ?? ''} ${colorBadge}</td>
           <td>${isActivo ? 'Sí' : 'No'}</td>
           <td class="table-actions">
-            <button class="btn" data-action="edit-metodo" data-id="${m.id ?? ''}">Editar</button>
-            <button class="btn secondary" data-action="toggle-metodo-activo" data-id="${m.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
-            <button class="btn secondary" data-action="delete-metodo" data-id="${m.id ?? ''}">Borrar</button>
+            <button class="btn neutral" data-action="edit-metodo" data-id="${m.id ?? ''}">Editar</button>
+            <button class="btn warning" data-action="toggle-metodo-activo" data-id="${m.id ?? ''}">${isActivo ? 'Desactivar' : 'Activar'}</button>
+            <button class="btn danger" data-action="delete-metodo" data-id="${m.id ?? ''}">Borrar</button>
           </td>`;
         tbody.appendChild(tr);
       });
@@ -3853,10 +4660,280 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       }catch(e){ showToast('Error de red al actualizar método', 'error', 4500); }
     }
 
+    // ===== Configuración: Envíos pendientes (WhatsApp) =====
+    async function loadWAPendings(){
+      try{
+        const res = await fetch('/api/whatsapp/pendings', { headers:{ 'Accept':'application/json' } });
+        if(res.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json();
+        const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+        if(!window.state) window.state = {};
+        state.waPendings = rows;
+        renderWAPendingsTable(rows);
+      }catch(e){ console.warn('No se pudieron cargar envíos pendientes:', e); showToast('No se pudieron cargar envíos pendientes', 'error', 4500); }
+    }
+    function renderWAPendingsTable(rows){
+      const tbody = document.querySelector('#config-wa-pendings-table tbody'); if(!tbody) return;
+      tbody.innerHTML = '';
+      (Array.isArray(rows) ? rows : []).forEach(r => {
+        const tr = document.createElement('tr');
+        const nombre = String(r.usuario_nombre || r.nombre || (r.user_id != null ? `Usuario #${r.user_id}` : '—'));
+        const tel = String(r.phone_number || r.telefono || '—');
+        const fechaRaw = r.fecha_envio || r.sent_at || r.fecha || '';
+        const fecha = fechaRaw ? fmtDate(fechaRaw) : '—';
+        const tipo = String(r.message_type || r.tipo || '—');
+        tr.innerHTML = `
+          <td>${nombre}</td>
+          <td>${tel}</td>
+          <td>${fecha}</td>
+          <td>${tipo}</td>
+          <td class="table-actions">
+            <button class="btn warning" data-action="wa-retry" data-phone="${tel}" data-user-id="${r.user_id ?? ''}">Reintentar</button>
+            <button class="btn outline neutral" data-action="wa-clear" data-phone="${tel}">Limpiar</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    async function retryWAPending(phone, userId){
+      try{
+        const body = {};
+        if(phone) body.telefono = phone;
+        if(userId != null && String(userId).trim() !== '') body.usuario_id = userId;
+        const res = await fetch('/api/whatsapp/retry', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok || data.success === false){ showToast(data.detail || data.error || 'No se pudo reintentar', 'error', 4500); return; }
+        showToast('Reintento enviado', 'success', 2500);
+        await loadWAPendings();
+      }catch(e){ showToast('Error de red al reintentar', 'error', 4500); }
+    }
+    async function clearWAPending(phone){
+      if(!phone){ showToast('Teléfono inválido', 'warning', 3000); return; }
+      const conf = confirm('¿Limpiar mensajes fallidos de este teléfono?'); if(!conf) return;
+      try{
+        const res = await fetch('/api/whatsapp/clear_failures', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ telefono: phone }) });
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok || data.success === false){ showToast(data.detail || data.error || 'No se pudo limpiar', 'error', 4500); return; }
+        showToast('Mensajes fallidos limpiados', 'success', 2500);
+        await loadWAPendings();
+      }catch(e){ showToast('Error de red al limpiar', 'error', 4500); }
+    }
+    async function retryAllWAPendings(){
+      const btn = document.getElementById('config-wa-retry-all'); if(btn) btn.disabled = true;
+      try{
+        const items = Array.isArray(state.waPendings) ? state.waPendings : [];
+        for(const r of items){
+          const tel = r.phone_number || r.telefono || '';
+          const uid = r.user_id != null ? r.user_id : null;
+          if(tel || uid != null){ await retryWAPending(tel, uid); }
+        }
+        showToast('Reintentos completados', 'success', 3000);
+      }catch(e){ showToast('Error al reintentar en lote', 'error', 4500); }
+      finally{ if(btn) btn.disabled = false; }
+    }
+    async function clearWAFailuresAll(){
+      const conf = confirm('¿Limpiar mensajes fallidos de todos los teléfonos?'); if(!conf) return;
+      const btn = document.getElementById('config-wa-clear-all'); if(btn) btn.disabled = true;
+      try{
+        const res = await fetch('/api/whatsapp/clear_failures', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({}) });
+        const data = await res.json().catch(() => ({}));
+        if(!res.ok || data.success === false){ showToast(data.detail || data.error || 'No se pudo limpiar', 'error', 4500); return; }
+        showToast('Mensajes fallidos limpiados', 'success', 3000);
+        await loadWAPendings();
+      }catch(e){ showToast('Error al limpiar en lote', 'error', 4500); }
+      finally{ if(btn) btn.disabled = false; }
+    }
+
+    // ===== WhatsApp: Estado y último envío =====
+    async function loadWAState(){
+      try{
+        const res = await fetch('/api/whatsapp/state', { headers:{ 'Accept':'application/json' } });
+        const data = await res.json().catch(() => ({}));
+        const yesNo = (v) => (v ? 'Sí' : 'No');
+        const elAvail = document.getElementById('config-wa-state-available');
+        const elEnabled = document.getElementById('config-wa-state-enabled');
+        const elServer = document.getElementById('config-wa-state-server');
+        const elConfig = document.getElementById('config-wa-state-config');
+        if(elAvail) elAvail.textContent = yesNo(Boolean(data?.disponible));
+        if(elEnabled) elEnabled.textContent = yesNo(Boolean(data?.habilitado));
+        if(elServer) elServer.textContent = Boolean(data?.servidor_activo) ? 'Activo' : 'Inactivo';
+        if(elConfig) elConfig.textContent = yesNo(Boolean(data?.configuracion_valida));
+        // Actualizar botón toggle según estado del servidor
+        try { updateWAServerToggleUI(Boolean(data?.servidor_activo)); } catch(_) {}
+        // Rellenar inputs si el estado trae config actual (si está disponible)
+        try{
+          const cfg = (data && data.config) ? data.config : null;
+          if(cfg){
+            const phoneEl = document.getElementById('wa-config-phone-number-id'); if(phoneEl && (cfg.phone_number_id != null)) phoneEl.value = String(cfg.phone_number_id || '');
+            const acctEl = document.getElementById('wa-config-business-account-id'); if(acctEl && (cfg.whatsapp_business_account_id != null)) acctEl.value = String(cfg.whatsapp_business_account_id || '');
+            const tokenEl = document.getElementById('wa-config-access-token'); if(tokenEl && (cfg.access_token != null)) tokenEl.value = String(cfg.access_token || '');
+            const allowEl = document.getElementById('wa-config-allowlist-text'); if(allowEl && (cfg.allowlist_numbers != null)){
+              const arr = Array.isArray(cfg.allowlist_numbers) ? cfg.allowlist_numbers : String(cfg.allowlist_numbers || '').split(',');
+              allowEl.value = (arr || []).map(x => String(x||'').trim()).filter(x => x).join(', ');
+            }
+            const allowChk = document.getElementById('wa-config-allowlist-enabled'); if(allowChk && (cfg.allowlist_enabled != null)) allowChk.checked = String(cfg.allowlist_enabled).toLowerCase() === 'true';
+            const hookChk = document.getElementById('wa-config-enable-webhook'); if(hookChk && (cfg.enable_webhook != null)) hookChk.checked = String(cfg.enable_webhook).toLowerCase() === 'true';
+          }
+        }catch(_){ }
+      }catch(e){ console.warn('No se pudo cargar estado WA:', e); }
+    }
+
+    function updateWAServerToggleUI(active){
+      const btn = document.getElementById('config-wa-server-toggle');
+      if(!btn) return;
+      const isActive = !!active;
+      btn.dataset.active = isActive ? 'true' : 'false';
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      // Cambiar estilo y texto
+      if(isActive){
+        btn.textContent = 'Detener servidor';
+        btn.setAttribute('aria-label', 'Detener servidor');
+        btn.classList.remove('success');
+        btn.classList.add('warning');
+      } else {
+        btn.textContent = 'Iniciar servidor';
+        btn.setAttribute('aria-label', 'Iniciar servidor');
+        btn.classList.remove('warning');
+        btn.classList.add('success');
+      }
+    }
+
+    function normalizePhones(text){
+      const raw = String(text || '').split(',');
+      const cleaned = raw.map(s => String(s||'').trim())
+        .filter(s => s.length > 0)
+        .map(s => s.replace(/[\s\-()]/g, ''))
+        .map(s => (s.startsWith('+') ? s : ('+' + s)))
+        .map(s => s.replace(/\+\+/g, '+'));
+      // Eliminar duplicados preservando orden
+      const seen = new Set();
+      const out = [];
+      cleaned.forEach(s => { const k = s; if(!seen.has(k)){ seen.add(k); out.push(k); } });
+      return out;
+    }
+
+    function collectWAConfigFromForm(){
+      const phone = (document.getElementById('wa-config-phone-number-id')||{}).value || '';
+      const acct = (document.getElementById('wa-config-business-account-id')||{}).value || '';
+      const token = (document.getElementById('wa-config-access-token')||{}).value || '';
+      const allowText = (document.getElementById('wa-config-allowlist-text')||{}).value || '';
+      const allowEnabled = !!(document.getElementById('wa-config-allowlist-enabled')||{}).checked;
+      const hookEnabled = !!(document.getElementById('wa-config-enable-webhook')||{}).checked;
+      const allowArr = normalizePhones(allowText);
+      return {
+        phone_number_id: String(phone).trim(),
+        whatsapp_business_account_id: String(acct).trim(),
+        access_token: String(token).trim(),
+        allowlist_numbers: allowArr.join(', '),
+        allowlist_enabled: allowEnabled,
+        enable_webhook: hookEnabled
+      };
+    }
+
+    function validateWAConfig(cfg){
+      const errors = [];
+      const setInvalid = (id, invalid) => { const el = document.getElementById(id); if(!el) return; if(invalid){ el.setAttribute('aria-invalid','true'); el.classList.add('input-error'); } else { el.removeAttribute('aria-invalid'); el.classList.remove('input-error'); } };
+      const phoneOk = /^\d{5,}$/.test(String(cfg.phone_number_id||'').trim());
+      if(!phoneOk){ errors.push('ID de número de teléfono inválido (mínimo 5 dígitos).'); setInvalid('wa-config-phone-number-id', true); } else { setInvalid('wa-config-phone-number-id', false); }
+      if(!String(cfg.whatsapp_business_account_id||'').trim()){ errors.push('ID de cuenta de WhatsApp Business es requerido.'); setInvalid('wa-config-business-account-id', true); } else { setInvalid('wa-config-business-account-id', false); }
+      if(!String(cfg.access_token||'').trim() || String(cfg.access_token||'').trim().length < 20){ errors.push('Access Token es requerido y debe ser válido.'); setInvalid('wa-config-access-token', true); } else { setInvalid('wa-config-access-token', false); }
+      // allowlist opcional pero normalizado
+      const errsEl = document.getElementById('wa-config-errors'); if(errsEl){ if(errors.length){ errsEl.style.display='block'; errsEl.textContent = errors.join(' '); } else { errsEl.style.display='none'; errsEl.textContent=''; } }
+      return { valid: errors.length === 0, errors };
+    }
+
+    async function saveWAConfig(){
+      const statusEl = document.getElementById('wa-config-save-status'); if(statusEl) statusEl.textContent = 'Guardando configuración…';
+      const btn = document.getElementById('config-wa-save'); if(btn){ btn.disabled = true; btn.setAttribute('aria-busy','true'); }
+      try{
+        const cfg = collectWAConfigFromForm();
+        const val = validateWAConfig(cfg);
+        if(!val.valid){ if(statusEl) statusEl.textContent = 'Corrige los errores e intenta nuevamente.'; return; }
+        const res = await fetch('/api/whatsapp/config', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(cfg) });
+        if(res.status === 401){ showToast('Acceso restringido a dueño. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok || data.success === false){ showToast(data.detail || data.error || data.message || 'No se pudo guardar configuración', 'error', 5000); if(statusEl) statusEl.textContent = 'Error al guardar configuración.'; return; }
+        showToast('Configuración de WhatsApp guardada', 'success', 3500);
+        if(statusEl) statusEl.textContent = 'Configuración guardada correctamente.';
+        try{ await loadWAState(); }catch(_){ }
+      }catch(e){ showToast('Error de red al guardar configuración', 'error', 4500); if(statusEl) statusEl.textContent = 'Error de red.'; }
+      finally{ if(btn){ btn.disabled = false; btn.removeAttribute('aria-busy'); } }
+    }
+
+    async function toggleWAServer(){
+      const btn = document.getElementById('config-wa-server-toggle');
+      if(!btn) return;
+      btn.disabled = true; btn.setAttribute('aria-busy','true');
+      const isActive = String(btn.dataset.active || 'false') === 'true';
+      try{
+        const url = isActive ? '/api/whatsapp/server/stop' : '/api/whatsapp/server/start';
+        const res = await fetch(url, { method:'POST', headers:{ 'Accept':'application/json' } });
+        if(res.status === 401){ showToast('Acceso restringido a dueño. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+        const data = await res.json().catch(()=>({}));
+        if(!res.ok || data.success === false){
+          showToast(data.detail || data.error || data.message || (isActive ? 'No se pudo detener servidor de WhatsApp' : 'No se pudo iniciar servidor de WhatsApp'), 'error', 5000);
+          return;
+        }
+        showToast(isActive ? 'Servidor de WhatsApp detenido' : 'Servidor de WhatsApp iniciado', 'success', 3500);
+        try{ await loadWAState(); }catch(_){ }
+      }catch(e){
+        showToast(isActive ? 'Error de red al detener servidor' : 'Error de red al iniciar servidor', 'error', 4500);
+      } finally {
+        btn.disabled = false; btn.removeAttribute('aria-busy');
+      }
+    }
+    async function loadWALastForUser(uid){
+      const elUser = document.getElementById('config-wa-last-user');
+      const elType = document.getElementById('config-wa-last-type');
+      const elDate = document.getElementById('config-wa-last-date');
+      const elStatus = document.getElementById('config-wa-last-status');
+      const elDetail = document.getElementById('config-wa-last-detail');
+      const setDash = () => { if(elUser) elUser.textContent = '—'; if(elType) elType.textContent = '—'; if(elDate) elDate.textContent = '—'; if(elStatus) elStatus.textContent = '—'; if(elDetail) elDetail.textContent = '—'; };
+      const u = Number(uid);
+      if(!Number.isFinite(u) || u < 1){ setDash(); return; }
+      try{
+        const res = await fetch(`/api/usuarios/${encodeURIComponent(u)}/whatsapp/ultimo`, { headers:{ 'Accept':'application/json' } });
+        const data = await res.json().catch(() => null);
+        const item = (data && typeof data === 'object' && 'item' in data) ? data.item : data;
+        if(!item){ setDash(); return; }
+        if(elUser) elUser.textContent = `Usuario #${u}`;
+        if(elType) elType.textContent = (item.message_type ?? item.tipo ?? '—');
+        if(elDate) elDate.textContent = (fmtDate(item.fecha_envio ?? item.sent_at) ?? '—');
+        if(elStatus) elStatus.textContent = (item.status ?? '—');
+        if(elDetail){
+          const raw = String(item.message_content || '').trim();
+          let det = '—';
+          const st = String(item.status || '').toLowerCase();
+          if(st === 'failed'){
+            const m = raw.match(/Error:\s*(.+)$/i);
+            det = (m && m[1]) ? m[1].trim() : (raw || '—');
+          } else if(st === 'received'){
+            det = raw || '—';
+          } else if(item.template_name){
+            det = String(item.template_name);
+          } else {
+            det = raw ? raw.slice(0, 200) : '—';
+          }
+          elDetail.textContent = det || '—';
+        }
+      }catch(e){ console.warn('No se pudo cargar último WA:', e); setDash(); }
+    }
     async function loadConfigData(){
-      await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin()]).catch(()=>{});
+      await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin(), loadWAPendings(), loadWAState()]).catch(()=>{});
+      try{ await loadUsuarioWAUsersOptions((state.selectedUsuario && state.selectedUsuario.id) || null); }catch(_){}
     }
     function bindConfiguracionEvents(){
+      const roleEl = document.getElementById('login-current');
+      const role = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
+      if(role === 'profesor'){
+        // Ocultar solo el bloque "Mantenimiento" para profesores
+        try {
+          const renumBtn = document.getElementById('config-renum-run');
+          const maintenanceBlock = renumBtn ? renumBtn.closest('.block') : null;
+          if(maintenanceBlock){ maintenanceBlock.style.display = 'none'; }
+          const secureOwnerBtn = document.getElementById('config-secure-owner');
+          if(secureOwnerBtn){ const blk = secureOwnerBtn.closest('.block') || maintenanceBlock; if(blk) blk.style.display = 'none'; }
+        } catch(_) {}
+      }
       const tiposTbody = document.querySelector('#config-tipos-table tbody');
       if(tiposTbody){
         tiposTbody.addEventListener('click', (ev) => {
@@ -3968,6 +5045,55 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }catch(e){ showToast('Error de red al asegurar Dueño', 'error', 4500); }
         finally{ if(trigger) trigger.disabled = false; if(btn) btn.disabled = false; }
       });
+      // WhatsApp: Envíos pendientes
+      const waTbody = document.querySelector('#config-wa-pendings-table tbody');
+      if(waTbody){
+        waTbody.addEventListener('click', (ev) => {
+          const btn = ev.target.closest('button'); if(!btn) return;
+          const action = btn.getAttribute('data-action');
+          const phone = btn.getAttribute('data-phone') || '';
+          const userIdRaw = btn.getAttribute('data-user-id') || '';
+          const userId = userIdRaw ? parseInt(userIdRaw, 10) : null;
+          if(action === 'wa-retry'){
+            retryWAPending(phone, userId);
+          } else if(action === 'wa-clear'){
+            clearWAPending(phone);
+          }
+        });
+      }
+      const btnWaRefresh = document.getElementById('config-wa-refresh');
+      if(btnWaRefresh) btnWaRefresh.addEventListener('click', async () => {
+        await loadWAPendings();
+        await loadWAState();
+        const uidEl = document.getElementById('usuario-wa-user-select');
+        const uid = uidEl ? uidEl.value : '';
+        if(uid) await loadWALastForUser(uid);
+      });
+      const btnWaSave = document.getElementById('config-wa-save'); if(btnWaSave) btnWaSave.addEventListener('click', saveWAConfig);
+      const btnWaCheck = document.getElementById('config-wa-check-state'); if(btnWaCheck) btnWaCheck.addEventListener('click', loadWAState);
+      const btnWaToggle = document.getElementById('config-wa-server-toggle'); if(btnWaToggle) btnWaToggle.addEventListener('click', toggleWAServer);
+      const btnWaRetryAll = document.getElementById('config-wa-retry-all'); if(btnWaRetryAll) btnWaRetryAll.addEventListener('click', retryAllWAPendings);
+      const btnWaClearAll = document.getElementById('config-wa-clear-all'); if(btnWaClearAll) btnWaClearAll.addEventListener('click', clearWAFailuresAll);
+      // WhatsApp por usuario: selector de usuario en Configuración
+      const waUserSel = document.getElementById('usuario-wa-user-select');
+      if(waUserSel){
+        waUserSel.addEventListener('change', async () => {
+          const val = waUserSel.value || '';
+          if(!val){
+            clearUsuarioSelection();
+            return;
+          }
+          try{
+            const res = await fetch(`/api/usuarios/${encodeURIComponent(val)}`, { headers: { 'Accept':'application/json' } });
+            const u = await res.json().catch(()=> null);
+            if(!u){ showToast('No se pudo cargar el usuario', 'error', 4500); return; }
+            state.selectedUsuario = u;
+            await loadUsuarioWhatsApp(val);
+            // Actualizar también la tarjeta "Último envío" en Configuración
+            await loadWALastForUser(val);
+          }catch(e){ showToast('Error de red al cargar usuario', 'error', 4500); }
+        });
+      }
     }
 
     // ===== Ejercicios: funciones =====
@@ -5124,13 +6250,17 @@ async function directExportExcelFromPreview(){
     const putRes = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
     const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de exportar', 'error', 4500); return; }
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
+    // Nombre de archivo preferido para exportación (cliente y servidor)
+    let fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    try { fname2 = String(fname2).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fname2)}`;
     const r = await fetch(url);
     if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
     const blob = await r.blob();
-    const fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    let downloadName = fname2;
+    try { downloadName = String(downloadName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
     const dlUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = dlUrl; a.download = fname2; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
+    const a = document.createElement('a'); a.href = dlUrl; a.download = downloadName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
     showToast('Excel descargado', 'success', 2500);
   }catch(_){ showToast('No se pudo exportar Excel', 'error', 4500); }
 }
@@ -5143,7 +6273,10 @@ async function updateRutinaPDFPreview(){
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
     if(!d || !d.id){ empty.style.display='block'; frame.style.display='none'; return; }
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    const urlP = `/api/rutinas/${d.id}/export/pdf?weeks=${encodeURIComponent(String(weeks))}&ts=${Date.now()}#toolbar=0&navpanes=0`;
+    // Nombre de archivo sugerido para PDF inline (afecta Save en visor)
+    let pdfName = (d.nombre_rutina || d.nombre || 'rutina') + '.pdf';
+    try { pdfName = String(pdfName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+    const urlP = `/api/rutinas/${d.id}/export/pdf?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(pdfName)}&ts=${Date.now()}#toolbar=0&navpanes=0`;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
     frame.style.display='block';
@@ -5574,7 +6707,9 @@ function attachWheelZoom(containerId, frameId){
           const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de previsualizar', 'error', 4500); return; }
           // Obtener XLSX del backend
           const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
-          const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
+          const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
+          const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
+          const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`;
           const r = await fetch(url);
           if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
           const blob = await r.blob();
@@ -5608,8 +6743,10 @@ function attachWheelZoom(containerId, frameId){
             if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
             const blob = await r.blob();
             const fname2 = (document.getElementById('rutina-export-filename')||{}).value || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx');
+            let dlName = fname2;
+            try { dlName = String(dlName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
             const dlUrl = URL.createObjectURL(blob);
-            const a = document.createElement('a'); a.href = dlUrl; a.download = fname2;
+            const a = document.createElement('a'); a.href = dlUrl; a.download = dlName;
             document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
             showToast('Excel descargado', 'success', 2500);
             closeModal('modal-rutina-export');
@@ -5639,10 +6776,10 @@ function attachWheelZoom(containerId, frameId){
         (Array.isArray(arr)? arr: []).forEach(r => {
           const tr = document.createElement('tr'); tr.setAttribute('data-id', String(r.id));
           const acciones = `
-            <button class="btn" data-action="preview" data-id="${r.id}">Abrir</button>
-            <button class="btn" data-action="assign" data-id="${r.id}">Asignar</button>
-            <button class="btn secondary" data-action="unassign" data-id="${r.id}">Desasignar</button>
-            <button class="btn" data-action="delete" data-id="${r.id}">Eliminar</button>`;
+            <button class="btn info" data-action="preview" data-id="${r.id}">Abrir</button>
+            <button class="btn success" data-action="assign" data-id="${r.id}">Asignar</button>
+            <button class="btn outline neutral" data-action="unassign" data-id="${r.id}">Desasignar</button>
+            <button class="btn danger" data-action="delete" data-id="${r.id}">Eliminar</button>`;
           tr.innerHTML = `<td>${r.nombre_rutina || r.nombre || ''}</td><td>${r.dias_semana || ''}</td><td>${r.categoria || ''}</td><td>${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
           tr.addEventListener('click', (ev) => {
             const btn = ev.target.closest('button');
@@ -5738,8 +6875,8 @@ function attachWheelZoom(containerId, frameId){
           <td>${e.objetivo || ''}</td>
           <td>${e.descripcion || ''}</td>
           <td>
-            <button class="btn secondary" data-action="edit" data-index="${idx}" data-id="${e.id}">Editar</button>
-            <button class="btn" data-action="delete" data-id="${e.id}">Eliminar</button>
+            <button class="btn neutral" data-action="edit" data-index="${idx}" data-id="${e.id}">Editar</button>
+            <button class="btn danger" data-action="delete" data-id="${e.id}">Eliminar</button>
           </td>`;
         tr.addEventListener('click', (ev) => {
           const isBtn = !!ev.target.closest('button');
@@ -5996,6 +7133,10 @@ function attachWheelZoom(containerId, frameId){
         el.setAttribute('data-base', base);
         const topEstadoEl = document.getElementById('prof-sesion-estado');
         if(topEstadoEl) topEstadoEl.style.display = 'none';
+        const startBtn = document.getElementById('sesion-iniciar');
+        const endBtn = document.getElementById('sesion-finalizar');
+        if(startBtn) startBtn.style.display = '';
+        if(endBtn) endBtn.style.display = '';
         return;
       }
       const pidRaw = el.getAttribute('data-prof-id') || '';
@@ -6005,6 +7146,11 @@ function attachWheelZoom(containerId, frameId){
       const baseDefault = 'Sesión: Profesor';
       const topEstadoEl = document.getElementById('prof-sesion-estado');
       if(topEstadoEl) topEstadoEl.style.display = '';
+      // Ocultar botones de inicio/fin de sesión para profesor
+      const startBtn = document.getElementById('sesion-iniciar');
+      const endBtn = document.getElementById('sesion-finalizar');
+      if(startBtn) startBtn.style.display = 'none';
+      if(endBtn) endBtn.style.display = 'none';
       if(pid || uid){
         fetch('/api/profesores_basico', { headers: { 'Accept': 'application/json' } })
           .then(r => r.ok ? r.json() : [])
@@ -6027,26 +7173,67 @@ function attachWheelZoom(containerId, frameId){
     }
 
     function init(){
+      // Enlazar pestañas y sidebar; si algún módulo falla, no bloquear el resto
       document.querySelectorAll('.tab').forEach(btn => {
         btn.addEventListener('click', () => {
           const tab = btn.dataset.tab;
-          switchTab(tab);
-          if(tab === 'pagos') loadPayments();
-          if(tab === 'usuarios') loadUsers();
-          if(tab === 'profesores') loadProfesoresPanel();
-          if(tab === 'ejercicios') loadEjercicios();
-          if(tab === 'rutinas') loadRutinas();
-          if(tab === 'configuracion') loadConfigData();
+          try { switchTab(tab); } catch(_){}
+          try { if(tab === 'pagos') loadPayments(); } catch(_){}
+          try { if(tab === 'usuarios') loadUsers(); } catch(_){}
+          try { if(tab === 'profesores') loadProfesoresPanel(); } catch(_){}
+          try { if(tab === 'ejercicios') loadEjercicios(); } catch(_){}
+          try { if(tab === 'rutinas') loadRutinas(); } catch(_){}
+          try { if(tab === 'configuracion') loadConfigData(); } catch(_){}
         });
       });
-      const { start, end } = defaultRange();
+      // Sidebar: enlazar elementos con data-tab a las mismas acciones de pestañas
+      document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          const tab = item.getAttribute('data-tab');
+          const btn = document.querySelector('.tab[data-tab="'+tab+'"]');
+          if(btn){ try{ btn.click(); }catch(_){} }
+          document.querySelectorAll('.sidebar .nav-item').forEach(x => x.classList.remove('active'));
+          item.classList.add('active');
+        });
+      });
+      // Aplicar pestaña persistida si existe
+      try {
+        const persisted = localStorage.getItem('gestion-active-tab') || '';
+        const validTabs = ['pagos','usuarios','profesores','ejercicios','rutinas','configuracion'];
+        const initial = validTabs.includes(persisted) ? persisted : '';
+        if(initial){
+          const btn = document.querySelector('.tab[data-tab="'+initial+'"]');
+          if(btn){ btn.click(); }
+          document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(item => {
+            const isActive = (item.getAttribute('data-tab') || '') === initial;
+            item.classList.toggle('active', isActive);
+            if(isActive) item.setAttribute('aria-current','page');
+            else item.removeAttribute('aria-current');
+          });
+        }
+      } catch(_){}
+      let start = '', end = '';
+      try { const r = defaultRange(); start = r.start; end = r.end; } catch(_){}
       const startEl = document.getElementById('pagos-start');
       const endEl = document.getElementById('pagos-end');
       if(startEl && !startEl.value) startEl.value = start;
       if(endEl && !endEl.value) endEl.value = end;
-      document.getElementById('pagos-refresh').addEventListener('click', loadPayments);
-      document.getElementById('pagos-q').addEventListener('keydown', (e) => { if(e.key === 'Enter') loadPayments(); });
-      document.getElementById('pagos-limit').addEventListener('change', loadPayments);
+      const pagosRefreshEl = document.getElementById('pagos-refresh');
+      if(pagosRefreshEl) pagosRefreshEl.addEventListener('click', loadPayments);
+      const pagosQEl = document.getElementById('pagos-q');
+      if(pagosQEl) pagosQEl.addEventListener('keydown', (e) => { if(e.key === 'Enter') loadPayments(); });
+      // Búsqueda con debounce para mejor rendimiento
+      try{
+        const pagosQ = document.getElementById('pagos-q');
+        if(pagosQ){ pagosQ.addEventListener('input', debounce(() => { loadPayments(); }, 300)); }
+        const pagosStart = document.getElementById('pagos-start');
+        const pagosEnd = document.getElementById('pagos-end');
+        if(pagosStart){ pagosStart.addEventListener('input', debounce(() => { loadPayments(); }, 300)); pagosStart.addEventListener('change', () => { loadPayments(); }); }
+        if(pagosEnd){ pagosEnd.addEventListener('input', debounce(() => { loadPayments(); }, 300)); pagosEnd.addEventListener('change', () => { loadPayments(); }); }
+      } catch(_){}
+      const pagosLimitEl = document.getElementById('pagos-limit');
+      if(pagosLimitEl) pagosLimitEl.addEventListener('change', loadPayments);
       const selPU = document.getElementById('pagos-usuario');
       if(selPU){
         selPU.addEventListener('change', () => {
@@ -6061,26 +7248,47 @@ function attachWheelZoom(containerId, frameId){
           loadPayments();
         });
       }
-      bindPagosEvents();
-      bindUsuariosEvents();
-      bindConfiguracionEvents();
-      bindEjerciciosEvents();
-      bindRutinasEvents();
-      bindProfesoresEvents();
-      renderLoginInfo();
-      refreshTopBarSesion();
+      try{ bindPagosEvents(); }catch(_){}
+      try{ bindUsuariosEvents(); }catch(_){}
+      try{ bindConfiguracionEvents(); }catch(_){}
+      try{ bindEjerciciosEvents(); }catch(_){}
+      try{ bindRutinasEvents(); }catch(_){}
+      try{ bindProfesoresEvents(); }catch(_){}
+      try{ renderLoginInfo(); }catch(_){}
+      try{ refreshTopBarSesion(); }catch(_){}
       const roleEl = document.getElementById('login-current');
       const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
       const btnProf = document.getElementById('tab-btn-profesores');
-      if(btnProf && role !== 'dueño'){ btnProf.style.display = 'none'; }
-      loadEstadoPlantillas();
-      // Auto-ocultar header al hacer scroll
+      if(btnProf && role === 'profesor'){ btnProf.style.display = 'none'; }
+      const sideProfItem = document.querySelector('.sidebar .nav-item[data-tab="profesores"]');
+      if(sideProfItem && role === 'profesor'){ sideProfItem.style.display = 'none'; }
+
+      // Interceptar logout para profesor: mostrar confirmación
+      const logoutLink = document.querySelector('a[href="/gestion/logout"]');
+      if(logoutLink){
+        logoutLink.addEventListener('click', (e) => {
+          const r = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
+          if(r === 'profesor'){
+            e.preventDefault();
+            try{ openModal('modal-sesion-fin'); }catch(_){}
+          }
+        });
+      }
+      const finClose = document.getElementById('sesion-fin-close');
+      const finCancel = document.getElementById('sesion-fin-cancel');
+      const finConfirm = document.getElementById('sesion-fin-confirm');
+      if(finClose) finClose.onclick = () => { try{ closeModal('modal-sesion-fin'); }catch(_){} };
+      if(finCancel) finCancel.onclick = () => { try{ closeModal('modal-sesion-fin'); }catch(_){} };
+      if(finConfirm) finConfirm.onclick = () => { try{ window.location.href = '/gestion/logout'; }catch(_){} };
+      try{ loadEstadoPlantillas(); }catch(_){}
+      // Auto-ocultar header al hacer scroll (usa main como contenedor de scroll)
       const headerEl = document.getElementById('main-header');
+      const mainEl = document.getElementById('main-content');
       if(headerEl){
-        let lastY = window.scrollY;
+        let lastY = mainEl ? mainEl.scrollTop : window.scrollY;
         let hidden = false;
         function onScroll(){
-          const y = window.scrollY;
+          const y = mainEl ? mainEl.scrollTop : window.scrollY;
           if(y > lastY && y > 20){
             if(!hidden){ headerEl.classList.add('header--hidden'); hidden = true; }
           } else {
@@ -6088,19 +7296,23 @@ function attachWheelZoom(containerId, frameId){
           }
           lastY = y;
         }
-        window.addEventListener('scroll', onScroll, { passive: true });
+        const scrollTarget = mainEl || window;
+        scrollTarget.addEventListener('scroll', onScroll, { passive: true });
       }
       // Precarga datos base para una UX fluida
-      Promise.allSettled([
-        loadConceptosPago(),
-        loadMetodosPago(),
-        loadTiposCuotaActivos(),
-        ensureTiposCuotaCatalogo(),
-      ]).catch(()=>{});
+      try{
+        Promise.allSettled([
+          loadConceptosPago(),
+          loadMetodosPago(),
+          loadTiposCuotaActivos(),
+          ensureTiposCuotaCatalogo(),
+        ]).catch(()=>{});
+      }catch(_){}
+      // Banner de salud eliminado
       // Cargar primer listado de Usuarios
-      loadUsers();
+      try{ loadUsers(); }catch(_){}
       // Cargar pagos por defecto (últimos 30 días)
-      loadPayments();
+      try{ loadPayments(); }catch(_){}
     }
     // ==== Profesores: estado y funciones ====
   function ensureProfesoresState(){
@@ -6126,8 +7338,16 @@ function attachWheelZoom(containerId, frameId){
     if(selProf) selProf.onchange = () => { ensureProfesoresState(); state.profesores.horarioEditId = null; resetHorarioForm(); loadProfesorDatos(); loadProfesorHorarios(); loadProfesorConfig(); refreshSesion(); if(state.profesores.activeSubtab==='resumen') loadProfesorResumen(); if(state.profesores.activeSubtab==='sesiones') loadProfesorSesiones(); };
     if(btnAdd) btnAdd.onclick = addOrUpdateHorario;
     if(btnCancel) btnCancel.onclick = () => { ensureProfesoresState(); state.profesores.horarioEditId = null; resetHorarioForm(); };
-    if(btnStart) btnStart.onclick = startSesion;
-    if(btnEnd) btnEnd.onclick = endSesion;
+    // Asignar eventos de sesión solo para Dueño
+    try{
+      const roleEl = document.getElementById('login-current');
+      const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+      if(btnStart) btnStart.onclick = (role === 'dueño') ? startSesion : null;
+      if(btnEnd) btnEnd.onclick = (role === 'dueño') ? endSesion : null;
+    } catch(_){
+      if(btnStart) btnStart.onclick = null;
+      if(btnEnd) btnEnd.onclick = null;
+    }
     if(btnSesRefresh) btnSesRefresh.onclick = loadProfesorSesiones;
     if(btnSesWeek) btnSesWeek.onclick = () => { const base = toISODate(new Date()); const mode = (document.getElementById('prof-week-start')?.value || 'mon'); const r = getWeekRange(base, mode); if(sesStartEl) sesStartEl.value = r.start; if(sesEndEl) sesEndEl.value = r.end; loadProfesorSesiones(); };
     if(btnSesMonth) btnSesMonth.onclick = () => { const r = getMonthRange(); if(sesStartEl) sesStartEl.value = r.start; if(sesEndEl) sesEndEl.value = r.end; loadProfesorSesiones(); };
@@ -6495,6 +7715,17 @@ function attachWheelZoom(containerId, frameId){
       pinEl.value = String(data?.pin || '');
       actEl.checked = !!data?.activo;
       if(rolLabel) rolLabel.textContent = `Rol: ${String(data?.rol || 'profesor').charAt(0).toUpperCase() + String(data?.rol || 'profesor').slice(1)}`;
+      // Ocultar/deshabilitar PIN si sesión es profesor y está viendo otro profesor
+      try{
+        const loginEl = document.getElementById('login-current');
+        const role = (loginEl?.getAttribute('data-role') || '').trim();
+        const loginProfId = (loginEl?.getAttribute('data-prof-id') || '').trim();
+        const sel = document.getElementById('profesor-select');
+        const pid = sel?.value || '';
+        const isOther = role === 'profesor' && loginProfId && pid && (String(loginProfId) !== String(pid));
+        if(isOther){ pinEl.value=''; pinEl.disabled = true; pinEl.placeholder = 'PIN oculto (no editable)'; }
+        else { pinEl.disabled = false; pinEl.placeholder = ''; }
+      }catch(_){}
     }catch(e){ console.error('Error cargando datos profesor', e); }
   }
   async function saveProfesorDatos(){
@@ -6513,7 +7744,7 @@ function attachWheelZoom(containerId, frameId){
         nombre: String(nomEl.value || '').trim().toUpperCase(),
         dni: String(dniEl.value || '').trim(),
         telefono: String(telEl.value || '').trim(),
-        pin: String(pinEl.value || '').trim(),
+        pin: (pinEl && !pinEl.disabled) ? String(pinEl.value || '').trim() : undefined,
         activo: !!actEl.checked,
         rol: 'profesor',
         tipo_cuota: current.tipo_cuota ?? null,
@@ -6868,7 +8099,7 @@ function attachWheelZoom(containerId, frameId){
         return;
       }
       fetch(`/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}`)
-        .then(r => r.json())
+        .then(r => r.json().catch(() => ({})))
         .then(d => {
           const active = !!d?.activa;
           setupSesionTimer(active);
@@ -6890,7 +8121,7 @@ function attachWheelZoom(containerId, frameId){
       return;
     }
     fetch(`/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(pid)}`)
-      .then(r => r.json())
+      .then(r => r.json().catch(() => ({})))
       .then(d => {
         const active = !!d?.activa;
         const tipo = d?.tipo_actividad || 'Trabajo';
@@ -6921,7 +8152,7 @@ function attachWheelZoom(containerId, frameId){
       return;
     }
     fetch(`/api/profesor_sesion_duracion?profesor_id=${encodeURIComponent(pid)}`)
-      .then(r => r.json())
+      .then(r => r.json().catch(() => ({})))
       .then(d => {
         const min = Number(d?.minutos || 0);
         const h = Math.floor(min / 60);
@@ -7281,50 +8512,9 @@ function attachWheelZoom(containerId, frameId){
       // Inicializar numeración de recibos (indicador y eventos)
       updateReciboNextNumber();
       bindReciboConfigEvents();
-      try {
-        const logoutLink = document.querySelector('a[href="/gestion/logout"]');
-        if (logoutLink) {
-          logoutLink.addEventListener('click', (e) => {
-            try {
-              const roleEl = document.getElementById('login-current');
-              const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
-              const profId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
-              if(role === 'profesor' && profId){
-                e.preventDefault();
-                openModal('modal-sesion-fin');
-              }
-            } catch(_){}
-          });
-        }
-        const closeBtn = document.getElementById('sesion-fin-close');
-        const cancelBtn = document.getElementById('sesion-fin-cancel');
-        const confirmBtn = document.getElementById('sesion-fin-confirm');
-        if (closeBtn) closeBtn.onclick = () => { closeModal('modal-sesion-fin'); };
-        if (cancelBtn) cancelBtn.onclick = () => { closeModal('modal-sesion-fin'); };
-        if (confirmBtn) confirmBtn.onclick = async () => {
-          try {
-            confirmBtn.disabled = true;
-            const r = await fetch('/api/profesor_sesion_fin', { method: 'POST', headers: { 'Accept': 'application/json' } });
-            let ok = r.ok;
-            let j = null;
-            try { j = await r.json(); } catch(_){}
-            if(ok && j && j.success){
-              if(typeof showToast==='function') showToast('Sesión finalizada', 'success');
-              closeModal('modal-sesion-fin');
-              window.location.href = '/gestion/logout';
-            } else {
-              if(typeof showToast==='function') showToast(j?.detail || j?.error || 'No se pudo finalizar la sesión', 'warning');
-              // No redirigir si falla
-            }
-          } catch(_){
-            if(typeof showToast==='function') showToast('Error finalizando la sesión', 'error');
-            // No redirigir si falla
-          } finally {
-            confirmBtn.disabled = false;
-          }
-        };
-      } catch(e){ console.error('Error configurando salida con finalización', e); }
     });
+  
   </script>
+  <script src="/static/js/ui.js"></script>
 </body>
 </html>

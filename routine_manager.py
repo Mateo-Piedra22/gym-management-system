@@ -169,41 +169,46 @@ class RoutineTemplateManager:
                 raise FileNotFoundError(f"Archivo Excel no encontrado: {xlsx}")
             target_pdf = Path(pdf_path) if pdf_path else xlsx.with_suffix('.pdf')
 
-            try:
-                import win32com.client as win32
-                excel = win32.DispatchEx("Excel.Application")
-                excel.Visible = False
-                excel.DisplayAlerts = False
-                wb = excel.Workbooks.Open(str(xlsx.resolve()))
-                # Forzar orientación horizontal y ajuste de ancho para cada hoja
+            com_err = None
+            if os.name == 'nt':
                 try:
-                    for ws in wb.Worksheets:
-                        ps = ws.PageSetup
-                        # xlLandscape = 2
-                        ps.Orientation = 2
-                        # Ajuste a una página de ancho; deshabilitar zoom para que FitToPages funcione
-                        ps.Zoom = False
-                        ps.FitToPagesWide = 1
-                        # 0 (o False) permite que la altura fluya en varias páginas si es necesario
-                        ps.FitToPagesTall = 0
-                        # Ocultar filas en blanco para preservar bordes y evitar huecos al imprimir
-                        try:
-                            for r in (18, 27, 36, 45):
-                                try:
-                                    ws.Rows(r).Hidden = True
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                wb.ExportAsFixedFormat(0, str(target_pdf.resolve()))
-                wb.Close(False)
-                excel.Quit()
-                self.logger.info(f"Conversión Excel→PDF exitosa con COM: {target_pdf}")
-                return str(target_pdf)
-            except Exception as com_err:
-                self.logger.warning(f"Fallo conversión con COM, intentando LibreOffice: {com_err}")
+                    import win32com.client as win32
+                    excel = win32.DispatchEx("Excel.Application")
+                    excel.Visible = False
+                    excel.DisplayAlerts = False
+                    wb = excel.Workbooks.Open(str(xlsx.resolve()))
+                    # Forzar orientación horizontal y ajuste de ancho para cada hoja
+                    try:
+                        for ws in wb.Worksheets:
+                            ps = ws.PageSetup
+                            # xlLandscape = 2
+                            ps.Orientation = 2
+                            # Ajuste a una página de ancho; deshabilitar zoom para que FitToPages funcione
+                            ps.Zoom = False
+                            ps.FitToPagesWide = 1
+                            # 0 (o False) permite que la altura fluya en varias páginas si es necesario
+                            ps.FitToPagesTall = 0
+                            # Ocultar filas en blanco para preservar bordes y evitar huecos al imprimir
+                            try:
+                                for r in (18, 27, 36, 45):
+                                    try:
+                                        ws.Rows(r).Hidden = True
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    wb.ExportAsFixedFormat(0, str(target_pdf.resolve()))
+                    wb.Close(False)
+                    excel.Quit()
+                    self.logger.info(f"Conversión Excel→PDF exitosa con COM: {target_pdf}")
+                    return str(target_pdf)
+                except Exception as e:
+                    com_err = e
+                    self.logger.warning(f"Fallo conversión con COM, intentando LibreOffice: {e}")
+            else:
+                self.logger.info("Entorno no Windows: se omite COM y se usa LibreOffice.")
 
             try:
                 import shutil
@@ -222,11 +227,111 @@ class RoutineTemplateManager:
                 self.logger.info(f"Conversión Excel→PDF exitosa con LibreOffice: {target_pdf}")
                 return str(target_pdf)
             except Exception as lo_err:
-                self.logger.error(f"Error al convertir Excel a PDF: {lo_err}")
-                raise lo_err
+                self.logger.warning(f"LibreOffice no disponible o falló la conversión: {lo_err}")
+                self.logger.info("Aplicando fallback con ReportLab para generar PDF básico desde Excel")
+                try:
+                    return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
+                except Exception as rb_err:
+                    self.logger.error(f"Fallback ReportLab también falló: {rb_err}")
+                    raise lo_err
         except Exception as e:
             self.logger.error(f"Conversión Excel→PDF fallida: {e}")
             raise e
+
+    def _excel_to_pdf_reportlab_fallback(self, xlsx: Path, target_pdf: Path) -> str:
+        """
+        Fallback cuando no hay COM ni LibreOffice: renderiza la primera hoja
+        del Excel a una tabla PDF usando ReportLab. Limita filas/columnas para
+        evitar PDFs gigantes y garantiza una salida legible.
+        """
+        try:
+            wb = openpyxl.load_workbook(str(xlsx.resolve()), data_only=True)
+            ws = wb.active
+
+            max_rows = min(ws.max_row or 1, 200)
+            max_cols = min(ws.max_column or 1, 40)
+
+            # Construir datos de tabla
+            data = []
+            for row in ws.iter_rows(min_row=1, max_row=max_rows, min_col=1, max_col=max_cols):
+                row_vals = []
+                for cell in row:
+                    val = cell.value
+                    # Convertir valores complejos a texto
+                    if val is None:
+                        txt = ""
+                    else:
+                        try:
+                            txt = str(val)
+                        except Exception:
+                            txt = ""
+                    row_vals.append(txt)
+                data.append(row_vals)
+
+            # Si el Excel está vacío, agregar mensaje
+            if not data:
+                data = [["Documento vacío"], [f"Origen: {xlsx.name}"]]
+
+            # Crear documento PDF
+            doc = SimpleDocTemplate(
+                str(target_pdf.resolve()),
+                pagesize=landscape(A4),
+                leftMargin=24,
+                rightMargin=24,
+                topMargin=28,
+                bottomMargin=28,
+            )
+            elements = []
+            styles = getSampleStyleSheet()
+            subtitle_style = ParagraphStyle(
+                name="SubTitle",
+                parent=styles["Heading2"],
+                alignment=TA_LEFT,
+                fontSize=14,
+            )
+            elements.append(Paragraph("Vista rápida de rutina (fallback)", subtitle_style))
+            elements.append(Spacer(1, 8))
+
+            # Construir tabla
+            table = Table(data, repeatRows=1)
+            table_style = TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ])
+            table.setStyle(table_style)
+            elements.append(table)
+
+            doc.build(elements)
+            self.logger.info(f"Conversión fallback ReportLab generada: {target_pdf}")
+            return str(target_pdf)
+        except Exception as e:
+            self.logger.error(f"Error en fallback ReportLab: {e}")
+            # Último recurso: generar un PDF mínimo con un aviso
+            try:
+                doc = SimpleDocTemplate(
+                    str(target_pdf.resolve()),
+                    pagesize=landscape(A4),
+                    leftMargin=24,
+                    rightMargin=24,
+                    topMargin=28,
+                    bottomMargin=28,
+                )
+                styles = getSampleStyleSheet()
+                msg = (
+                    "No fue posible convertir Excel a PDF automáticamente en este entorno. "
+                    f"Se incluye este aviso. Archivo original: {xlsx.name}."
+                )
+                doc.build([Paragraph(msg, styles["Normal"])])
+                self.logger.info(f"PDF de aviso generado como último recurso: {target_pdf}")
+                return str(target_pdf)
+            except Exception as final_err:
+                self.logger.error(f"Fallo incluso al generar PDF mínimo: {final_err}")
+                raise final_err
     
     def _select_template_by_days(self, num_days: int) -> Path:
         """

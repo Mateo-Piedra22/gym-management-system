@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Acceso • {{ gym_name }}</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <meta name="color-scheme" content="dark light">
@@ -24,6 +27,9 @@
     .option-title { font-weight:600; font-size: 18px; }
     .option-icon { width: 28px; height: 28px; border-radius: 8px; display:inline-flex; align-items:center; justify-content:center; background: rgba(255,255,255,.06); margin-right:8px; overflow: hidden; }
     .option-icon img { width: 22px; height: 22px; border-radius: 6px; }
+    .option-icon i { font-size: 20px; line-height: 1; color: var(--text); }
+    .option-card:hover .option-icon i { color: var(--accent); }
+    .option-card:hover .option-icon { background: rgba(255,255,255,.10); }
     .role-chip { display:inline-block; font-size:12px; color: var(--text); background: rgba(255,255,255,.06); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; margin-left: 8px; }
     .desc { color: var(--muted); margin-top: 6px; }
     .actions { margin-top: 12px; display:flex; gap: 8px; }
@@ -51,18 +57,18 @@
         <div class="grid">
           <div class="option-card" data-href="/login" aria-labelledby="opt-dashboard-title" aria-describedby="opt-dashboard-desc">
             <div>
-              <span class="option-icon"><img src="/assets/dashboard.png" alt="" /></span>
+              <span class="option-icon" aria-hidden="true"><i class="bi bi-graph-up"></i></span>
               <span id="opt-dashboard-title" class="option-title">Dashboard</span>
               <span class="role-chip" aria-label="Rol sugerido">Dueño</span>
             </div>
             <p id="opt-dashboard-desc" class="desc">Ingresá al panel con KPIs, reportes y control del sistema.</p>
             <div class="actions">
-              <a class="btn secondary" href="/login" aria-label="Ir al login del dueño">Ir al login</a>
+              <a class="btn success" href="/login" aria-label="Ir al login del dueño">Ir al login</a>
             </div>
           </div>
           <div class="option-card" data-href="/checkin" aria-labelledby="opt-checkin-title" aria-describedby="opt-checkin-desc">
             <div>
-              <span class="option-icon"><img src="/assets/checkin.png" alt="" /></span>
+              <span class="option-icon" aria-hidden="true"><i class="bi bi-qr-code-scan"></i></span>
               <span id="opt-checkin-title" class="option-title">Check-in</span>
               <span class="role-chip" aria-label="Rol sugerido">Socio</span>
             </div>
@@ -73,7 +79,7 @@
           </div>
           <div class="option-card" data-href="/gestion/login" aria-labelledby="opt-gestion-title" aria-describedby="opt-gestion-desc">
             <div>
-              <span class="option-icon"><img src="/assets/gestion.png" alt="" /></span>
+              <span class="option-icon" aria-hidden="true"><i class="bi bi-people"></i></span>
               <span id="opt-gestion-title" class="option-title">Gestión</span>
               <span class="role-chip" aria-label="Rol sugerido">Staff/Profesor</span>
             </div>
