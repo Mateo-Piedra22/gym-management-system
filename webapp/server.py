@@ -3545,6 +3545,16 @@ async def gestion_auth(request: Request):
     if not ok:
         return RedirectResponse(url="/gestion/login?error=PIN%20inv%C3%A1lido", status_code=303)
 
+    # Asegurar que cualquier sesión previa de dueño no contamine el login de profesor
+    try:
+        request.session.clear()
+    except Exception:
+        try:
+            request.session.pop("logged_in", None)
+            request.session.pop("role", None)
+        except Exception:
+            pass
+
     profesor_id = None
     prof = None
     try:
@@ -5832,7 +5842,7 @@ async def api_profesor_sesion_delete(sesion_id: int, _=Depends(require_gestion_a
 
 # --- CRUD Horarios de profesores ---
 @app.get("/api/profesor_horarios")
-async def api_profesor_horarios(request: Request, _=Depends(require_owner)):
+async def api_profesor_horarios(request: Request, _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
         return []
@@ -5840,13 +5850,27 @@ async def api_profesor_horarios(request: Request, _=Depends(require_owner)):
     if guard:
         return guard
     try:
+        # Determinar permisos y el profesor_id efectivo
         pid = request.query_params.get("profesor_id")
-        if not pid:
-            return []
-        try:
-            profesor_id = int(pid)
-        except Exception:
-            return []
+        is_owner = bool(request.session.get("logged_in"))
+        ses_prof_id = request.session.get("gestion_profesor_id")
+        profesor_id = None
+        if is_owner:
+            # Dueño: usa el parámetro si es válido
+            if not pid:
+                return []
+            try:
+                profesor_id = int(pid)
+            except Exception:
+                return []
+        else:
+            # Profesor: fuerza su propio ID de sesión
+            try:
+                profesor_id = int(ses_prof_id) if ses_prof_id is not None else None
+            except Exception:
+                profesor_id = None
+            if profesor_id is None:
+                return []
         try:
             items = db.obtener_horarios_disponibilidad_profesor(profesor_id)  # type: ignore
         except Exception:
@@ -5911,6 +5935,30 @@ async def api_profesor_horarios_create(request: Request, _=Depends(require_owner
             profesor_id = int(profesor_id)
         except Exception:
             return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
+        # Validación adicional de formato de hora para evitar cadenas vacías
+        try:
+            def _parse_time(s):
+                if s is None:
+                    raise ValueError("hora_requerida")
+                ss = str(s).strip()
+                if not ss:
+                    raise ValueError("hora_requerida")
+                from datetime import datetime as _dt
+                for fmt in ("%H:%M:%S", "%H:%M"):
+                    try:
+                        return _dt.strptime(ss, fmt).time()
+                    except Exception:
+                        pass
+                raise ValueError("formato_invalido")
+            tinicio = _parse_time(inicio)
+            tfin = _parse_time(fin)
+            if not (tinicio < tfin):
+                return JSONResponse({"error": "invalid_time_range"}, status_code=400)
+        except ValueError as ve:
+            msg = str(ve)
+            if msg == "hora_requerida":
+                return JSONResponse({"error": "times_required"}, status_code=400)
+            return JSONResponse({"error": "invalid_time_format"}, status_code=400)
         disponible_val = bool(disponible) if disponible is not None else True
         try:
             created = db.crear_horario_profesor(profesor_id, str(dia), str(inicio), str(fin), disponible_val)  # type: ignore
@@ -5923,6 +5971,8 @@ async def api_profesor_horarios_create(request: Request, _=Depends(require_owner
                 return JSONResponse({"error": "invalid_day"}, status_code=400)
             if "hora_inicio debe ser menor" in msg:
                 return JSONResponse({"error": "invalid_time_range"}, status_code=400)
+            if "horas_requeridas" in msg:
+                return JSONResponse({"error": "times_required"}, status_code=400)
             if "violates foreign key constraint" in msg:
                 return JSONResponse({"error": "profesor_not_found"}, status_code=404)
             return JSONResponse({"error": msg}, status_code=500)
@@ -5981,7 +6031,7 @@ async def api_profesor_horarios_delete(horario_id: int, _=Depends(require_owner)
 
 # --- Sesiones de trabajo de profesores ---
 @app.post("/api/profesor_sesion_inicio")
-async def api_profesor_sesion_inicio(request: Request, _=Depends(require_owner)):
+async def api_profesor_sesion_inicio(request: Request, _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
         return JSONResponse({"error": "no_db"}, status_code=500)
@@ -5992,14 +6042,26 @@ async def api_profesor_sesion_inicio(request: Request, _=Depends(require_owner))
         data = await request.json()
         profesor_id = data.get("profesor_id")
         tipo = data.get("tipo") or data.get("tipo_actividad") or "Trabajo"
-        if profesor_id is None:
-            return JSONResponse({"error": "missing_fields"}, status_code=400)
+        # Determinar permisos según rol: dueño puede iniciar para cualquiera; profesor sólo para sí mismo
+        is_owner = bool(request.session.get("logged_in"))
+        ses_prof_id = request.session.get("gestion_profesor_id")
+        effective_prof_id = None
+        if is_owner:
+            if profesor_id is None:
+                return JSONResponse({"error": "missing_fields"}, status_code=400)
+            try:
+                effective_prof_id = int(profesor_id)
+            except Exception:
+                return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
+        else:
+            try:
+                effective_prof_id = int(ses_prof_id) if ses_prof_id is not None else None
+            except Exception:
+                effective_prof_id = None
+            if effective_prof_id is None:
+                return JSONResponse({"error": "invalid_profesor_session"}, status_code=403)
         try:
-            profesor_id = int(profesor_id)
-        except Exception:
-            return JSONResponse({"error": "invalid_profesor_id"}, status_code=400)
-        try:
-            res = db.iniciar_sesion_trabajo_profesor(profesor_id, str(tipo))  # type: ignore
+            res = db.iniciar_sesion_trabajo_profesor(effective_prof_id, str(tipo))  # type: ignore
         except Exception as e:
             logging.exception("Error iniciar sesión trabajo profesor")
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -6164,13 +6226,25 @@ async def api_profesor_sesion_activa(request: Request, _=Depends(require_gestion
     if guard:
         return guard
     try:
+        # Resolver profesor_id según rol
+        is_owner = bool(request.session.get("logged_in"))
         pid = request.query_params.get("profesor_id")
-        if not pid:
-            return {"activa": False}
-        try:
-            profesor_id = int(pid)
-        except Exception:
-            return JSONResponse({"activa": False}, status_code=200)
+        profesor_id = None
+        if is_owner:
+            if not pid:
+                return {"activa": False}
+            try:
+                profesor_id = int(pid)
+            except Exception:
+                return JSONResponse({"activa": False}, status_code=200)
+        else:
+            ses_prof_id = request.session.get("gestion_profesor_id")
+            try:
+                profesor_id = int(ses_prof_id) if ses_prof_id is not None else None
+            except Exception:
+                profesor_id = None
+            if profesor_id is None:
+                return {"activa": False}
         try:
             ses = db.obtener_sesion_activa_profesor(profesor_id)  # type: ignore
         except Exception:
@@ -6237,13 +6311,25 @@ async def api_profesor_sesion_duracion(request: Request, _=Depends(require_gesti
     if guard:
         return guard
     try:
+        # Resolver profesor_id según rol
+        is_owner = bool(request.session.get("logged_in"))
         pid = request.query_params.get("profesor_id")
-        if not pid:
-            return {"minutos": 0}
-        try:
-            profesor_id = int(pid)
-        except Exception:
-            return {"minutos": 0}
+        profesor_id = None
+        if is_owner:
+            if not pid:
+                return {"minutos": 0}
+            try:
+                profesor_id = int(pid)
+            except Exception:
+                return {"minutos": 0}
+        else:
+            ses_prof_id = request.session.get("gestion_profesor_id")
+            try:
+                profesor_id = int(ses_prof_id) if ses_prof_id is not None else None
+            except Exception:
+                profesor_id = None
+            if profesor_id is None:
+                return {"minutos": 0}
         try:
             dur = db.obtener_duracion_sesion_actual_profesor(profesor_id)  # type: ignore
         except Exception:
@@ -6829,7 +6915,7 @@ async def api_export_csv(request: Request, _=Depends(require_owner)):
         "Content-Disposition": "attachment; filename=dashboard_export.zip"
     })
 @app.get("/api/profesor_resumen")
-async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
+async def api_profesor_resumen(request: Request, _=Depends(require_gestion_access)):
     """Resumen de horas trabajadas, proyectadas y extras (fuera de horario) para un profesor.
 
     - Trabajadas: suma de `minutos_totales` de sesiones cerradas en el rango.
@@ -6851,28 +6937,44 @@ async def api_profesor_resumen(request: Request, _=Depends(require_owner)):
         }
     try:
         pid = request.query_params.get("profesor_id")
-        if not pid:
-            return {
-                "total_sesiones": 0,
-                "minutos_trabajados": 0,
-                "horas_trabajadas": 0.0,
-                "minutos_proyectados": 0,
-                "horas_proyectadas": 0.0,
-                "minutos_extras": 0,
-                "horas_extras": 0.0,
-            }
-        try:
-            profesor_id = int(pid)
-        except Exception:
-            return {
-                "total_sesiones": 0,
-                "minutos_trabajados": 0,
-                "horas_trabajadas": 0.0,
-                "minutos_proyectados": 0,
-                "horas_proyectadas": 0.0,
-                "minutos_extras": 0,
-                "horas_extras": 0.0,
-            }
+        role = request.session.get("role")
+        profesor_id: Optional[int] = None
+        if pid:
+            try:
+                profesor_id = int(pid)
+            except Exception:
+                profesor_id = None
+
+        if role == "profesor":
+            sess_prof_id = request.session.get("gestion_profesor_id")
+            if sess_prof_id is None and request.session.get("gestion_profesor_user_id"):
+                try:
+                    with db.get_connection_context() as conn:  # type: ignore
+                        cur = conn.cursor()
+                        cur.execute("SELECT profesor_id FROM profesores WHERE usuario_id = %s", (request.session.get("gestion_profesor_user_id"),))
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            sess_prof_id = int(row[0])
+                except Exception:
+                    sess_prof_id = None
+            if profesor_id is None:
+                if sess_prof_id is None:
+                    raise HTTPException(status_code=403, detail="profesor_profile_required")
+                profesor_id = int(sess_prof_id)
+            else:
+                if sess_prof_id is None or int(profesor_id) != int(sess_prof_id):
+                    raise HTTPException(status_code=403, detail="forbidden")
+        else:
+            if profesor_id is None:
+                return {
+                    "total_sesiones": 0,
+                    "minutos_trabajados": 0,
+                    "horas_trabajadas": 0.0,
+                    "minutos_proyectados": 0,
+                    "horas_proyectadas": 0.0,
+                    "minutos_extras": 0,
+                    "horas_extras": 0.0,
+                }
 
         start = request.query_params.get("start")
         end = request.query_params.get("end")
@@ -7203,7 +7305,7 @@ async def api_profesor_update(profesor_id: int, request: Request, _=Depends(requ
 # --- Endpoints de administración de WhatsApp (estado, estadísticas, control de servidor, configuración) ---
 
 @app.get("/api/whatsapp/state")
-async def api_whatsapp_state(_=Depends(require_owner)):
+async def api_whatsapp_state(_=Depends(require_gestion_access)):
     pm = _get_pm()
     db = _get_db()
     if db is None:
@@ -7220,7 +7322,7 @@ async def api_whatsapp_state(_=Depends(require_owner)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/api/whatsapp/stats")
-async def api_whatsapp_stats(_=Depends(require_owner)):
+async def api_whatsapp_stats(_=Depends(require_gestion_access)):
     pm = _get_pm()
     db = _get_db()
     if db is None:
@@ -7239,7 +7341,7 @@ async def api_whatsapp_stats(_=Depends(require_owner)):
 # --- Pendings, retry y limpieza de fallidos ---
 
 @app.get("/api/whatsapp/pendings")
-async def api_whatsapp_pendings(request: Request, _=Depends(require_owner)):
+async def api_whatsapp_pendings(request: Request, _=Depends(require_gestion_access)):
     pm = _get_pm()
     db = _get_db()
     if db is None:

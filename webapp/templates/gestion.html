@@ -223,6 +223,26 @@
     .sidebar { position: sticky; top: 0; height: 100%; overflow: hidden; }
     .main { overflow: auto; height: 100%; min-height: 0; -webkit-overflow-scrolling: touch; }
 
+    /* Indicador de sesión tipo "pill" con pulso cuando está activa */
+.session-indicator { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background: rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.35); transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+.session-indicator::before { content:""; width:8px; height:8px; border-radius:50%; background:#22c55e; }
+.session-indicator.active { animation: pulse-glow 2s ease-in-out infinite; }
+.session-indicator.inactive { background: rgba(239,68,68,0.12); color:#ef4444; border-color: rgba(239,68,68,0.35); }
+.session-indicator.inactive::before { background:#ef4444; }
+.session-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background: rgba(255,255,255,0.08); border:1px solid var(--border); color: inherit; }
+.session-chip i { opacity:.85; }
+.session-state { opacity:.9; }
+    @keyframes pulse-glow { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0);} 50% { box-shadow: 0 0 0 8px rgba(34,197,94,0.12);} 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0);} }
+
+    /* Reloj de duración con flip ligero y dos puntos parpadeantes */
+    .duration-timer { display:inline-flex; align-items: baseline; gap:6px; font-variant-numeric: tabular-nums; }
+    .duration-group { display:inline-flex; align-items:center; gap:4px; }
+    .duration-digit { display:inline-block; min-width:.85em; padding:2px 6px; border-radius:8px; background: rgba(255,255,255,0.06); border:1px solid var(--border); transform-origin: top; }
+    .duration-digit.flip { animation: flipIn .6s ease; }
+    @keyframes flipIn { 0% { transform: rotateX(-90deg); opacity:0; } 50% { transform: rotateX(15deg); opacity:.85; } 100% { transform: rotateX(0deg); opacity:1; } }
+    .duration-sep { opacity:.6; animation: blink 1s steps(1,end) infinite; }
+    @keyframes blink { 50% { opacity:.2; } }
+
   </style>
 </head>
 <body>
@@ -239,14 +259,14 @@
         </div>
         <div class="nav-actions">
           <span id="login-current" class="muted" style="margin-right:12px"
-                data-role="{{ 'dueño' if request.session.get('logged_in') else ('profesor' if request.session.get('gestion_profesor_id') else '') }}"
+                data-role="{{ 'profesor' if (request.session.get('gestion_profesor_id') or request.session.get('gestion_profesor_user_id')) else ('dueño' if request.session.get('logged_in') else '') }}"
                 data-prof-id="{{ request.session.get('gestion_profesor_id') or '' }}"
                 data-prof-uid="{{ request.session.get('gestion_profesor_user_id') or '' }}">Sesión: —</span>
           <button class="btn outline neutral icon-only" data-sidebar-toggle aria-label="Mostrar/ocultar navegación" title="Mostrar/ocultar navegación">
             <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
           </button>
-          <a class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir">
-            <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+          <a id="logout-link" class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir" onclick="try{var el=document.getElementById('login-current');var r=(el&&(el.getAttribute('data-role')||'').trim())||'';if(r==='profesor'){try{populateSesionFinModal();}catch(_){ }try{openModal('modal-sesion-fin');}catch(_){ }setTimeout(function(){try{var m=document.getElementById('modal-sesion-fin');var cs=m?window.getComputedStyle(m):null;var visible=!!(m && cs && cs.display!=='none' && cs.visibility!=='hidden' && m.getClientRects && m.getClientRects().length>0);if(!visible && m && m.parentElement && m.parentElement.tagName && m.parentElement.tagName.toLowerCase()!=='body'){ try{ document.body.appendChild(m); m.classList.add('active'); m.style.display='flex'; m.setAttribute('aria-hidden','false'); visible=!!(m.getClientRects && m.getClientRects().length>0); }catch(__){} }if(!visible){fetch('/api/profesor_sesion_fin',{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'}}).finally(function(){try{window.location.href='/gestion/logout';}catch(__){}});} }catch(__){ try{window.location.href='/gestion/logout';}catch(__){} }},160);return false;}}catch(__){return true;}">
+          <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
           </a>
         </div>
       </div>
@@ -1231,15 +1251,30 @@
     <div class="modal-backdrop" id="modal-sesion-fin" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-fin-title">
         <div class="modal-header">
-          <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Confirmar salida</h3>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Confirmar finalización</h3>
+            <span class="muted" style="font-size:12px;">Tu sesión se guardará al salir</span>
+          </div>
           <button class="btn icon-only" id="sesion-fin-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
-          <p>Al salir se finalizará tu sesión de trabajo automáticamente.</p>
-          <p class="muted">¿Deseas continuar?</p>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <p class="muted" style="margin:0">Antes de salir, confirma la finalización de tu sesión.</p>
+            <div style="display:flex; gap:12px; align-items:stretch;">
+              <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
+                <label class="muted" style="display:block; margin-bottom:6px;">Tiempo trabajado</label>
+                <span id="modal-sesion-fin-duracion" class="duration-timer" aria-live="polite" style="font-size:20px; font-weight:600;">—</span>
+              </div>
+              <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
+                <label class="muted" style="display:block; margin-bottom:6px;">Tipo de sesión</label>
+                <span id="modal-sesion-fin-tipo" style="display:inline-block; padding:6px 10px; border:1px solid var(--border); border-radius:999px; font-size:12px;">—</span>
+                <p class="muted" style="margin-top:8px; font-size:12px;">Si no coincide con tus horarios asignados, se registrará como horas extra.</p>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
-          <button class="btn" id="sesion-fin-confirm">Sí, salir</button>
+          <button class="btn danger" id="sesion-fin-confirm">Finalizar y salir</button>
           <button class="btn outline neutral" id="sesion-fin-cancel">Cancelar</button>
         </div>
       </div>
@@ -1798,6 +1833,7 @@
           <div style="flex:1">
             <label class="muted" for="sesion-fecha">Fecha</label>
             <input id="sesion-fecha" type="date" style="width:100%" aria-label="Fecha" />
+            <div id="sesion-fecha-dia" class="muted" style="margin-top:4px; font-size:12px;">—</div>
           </div>
           <div style="flex:1">
             <label class="muted" for="sesion-inicio">Inicio</label>
@@ -1811,7 +1847,16 @@
         <div class="input-row">
           <div style="flex:1">
             <label class="muted" for="sesion-tipo">Tipo</label>
-            <input id="sesion-tipo" type="text" placeholder="Ej. trabajo" style="width:100%" aria-label="Tipo" />
+            <select id="sesion-tipo" style="width:100%" aria-label="Tipo de actividad" title="Clasificación de la sesión">
+              <option value="Auto">Automático (según horario)</option>
+              <option value="En horario">En horario</option>
+              <option value="Horas extra">Horas extra</option>
+              <option value="Trabajo">Trabajo</option>
+            </select>
+            <div id="sesion-tipo-hint" class="calc-summary" style="margin-top:6px; font-size:12px; color:#555">Sugerencia según horarios: <span id="sesion-tipo-sugerido">—</span></div>
+            <div id="sesion-tipo-warning" style="display:none; margin-top:6px; font-size:12px; color:#8a6d3b; background:#fff9e6; border:1px solid #ffecb3; border-radius:4px; padding:6px;">
+              Advertencia: la selección "En horario" no coincide con el cálculo y se corregirá al guardar.
+            </div>
           </div>
         </div>
         <div class="input-row">
@@ -1819,8 +1864,8 @@
             <label class="muted" for="sesion-minutos">Minutos</label>
             <input id="sesion-minutos" type="number" min="0" step="1" placeholder="Ej. 60" style="width:100%" aria-label="Minutos trabajados" disabled />
           </div>
-          <div style="flex:1; display:flex; align-items:center;">
-            <label class="muted" for="sesion-auto" style="margin-right:8px;">Cálculo automático</label>
+          <div style="flex:0; display:flex; align-items:flex-end; justify-content:flex-end; gap:8px; min-width:180px;">
+            <label class="muted" for="sesion-auto" style="margin:0;">Cálculo automático</label>
             <input id="sesion-auto" type="checkbox" checked aria-label="Calcular minutos automáticamente" />
           </div>
         </div>
@@ -2621,8 +2666,24 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
     function openModal(id){
       const el = document.getElementById(id);
       if(el){
-        // Asegurar stacking por z-index incremental para evitar que quede debajo de otros modales
-        try { state._modalZBase = (state._modalZBase || 1000) + 1; el.style.zIndex = String(state._modalZBase); } catch(_){ }
+        // Cerrar overlays que podrían cubrir el modal y asegurar stacking por encima
+        try {
+          const sheetBackdrop = document.querySelector('.side-sheet-backdrop');
+          if(sheetBackdrop) sheetBackdrop.classList.remove('open');
+          const cmdkBackdrop = document.querySelector('.cmdk-backdrop');
+          if(cmdkBackdrop) cmdkBackdrop.classList.remove('open');
+          const cmdk = document.querySelector('.cmdk');
+          if(cmdk) cmdk.classList.remove('open');
+        } catch(_){ }
+        try {
+          const rootStyles = getComputedStyle(document.documentElement);
+          const zModal = parseInt((rootStyles.getPropertyValue('--z-modal-backdrop')||'1000').trim(), 10) || 1000;
+          const zSheet = parseInt((rootStyles.getPropertyValue('--z-sheet-backdrop')||'1001').trim(), 10) || 1001;
+          const zCmdkB = parseInt((rootStyles.getPropertyValue('--z-cmdk-backdrop')||'1003').trim(), 10) || 1003;
+          const base = Math.max(zModal, zSheet, zCmdkB) + 2;
+          state._modalZBase = (state._modalZBase || base) + 1;
+          el.style.zIndex = String(state._modalZBase);
+        } catch(_){ }
         el.classList.add('active');
         el.style.display = 'flex';
         el.setAttribute('aria-hidden','false');
@@ -7123,54 +7184,56 @@ function attachWheelZoom(containerId, frameId){
       return map[String(grupo || '')] || [];
     }
 
-    function renderLoginInfo(){
-      const el = document.getElementById('login-current');
-      if(!el) return;
-      const role = (el.getAttribute('data-role') || '').trim();
-      if(role === 'dueño'){
-        const base = 'Sesión: Dueño';
-        el.textContent = base;
-        el.setAttribute('data-base', base);
-        const topEstadoEl = document.getElementById('prof-sesion-estado');
-        if(topEstadoEl) topEstadoEl.style.display = 'none';
-        const startBtn = document.getElementById('sesion-iniciar');
-        const endBtn = document.getElementById('sesion-finalizar');
-        if(startBtn) startBtn.style.display = '';
-        if(endBtn) endBtn.style.display = '';
-        return;
-      }
-      const pidRaw = el.getAttribute('data-prof-id') || '';
-      const uidRaw = el.getAttribute('data-prof-uid') || '';
-      const pid = pidRaw ? Number(pidRaw) : null;
-      const uid = uidRaw ? Number(uidRaw) : null;
-      const baseDefault = 'Sesión: Profesor';
+  function renderLoginInfo(){
+    const el = document.getElementById('login-current');
+    if(!el) return;
+    const role = (el.getAttribute('data-role') || '').trim();
+    if(role === 'dueño'){
+      const name = '<i class="bi bi-shield-check" aria-hidden="true"></i><span>Dueño</span>';
+      el.setAttribute('data-name', name);
+      el.setAttribute('data-status', 'Sesión: —');
+      composeTopBarBase();
       const topEstadoEl = document.getElementById('prof-sesion-estado');
-      if(topEstadoEl) topEstadoEl.style.display = '';
+      if(topEstadoEl) topEstadoEl.style.display = 'none';
+      const startBtn = document.getElementById('sesion-iniciar');
+      const endBtn = document.getElementById('sesion-finalizar');
+      if(startBtn) startBtn.style.display = '';
+      if(endBtn) endBtn.style.display = '';
+      return;
+    }
+    const pidRaw = el.getAttribute('data-prof-id') || '';
+    const uidRaw = el.getAttribute('data-prof-uid') || '';
+    const pid = pidRaw ? Number(pidRaw) : null;
+    const uid = uidRaw ? Number(uidRaw) : null;
+    const baseDefaultName = '<i class="bi bi-person-badge" aria-hidden="true"></i><span>Profesor</span>';
+    const topEstadoEl = document.getElementById('prof-sesion-estado');
+    if(topEstadoEl) topEstadoEl.style.display = '';
       // Ocultar botones de inicio/fin de sesión para profesor
       const startBtn = document.getElementById('sesion-iniciar');
       const endBtn = document.getElementById('sesion-finalizar');
       if(startBtn) startBtn.style.display = 'none';
       if(endBtn) endBtn.style.display = 'none';
-      if(pid || uid){
-        fetch('/api/profesores_basico', { headers: { 'Accept': 'application/json' } })
-          .then(r => r.ok ? r.json() : [])
-          .then(list => {
-            const arr = Array.isArray(list) ? list : [];
-            const profByPid = pid ? arr.find(x => String(x.profesor_id) === String(pid)) : null;
-            const profByUid = (!profByPid && uid) ? arr.find(x => String(x.usuario_id) === String(uid)) : null;
-            const prof = profByPid || profByUid;
-            let base = baseDefault;
-            if(prof && prof.nombre){ base = baseDefault + ' • ' + prof.nombre; }
-            el.textContent = base;
-            el.setAttribute('data-base', base);
-            if(prof && prof.profesor_id){ el.setAttribute('data-prof-id', String(prof.profesor_id)); }
-          })
-          .catch(() => { el.textContent = baseDefault; el.setAttribute('data-base', baseDefault); });
-      } else {
-        el.textContent = baseDefault;
-        el.setAttribute('data-base', baseDefault);
-      }
+    if(pid || uid){
+      fetch('/api/profesores_basico', { headers: { 'Accept': 'application/json' } })
+        .then(r => r.ok ? r.json() : [])
+        .then(list => {
+          const arr = Array.isArray(list) ? list : [];
+          const profByPid = pid ? arr.find(x => String(x.profesor_id) === String(pid)) : null;
+          const profByUid = (!profByPid && uid) ? arr.find(x => String(x.usuario_id) === String(uid)) : null;
+          const prof = profByPid || profByUid;
+          const name = (prof && prof.nombre) ? `<i class=\"bi bi-person-badge\" aria-hidden=\"true\"></i><span>${String(prof.nombre).replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>` : baseDefaultName;
+          el.setAttribute('data-name', name);
+          el.setAttribute('data-status', 'Sesión: —');
+          composeTopBarBase();
+          if(prof && prof.profesor_id){ el.setAttribute('data-prof-id', String(prof.profesor_id)); }
+        })
+        .catch(() => { el.setAttribute('data-name', baseDefaultName); el.setAttribute('data-status','Sesión: —'); composeTopBarBase(); });
+    } else {
+      el.setAttribute('data-name', baseDefaultName);
+      el.setAttribute('data-status', 'Sesión: —');
+      composeTopBarBase();
     }
+  }
 
     function init(){
       // Enlazar pestañas y sidebar; si algún módulo falla, no bloquear el resto
@@ -7264,22 +7327,100 @@ function attachWheelZoom(containerId, frameId){
       if(sideProfItem && role === 'profesor'){ sideProfItem.style.display = 'none'; }
 
       // Interceptar logout para profesor: mostrar confirmación
-      const logoutLink = document.querySelector('a[href="/gestion/logout"]');
+      const logoutLink = document.querySelector('a[href^="/gestion/logout"]');
       if(logoutLink){
         logoutLink.addEventListener('click', (e) => {
           const r = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
           if(r === 'profesor'){
             e.preventDefault();
+            try{ e.stopPropagation(); e.stopImmediatePropagation(); }catch(_){}
+            try{ populateSesionFinModal(); }catch(_){}
             try{ openModal('modal-sesion-fin'); }catch(_){}
           }
         });
       }
+      // Fallback robusto: interceptar a nivel documento (captura) por si el enlace cambia o se re-renderiza
+      document.addEventListener('click', (e) => {
+        try{
+          const t = e.target;
+          const link = t && typeof t.closest==='function' ? t.closest('a[href^="/gestion/logout"]') : null;
+          if(!link) return;
+          const r = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
+          if(r !== 'profesor') return;
+          e.preventDefault();
+          try{ e.stopPropagation(); e.stopImmediatePropagation(); }catch(_){}
+          try{ populateSesionFinModal(); }catch(_){}
+          try{ openModal('modal-sesion-fin'); }catch(_){}
+          try{
+            setTimeout(() => {
+              try{
+                const m = document.getElementById('modal-sesion-fin');
+                let visible = false;
+                if(m){
+                  const cs = window.getComputedStyle(m);
+                  const rects = (typeof m.getClientRects === 'function') ? m.getClientRects() : [];
+                  const notInBody = !!(m.parentElement && m.parentElement.tagName && m.parentElement.tagName.toLowerCase() !== 'body');
+                  visible = !!(cs && cs.display !== 'none' && cs.visibility !== 'hidden' && rects.length > 0);
+                  if(!visible || notInBody){
+                    try{
+                      document.body.appendChild(m);
+                      // Reabrir con util para asegurar z-index correcto y foco accesible
+                      try{ openModal('modal-sesion-fin'); }catch(__){ m.classList.add('active'); m.style.display = 'flex'; m.setAttribute('aria-hidden','false'); }
+                      const rects2 = (typeof m.getClientRects === 'function') ? m.getClientRects() : [];
+                      visible = !!(rects2.length > 0);
+                    }catch(__){}
+                  }
+                }
+                if(!visible){
+                  (async () => {
+                    try{
+                      const roleEl2 = document.getElementById('login-current');
+                      const pidRaw2 = roleEl2 ? (roleEl2.getAttribute('data-prof-id') || '').trim() : '';
+                      const body2 = pidRaw2 ? JSON.stringify({ profesor_id: Number(pidRaw2) }) : JSON.stringify({});
+                      const res2 = await fetch('/api/profesor_sesion_fin', { method:'POST', headers:{ 'Accept':'application/json', 'Content-Type':'application/json' }, body: body2 });
+                      const data2 = await res2.json().catch(() => ({}));
+                      if(!res2.ok || data2.success === false){ showToast(data2.detail || data2.error || data2.message || 'No se pudo finalizar la sesión', 'error', 4500); }
+                    }catch(_){ showToast('Error de red al finalizar sesión', 'error', 4500); }
+                    try{ window.location.href = '/gestion/logout'; }catch(_){}
+                  })();
+                }
+              }catch(_){ /* noop */ }
+            }, 150);
+          }catch(_){}
+        }catch(_){ /* noop */ }
+      }, true);
       const finClose = document.getElementById('sesion-fin-close');
       const finCancel = document.getElementById('sesion-fin-cancel');
       const finConfirm = document.getElementById('sesion-fin-confirm');
       if(finClose) finClose.onclick = () => { try{ closeModal('modal-sesion-fin'); }catch(_){} };
-      if(finCancel) finCancel.onclick = () => { try{ closeModal('modal-sesion-fin'); }catch(_){} };
-      if(finConfirm) finConfirm.onclick = () => { try{ window.location.href = '/gestion/logout'; }catch(_){} };
+      if(finCancel) finCancel.onclick = () => { try{ closeModal('modal-sesion-fin'); }catch(_){ } };
+      if(finConfirm) finConfirm.onclick = async () => {
+        const btn = finConfirm;
+        try{
+          btn.disabled = true; btn.setAttribute('aria-busy','true');
+          const roleEl = document.getElementById('login-current');
+          const pidRaw = roleEl ? (roleEl.getAttribute('data-prof-id') || '').trim() : '';
+          const body = pidRaw ? JSON.stringify({ profesor_id: Number(pidRaw) }) : JSON.stringify({});
+          const res = await fetch('/api/profesor_sesion_fin', { method:'POST', headers:{ 'Accept':'application/json', 'Content-Type':'application/json' }, body });
+          const data = await res.json().catch(() => ({}));
+          if(res.status === 401){ showToast('Sesión de gestión requerida', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(_){ } return; }
+          if(!res.ok || data.success === false){
+            showToast(data.detail || data.error || data.message || 'No se pudo finalizar la sesión', 'error', 5000);
+            try{ closeModal('modal-sesion-fin'); }catch(_){}
+            try{ window.location.href = '/gestion/logout'; }catch(_){}
+            return;
+          }
+          showToast('Sesión finalizada', 'success', 3000);
+          try{ closeModal('modal-sesion-fin'); }catch(_){}
+          try{ refreshTopBarSesion(); refreshSesion(); }catch(_){}
+          try{ window.location.href = '/gestion/logout'; }catch(_){}
+        }catch(e){
+          showToast('Error de red al finalizar sesión', 'error', 4500);
+          try{ closeModal('modal-sesion-fin'); }catch(_){}
+          try{ window.location.href = '/gestion/logout'; }catch(_){}
+        }
+        finally{ btn.disabled = false; btn.removeAttribute('aria-busy'); }
+      };
       try{ loadEstadoPlantillas(); }catch(_){}
       // Auto-ocultar header al hacer scroll (usa main como contenedor de scroll)
       const headerEl = document.getElementById('main-header');
@@ -7317,7 +7458,7 @@ function attachWheelZoom(containerId, frameId){
     // ==== Profesores: estado y funciones ====
   function ensureProfesoresState(){
     if(!window.state) window.state = {};
-    if(!state.profesores) state.profesores = { list: [], horarios: [], sesiones: [], horarioEditId: null, sesionEditId: null, activeSubtab: 'resumen', sesionTimerId: null, currentUsuario: null };
+    if(!state.profesores) state.profesores = { list: [], horarios: [], sesiones: [], horarioEditId: null, sesionEditId: null, activeSubtab: 'resumen', sesionTimerId: null, sesionTickId: null, sesionActive: false, lastDurationMin: 0, lastDurationAt: 0, currentUsuario: null };
   }
   function bindProfesoresEvents(){
     const btnRefresh = document.getElementById('prof-refresh');
@@ -7370,6 +7511,7 @@ function attachWheelZoom(containerId, frameId){
     const sesFin = document.getElementById('sesion-fin');
     const sesMin = document.getElementById('sesion-minutos');
     const sesAuto = document.getElementById('sesion-auto');
+    const sesTipo = document.getElementById('sesion-tipo');
 
     function calcMinutesFromInputs(){
       const dateStr = sesFecha?.value || toISODate(new Date());
@@ -7398,11 +7540,12 @@ function attachWheelZoom(containerId, frameId){
     if(sesCancel) sesCancel.onclick = () => { ensureProfesoresState(); state.profesores.sesionEditId = null; closeModal('modal-sesion-form'); };
     if(sesClose) sesClose.onclick = () => { ensureProfesoresState(); state.profesores.sesionEditId = null; closeModal('modal-sesion-form'); };
 
-    if(sesAuto) sesAuto.onchange = () => { const on = sesAuto.checked; if(sesMin) sesMin.disabled = on; updateSesionResumen(); };
-    if(sesFecha) sesFecha.onchange = updateSesionResumen;
-    if(sesInicio) sesInicio.oninput = updateSesionResumen;
-    if(sesFin) sesFin.oninput = updateSesionResumen;
-    if(sesMin) sesMin.oninput = () => { const resHrsEl = document.getElementById('sesion-resumen-horas'); const v = Number(sesMin.value); if(!isFinite(v)) { if(resHrsEl) resHrsEl.textContent = '—'; return; } if(resHrsEl) resHrsEl.textContent = (Math.max(0, Math.round(v))/60).toFixed(2); };
+    if(sesAuto) sesAuto.onchange = () => { const on = sesAuto.checked; if(sesMin) sesMin.disabled = on; updateSesionResumen(); try{ updateTipoHint(); }catch(_){} };
+    if(sesFecha) sesFecha.onchange = () => { updateSesionResumen(); try{ updateFechaDiaLabel(); updateTipoHint(); }catch(_){} };
+    if(sesInicio) sesInicio.oninput = () => { updateSesionResumen(); try{ updateTipoHint(); }catch(_){} };
+    if(sesFin) sesFin.oninput = () => { updateSesionResumen(); try{ updateTipoHint(); }catch(_){} };
+    if(sesMin) sesMin.oninput = () => { const resHrsEl = document.getElementById('sesion-resumen-horas'); const v = Number(sesMin.value); if(!isFinite(v)) { if(resHrsEl) resHrsEl.textContent = '—'; return; } if(resHrsEl) resHrsEl.textContent = (Math.max(0, Math.round(v))/60).toFixed(2); try{ updateTipoHint(); }catch(_){} };
+    if(sesTipo) sesTipo.onchange = () => { updateSesionResumen(); try{ updateTipoHint(); }catch(_){} };
   }
   function loadProfesoresPanel(){
     ensureProfesoresState();
@@ -7536,10 +7679,25 @@ function attachWheelZoom(containerId, frameId){
     if(fEl) fEl.value = fecha || '';
     if(iEl) iEl.value = extractTime(inicioRaw).replace('—','');
     if(finEl) finEl.value = extractTime(finRaw).replace('—','');
-    if(tEl) tEl.value = String(tipoVal || '');
+    if(tEl){
+      const val = String(tipoVal || '');
+      const opts = Array.from(tEl.options || []);
+      const exists = opts.some(o => String(o.value) === val);
+      if(val && !exists){
+        try{
+          const opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = val;
+          tEl.insertBefore(opt, tEl.firstChild);
+        }catch(_){}
+      }
+      // Forzar Automático como selección por defecto al abrir el modal
+      tEl.value = 'Auto';
+    }
     if(minEl) minEl.value = String(ses.minutos ?? ses.minutos_totales ?? '');
     if(autoEl){ autoEl.checked = true; if(minEl) minEl.disabled = true; }
     try{ if(iEl) iEl.dispatchEvent(new Event('input')); }catch(_){}
+    try{ updateFechaDiaLabel(); updateTipoHint(); }catch(_){}
     openModal('modal-sesion-form');
   }
   async function saveSesionEdit(){
@@ -7582,6 +7740,75 @@ function attachWheelZoom(containerId, frameId){
       state.profesores.sesionEditId = null;
       await loadProfesorSesiones();
     }catch(e){ if (typeof showToast === 'function') showToast('Error de red al actualizar sesión', 'error'); }
+  }
+
+  function getWeekdayNameISO(dateStr){
+    try{
+      const d = new Date(dateStr);
+      if(isNaN(d.getTime())) return null;
+      const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+      return dias[d.getDay()];
+    }catch(_){ return null; }
+  }
+  function updateFechaDiaLabel(){
+    const dayEl = document.getElementById('sesion-fecha-dia');
+    const fEl = document.getElementById('sesion-fecha');
+    const nombre = fEl && fEl.value ? getWeekdayNameISO(fEl.value) : null;
+    if(dayEl) dayEl.textContent = nombre ? `Día: ${nombre}` : '—';
+  }
+  function withinBlock(iVal, fVal, bIni, bFin){
+    // Compara HH:MM contra bloque HH:MM
+    const toMin = v => { const [h,m] = String(v).slice(0,5).split(':').map(Number); return (h*60 + m); };
+    const iM = toMin(iVal), fM = toMin(fVal), bI = toMin(bIni), bF = toMin(bFin);
+    if(!isFinite(iM) || !isFinite(fM) || !isFinite(bI) || !isFinite(bF)) return false;
+    if(fM < iM) return false; // no soportamos cruces de medianoche como "En horario"
+    return (iM >= bI) && (fM <= bF);
+  }
+  function predictTipoFromHorario(){
+    try{
+      ensureProfesoresState();
+      const fEl = document.getElementById('sesion-fecha');
+      const iEl = document.getElementById('sesion-inicio');
+      const finEl = document.getElementById('sesion-fin');
+      const dateStr = fEl?.value || '';
+      const iVal = iEl?.value || '';
+      const fVal = finEl?.value || '';
+      if(!dateStr || !iVal || !fVal) return null;
+      const dia = getWeekdayNameISO(dateStr);
+      const diaNum = (new Date(dateStr)).getDay();
+      if(!dia && !Number.isFinite(diaNum)) return null;
+      const blocks = (state.profesores.horarios || []).filter(h => {
+        const dRaw = (h.dia ?? h.dia_semana);
+        return String(dRaw) === String(dia) || String(dRaw) === String(diaNum);
+      });
+      if(!blocks.length) return 'Horas extra';
+      for(const b of blocks){
+        const bIni = (b.inicio || b.hora_inicio || '').toString().slice(0,5);
+        const bFin = (b.fin || b.hora_fin || '').toString().slice(0,5);
+        if(withinBlock(iVal, fVal, bIni, bFin)) return 'En horario';
+      }
+      return 'Horas extra';
+    }catch(_){ return null; }
+  }
+  function updateTipoHint(){
+    const chipTxt = document.getElementById('sesion-tipo-sugerido');
+    const tEl = document.getElementById('sesion-tipo');
+    const pred = predictTipoFromHorario();
+    if(chipTxt) chipTxt.textContent = pred || '—';
+    // Si el usuario elige explícitamente "En horario" pero la sugerencia es "Horas extra", mostrar aviso en el hint
+    const hint = document.getElementById('sesion-tipo-hint');
+    const warnEl = document.getElementById('sesion-tipo-warning');
+    if(hint){
+      if(tEl && tEl.value === 'En horario' && pred === 'Horas extra'){
+        hint.innerHTML = 'Sugerencia según horarios: <span id="sesion-tipo-sugerido">Horas extra</span> · <span style="color:#b00020">fuera de horario</span>';
+      } else {
+        hint.innerHTML = 'Sugerencia según horarios: <span id="sesion-tipo-sugerido">' + (pred || '—') + '</span>';
+      }
+    }
+    if(warnEl){
+      const mismatch = (tEl && tEl.value === 'En horario' && pred === 'Horas extra');
+      warnEl.style.display = mismatch ? 'block' : 'none';
+    }
   }
 
   function addOrUpdateHorario(){
@@ -8075,8 +8302,91 @@ function attachWheelZoom(containerId, frameId){
   function updateTopBarDurationText(text){
     const el = document.getElementById('login-current');
     if(!el) return;
+    const base = el.getAttribute('data-base') || el.innerHTML || '';
+    el.innerHTML = text ? (base + ' • ' + text) : base;
+  }
+  function updateTopBarDurationHMS(h, m, s){
+    const el = document.getElementById('login-current');
+    if(!el) return;
     const base = el.getAttribute('data-base') || el.textContent || '';
-    el.textContent = text ? (base + ' • ' + text) : base;
+    const prev = el.getAttribute('data-prev') || '';
+    const currentText = `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    const needFlip = !!(prev && prev !== currentText);
+    el.innerHTML = `${base} • <span class="duration-timer" aria-label="Duración ${h} horas ${m} minutos ${s} segundos"><span class="duration-group"><span class="duration-digit ${needFlip ? 'flip':''}" data-part="h">${h}</span><span class="duration-sep">:</span><span class="duration-digit ${needFlip ? 'flip':''}" data-part="m">${String(m).padStart(2,'0')}</span><span class="duration-sep">:</span><span class="duration-digit ${needFlip ? 'flip':''}" data-part="s">${String(s).padStart(2,'0')}</span></span></span>`;
+    el.setAttribute('data-prev', currentText);
+  }
+  function composeTopBarBase(){
+    const el = document.getElementById('login-current');
+    if(!el) return;
+    const name = el.getAttribute('data-name') || '';
+    const status = el.getAttribute('data-status') || '';
+    const isActive = el.classList.contains('active');
+    const stateCls = isActive ? 'active' : 'inactive';
+    const base = `${name ? `<span class=\"session-chip\">${name}</span>` : ''}${status ? `${name ? ' • ' : ''}<span class=\"session-state ${stateCls}\">${status}</span>` : ''}` || (el.textContent || '');
+    el.setAttribute('data-base', base);
+    el.innerHTML = base;
+  }
+  // Tick de segundos y renderizado H:MM:SS animado
+  function startSesionSecondTick(){
+    ensureProfesoresState();
+    if(state.profesores.sesionTickId){ clearInterval(state.profesores.sesionTickId); state.profesores.sesionTickId = null; }
+    state.profesores.sesionTickId = setInterval(() => { try{ updateLocalDurationTick(); }catch(_){ } }, 1000);
+  }
+  function stopSesionSecondTick(){
+    ensureProfesoresState();
+    if(state.profesores.sesionTickId){ clearInterval(state.profesores.sesionTickId); state.profesores.sesionTickId = null; }
+  }
+  function renderDurationHMS(totalSeconds, pidSel, role, loginProfId){
+    const durSpan = document.getElementById('sesion-duracion');
+    if(!durSpan) return;
+    durSpan.setAttribute('aria-live','polite');
+    if(!totalSeconds || totalSeconds < 0){ durSpan.textContent = '—'; return; }
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+    const prev = durSpan.getAttribute('data-prev') || '';
+    const currentText = `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    const needFlip = !!(prev && prev !== currentText);
+    const html = `<span class="duration-timer" aria-label="Duración ${h} horas ${m} minutos ${s} segundos">
+      <span class="duration-group">
+        <span class="duration-digit ${needFlip ? 'flip':''}" data-part="h">${h}</span><span class="duration-sep">:</span>
+        <span class="duration-digit ${needFlip ? 'flip':''}" data-part="m">${String(m).padStart(2,'0')}</span><span class="duration-sep">:</span>
+        <span class="duration-digit ${needFlip ? 'flip':''}" data-part="s">${String(s).padStart(2,'0')}</span>
+      </span>
+    </span>`;
+    durSpan.innerHTML = html;
+    durSpan.setAttribute('data-prev', currentText);
+    if(role === 'profesor' && loginProfId && String(loginProfId) === String(pidSel || loginProfId)){
+      updateTopBarDurationHMS(h, m, s);
+    }
+  }
+  function renderDurationHMSTo(elementId, totalSeconds){
+    const el = document.getElementById(elementId);
+    if(!el) return;
+    el.setAttribute('aria-live','polite');
+    if(!totalSeconds || totalSeconds < 0){ el.textContent = '—'; return; }
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+    const prev = el.getAttribute('data-prev') || '';
+    const currentText = `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    const needFlip = !!(prev && prev !== currentText);
+    const html = `<span class="duration-timer" aria-label="Duración ${h} horas ${m} minutos ${s} segundos"><span class="duration-group"><span class="duration-digit ${needFlip ? 'flip':''}" data-part="h">${h}</span><span class="duration-sep">:</span><span class="duration-digit ${needFlip ? 'flip':''}" data-part="m">${String(m).padStart(2,'0')}</span><span class="duration-sep">:</span><span class="duration-digit ${needFlip ? 'flip':''}" data-part="s">${String(s).padStart(2,'0')}</span></span></span>`;
+    el.innerHTML = html;
+    el.setAttribute('data-prev', currentText);
+  }
+  function updateLocalDurationTick(){
+    ensureProfesoresState();
+    if(!state.profesores || !state.profesores.sesionActive){ return; }
+    const roleEl = document.getElementById('login-current');
+    const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
+    const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
+    const sel = document.getElementById('profesor-select');
+    const pidSel = sel?.value;
+    const baseSec = Math.floor((state.profesores.lastDurationMin || 0) * 60);
+    const deltaSec = Math.floor(((Date.now() - (state.profesores.lastDurationAt || Date.now())) / 1000));
+    const totalSec = baseSec + Math.max(0, deltaSec);
+    renderDurationHMS(totalSec, pidSel, role, loginProfId);
   }
   function setupSesionTimer(active){
     ensureProfesoresState();
@@ -8084,7 +8394,12 @@ function attachWheelZoom(containerId, frameId){
     const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
     if(state.profesores.sesionTimerId){ clearInterval(state.profesores.sesionTimerId); state.profesores.sesionTimerId = null; }
     if(active && role !== 'dueño'){
-      state.profesores.sesionTimerId = setInterval(() => { try{ refreshSesionDuration(true); }catch(_){} }, 60000);
+      state.profesores.sesionActive = true;
+      startSesionSecondTick();
+      state.profesores.sesionTimerId = setInterval(() => { try{ refreshSesionDuration(true); }catch(_){} }, 15000);
+    } else {
+      state.profesores.sesionActive = false;
+      stopSesionSecondTick();
     }
   }
   // Refresca la sesión del profesor de login para la barra superior
@@ -8093,20 +8408,105 @@ function attachWheelZoom(containerId, frameId){
       const roleEl = document.getElementById('login-current');
       const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
       const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
-      if(role !== 'profesor' || !loginProfId){
+      if(role !== 'profesor'){
         setupSesionTimer(false);
-        updateTopBarDurationText('');
+        const el = document.getElementById('login-current');
+        if(el){
+          el.setAttribute('data-status', 'Sesión: —');
+          el.classList.add('session-indicator');
+          el.classList.remove('active');
+          el.classList.add('inactive');
+          composeTopBarBase();
+        }
         return;
       }
-      fetch(`/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}`)
+      const urlActiva = loginProfId ? `/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}` : `/api/profesor_sesion_activa`;
+      fetch(urlActiva)
         .then(r => r.json().catch(() => ({})))
         .then(d => {
           const active = !!d?.activa;
+          const tipo = d?.tipo_actividad || 'Trabajo';
+          const texto = active ? `Sesión: Activa (${tipo})` : 'Sesión: Inactiva';
+          const el = document.getElementById('login-current');
+          if(el){
+            el.classList.remove('muted');
+            el.classList.add('session-indicator');
+            el.classList.toggle('active', active);
+            el.classList.toggle('inactive', !active);
+            el.setAttribute('data-status', texto);
+            composeTopBarBase();
+          }
           setupSesionTimer(active);
           refreshSesionDuration(active);
         })
-        .catch(_ => { setupSesionTimer(false); updateTopBarDurationText(''); });
+        .catch(_ => {
+          setupSesionTimer(false);
+          const el = document.getElementById('login-current');
+          if(el){
+            el.setAttribute('data-status', 'Sesión: —');
+            el.classList.add('session-indicator');
+            el.classList.remove('active');
+            el.classList.add('inactive');
+            composeTopBarBase();
+          }
+        });
     }catch(_){ /* silencioso */ }
+  }
+  async function populateSesionFinModal(){
+    try{
+      const roleEl = document.getElementById('login-current');
+      const role = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
+      const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '').trim() : '';
+      const tipoEl = document.getElementById('modal-sesion-fin-tipo');
+      const durElId = 'modal-sesion-fin-duracion';
+      if(role !== 'profesor'){
+        if(tipoEl) tipoEl.textContent = '—';
+        const el = document.getElementById(durElId); if(el) el.textContent = '—';
+        return;
+      }
+      let tipo = 'Trabajo';
+      let activa = false;
+      try{
+        const urlActiva = loginProfId ? `/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}` : `/api/profesor_sesion_activa`;
+        const r = await fetch(urlActiva, { headers:{ 'Accept':'application/json' } });
+        const d = await r.json().catch(() => ({}));
+        activa = !!d?.activa; tipo = d?.tipo_actividad || 'Trabajo';
+      }catch(_){}
+      if(tipoEl){
+        const t = String(tipo || '').toLowerCase();
+        const label = activa ? (t.includes('extra') ? 'Horas extra' : (t.includes('horario') ? 'En horario' : (tipo || 'Trabajo'))) : 'Inactiva';
+        tipoEl.textContent = label;
+        // Estilo dinámico de chip según el tipo
+        try{
+          tipoEl.style.display = 'inline-block';
+          tipoEl.style.padding = '6px 10px';
+          tipoEl.style.borderRadius = '999px';
+          tipoEl.style.border = '1px solid';
+          if(label === 'En horario'){
+            tipoEl.style.backgroundColor = 'var(--primary)';
+            tipoEl.style.color = '#fff';
+            tipoEl.style.borderColor = 'rgba(76,63,118,.5)';
+          } else if(label === 'Horas extra'){
+            tipoEl.style.backgroundColor = '#fde7ea';
+            tipoEl.style.color = '#842029';
+            tipoEl.style.borderColor = '#f5c2c7';
+          } else {
+            tipoEl.style.backgroundColor = '#eef2f7';
+            tipoEl.style.color = '#374151';
+            tipoEl.style.borderColor = 'var(--border)';
+          }
+        }catch(_){ /* silencioso */ }
+      }
+      let min = 0;
+      try{
+        const urlDur = loginProfId ? `/api/profesor_sesion_duracion?profesor_id=${encodeURIComponent(loginProfId)}` : `/api/profesor_sesion_duracion`;
+        const r2 = await fetch(urlDur, { headers:{ 'Accept':'application/json' } });
+        const d2 = await r2.json().catch(() => ({}));
+        min = Number(d2?.minutos || 0);
+      }catch(_){}
+      const totalSec = Math.floor(min * 60);
+      try{ renderDurationHMSTo(durElId, totalSec); }catch(_){}
+    }catch(_){}
   }
   function refreshSesion(){
     const estadoSpan = document.getElementById('sesion-estado');
@@ -8115,7 +8515,7 @@ function attachWheelZoom(containerId, frameId){
     const pid = sel?.value;
     if(!pid){
       if(estadoSpan) estadoSpan.textContent = '—';
-      if(topEstado) topEstado.textContent = 'Sesión: —';
+      if(topEstado){ topEstado.textContent = 'Sesión: —'; topEstado.classList.add('session-indicator'); topEstado.classList.remove('active'); topEstado.classList.add('inactive'); }
       setupSesionTimer(false);
       updateTopBarDurationText('');
       return;
@@ -8127,13 +8527,13 @@ function attachWheelZoom(containerId, frameId){
         const tipo = d?.tipo_actividad || 'Trabajo';
         const texto = active ? `Activa (${tipo})` : 'Inactiva';
         if(estadoSpan) estadoSpan.textContent = texto;
-        if(topEstado) topEstado.textContent = `Sesión: ${texto}`;
+        if(topEstado){ topEstado.textContent = `Sesión: ${texto}`; topEstado.classList.add('session-indicator'); topEstado.classList.toggle('active', active); topEstado.classList.toggle('inactive', !active); }
         setupSesionTimer(active);
         refreshSesionDuration(active);
       })
       .catch(_ => {
         if(estadoSpan) estadoSpan.textContent = '—';
-        if(topEstado) topEstado.textContent = 'Sesión: —';
+        if(topEstado){ topEstado.textContent = 'Sesión: —'; topEstado.classList.add('session-indicator'); topEstado.classList.remove('active'); topEstado.classList.add('inactive'); }
         setupSesionTimer(false);
         updateTopBarDurationText('');
       });
@@ -8146,28 +8546,50 @@ function attachWheelZoom(containerId, frameId){
     const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
     const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
     const pid = pidSel || loginProfId;
-    if(onlyIfActive === false || !pid){
+    if(onlyIfActive === false){
       if(durSpan) durSpan.textContent = '—';
       updateTopBarDurationText('');
+      ensureProfesoresState(); state.profesores.sesionActive = false; stopSesionSecondTick();
       return;
     }
-    fetch(`/api/profesor_sesion_duracion?profesor_id=${encodeURIComponent(pid)}`)
+    const urlDur = pid ? `/api/profesor_sesion_duracion?profesor_id=${encodeURIComponent(pid)}` : (role === 'profesor' ? '/api/profesor_sesion_duracion' : '');
+    if(!urlDur){
+      if(durSpan) durSpan.textContent = '—';
+      updateTopBarDurationText('');
+      ensureProfesoresState(); state.profesores.sesionActive = false; stopSesionSecondTick();
+      return;
+    }
+    fetch(urlDur)
       .then(r => r.json().catch(() => ({})))
       .then(d => {
         const min = Number(d?.minutos || 0);
-        const h = Math.floor(min / 60);
-        const m = min % 60;
-        const str = `${h}h ${m}m`;
-        if(durSpan) durSpan.textContent = pidSel ? str : '—';
-        if(role === 'profesor' && loginProfId && String(loginProfId) === String(pid)){
-          updateTopBarDurationText(str);
+        ensureProfesoresState();
+        const now = Date.now();
+        const prevMin = Number(state.profesores.lastDurationMin || 0);
+        const hadActive = !!state.profesores.sesionActive;
+        state.profesores.sesionActive = true;
+        // Solo reiniciar el contador si el minuto reportado avanzó.
+        if(!hadActive || prevMin === 0){
+          state.profesores.lastDurationMin = min;
+          state.profesores.lastDurationAt = now;
+          const baseSec = Math.floor(min * 60);
+          renderDurationHMS(baseSec, pidSel, role, loginProfId);
         } else {
-          updateTopBarDurationText('');
+          if(min > prevMin){
+            state.profesores.lastDurationMin = min;
+            state.profesores.lastDurationAt = now;
+          } else {
+            // No disminuir minutos; mantener el progreso local.
+            state.profesores.lastDurationMin = Math.max(prevMin, min);
+          }
+          // Renderizar usando el tick local para preservar los segundos.
+          updateLocalDurationTick();
         }
       })
       .catch(_ => {
         if(durSpan) durSpan.textContent = '—';
         updateTopBarDurationText('');
+        ensureProfesoresState(); state.profesores.sesionActive = false; stopSesionSecondTick();
       });
   }
   function startSesion(){
@@ -8512,6 +8934,37 @@ function attachWheelZoom(containerId, frameId){
       // Inicializar numeración de recibos (indicador y eventos)
       updateReciboNextNumber();
       bindReciboConfigEvents();
+
+      // Enganchar botón de salir directamente y con fallback fuerte
+      try{
+        const link = document.getElementById('logout-link');
+        const el = document.getElementById('login-current');
+        const role = (el && (el.getAttribute('data-role')||'').trim()) || '';
+        if(link && role === 'profesor'){
+          try{ link.setAttribute('href','#'); link.setAttribute('aria-controls','modal-sesion-fin'); }catch(_){}
+          const handleLogout = (e) => {
+            try{
+              e.preventDefault();
+              try{ populateSesionFinModal(); }catch(_){}
+              try{ openModal('modal-sesion-fin'); }catch(_){}
+              try{
+                setTimeout(() => {
+                  try{
+                    const m = document.getElementById('modal-sesion-fin');
+                    const isActive = !!(m && m.classList.contains('active') && m.style.display !== 'none');
+                    if(!isActive){
+                      fetch('/api/profesor_sesion_fin', { method:'POST', headers:{ 'Accept':'application/json', 'Content-Type':'application/json' } })
+                        .finally(() => { try{ window.location.href = '/gestion/logout'; }catch(__){} });
+                    }
+                  }catch(__){ try{ window.location.href = '/gestion/logout'; }catch(__){} }
+                }, 160);
+              }catch(__){ try{ window.location.href = '/gestion/logout'; }catch(__){} }
+            }catch(__){ /* noop */ }
+          };
+          try{ link.addEventListener('pointerdown', handleLogout, { passive:false }); }catch(_){}
+          try{ link.addEventListener('click', handleLogout); }catch(_){}
+        }
+      }catch(_){}
     });
   
   </script>

@@ -1509,7 +1509,7 @@ class DatabaseManager:
                 # Leer valores actuales para tener fecha base
                 cursor.execute(
                     """
-                    SELECT fecha::date AS fecha, hora_inicio, hora_fin
+                    SELECT fecha::date AS fecha, hora_inicio, hora_fin, profesor_id
                     FROM profesor_horas_trabajadas
                     WHERE id = %s
                     """,
@@ -1578,10 +1578,16 @@ class DatabaseManager:
                     sets.append("hora_fin = %s")
                     params.append(ts_fin_new)
 
+                # Normalizar solicitud de tipo_actividad y decidir si se calcula automáticamente
+                tipo_norm = None
                 if tipo_actividad is not None:
-                    sets.append("tipo_actividad = %s")
-                    params.append(tipo_actividad)
+                    try:
+                        tipo_norm = str(tipo_actividad).strip()
+                    except Exception:
+                        tipo_norm = None
 
+                # Calcular/override minutos_totales si corresponde
+                
                 # Calcular/override minutos_totales si corresponde
                 minutos_set_val = None
                 if minutos_totales is not None:
@@ -1625,6 +1631,161 @@ class DatabaseManager:
                         params.append(round(minutos_set_val / 60.0, 2))
                     except Exception:
                         params.append(float(minutos_set_val) / 60.0)
+
+                # Determinar si corresponde clasificar automáticamente la sesión según horarios
+                should_auto_tipo = False
+                try:
+                    should_auto_tipo = (
+                        (tipo_norm is None) or (tipo_norm.lower() in ("auto", "automatico", "automático", ""))
+                    ) and (
+                        (fecha is not None) or (hora_inicio is not None) or (hora_fin is not None)
+                    )
+                except Exception:
+                    should_auto_tipo = False
+
+                if should_auto_tipo:
+                    try:
+                        profesor_id = current.get("profesor_id")
+                        # Resolver fecha/hora efectivas a usar para la clasificación
+                        def _to_dt(x, d: date) -> Optional[datetime]:
+                            if x is None:
+                                return None
+                            if isinstance(x, datetime):
+                                return x
+                            if isinstance(x, time):
+                                try:
+                                    return datetime.combine(d, x)
+                                except Exception:
+                                    return None
+                            try:
+                                return datetime.fromisoformat(str(x).replace('Z', '+00:00'))
+                            except Exception:
+                                return None
+                        start_dt = _to_dt(ts_inicio_new if ts_inicio_new is not None else current.get("hora_inicio"), base_date)
+                        end_dt = _to_dt(ts_fin_new if ts_fin_new is not None else current.get("hora_fin"), base_date)
+                        if start_dt and end_dt and end_dt < start_dt:
+                            end_dt = end_dt + timedelta(days=1)
+
+                        # Obtener día de la semana de la fecha base
+                        try:
+                            dia_map = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+                            dia_nombre = dia_map.get(base_date.weekday())
+                        except Exception:
+                            dia_nombre = None
+
+                        en_horario = False
+                        if profesor_id and dia_nombre and start_dt and end_dt:
+                            try:
+                                with self.get_connection_context() as conn4:
+                                    cur4 = conn4.cursor()
+                                    cur4.execute(
+                                        """
+                                        SELECT hora_inicio, hora_fin
+                                        FROM horarios_profesores
+                                        WHERE profesor_id = %s AND dia_semana = %s AND disponible = TRUE
+                                        """,
+                                        (profesor_id, dia_nombre)
+                                    )
+                                    bloques = cur4.fetchall() or []
+                                ini_t = start_dt.time()
+                                fin_t = end_dt.time()
+                                for b in bloques:
+                                    try:
+                                        h_ini, h_fin = b[0], b[1]
+                                        if (ini_t >= h_ini) and (fin_t <= h_fin):
+                                            en_horario = True
+                                            break
+                                    except Exception:
+                                        continue
+                            except Exception:
+                                en_horario = False
+
+                        tipo_calc = 'En horario' if en_horario else 'Horas extra'
+                        sets.append("tipo_actividad = %s")
+                        params.append(tipo_calc)
+                    except Exception:
+                        # Si falla la clasificación, no tocar tipo_actividad
+                        pass
+                elif tipo_norm is not None:
+                    # Validación estricta: si el usuario selecciona explícitamente
+                    # "En horario" u "Horas extra", verificamos contra los horarios del profesor
+                    # y corregimos en caso de desacuerdo para mantener consistencia en los reportes.
+                    try:
+                        tn_lower = str(tipo_norm).strip().lower()
+                        is_en_horario = ('horario' in tn_lower) and ('en' in tn_lower)
+                        is_horas_extra = ('horas' in tn_lower) and ('extra' in tn_lower)
+                        if is_en_horario or is_horas_extra:
+                            profesor_id = current.get("profesor_id")
+                            # Resolver fecha/hora efectivas a usar para la clasificación
+                            def _to_dt(x, d: date) -> Optional[datetime]:
+                                if x is None:
+                                    return None
+                                if isinstance(x, datetime):
+                                    return x
+                                if isinstance(x, time):
+                                    try:
+                                        return datetime.combine(d, x)
+                                    except Exception:
+                                        return None
+                                try:
+                                    return datetime.fromisoformat(str(x).replace('Z', '+00:00'))
+                                except Exception:
+                                    return None
+                            start_dt = _to_dt(ts_inicio_new if ts_inicio_new is not None else current.get("hora_inicio"), base_date)
+                            end_dt = _to_dt(ts_fin_new if ts_fin_new is not None else current.get("hora_fin"), base_date)
+                            if start_dt and end_dt and end_dt < start_dt:
+                                end_dt = end_dt + timedelta(days=1)
+
+                            # Día de la semana
+                            try:
+                                dia_map = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+                                dia_nombre = dia_map.get(base_date.weekday())
+                            except Exception:
+                                dia_nombre = None
+
+                            en_horario = False
+                            if profesor_id and dia_nombre and start_dt and end_dt:
+                                try:
+                                    with self.get_connection_context() as conn5:
+                                        cur5 = conn5.cursor()
+                                        cur5.execute(
+                                            """
+                                            SELECT hora_inicio, hora_fin
+                                            FROM horarios_profesores
+                                            WHERE profesor_id = %s AND dia_semana = %s AND disponible = TRUE
+                                            """,
+                                            (profesor_id, dia_nombre)
+                                        )
+                                        bloques = cur5.fetchall() or []
+                                    ini_t = start_dt.time()
+                                    fin_t = end_dt.time()
+                                    for b in bloques:
+                                        try:
+                                            h_ini, h_fin = b[0], b[1]
+                                            if (ini_t >= h_ini) and (fin_t <= h_fin):
+                                                en_horario = True
+                                                break
+                                        except Exception:
+                                            continue
+                                except Exception:
+                                    en_horario = False
+
+                            tipo_calc = 'En horario' if en_horario else 'Horas extra'
+                            # Si la selección manual no coincide con la clasificación calculada, corregimos
+                            if (is_en_horario and tipo_calc != 'En horario') or (is_horas_extra and tipo_calc != 'Horas extra'):
+                                sets.append("tipo_actividad = %s")
+                                params.append(tipo_calc)
+                            else:
+                                sets.append("tipo_actividad = %s")
+                                params.append(tipo_norm)
+                        else:
+                            # Para otros tipos (p.ej. "Trabajo"), respetar selección manual
+                            sets.append("tipo_actividad = %s")
+                            params.append(tipo_norm)
+                    except Exception:
+                        # En caso de error al validar, respetar selección manual
+                        sets.append("tipo_actividad = %s")
+                        params.append(tipo_norm)
 
                 if not sets:
                     return {"success": False, "error": "Sin cambios para aplicar"}
@@ -1895,33 +2056,39 @@ class DatabaseManager:
                 q = parse_qs(u.query or '')
                 parsed = {}
                 try:
-                    parsed['host'] = (u.hostname or base.get('host') or 'localhost')
+                    host_val = (u.hostname or base.get('host') or 'localhost')
+                    parsed['host'] = str(host_val).strip()
                 except Exception:
-                    parsed['host'] = base.get('host', 'localhost')
+                    parsed['host'] = str(base.get('host', 'localhost')).strip()
                 try:
                     parsed['port'] = int(u.port or base.get('port') or 5432)
                 except Exception:
                     parsed['port'] = int(base.get('port') or 5432)
                 try:
-                    parsed['database'] = (u.path or '').lstrip('/') or base.get('database') or 'gimnasio'
+                    db_val = (u.path or '').lstrip('/') or base.get('database') or 'gimnasio'
+                    parsed['database'] = str(db_val).strip()
                 except Exception:
-                    parsed['database'] = base.get('database', 'gimnasio')
+                    parsed['database'] = str(base.get('database', 'gimnasio')).strip()
                 try:
-                    parsed['user'] = u.username or base.get('user') or 'postgres'
+                    user_val = (u.username or base.get('user') or 'postgres')
+                    parsed['user'] = str(user_val).strip()
                 except Exception:
-                    parsed['user'] = base.get('user', 'postgres')
+                    parsed['user'] = str(base.get('user', 'postgres')).strip()
                 try:
-                    parsed['password'] = u.password or base.get('password') or ''
+                    pwd_val = (u.password or base.get('password') or '')
+                    parsed['password'] = str(pwd_val)
                 except Exception:
-                    parsed['password'] = base.get('password', '')
+                    parsed['password'] = str(base.get('password', ''))
                 try:
-                    parsed['sslmode'] = (q.get('sslmode') or [base.get('sslmode', 'prefer')])[0]
+                    ssl_val = (q.get('sslmode') or [base.get('sslmode', 'prefer')])[0]
+                    parsed['sslmode'] = str(ssl_val).strip()
                 except Exception:
-                    parsed['sslmode'] = base.get('sslmode', 'prefer')
+                    parsed['sslmode'] = str(base.get('sslmode', 'prefer')).strip()
                 try:
-                    parsed['application_name'] = (q.get('application_name') or [base.get('application_name', 'gym_management_system')])[0]
+                    app_val = (q.get('application_name') or [base.get('application_name', 'gym_management_system')])[0]
+                    parsed['application_name'] = str(app_val).strip()
                 except Exception:
-                    parsed['application_name'] = base.get('application_name', 'gym_management_system')
+                    parsed['application_name'] = str(base.get('application_name', 'gym_management_system')).strip()
                 try:
                     parsed['connect_timeout'] = int((q.get('connect_timeout') or [base.get('connect_timeout', 5)])[0])
                 except Exception:
@@ -1938,19 +2105,19 @@ class DatabaseManager:
                 pass
 
         # Fallbacks genéricos (DB_*) si faltan claves específicas
-        host = base.get('host') or str(os.getenv('DB_HOST', 'localhost'))
+        host = str(base.get('host') or os.getenv('DB_HOST', 'localhost')).strip()
         try:
             port = int(base.get('port') or os.getenv('DB_PORT', 5432))
         except Exception:
             port = 5432
-        database = base.get('database') or str(os.getenv('DB_NAME', 'gimnasio'))
-        user = base.get('user') or str(os.getenv('DB_USER', 'postgres'))
-        sslmode = base.get('sslmode') or str(os.getenv('DB_SSLMODE', 'prefer'))
+        database = str(base.get('database') or os.getenv('DB_NAME', 'gimnasio')).strip()
+        user = str(base.get('user') or os.getenv('DB_USER', 'postgres')).strip()
+        sslmode = str(base.get('sslmode') or os.getenv('DB_SSLMODE', 'prefer')).strip()
         try:
             connect_timeout = int(base.get('connect_timeout') or os.getenv('DB_CONNECT_TIMEOUT', 5))
         except Exception:
             connect_timeout = 5
-        application_name = base.get('application_name') or str(os.getenv('DB_APPLICATION_NAME', 'gym_management_system'))
+        application_name = str(base.get('application_name') or os.getenv('DB_APPLICATION_NAME', 'gym_management_system')).strip()
 
         # Opciones de sesión por conexión para evitar SET dentro de transacciones
         # Permite: statement_timeout, lock_timeout, idle_in_transaction_session_timeout y zona horaria
@@ -2047,15 +2214,16 @@ class DatabaseManager:
             except Exception:
                 password = ''
 
+        # Sanitizar valores de conexión para evitar espacios accidentales
         params = {
-            'host': host,
+            'host': str(host).strip(),
             'port': port,
-            'database': database,
-            'user': user,
+            'database': str(database).strip(),
+            'user': str(user).strip(),
             'password': password,
-            'sslmode': sslmode,
+            'sslmode': str(sslmode).strip(),
             'connect_timeout': connect_timeout,
-            'application_name': application_name,
+            'application_name': str(application_name).strip(),
         }
         
         # Solo agregar parámetros keepalives si no es Neon.tech (no los soporta)
@@ -9659,11 +9827,32 @@ class DatabaseManager:
                 return [dict(r) for r in cursor.fetchall()]
 
     def crear_horario_profesor(self, profesor_id: int, dia: str, hora_inicio: str, hora_fin: str, disponible: bool = True) -> int:
-        """Crea un horario de disponibilidad para un profesor"""
+        """Crea un horario de disponibilidad para un profesor (validando horas en Python)."""
+        # Validación robusta de horas para evitar casts con strings vacías
+        from datetime import datetime as _dt
+        def _parse_time_str(s):
+            if s is None:
+                raise ValueError("horas_requeridas")
+            ss = str(s).strip()
+            if not ss:
+                raise ValueError("horas_requeridas")
+            for fmt in ("%H:%M:%S", "%H:%M"):
+                try:
+                    return _dt.strptime(ss, fmt).time()
+                except Exception:
+                    pass
+            raise ValueError("formato_hora_invalido")
+
+        t_inicio = _parse_time_str(hora_inicio)
+        t_fin = _parse_time_str(hora_fin)
+        if not (t_inicio < t_fin):
+            raise ValueError("hora_inicio debe ser menor que hora_fin")
+
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
                 # Crear tabla horarios_profesores si no existe
-                cursor.execute("""
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS horarios_profesores (
                         id SERIAL PRIMARY KEY,
                         profesor_id INTEGER NOT NULL,
@@ -9674,7 +9863,8 @@ class DatabaseManager:
                         fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (profesor_id) REFERENCES profesores (id) ON DELETE CASCADE
                     )
-                """)
+                    """
+                )
                 # Validaciones de entrada
                 # 1) Verificar existencia de profesor
                 cursor.execute("SELECT 1 FROM profesores WHERE id = %s", (profesor_id,))
@@ -9684,18 +9874,13 @@ class DatabaseManager:
                 valid_days = ('Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo')
                 if dia not in valid_days:
                     raise ValueError("Día inválido")
-                # 3) Validar que hora_inicio < hora_fin
-                cursor.execute("SELECT %s::time < %s::time", (hora_inicio, hora_fin))
-                res = cursor.fetchone()
-                try:
-                    is_valid_range = bool(res[0]) if res is not None else False
-                except Exception:
-                    is_valid_range = False
-                if not is_valid_range:
-                    raise ValueError("hora_inicio debe ser menor que hora_fin")
                 
-                sql = "INSERT INTO horarios_profesores (profesor_id, dia_semana, hora_inicio, hora_fin, disponible) VALUES (%s, %s, %s, %s, %s) RETURNING id"
-                cursor.execute(sql, (profesor_id, dia, hora_inicio, hora_fin, disponible))
+                sql = """
+                    INSERT INTO horarios_profesores (profesor_id, dia_semana, hora_inicio, hora_fin, disponible)
+                    VALUES (%s, %s, %s::time, %s::time, %s)
+                    RETURNING id
+                """
+                cursor.execute(sql, (profesor_id, dia, str(t_inicio), str(t_fin), disponible))
                 horario_id = cursor.fetchone()[0]
                 conn.commit()
                 return horario_id
@@ -14263,21 +14448,55 @@ class DatabaseManager:
                 if duracion_minutos_db < 1:
                     duracion_minutos_db = 1  # mínimo 1 minuto
 
-                # Finalizar sesión sin asociarla a clases; asegurar tipo_actividad por defecto
+                # Clasificar la sesión: 'En horario' si cae dentro de un bloque asignado, si no 'Horas extra'
+                try:
+                    dia_map = {0: 'Lunes', 1: 'Martes', 2: 'Miércoles', 3: 'Jueves', 4: 'Viernes', 5: 'Sábado', 6: 'Domingo'}
+                    dia_nombre = dia_map.get(inicio_db.weekday())
+                except Exception:
+                    dia_nombre = None
+                en_horario = False
+                if dia_nombre:
+                    try:
+                        with self.get_connection_context() as conn4:
+                            cur4 = conn4.cursor()
+                            cur4.execute(
+                                """
+                                SELECT hora_inicio, hora_fin
+                                FROM horarios_profesores
+                                WHERE profesor_id = %s AND dia_semana = %s AND disponible = TRUE
+                                """,
+                                (profesor_id, dia_nombre)
+                            )
+                            bloques = cur4.fetchall() or []
+                        ini_t = inicio_db.time()
+                        fin_t = fin.time()
+                        for b in bloques:
+                            try:
+                                h_ini, h_fin = b[0], b[1]
+                                if (ini_t >= h_ini) and (fin_t <= h_fin):
+                                    en_horario = True
+                                    break
+                            except Exception:
+                                continue
+                    except Exception:
+                        en_horario = False
+                tipo_actividad = 'En horario' if en_horario else 'Horas extra'
+
+                # Finalizar sesión con tipo_actividad calculado
                 with self.get_connection_context() as conn:
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                     sql = """
                     UPDATE profesor_horas_trabajadas 
                     SET hora_fin = %s, 
                         minutos_totales = %s,
-                        tipo_actividad = COALESCE(tipo_actividad, 'Trabajo')
+                        tipo_actividad = %s
                     WHERE id = %s
                     RETURNING 
                         id, profesor_id, fecha, hora_inicio, hora_fin,
                         minutos_totales, horas_totales, tipo_actividad,
                         clase_id, notas, fecha_creacion
                     """
-                    cursor.execute(sql, (fin, round(duracion_minutos_db), sesion_db['id']))
+                    cursor.execute(sql, (fin, round(duracion_minutos_db), tipo_actividad, sesion_db['id']))
                     sesion_finalizada = cursor.fetchone()
                     conn.commit()
 
@@ -14652,31 +14871,49 @@ class DatabaseManager:
                 horas_extras = []
                 total_horas_extras = 0
                 
-                # Crear diccionario de horarios por día
+                # Crear diccionario de horarios por día (clave unificada en número 0-6)
+                dias_map_nombre = {0: 'Domingo', 1: 'Lunes', 2: 'Martes', 3: 'Miércoles', 4: 'Jueves', 5: 'Viernes', 6: 'Sábado'}
+                dias_map_num = {v: k for k, v in dias_map_nombre.items()}
                 horarios_por_dia = {}
                 for horario in horarios_establecidos:
-                    dia = horario['dia_semana']
-                    if dia not in horarios_por_dia:
-                        horarios_por_dia[dia] = []
-                    horarios_por_dia[dia].append({
-                        'inicio': horario['hora_inicio'],
-                        'fin': horario['hora_fin']
-                    })
+                    dia_raw = horario['dia_semana']
+                    try:
+                        # Unificar la clave del día a número
+                        if isinstance(dia_raw, (int, float)):
+                            dia_key = int(dia_raw) % 7
+                        else:
+                            dia_key = dias_map_num.get(str(dia_raw), None)
+                        if dia_key is None:
+                            # Si no se puede mapear, intentar heurística simple
+                            val = str(dia_raw).strip().lower()
+                            names = {'domingo':0,'lunes':1,'martes':2,'miércoles':3,'miercoles':3,'jueves':4,'viernes':5,'sábado':6,'sabado':6}
+                            dia_key = names.get(val, None)
+                        if dia_key is None:
+                            continue
+                        if dia_key not in horarios_por_dia:
+                            horarios_por_dia[dia_key] = []
+                        horarios_por_dia[dia_key].append({
+                            'inicio': horario['hora_inicio'],
+                            'fin': horario['hora_fin']
+                        })
+                    except Exception:
+                        # Omite entradas de horario mal formateadas
+                        continue
                 
                 # Verificar cada sesión
                 for sesion in sesiones:
-                    dia_nombre = sesion['dia_semana_nombre']
+                    dia_num = int(sesion.get('dia_semana_num', 0) or 0)
                     hora_inicio_sesion = sesion['hora_inicio'].time() if hasattr(sesion['hora_inicio'], 'time') else sesion['hora_inicio']
                     hora_fin_sesion = sesion['hora_fin'].time() if hasattr(sesion['hora_fin'], 'time') else sesion['hora_fin']
                     
                     # Verificar si el día tiene horarios establecidos
-                    if dia_nombre not in horarios_por_dia:
+                    if dia_num not in horarios_por_dia:
                         # Todo el tiempo trabajado es extra (día no programado)
                         minutos_extras = sesion['minutos_totales']
                         horas_extras.append({
                             'sesion_id': sesion['id'],
                             'fecha': sesion['fecha'],
-                            'dia': dia_nombre,
+                            'dia': dias_map_nombre.get(dia_num, sesion.get('dia_semana_nombre')),
                             'hora_inicio': hora_inicio_sesion,
                             'hora_fin': hora_fin_sesion,
                             'horas_extras': minutos_extras / 60.0,
@@ -14688,7 +14925,7 @@ class DatabaseManager:
                         esta_en_horario = False
                         horas_fuera_horario = 0
                         
-                        for horario in horarios_por_dia[dia_nombre]:
+                        for horario in horarios_por_dia[dia_num]:
                             inicio_establecido = horario['inicio']
                             fin_establecido = horario['fin']
                             
@@ -14727,7 +14964,7 @@ class DatabaseManager:
                             horas_extras.append({
                                 'sesion_id': sesion['id'],
                                 'fecha': sesion['fecha'],
-                                'dia': dia_nombre,
+                                'dia': dias_map_nombre.get(dia_num, sesion.get('dia_semana_nombre')),
                                 'hora_inicio': hora_inicio_sesion,
                                 'hora_fin': hora_fin_sesion,
                                 'horas_extras': round(horas_fuera_horario, 2),

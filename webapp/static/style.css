@@ -243,6 +243,25 @@ table.data-table th, table.data-table td,
 .tab:focus-visible,
 .role-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 10px; }
 
+/* Indicadores de sesión en el encabezado */
+.session-chip,
+.session-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+.session-chip { background: rgba(255,255,255,0.06); color: var(--text); }
+.session-state.inactive { background: rgba(255,255,255,0.06); color: var(--muted); }
+.session-state.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: rgba(76,63,118,.5);
+}
+
 /* Scrollbars temáticos (WebKit) y soporte Firefox */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 10px; border: 2px solid #111827; }

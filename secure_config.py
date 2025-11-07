@@ -86,8 +86,9 @@ class SecureConfig:
             profile = cls.get_env_variable('DB_PROFILE', 'local')
         
         if profile == 'local':
-            # Resolver host/port/db/user con genéricos primero
-            host = os.getenv('DB_HOST') or cls.get_env_variable('DB_LOCAL_HOST', 'localhost', required=False) or 'localhost'
+            # Resolver host/port/db/user con genéricos primero (recortando espacios)
+            host = (os.getenv('DB_HOST') or cls.get_env_variable('DB_LOCAL_HOST', 'localhost', required=False) or 'localhost')
+            host = str(host).strip()
             try:
                 port = int(os.getenv('DB_PORT') or '')
             except Exception:
@@ -95,15 +96,18 @@ class SecureConfig:
             if not port:
                 port = cls.get_env_int('DB_LOCAL_PORT', 5432)
 
-            database = os.getenv('DB_NAME') or cls.get_env_variable('DB_LOCAL_DATABASE', 'gimnasio', required=False) or 'gimnasio'
-            user = os.getenv('DB_USER') or cls.get_env_variable('DB_LOCAL_USER', 'postgres', required=False) or 'postgres'
+            database = (os.getenv('DB_NAME') or cls.get_env_variable('DB_LOCAL_DATABASE', 'gimnasio', required=False) or 'gimnasio')
+            database = str(database).strip()
+            user = (os.getenv('DB_USER') or cls.get_env_variable('DB_LOCAL_USER', 'postgres', required=False) or 'postgres')
+            user = str(user).strip()
 
             # Password desde múltiples fuentes de entorno (no se usa config.json aquí)
             password = os.getenv('DB_PASSWORD') or os.getenv('DB_LOCAL_PASSWORD') or os.getenv('PGPASSWORD')
             if not (password and str(password).strip()):
                 raise ValueError('Variable de entorno requerida no configurada: DB_PASSWORD/DB_LOCAL_PASSWORD/PGPASSWORD')
 
-            sslmode = os.getenv('DB_SSLMODE') or cls.get_env_variable('DB_LOCAL_SSLMODE', 'prefer', required=False) or 'prefer'
+            sslmode = (os.getenv('DB_SSLMODE') or cls.get_env_variable('DB_LOCAL_SSLMODE', 'prefer', required=False) or 'prefer')
+            sslmode = str(sslmode).strip()
             try:
                 connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT') or '')
             except Exception:
@@ -111,7 +115,8 @@ class SecureConfig:
             if not connect_timeout:
                 connect_timeout = cls.get_env_int('DB_LOCAL_CONNECT_TIMEOUT', 10)
 
-            application_name = os.getenv('DB_APPLICATION_NAME') or cls.get_env_variable('DB_LOCAL_APPLICATION_NAME', 'gym_management_system', required=False) or 'gym_management_system'
+            application_name = (os.getenv('DB_APPLICATION_NAME') or cls.get_env_variable('DB_LOCAL_APPLICATION_NAME', 'gym_management_system', required=False) or 'gym_management_system')
+            application_name = str(application_name).strip()
 
             return {
                 'host': host,
