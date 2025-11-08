@@ -310,9 +310,21 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
             or (payload.get("usuarioNombre") or payload.get("NombreUsuario"))
             or (payload.get("usuario_nombre_override") or None)
         )
-        u_nombre = (u_nombre or "").strip() or "Plantilla"
+        u_nombre = (u_nombre or "").strip()
     except Exception:
-        u_nombre = "Plantilla"
+        u_nombre = ""
+    # Intentar obtener usuario_id y completar datos desde la base si el nombre no está
+    try:
+        u_id_raw = (
+            u_raw.get("id")
+            or u_raw.get("usuario_id")
+            or payload.get("usuario_id")
+            or ((payload.get("rutina") or {}).get("usuario_id") if isinstance(payload.get("rutina"), dict) else None)
+        )
+        u_id = int(u_id_raw) if u_id_raw is not None else None
+    except Exception:
+        u_id = None
+    # DNI y Teléfono primarios del payload
     try:
         u_dni = (u_raw.get("dni") or u_raw.get("DNI") or payload.get("usuario_dni") or payload.get("dni_usuario") or None)
     except Exception:
@@ -321,6 +333,59 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
         u_tel = (u_raw.get("telefono") or u_raw.get("Teléfono") or payload.get("usuario_telefono") or "")
     except Exception:
         u_tel = ""
+    # Si tenemos usuario_id y el nombre está vacío, consultar DB para completar
+    if (not u_nombre) and (u_id is not None):
+        db = _get_db()
+        try:
+            if db is not None:
+                try:
+                    u_obj = db.obtener_usuario(int(u_id))  # type: ignore
+                except Exception:
+                    u_obj = None
+                if u_obj is not None:
+                    try:
+                        u_nombre = (getattr(u_obj, "nombre", "") or "").strip() or u_nombre
+                        u_dni = getattr(u_obj, "dni", None) if (getattr(u_obj, "dni", None) or None) else u_dni
+                        u_tel = getattr(u_obj, "telefono", "") if (getattr(u_obj, "telefono", "") or "") else u_tel
+                    except Exception:
+                        pass
+                # Si aún sin nombre, intentar JOIN directo por rutina_id si existe en payload
+                if not u_nombre:
+                    try:
+                        r_id_raw = payload.get("rutina_id") or ((payload.get("rutina") or {}).get("id") if isinstance(payload.get("rutina"), dict) else None)
+                        r_id = int(r_id_raw) if r_id_raw is not None else None
+                    except Exception:
+                        r_id = None
+                    if r_id is not None:
+                        try:
+                            with db.get_connection_context() as conn:  # type: ignore
+                                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                                cur.execute(
+                                    """
+                                    SELECT COALESCE(u.nombre,'') AS usuario_nombre,
+                                           COALESCE(u.dni,'')     AS dni,
+                                           COALESCE(u.telefono,'') AS telefono
+                                    FROM rutinas r
+                                    LEFT JOIN usuarios u ON u.id = r.usuario_id
+                                    WHERE r.id = %s
+                                    """,
+                                    (int(r_id),)
+                                )
+                                row = cur.fetchone() or {}
+                                _u_nombre = (row.get("usuario_nombre") or "").strip()
+                                _u_dni = (row.get("dni") or "").strip() or None
+                                _u_tel = (row.get("telefono") or "").strip()
+                                if _u_nombre:
+                                    u_nombre = _u_nombre
+                                    u_dni = _u_dni if _u_dni is not None else u_dni
+                                    u_tel = _u_tel or u_tel
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    # Si sigue sin nombre y SIN usuario_id, usar fallback 'Plantilla' (estamos en modo plantilla)
+    if not u_nombre and u_id is None:
+        u_nombre = "Plantilla"
     try:
         usuario = Usuario(
             nombre=u_nombre,
@@ -333,7 +398,9 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                 self.nombre = nombre
                 self.dni = None
                 self.telefono = ""
-        usuario = _Usr(u_nombre or "Plantilla")
+        # Respetar el usuario_id: solo usar 'Plantilla' cuando no hay usuario asociado
+        _nombre_final = u_nombre if (u_nombre or (u_id is not None)) else "Plantilla"
+        usuario = _Usr(_nombre_final)
     # Rutina básica
     r_raw = payload.get("rutina") or payload
     try:
@@ -1536,33 +1603,112 @@ def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
         grupos: Dict[int, list] = {}
         ejercicios = getattr(rutina, "ejercicios", []) or []
         for r in ejercicios:
-            dia = getattr(r, "dia_semana", None)
-            if dia is None:
-                # Ignorar ejercicios sin día definido
-                continue
-            # Asegurar que cada ejercicio tenga un nombre visible
             try:
-                nombre_actual = getattr(r, "nombre_ejercicio", None)
-                if not nombre_actual:
-                    nombre_nested = getattr(getattr(r, "ejercicio", None), "nombre", None)
-                    if nombre_nested:
-                        setattr(r, "nombre_ejercicio", nombre_nested)
+                # Soportar tanto objetos RutinaEjercicio como dicts provenientes de DB/plantillas
+                if isinstance(r, dict):
+                    # Construir objeto si las dataclasses están disponibles; si no, mantener dict y completar nombre
+                    rid_val = getattr(rutina, "id", None)
+                    rid = int(rid_val) if rid_val is not None else 0
+                    if 'RutinaEjercicio' in globals() and RutinaEjercicio is not None and 'Ejercicio' in globals() and Ejercicio is not None:
+                        try:
+                            r_obj = RutinaEjercicio(
+                                id=r.get("id"),
+                                rutina_id=int(r.get("rutina_id") or rid or 0),
+                                ejercicio_id=int(r.get("ejercicio_id") or 0),
+                                dia_semana=int(r.get("dia_semana") or 1),
+                                series=r.get("series"),
+                                repeticiones=r.get("repeticiones"),
+                                orden=int(r.get("orden") or 0),
+                                ejercicio=None
+                            )
+                        except Exception:
+                            # Fallback mínimo en caso de tipos no convertibles
+                            r_obj = RutinaEjercicio(rutina_id=rid, ejercicio_id=int(r.get("ejercicio_id") or 0), dia_semana=int(r.get("dia_semana") or 1))
+                        ej = r.get("ejercicio")
+                        try:
+                            if isinstance(ej, dict):
+                                r_obj.ejercicio = Ejercicio(
+                                    id=int(ej.get("id") or r_obj.ejercicio_id or 0),
+                                    nombre=str(ej.get("nombre") or ""),
+                                    grupo_muscular=ej.get("grupo_muscular"),
+                                    descripcion=ej.get("descripcion")
+                                )
+                            elif ej is not None:
+                                # Si ya es un objeto Ejercicio
+                                r_obj.ejercicio = ej  # type: ignore
+                            else:
+                                r_obj.ejercicio = Ejercicio(id=int(r_obj.ejercicio_id or 0))
+                        except Exception:
+                            r_obj.ejercicio = None
+                        # Determinar nombre visible
+                        nombre_actual = r.get("nombre_ejercicio")
+                        if not nombre_actual:
+                            nombre_nested = getattr(r_obj.ejercicio, "nombre", None) if r_obj.ejercicio is not None else None
+                            if nombre_nested:
+                                nombre_actual = nombre_nested
+                            else:
+                                eid = r_obj.ejercicio_id
+                                nombre_actual = f"Ejercicio {eid}" if eid else "Ejercicio"
+                        try:
+                            setattr(r_obj, "nombre_ejercicio", nombre_actual)
+                        except Exception:
+                            pass
+                        r = r_obj
                     else:
-                        # Fallback suave sólo si no hay nombre en DB
-                        eid = getattr(r, "ejercicio_id", None)
-                        setattr(r, "nombre_ejercicio", f"Ejercicio {eid}" if eid is not None else "Ejercicio")
+                        # Completar nombre en dict si no podemos convertir a objeto
+                        nombre_actual = r.get("nombre_ejercicio")
+                        if not nombre_actual:
+                            ej = r.get("ejercicio")
+                            if isinstance(ej, dict):
+                                nombre_actual = ej.get("nombre") or None
+                            if not nombre_actual:
+                                eid = r.get("ejercicio_id")
+                                nombre_actual = f"Ejercicio {eid}" if eid is not None else "Ejercicio"
+                        r["nombre_ejercicio"] = nombre_actual
+                else:
+                    # Objeto: asegurar nombre visible con nested fallback
+                    nombre_actual = getattr(r, "nombre_ejercicio", None)
+                    if not nombre_actual:
+                        nombre_nested = getattr(getattr(r, "ejercicio", None), "nombre", None)
+                        if nombre_nested:
+                            try:
+                                setattr(r, "nombre_ejercicio", nombre_nested)
+                            except Exception:
+                                pass
+                        else:
+                            eid = getattr(r, "ejercicio_id", None)
+                            try:
+                                setattr(r, "nombre_ejercicio", f"Ejercicio {eid}" if eid is not None else "Ejercicio")
+                            except Exception:
+                                pass
             except Exception:
+                # No bloquear por errores de normalización de un ejercicio
                 pass
-            grupos.setdefault(int(dia), []).append(r)
+            # Día
+            dia = getattr(r, "dia_semana", None) if not isinstance(r, dict) else r.get("dia_semana")
+            if dia is None:
+                continue
+            try:
+                grupos.setdefault(int(dia), []).append(r)
+            except Exception:
+                # Si no se puede convertir a int, ignorar
+                continue
         # Ordenar cada día por 'orden' y nombre para consistencia visual
         for dia, arr in grupos.items():
             try:
-                arr.sort(key=lambda e: (
-                    (getattr(e, "orden", 0) or 0),
-                    (getattr(e, "nombre_ejercicio", None) or (
-                        getattr(getattr(e, "ejercicio", None), "nombre", "")
-                    ))
-                ))
+                def _orden_val(e):
+                    try:
+                        return int(getattr(e, "orden", 0) or 0) if not isinstance(e, dict) else int(e.get("orden") or 0)
+                    except Exception:
+                        return 0
+                def _nombre_val(e):
+                    try:
+                        if isinstance(e, dict):
+                            return str(e.get("nombre_ejercicio") or ((e.get("ejercicio") or {}).get("nombre") if isinstance(e.get("ejercicio"), dict) else ""))
+                        return str(getattr(e, "nombre_ejercicio", None) or getattr(getattr(e, "ejercicio", None), "nombre", ""))
+                    except Exception:
+                        return ""
+                arr.sort(key=lambda e: (_orden_val(e), _nombre_val(e)))
             except Exception:
                 # Si falla el sort por algún dato, dejar tal cual
                 pass
@@ -1591,7 +1737,13 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
         if rutina is None:
             raise HTTPException(status_code=404, detail="Rutina no encontrada")
         # Obtener usuario asociado (con respaldo si no existe)
+        # Soportar objeto o dict
         u_raw = getattr(rutina, "usuario_id", None)
+        if u_raw is None and isinstance(rutina, dict):
+            try:
+                u_raw = rutina.get("usuario_id") or (rutina.get("usuario") or {}).get("id")
+            except Exception:
+                u_raw = None
         try:
             u_id = int(u_raw) if u_raw is not None else None
         except Exception:
@@ -1636,15 +1788,18 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
                             usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
             except Exception:
                 pass
-        # Fallback final si sigue sin nombre
+        # Fallback final si sigue sin nombre: usar 'Plantilla' SOLO si no hay usuario_id (plantilla pura)
         if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
             try:
-                usuario = Usuario(nombre="Plantilla")  # type: ignore
+                if u_id is None:
+                    usuario = Usuario(nombre="Plantilla")  # type: ignore
+                else:
+                    usuario = Usuario(nombre="")  # No forzar 'Plantilla' para rutinas de usuario
             except Exception:
                 class _Usr:
                     def __init__(self, nombre: str):
                         self.nombre = nombre
-                usuario = _Usr("Plantilla")
+                usuario = _Usr("" if u_id is not None else "Plantilla")
         ejercicios_por_dia = _build_exercises_by_day(rutina)
         # Asegurar semanas dentro de un rango razonable (evita valores extremos del cliente)
         try:
@@ -1750,7 +1905,13 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
         if rutina is None:
             raise HTTPException(status_code=404, detail="Rutina no encontrada")
         # Usuario asociado (con respaldo)
+        # Soportar objeto o dict
         u_raw = getattr(rutina, "usuario_id", None)
+        if u_raw is None and isinstance(rutina, dict):
+            try:
+                u_raw = rutina.get("usuario_id") or (rutina.get("usuario") or {}).get("id")
+            except Exception:
+                u_raw = None
         try:
             u_id = int(u_raw) if u_raw is not None else None
         except Exception:
@@ -1795,15 +1956,18 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
                             usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
             except Exception:
                 pass
-        # Fallback final si sigue sin nombre
+        # Fallback final si sigue sin nombre: usar 'Plantilla' SOLO si no hay usuario_id (plantilla pura)
         if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
             try:
-                usuario = Usuario(nombre="Plantilla")  # type: ignore
+                if u_id is None:
+                    usuario = Usuario(nombre="Plantilla")  # type: ignore
+                else:
+                    usuario = Usuario(nombre="")
             except Exception:
                 class _Usr:
                     def __init__(self, nombre: str):
                         self.nombre = nombre
-                usuario = _Usr("Plantilla")
+                usuario = _Usr("" if u_id is not None else "Plantilla")
         ejercicios_por_dia = _build_exercises_by_day(rutina)
         out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
         # Servir inline para permitir incrustación en Google Viewer

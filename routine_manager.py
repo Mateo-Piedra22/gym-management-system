@@ -136,8 +136,7 @@ class RoutineTemplateManager:
             # Validar usuario
             if not usuario:
                 errors.append("Usuario no proporcionado")
-            elif not getattr(usuario, 'nombre', None):
-                errors.append("Usuario sin nombre")
+            # Permitir usuario sin nombre; el nombre puede venir vacío en exportaciones reales
             
             # Validar ejercicios
             if not exercises_by_day:
@@ -756,7 +755,8 @@ class RoutineTemplateManager:
             # Generar nombre de archivo si no se proporciona
             if not output_path:
                 fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"rutina_{usuario.nombre.replace(' ', '_')}_{num_days}dias_{fecha_str}.xlsx"
+                safe_name = re.sub(r"\s+", "_", (getattr(usuario, "nombre", "") or "").strip()) or "sin_nombre"
+                filename = f"rutina_{safe_name}_{num_days}dias_{fecha_str}.xlsx"
                 output_path = self.output_dir_excel / filename
             else:
                 output_path = Path(output_path)
@@ -1739,7 +1739,8 @@ class RoutineTemplateManager:
             # Generar nombre de archivo si no se proporciona
             if not output_path:
                 fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"rutina_{usuario.nombre.replace(' ', '_')}_{fecha_str}.pdf"
+                safe_name = re.sub(r"\s+", "_", (getattr(usuario, "nombre", "") or "").strip()) or "sin_nombre"
+                filename = f"rutina_{safe_name}_{fecha_str}.pdf"
                 output_path = self.output_dir_pdf / filename
             else:
                 output_path = Path(output_path)
