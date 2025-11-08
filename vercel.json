@@ -1,14 +1,9 @@
 {
+  "installCommand": "pip install -r requirements-webapp.txt",
   "functions": {
     "api/index.py": {
       "runtime": "python3.11",
-      "includeFiles": [
-        "webapp/**",
-        "assets/**",
-        "config/**",
-        "exports/**",
-        "recibos/**"
-      ]
+      "includeFiles": "{webapp,assets,config,exports,recibos}/**"
     }
   },
   "routes": [
