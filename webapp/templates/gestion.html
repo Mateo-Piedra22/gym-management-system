@@ -6356,7 +6356,15 @@ async function directExportExcelFromPreview(){
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
       dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
-      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+      usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
+      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({
+        ejercicio_id: Number(x.ejercicio_id),
+        dia_semana: Number(x.dia_semana||1),
+        series: x.series,
+        repeticiones: x.repeticiones,
+        orden: Number(x.orden||1),
+        nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
+      }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
     let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
@@ -6387,7 +6395,15 @@ async function updateRutinaPDFPreview(){
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
       dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
-      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+      usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
+      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({
+        ejercicio_id: Number(x.ejercicio_id),
+        dia_semana: Number(x.dia_semana||1),
+        series: x.series,
+        repeticiones: x.repeticiones,
+        orden: Number(x.orden||1),
+        nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
+      }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
     let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
@@ -6803,7 +6819,15 @@ function attachWheelZoom(containerId, frameId){
           descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || dInner.descripcion || null,
           dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
           categoria: dInner.categoria || 'general',
-          ejercicios: ejs.map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+          usuario_id: (typeof dInner.usuario_id !== 'undefined' ? dInner.usuario_id : null),
+          ejercicios: ejs.map(x => ({
+            ejercicio_id: Number(x.ejercicio_id),
+            dia_semana: Number(x.dia_semana||1),
+            series: x.series,
+            repeticiones: x.repeticiones,
+            orden: Number(x.orden||1),
+            nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
+          }))
         };
         return { dInner, payload };
       }
