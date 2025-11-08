@@ -343,6 +343,8 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
     except Exception:
         pass
     ejercicios: list = []
+    # Contadores por día para generar nombres por defecto legibles
+    day_counts: Dict[int, int] = {}
     # Fuente 1: lista plana 'ejercicios'
     items = payload.get("ejercicios") or []
     if isinstance(items, list) and items:
@@ -379,6 +381,20 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                         setattr(re, "nombre_ejercicio", nombre_e)
                     except Exception:
                         pass
+                # Fallback: asignar nombre por defecto si no viene en el payload
+                try:
+                    has_nombre = bool(getattr(re, "nombre_ejercicio", None)) or bool(getattr(getattr(re, "ejercicio", None), "nombre", None))
+                except Exception:
+                    has_nombre = False
+                if not has_nombre:
+                    try:
+                        day_counts[dia] = day_counts.get(int(dia), 0) + 1
+                        setattr(re, "nombre_ejercicio", f"Ejercicio {day_counts[int(dia)]}")
+                    except Exception:
+                        try:
+                            setattr(re, "nombre_ejercicio", "Ejercicio")
+                        except Exception:
+                            pass
                 ejercicios.append(re)
             except Exception:
                 continue
@@ -418,6 +434,20 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                             setattr(re, "nombre_ejercicio", nombre_e)
                         except Exception:
                             pass
+                    # Fallback de nombre si viene vacío
+                    try:
+                        has_nombre = bool(getattr(re, "nombre_ejercicio", None)) or bool(getattr(getattr(re, "ejercicio", None), "nombre", None))
+                    except Exception:
+                        has_nombre = False
+                    if not has_nombre:
+                        try:
+                            day_counts[dia] = day_counts.get(int(dia), 0) + 1
+                            setattr(re, "nombre_ejercicio", f"Ejercicio {day_counts[int(dia)]}")
+                        except Exception:
+                            try:
+                                setattr(re, "nombre_ejercicio", "Ejercicio")
+                            except Exception:
+                                pass
                     ejercicios.append(re)
                 except Exception:
                     continue
@@ -460,6 +490,20 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                                 setattr(re, "nombre_ejercicio", nombre_e)
                             except Exception:
                                 pass
+                        # Fallback de nombre si falta
+                        try:
+                            has_nombre = bool(getattr(re, "nombre_ejercicio", None)) or bool(getattr(getattr(re, "ejercicio", None), "nombre", None))
+                        except Exception:
+                            has_nombre = False
+                        if not has_nombre:
+                            try:
+                                day_counts[dia] = day_counts.get(int(dia), 0) + 1
+                                setattr(re, "nombre_ejercicio", f"Ejercicio {day_counts[int(dia)]}")
+                            except Exception:
+                                try:
+                                    setattr(re, "nombre_ejercicio", "Ejercicio")
+                                except Exception:
+                                    pass
                         ejercicios.append(re)
                     except Exception:
                         continue
@@ -1809,7 +1853,10 @@ async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optiona
         )
         try:
             resp.headers["Content-Disposition"] = f'inline; filename="{base_name}"'
-            resp.headers["Cache-Control"] = "private, max-age=60"
+            # Permitir caché pública breve para compatibilidad con Office Viewer/CDN
+            resp.headers["Cache-Control"] = "public, max-age=120"
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Accept-Ranges"] = "bytes"
         except Exception:
             pass
         return resp
