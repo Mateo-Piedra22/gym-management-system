@@ -2188,6 +2188,10 @@
               <option value="4">4</option>
             </select>
           </div>
+          <div style="display:flex; gap:8px; align-items:center; flex:2; min-width:280px">
+            <label for="rutina-preview-usuario-nombre" style="white-space:nowrap">Usuario (encabezado)</label>
+            <input id="rutina-preview-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" style="flex:1" />
+          </div>
         </div>
         <div id="rutina-preview-advanced" style="margin-top:4px">
           <div class="form-row">
@@ -2351,6 +2355,10 @@
           <label for="rutina-export-weeks">Semanas a exportar (1-4)</label>
           <input id="rutina-export-weeks" type="number" min="1" max="4" value="1" aria-describedby="rutina-export-weeks-help" />
           <small id="rutina-export-weeks-help" class="muted">Elige cuántas semanas incluir en el Excel.</small>
+        </div>
+        <div class="form-row">
+          <label for="rutina-export-usuario-nombre">Usuario (encabezado)</label>
+          <input id="rutina-export-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" />
         </div>
       </div>
       <div class="form-grid" style="margin:8px 0;">
@@ -6357,13 +6365,19 @@ async function directExportExcelFromPreview(){
       dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
       usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
+      usuario_nombre_override: ((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim() || null,
       ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({
         ejercicio_id: Number(x.ejercicio_id),
         dia_semana: Number(x.dia_semana||1),
         series: x.series,
         repeticiones: x.repeticiones,
         orden: Number(x.orden||1),
-        nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
+        nombre_ejercicio: (
+          x.nombre_ejercicio
+          || ((x.ejercicio||{}).nombre)
+          || (((state.ejercicios||[]).find(e => String(e.id) === String(x.ejercicio_id))||{}).nombre)
+          || null
+        )
       }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
@@ -6396,13 +6410,19 @@ async function updateRutinaPDFPreview(){
       dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
       usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
+      usuario_nombre_override: ((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim() || null,
       ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({
         ejercicio_id: Number(x.ejercicio_id),
         dia_semana: Number(x.dia_semana||1),
         series: x.series,
         repeticiones: x.repeticiones,
         orden: Number(x.orden||1),
-        nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
+        nombre_ejercicio: (
+          x.nombre_ejercicio
+          || ((x.ejercicio||{}).nombre)
+          || (((state.ejercicios||[]).find(e => String(e.id) === String(x.ejercicio_id))||{}).nombre)
+          || null
+        )
       }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
@@ -6497,6 +6517,19 @@ function attachWheelZoom(containerId, frameId){
           const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){ catEl.value = 'general'; catEl.disabled = true; }
           refreshPreviewDayOptions(Number(diasEl ? diasEl.value : 3));
         }
+        // Prefijar campo de usuario en encabezado según selección/override
+        try{
+          const uEl = document.getElementById('rutina-preview-usuario-nombre');
+          if(uEl){
+            const cur = state.rutinaPreviewDraft || state.rutinaPreview || {};
+            const selU = state.selectedUsuario;
+            if(selU && (cur.usuario_id === selU.id) && selU.nombre){
+              uEl.value = String(selU.nombre);
+            } else {
+              uEl.value = String(cur.usuario_nombre_override || '');
+            }
+          }
+        }catch(_){ }
         // Asegurar que los ejercicios estén cargados antes de poblar filtros y select
         (async () => {
           try {
@@ -6591,6 +6624,7 @@ function attachWheelZoom(containerId, frameId){
         const catSel = document.getElementById('rutina-preview-categoria'); if(catSel) catSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.categoria = String(catSel.value || 'general'); state.rutinaPreviewDraft = d; renderRutinaPreview(); markRutinaDirty(); };
         const nameEl2 = document.getElementById('rutina-preview-nombre'); if(nameEl2) nameEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.nombre_rutina = String(nameEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
         const descEl2 = document.getElementById('rutina-preview-descripcion'); if(descEl2) descEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.descripcion = String(descEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
+        const userNameEl = document.getElementById('rutina-preview-usuario-nombre'); if(userNameEl) userNameEl.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.usuario_nombre_override = String(userNameEl.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
         if(fApply) fApply.onclick = () => applyRutinaPreviewFloat(false);
         const fRemove = document.getElementById('rutina-preview-float-remove'); if(fRemove) fRemove.onclick = removeRutinaPreviewItem;
         const fClose = document.getElementById('rutina-preview-float-close'); if(fClose) fClose.onclick = () => applyRutinaPreviewFloat(true);
@@ -6756,6 +6790,18 @@ function attachWheelZoom(containerId, frameId){
       if(!d || !d.id){ showToast('Guarda la rutina/plantilla antes de exportar', 'warning', 3500); return; }
       const fname = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
       const fEl = document.getElementById('rutina-export-filename'); if(fEl) fEl.value = fname;
+      // Inicializar nombre de usuario para encabezado
+      try{
+        const uEl = document.getElementById('rutina-export-usuario-nombre');
+        if(uEl){
+          const selU = state.selectedUsuario;
+          if(selU && (d.usuario_id === selU.id) && selU.nombre){
+            uEl.value = String(selU.nombre);
+          } else {
+            uEl.value = String((d.usuario_nombre_override || ''));
+          }
+        }
+      }catch(_){ }
       const tbody = document.querySelector('#rutina-export-table tbody'); if(tbody){
         const ejs = Array.isArray(d.ejercicios) ? d.ejercicios.slice() : [];
         ejs.sort((a,b) => (Number(a.dia_semana||1) - Number(b.dia_semana||1)) || (Number(a.orden||1) - Number(b.orden||1)));
@@ -6814,21 +6860,27 @@ function attachWheelZoom(containerId, frameId){
         });
         const ejs = Array.isArray(dInner.ejercicios) ? dInner.ejercicios : [];
         ejs.forEach(item => { const m = map.get(String(item.ejercicio_id)); if(m){ item.series = m.series; item.repeticiones = m.repeticiones; } });
-        const payload = {
-          nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (dInner.nombre_rutina||''),
-          descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || dInner.descripcion || null,
-          dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
-          categoria: dInner.categoria || 'general',
-          usuario_id: (typeof dInner.usuario_id !== 'undefined' ? dInner.usuario_id : null),
-          ejercicios: ejs.map(x => ({
-            ejercicio_id: Number(x.ejercicio_id),
-            dia_semana: Number(x.dia_semana||1),
-            series: x.series,
-            repeticiones: x.repeticiones,
-            orden: Number(x.orden||1),
-            nombre_ejercicio: (x.nombre_ejercicio || ((x.ejercicio||{}).nombre) || null)
-          }))
-        };
+      const payload = {
+        nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (dInner.nombre_rutina||''),
+        descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || dInner.descripcion || null,
+        dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
+        categoria: dInner.categoria || 'general',
+        usuario_id: (typeof dInner.usuario_id !== 'undefined' ? dInner.usuario_id : null),
+        usuario_nombre_override: ((document.getElementById('rutina-export-usuario-nombre')||{}).value || '').trim() || null,
+        ejercicios: ejs.map(x => ({
+          ejercicio_id: Number(x.ejercicio_id),
+          dia_semana: Number(x.dia_semana||1),
+          series: x.series,
+          repeticiones: x.repeticiones,
+          orden: Number(x.orden||1),
+          nombre_ejercicio: (
+            x.nombre_ejercicio
+            || ((x.ejercicio||{}).nombre)
+            || (((state.ejercicios||[]).find(e => String(e.id) === String(x.ejercicio_id))||{}).nombre)
+            || null
+          )
+        }))
+      };
         return { dInner, payload };
       }
 
@@ -6876,6 +6928,7 @@ function attachWheelZoom(containerId, frameId){
 
       const prevBtn = document.getElementById('rutina-export-preview-btn'); if(prevBtn){ prevBtn.onclick = updateExcelPreview; }
       const weeksEl = document.getElementById('rutina-export-weeks'); if(weeksEl){ weeksEl.onchange = updateExcelPreview; }
+      const unameEl = document.getElementById('rutina-export-usuario-nombre'); if(unameEl){ unameEl.oninput = updateExcelPreview; }
       const dBtn = document.getElementById('rutina-export-download'); if(dBtn){
         dBtn.onclick = async () => {
           try{

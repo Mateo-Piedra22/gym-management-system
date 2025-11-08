@@ -189,6 +189,25 @@ def _encode_preview_payload(payload: Dict[str, Any]) -> str:
             "d": payload.get("descripcion"),
             "ds": payload.get("dias_semana"),
             "c": payload.get("categoria"),
+            # Datos de usuario compactados (opcionales)
+            # ui: usuario_id, un: nombre de usuario/override, ud: DNI, ut: teléfono
+            "ui": (
+                (payload.get("usuario_id")
+                 if payload.get("usuario_id") is not None else (payload.get("usuario") or {}).get("id"))
+            ),
+            "un": (
+                payload.get("usuario_nombre_override")
+                if (payload.get("usuario_nombre_override") not in (None, ""))
+                else ((payload.get("usuario") or {}).get("nombre"))
+            ),
+            "ud": (
+                payload.get("usuario_dni")
+                if payload.get("usuario_dni") is not None else (payload.get("usuario") or {}).get("dni")
+            ),
+            "ut": (
+                payload.get("usuario_telefono")
+                if payload.get("usuario_telefono") is not None else (payload.get("usuario") or {}).get("telefono")
+            ),
             "e": [
                 [
                     int(x.get("ejercicio_id")),
@@ -196,6 +215,15 @@ def _encode_preview_payload(payload: Dict[str, Any]) -> str:
                     x.get("series"),
                     x.get("repeticiones"),
                     int(x.get("orden", 1)),
+                    # Incluir nombre visible del ejercicio si está disponible
+                    (
+                        (x.get("nombre_ejercicio"))
+                        or (
+                            (x.get("ejercicio") or {}).get("nombre")
+                            if isinstance(x.get("ejercicio"), dict) else None
+                        )
+                        or None
+                    ),
                 ]
                 for x in (payload.get("ejercicios") or [])
             ],
@@ -225,20 +253,50 @@ def _decode_preview_payload(data: str) -> Optional[Dict[str, Any]]:
             ejercicios = []
             for arr in (obj.get("e") or []):
                 try:
-                    ejercicios.append({
+                    item = {
                         "ejercicio_id": int(arr[0]),
                         "dia_semana": int(arr[1]),
                         "series": arr[2],
                         "repeticiones": arr[3],
                         "orden": int(arr[4]),
-                    })
+                    }
+                    # Si hay nombre incluido en el array compactado, restaurarlo
+                    try:
+                        if len(arr) > 5 and arr[5] not in (None, ""):
+                            item["nombre_ejercicio"] = str(arr[5])
+                            # Alias para compatibilidad con lógica existente que pueda usar nombre_actual
+                            item["nombre_actual"] = item["nombre_ejercicio"]
+                    except Exception:
+                        pass
+                    ejercicios.append(item)
                 except Exception:
                     continue
+            # Reconstruir datos de usuario si están presentes
+            ui = obj.get("ui")
+            un = obj.get("un")
+            ud = obj.get("ud")
+            ut = obj.get("ut")
+            try:
+                ui_int = int(ui) if ui is not None else None
+            except Exception:
+                ui_int = None
             return {
                 "nombre_rutina": obj.get("n"),
                 "descripcion": obj.get("d"),
                 "dias_semana": obj.get("ds"),
                 "categoria": obj.get("c"),
+                # Top‑level para compatibilidad con constructores existentes
+                "usuario_id": ui_int,
+                "usuario_nombre_override": un,
+                "usuario_dni": ud,
+                "usuario_telefono": ut,
+                # Objeto usuario opcional
+                "usuario": {
+                    "id": ui_int,
+                    "nombre": un,
+                    "dni": ud,
+                    "telefono": ut,
+                },
                 "ejercicios": ejercicios,
             }
         return obj
