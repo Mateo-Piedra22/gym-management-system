@@ -183,12 +183,29 @@ def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int) -
 # Codificación/decodificación del payload efímero para URLs
 def _encode_preview_payload(payload: Dict[str, Any]) -> str:
     try:
-        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        # Compactar estructura para minimizar tamaño de URL
+        compact: Dict[str, Any] = {
+            "n": payload.get("nombre_rutina"),
+            "d": payload.get("descripcion"),
+            "ds": payload.get("dias_semana"),
+            "c": payload.get("categoria"),
+            "e": [
+                [
+                    int(x.get("ejercicio_id")),
+                    int(x.get("dia_semana", 1)),
+                    x.get("series"),
+                    x.get("repeticiones"),
+                    int(x.get("orden", 1)),
+                ]
+                for x in (payload.get("ejercicios") or [])
+            ],
+        }
+        raw = json.dumps(compact, separators=(",", ":")).encode("utf-8")
         comp = zlib.compress(raw, level=6)
         return base64.urlsafe_b64encode(comp).decode("ascii")
     except Exception:
         try:
-            return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+            return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
         except Exception:
             return ""
 
@@ -201,7 +218,30 @@ def _decode_preview_payload(data: str) -> Optional[Dict[str, Any]]:
         except Exception:
             raw = comp
         obj = json.loads(raw.decode("utf-8"))
-        return obj if isinstance(obj, dict) else None
+        if not isinstance(obj, dict):
+            return None
+        # Expandir estructura compacta
+        if "e" in obj and isinstance(obj.get("e"), list):
+            ejercicios = []
+            for arr in (obj.get("e") or []):
+                try:
+                    ejercicios.append({
+                        "ejercicio_id": int(arr[0]),
+                        "dia_semana": int(arr[1]),
+                        "series": arr[2],
+                        "repeticiones": arr[3],
+                        "orden": int(arr[4]),
+                    })
+                except Exception:
+                    continue
+            return {
+                "nombre_rutina": obj.get("n"),
+                "descripcion": obj.get("d"),
+                "dias_semana": obj.get("ds"),
+                "categoria": obj.get("c"),
+                "ejercicios": ejercicios,
+            }
+        return obj
     except Exception:
         return None
 
@@ -1697,7 +1737,7 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             "sig": sig,
         }
         qs = urllib.parse.urlencode(params, safe="")
-        full = f"{base_url}/api/rutinas/preview/excel_view?{qs}"
+        full = f"{base_url}/api/rutinas/preview/excel_view.xlsx?{qs}"
         return JSONResponse({"url": full})
     except HTTPException:
         # Propagar errores de validación conocidos
@@ -1773,6 +1813,11 @@ async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optiona
     except Exception as e:
         logging.exception("Error generando Excel inline de borrador de rutina")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Variante con extensión .xlsx para compatibilidad con Office Viewer
+@app.get("/api/rutinas/preview/excel_view.xlsx")
+async def api_rutina_preview_excel_view_ext(pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+    return await api_rutina_preview_excel_view(pid=pid, data=data, weeks=weeks, filename=filename, ts=ts, sig=sig)
 
 # --- API Rutinas ---
 @app.get("/api/rutinas")
