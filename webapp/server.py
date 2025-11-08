@@ -24,6 +24,7 @@ import subprocess
 import psycopg2
 import psycopg2.extras
 import time
+import urllib.parse
 # Asegurar que el directorio raíz del proyecto esté en sys.path para imports (models, payment_manager, database)
 try:
     _proj_root = Path(__file__).resolve().parent.parent
@@ -123,6 +124,275 @@ except Exception:
             return f"https://{vercel}"
         # Fallback antiguo (Railway) solo si se proporciona por default
         return (default or "").strip()
+
+# Secreto para enlaces de previsualización (firmas HMAC) reutilizable en entornos serverless
+def _get_preview_secret() -> str:
+    try:
+        env = os.getenv("WEBAPP_PREVIEW_SECRET", "").strip()
+        if env:
+            return env
+    except Exception:
+        pass
+    # Fallbacks suaves: usar valores ya configurados si existen
+    for k in ("SESSION_SECRET", "SECRET_KEY", "VERCEL_GITHUB_COMMIT_SHA"):
+        try:
+            v = os.getenv(k, "").strip()
+            if v:
+                return v
+        except Exception:
+            continue
+    try:
+        if DEV_PASSWORD:
+            return str(DEV_PASSWORD)
+    except Exception:
+        pass
+    return "preview-secret"
+
+def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int) -> str:
+    try:
+        base = f"{int(rutina_id)}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
+    except Exception:
+        base = f"{rutina_id}|{weeks}|{filename}|{ts}".encode("utf-8")
+    secret = _get_preview_secret().encode("utf-8")
+    return hmac.new(secret, base, hashlib.sha256).hexdigest()
+
+# Firma para previsualización efímera (borrador) basada en un payload ID
+def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int) -> str:
+    try:
+        pid = str(payload_id)
+        base = f"{pid}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
+    except Exception:
+        base = f"{payload_id}|{weeks}|{filename}|{ts}".encode("utf-8")
+    secret = _get_preview_secret().encode("utf-8")
+    return hmac.new(secret, base, hashlib.sha256).hexdigest()
+
+# Almacenamiento efímero de borradores para previsualización
+_excel_preview_drafts_lock = threading.RLock()
+_excel_preview_drafts: Dict[str, Dict[str, Any]] = {}
+
+def _clean_preview_drafts() -> None:
+    try:
+        now = int(time.time())
+        to_del = []
+        with _excel_preview_drafts_lock:
+            for k, v in list(_excel_preview_drafts.items()):
+                exp = int(v.get("expires_at", 0) or 0)
+                if exp and now > exp:
+                    to_del.append(k)
+            for k in to_del:
+                _excel_preview_drafts.pop(k, None)
+    except Exception:
+        pass
+
+def _save_excel_preview_draft(payload: Dict[str, Any]) -> str:
+    # Limitar tamaño para evitar abusos
+    try:
+        raw_len = len(json.dumps(payload, ensure_ascii=False))
+        if raw_len > 500_000:
+            raise ValueError("Payload demasiado grande para previsualización")
+    except Exception:
+        pass
+    pid = secrets.token_urlsafe(18)
+    now = int(time.time())
+    entry = {
+        "payload": payload,
+        "created_at": now,
+        "expires_at": now + 600,  # 10 minutos
+    }
+    with _excel_preview_drafts_lock:
+        _excel_preview_drafts[pid] = entry
+        _clean_preview_drafts()
+    return pid
+
+def _get_excel_preview_draft(pid: str) -> Optional[Dict[str, Any]]:
+    try:
+        with _excel_preview_drafts_lock:
+            entry = _excel_preview_drafts.get(str(pid))
+            if not entry:
+                return None
+            exp = int(entry.get("expires_at", 0) or 0)
+            now = int(time.time())
+            if exp and now > exp:
+                _excel_preview_drafts.pop(str(pid), None)
+                return None
+            return entry.get("payload")
+    except Exception:
+        return None
+
+def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
+    """Construye Rutina, Usuario y ejercicios_por_dia desde un payload efímero."""
+    # Usuario
+    u_raw = payload.get("usuario") or {}
+    try:
+        usuario = Usuario(
+            nombre=(u_raw.get("nombre") or u_raw.get("Nombre") or "Plantilla"),
+            dni=(u_raw.get("dni") or u_raw.get("DNI") or None),
+            telefono=(u_raw.get("telefono") or u_raw.get("Teléfono") or "")
+        )
+    except Exception:
+        class _Usr:
+            def __init__(self, nombre: str):
+                self.nombre = nombre
+                self.dni = None
+                self.telefono = ""
+        usuario = _Usr(u_raw.get("nombre") or "Plantilla")
+    # Rutina básica
+    r_raw = payload.get("rutina") or payload
+    try:
+        rutina = Rutina(
+            nombre_rutina=(r_raw.get("nombre_rutina") or r_raw.get("nombre") or "Rutina"),
+            descripcion=r_raw.get("descripcion") or None,
+            dias_semana=int(r_raw.get("dias_semana") or 1),
+            categoria=(r_raw.get("categoria") or "general"),
+        )
+    except Exception:
+        class _Rut:
+            def __init__(self, nombre: str):
+                self.nombre_rutina = nombre
+                self.descripcion = r_raw.get("descripcion")
+                self.dias_semana = int(r_raw.get("dias_semana") or 1)
+                self.categoria = r_raw.get("categoria") or "general"
+                self.ejercicios = []
+        rutina = _Rut(r_raw.get("nombre_rutina") or r_raw.get("nombre") or "Rutina")
+    # Permitir atributo de semana actual para placeholders
+    try:
+        semana_val = int(payload.get("semana") or r_raw.get("semana") or 1)
+    except Exception:
+        semana_val = 1
+    try:
+        setattr(rutina, "semana", semana_val)
+    except Exception:
+        pass
+    ejercicios: list = []
+    # Fuente 1: lista plana 'ejercicios'
+    items = payload.get("ejercicios") or []
+    if isinstance(items, list) and items:
+        for idx, it in enumerate(items):
+            try:
+                dia = it.get("dia_semana") if isinstance(it, dict) else None
+                if dia is None:
+                    dia = it.get("dia") if isinstance(it, dict) else None
+                try:
+                    dia = int(dia) if dia is not None else 1
+                except Exception:
+                    dia = 1
+                nombre_e = (it.get("nombre_ejercicio") or it.get("nombre") or None)
+                series = it.get("series")
+                repes = it.get("repeticiones") or it.get("reps")
+                orden = it.get("orden")
+                ejercicio_id = it.get("ejercicio_id")
+                ej_obj_raw = it.get("ejercicio") or None
+                re = RutinaEjercicio(
+                    rutina_id=getattr(rutina, "id", 0) or 0,
+                    ejercicio_id=int(ejercicio_id) if (isinstance(ejercicio_id, (int, str)) and str(ejercicio_id).isdigit()) else 0,
+                    dia_semana=dia,
+                    series=str(series) if series is not None else "",
+                    repeticiones=str(repes) if repes is not None else "",
+                    orden=int(orden) if (isinstance(orden, (int, str)) and str(orden).isdigit()) else idx + 1,
+                )
+                if ej_obj_raw and isinstance(ej_obj_raw, dict):
+                    try:
+                        re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))
+                    except Exception:
+                        pass
+                if nombre_e:
+                    try:
+                        setattr(re, "nombre_ejercicio", nombre_e)
+                    except Exception:
+                        pass
+                ejercicios.append(re)
+            except Exception:
+                continue
+    # Fuente 2: por días 'dias' (dict o lista)
+    dias = payload.get("dias") or payload.get("dias_semana_detalle") or []
+    if isinstance(dias, dict):
+        for k, arr in dias.items():
+            try:
+                dia = int(k)
+            except Exception:
+                continue
+            if not isinstance(arr, list):
+                continue
+            for j, it in enumerate(arr):
+                try:
+                    nombre_e = (it.get("nombre_ejercicio") or it.get("nombre") or None)
+                    series = it.get("series")
+                    repes = it.get("repeticiones") or it.get("reps")
+                    orden = it.get("orden")
+                    ejercicio_id = it.get("ejercicio_id")
+                    ej_obj_raw = it.get("ejercicio") or None
+                    re = RutinaEjercicio(
+                        rutina_id=getattr(rutina, "id", 0) or 0,
+                        ejercicio_id=int(ejercicio_id) if (isinstance(ejercicio_id, (int, str)) and str(ejercicio_id).isdigit()) else 0,
+                        dia_semana=dia,
+                        series=str(series) if series is not None else "",
+                        repeticiones=str(repes) if repes is not None else "",
+                        orden=int(orden) if (isinstance(orden, (int, str)) and str(orden).isdigit()) else j + 1,
+                    )
+                    if ej_obj_raw and isinstance(ej_obj_raw, dict):
+                        try:
+                            re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))
+                        except Exception:
+                            pass
+                    if nombre_e:
+                        try:
+                            setattr(re, "nombre_ejercicio", nombre_e)
+                        except Exception:
+                            pass
+                    ejercicios.append(re)
+                except Exception:
+                    continue
+    elif isinstance(dias, list):
+        for d in dias:
+            try:
+                dia = d.get("numero") if isinstance(d, dict) else None
+                if dia is None:
+                    dia = d.get("dia") if isinstance(d, dict) else None
+                try:
+                    dia = int(dia) if dia is not None else 1
+                except Exception:
+                    dia = 1
+                arr = d.get("ejercicios") or []
+                if not isinstance(arr, list):
+                    continue
+                for j, it in enumerate(arr):
+                    try:
+                        nombre_e = (it.get("nombre_ejercicio") or it.get("nombre") or None)
+                        series = it.get("series")
+                        repes = it.get("repeticiones") or it.get("reps")
+                        orden = it.get("orden")
+                        ejercicio_id = it.get("ejercicio_id")
+                        ej_obj_raw = it.get("ejercicio") or None
+                        re = RutinaEjercicio(
+                            rutina_id=getattr(rutina, "id", 0) or 0,
+                            ejercicio_id=int(ejercicio_id) if (isinstance(ejercicio_id, (int, str)) and str(ejercicio_id).isdigit()) else 0,
+                            dia_semana=dia,
+                            series=str(series) if series is not None else "",
+                            repeticiones=str(repes) if repes is not None else "",
+                            orden=int(orden) if (isinstance(orden, (int, str)) and str(orden).isdigit()) else j + 1,
+                        )
+                        if ej_obj_raw and isinstance(ej_obj_raw, dict):
+                            try:
+                                re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))
+                            except Exception:
+                                pass
+                        if nombre_e:
+                            try:
+                                setattr(re, "nombre_ejercicio", nombre_e)
+                            except Exception:
+                                pass
+                        ejercicios.append(re)
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    # Adjuntar y agrupar
+    try:
+        rutina.ejercicios = ejercicios
+    except Exception:
+        pass
+    ejercicios_por_dia = _build_exercises_by_day(rutina)
+    return rutina, usuario, ejercicios_por_dia
 
 # Sistema de túneles removido - aplicación usa base de datos Neon única sin túneles
 
@@ -1147,82 +1417,8 @@ def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
 
 @app.get("/api/rutinas/{rutina_id}/export/pdf")
 async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
-    db = _get_db()
-    if db is None:
-        raise HTTPException(status_code=503, detail="Base de datos no disponible")
-    guard = _circuit_guard_json(db, "/api/rutinas/{rutina_id}/export/pdf")
-    if guard:
-        return guard
-    # Deshabilitar exportación PDF de rutinas cuando se usa SheetJS en la webapp (se podría llegar a usar pero no en vercel, por eso nomas lo dejo)
-    try:
-        _disable = os.getenv("DISABLE_RUTINA_PDF_EXPORT", "true").strip().lower()
-        if _disable in ("1", "true", "yes", "on"):
-            raise HTTPException(status_code=410, detail="Exportación PDF de rutinas deshabilitada; use la vista previa XLSX en Gestión.")
-    except Exception:
-        # Si hay problemas leyendo env, mantener comportamiento por defecto (deshabilitado)
-        raise HTTPException(status_code=410, detail="Exportación PDF de rutinas deshabilitada; use la vista previa XLSX en Gestión.")
-    rm = _get_rm()
-    try:
-        rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
-        if rutina is None:
-            raise HTTPException(status_code=404, detail="Rutina no encontrada")
-        # Manejo seguro de usuario_id potencialmente None
-        # Obtener usuario asociado a la rutina, con respaldo si no existe
-        u_raw = getattr(rutina, "usuario_id", None)
-        try:
-            u_id = int(u_raw) if u_raw is not None else None
-        except Exception:
-            u_id = None
-        usuario = None
-        if u_id is not None:
-            try:
-                usuario = db.obtener_usuario(u_id)  # type: ignore
-            except Exception:
-                usuario = None
-        if usuario is None:
-            # Construir usuario de respaldo para exportar plantillas/no asignadas
-            try:
-                usuario = Usuario(nombre="Plantilla")  # type: ignore
-            except Exception:
-                # Fallback seguro si la dataclass no está disponible
-                class _Usr:
-                    def __init__(self, nombre: str):
-                        self.nombre = nombre
-                usuario = _Usr("Plantilla")
-        ejercicios_por_dia = _build_exercises_by_day(rutina)
-        # Asegurar semanas dentro de rango 1..4
-        try:
-            weeks = max(1, min(int(weeks), 4))
-        except Exception:
-            weeks = 1
-        # Generación OBLIGATORIA vía gestor: Excel -> PDF
-        if rm is None:
-            raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
-        # Generar primero el Excel con las semanas indicadas y luego convertir a PDF
-        xlsx_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
-        pdf_path = rm.convert_excel_to_pdf(xlsx_path)
-        from starlette.responses import FileResponse
-        # Determinar nombre de archivo final (permite override por query param)
-        try:
-            final_name = os.path.basename(filename) if filename else os.path.basename(pdf_path)
-            if not final_name.lower().endswith(".pdf"):
-                final_name = f"{final_name}.pdf"
-            # Limitar longitud para evitar encabezados problemáticos
-            final_name = final_name[:150]
-        except Exception:
-            final_name = os.path.basename(pdf_path)
-        # Entregar el PDF en modo inline para permitir la previsualización en iframe (alineado con recibos)
-        resp = FileResponse(pdf_path, media_type="application/pdf", filename=final_name)
-        try:
-            resp.headers["Content-Disposition"] = f'inline; filename="{final_name}"'
-        except Exception:
-            pass
-        return resp
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.exception("Error generando PDF de rutina")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Desactivado en la webapp: usar la previsualización de Excel con Google Viewer
+    raise HTTPException(status_code=410, detail="Exportación PDF desactivada en la webapp; use la previsualización de Excel.")
 
 @app.get("/api/rutinas/{rutina_id}/export/excel")
 async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
@@ -1285,6 +1481,235 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
         logging.exception("Error generando Excel de rutina")
         raise HTTPException(status_code=500, detail=str(e))
 
+# URL firmada para incrustar Excel en Google Viewer (requiere sesión para generar la URL)
+@app.get("/api/rutinas/{rutina_id}/export/excel_view_url")
+async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
+    # Normalizar nombre
+    try:
+        base_name = os.path.basename(filename) if filename else f"rutina_{rutina_id}.xlsx"
+        if not base_name.lower().endswith(".xlsx"):
+            base_name = f"{base_name}.xlsx"
+        # Limitar longitud y sanitizar caracteres
+        base_name = base_name[:150]
+        base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+    except Exception:
+        base_name = f"rutina_{rutina_id}.xlsx"
+    # Semanas dentro de rango
+    try:
+        weeks = max(1, min(int(weeks), 4))
+    except Exception:
+        weeks = 1
+    ts = int(time.time())
+    sig = _sign_excel_view(rutina_id, weeks, base_name, ts)
+    base_url = get_webapp_base_url("")
+    # Construir URL absoluta requerida por Google Viewer
+    if not base_url:
+        # Usar la URL base de la petición actual (incluye host:puerto correcto)
+        try:
+            base_url = str(request.base_url).rstrip('/')
+        except Exception:
+            base_url = "http://localhost:8000"
+    params = {
+        "weeks": str(weeks),
+        "filename": base_name,
+        "ts": str(ts),
+        "sig": sig,
+    }
+    qs = urllib.parse.urlencode(params, safe="")
+    full = f"{base_url}/api/rutinas/{rutina_id}/export/excel_view?{qs}"
+    return JSONResponse({"url": full})
+
+# Endpoint público (sin sesión) que sirve el XLSX firmado en modo inline para el visor
+@app.get("/api/rutinas/{rutina_id}/export/excel_view")
+async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+    if not sig:
+        raise HTTPException(status_code=403, detail="Firma requerida")
+    try:
+        weeks = max(1, min(int(weeks), 4))
+    except Exception:
+        weeks = 1
+    # Normalizar nombre de archivo
+    try:
+        base_name = os.path.basename(filename) if filename else f"rutina_{rutina_id}.xlsx"
+        if not base_name.lower().endswith(".xlsx"):
+            base_name = f"{base_name}.xlsx"
+        base_name = base_name[:150]
+        base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+    except Exception:
+        base_name = f"rutina_{rutina_id}.xlsx"
+    # Verificar ventana de tiempo (10 minutos)
+    try:
+        now = int(time.time())
+        if abs(now - int(ts)) > 600:
+            raise HTTPException(status_code=403, detail="Link de previsualización expirado")
+    except Exception:
+        raise HTTPException(status_code=403, detail="Timestamp inválido")
+    # Verificar firma
+    expected = _sign_excel_view(rutina_id, weeks, base_name, int(ts))
+    if not hmac.compare_digest(expected, str(sig)):
+        raise HTTPException(status_code=403, detail="Firma inválida")
+    # Generar Excel como en el endpoint autenticado
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    rm = _get_rm()
+    if rm is None:
+        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
+    try:
+        rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
+        if rutina is None:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+        # Usuario asociado (con respaldo)
+        u_raw = getattr(rutina, "usuario_id", None)
+        try:
+            u_id = int(u_raw) if u_raw is not None else None
+        except Exception:
+            u_id = None
+        usuario = None
+        if u_id is not None:
+            try:
+                usuario = db.obtener_usuario(u_id)  # type: ignore
+            except Exception:
+                usuario = None
+        if usuario is None:
+            try:
+                usuario = Usuario(nombre="Plantilla")  # type: ignore
+            except Exception:
+                class _Usr:
+                    def __init__(self, nombre: str):
+                        self.nombre = nombre
+                usuario = _Usr("Plantilla")
+        ejercicios_por_dia = _build_exercises_by_day(rutina)
+        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        # Servir inline para permitir incrustación en Google Viewer
+        resp = FileResponse(
+            out_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=base_name,
+        )
+        try:
+            resp.headers["Content-Disposition"] = f'inline; filename="{base_name}"'
+            # Evitar caché agresivo en enlaces temporales
+            resp.headers["Cache-Control"] = "private, max-age=60"
+        except Exception:
+            pass
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error generando Excel inline de rutina")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# URL firmada para previsualización con datos efímeros (borrador en memoria)
+@app.post("/api/rutinas/preview/excel_view_url")
+async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
+    # Leer payload efímero desde el cuerpo
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Payload inválido")
+        payload = data.get("payload") if "payload" in data else data
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Payload inválido")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON requerido")
+    # Semanas dentro de rango
+    try:
+        weeks = max(1, min(int(weeks), 4))
+    except Exception:
+        weeks = 1
+    # Normalizar nombre
+    try:
+        base_name = os.path.basename(filename) if filename else (payload.get("filename") or "rutina_preview.xlsx")
+        if not base_name.lower().endswith(".xlsx"):
+            base_name = f"{base_name}.xlsx"
+        base_name = base_name[:150]
+        base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+    except Exception:
+        base_name = "rutina_preview.xlsx"
+    # Guardar borrador efímero y firmar URL
+    try:
+        pid = _save_excel_preview_draft(payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ts = int(time.time())
+    sig = _sign_excel_view_draft(pid, weeks, base_name, ts)
+    base_url = get_webapp_base_url("")
+    if not base_url:
+        try:
+            base_url = str(request.base_url).rstrip('/')
+        except Exception:
+            base_url = "http://localhost:8000"
+    params = {
+        "pid": pid,
+        "weeks": str(weeks),
+        "filename": base_name,
+        "ts": str(ts),
+        "sig": sig,
+    }
+    qs = urllib.parse.urlencode(params, safe="")
+    full = f"{base_url}/api/rutinas/preview/excel_view?{qs}"
+    return JSONResponse({"url": full})
+
+# Endpoint público para servir XLSX firmado desde borrador efímero
+@app.get("/api/rutinas/preview/excel_view")
+async def api_rutina_preview_excel_view(pid: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+    if not sig:
+        raise HTTPException(status_code=403, detail="Firma requerida")
+    if not pid:
+        raise HTTPException(status_code=400, detail="ID de borrador requerido")
+    try:
+        weeks = max(1, min(int(weeks), 4))
+    except Exception:
+        weeks = 1
+    # Normalizar nombre de archivo
+    try:
+        base_name = os.path.basename(filename) if filename else "rutina_preview.xlsx"
+        if not base_name.lower().endswith(".xlsx"):
+            base_name = f"{base_name}.xlsx"
+        base_name = base_name[:150]
+        base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+    except Exception:
+        base_name = "rutina_preview.xlsx"
+    # Verificar ventana de tiempo (10 minutos)
+    try:
+        now = int(time.time())
+        if abs(now - int(ts)) > 600:
+            raise HTTPException(status_code=403, detail="Link de previsualización expirado")
+    except Exception:
+        raise HTTPException(status_code=403, detail="Timestamp inválido")
+    # Verificar firma
+    expected = _sign_excel_view_draft(str(pid), weeks, base_name, int(ts))
+    if not hmac.compare_digest(expected, str(sig)):
+        raise HTTPException(status_code=403, detail="Firma inválida")
+    rm = _get_rm()
+    if rm is None:
+        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
+    try:
+        draft = _get_excel_preview_draft(str(pid))
+        if not draft:
+            raise HTTPException(status_code=404, detail="Borrador no encontrado o expirado")
+        rutina, usuario, ejercicios_por_dia = _build_rutina_from_draft(draft)
+        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        resp = FileResponse(
+            out_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=base_name,
+        )
+        try:
+            resp.headers["Content-Disposition"] = f'inline; filename="{base_name}"'
+            resp.headers["Cache-Control"] = "private, max-age=60"
+        except Exception:
+            pass
+        return resp
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error generando Excel inline de borrador de rutina")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- API Rutinas ---
 @app.get("/api/rutinas")

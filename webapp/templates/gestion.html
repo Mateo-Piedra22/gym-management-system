@@ -2246,11 +2246,11 @@
             <div id="rutina-preview-grid" class="grid" style="display:grid; gap:8px"></div>
           </div>
           <div>
-            <!-- Vista previa XLSX integrada con SheetJS -->
+            <!-- Vista previa PDF integrada -->
             <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
               <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
-              <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina o modifica para que se actualice automáticamente.</div>
-              <div id="rutina-preview-xlsx-root" title="Vista previa de la rutina" style="display:none; width:100%; min-height:480px; transform-origin: center top"></div>
+  <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel con Google Drive Viewer automáticamente.</div>
+              <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
             </div>
           </div>
         </div>
@@ -6340,7 +6340,7 @@ async function autoSaveRutinaDraft(){
     if(putRes.ok){
       state.rutinaPreviewDirty = false; state.lastAutoSaveTs = Date.now();
       try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Guardado'; }catch(_){ }
-      try{ updateRutinaXLSXPreview(); }catch(_){ }
+      try{ updateRutinaPDFPreview(); }catch(_){ }
     } else {
       try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Error al guardar'; }catch(_){ }
     }
@@ -6351,7 +6351,6 @@ async function autoSaveRutinaDraft(){
 async function directExportExcelFromPreview(){
   try{
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-    if(!d || !d.id){ showToast('Primero guarda o crea la rutina', 'warning', 3000); return; }
     const payload = {
       nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
@@ -6359,17 +6358,17 @@ async function directExportExcelFromPreview(){
       categoria: d.categoria || 'general',
       ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
     };
-    const putRes = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
-    const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de exportar', 'error', 4500); return; }
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    // Nombre de archivo preferido para exportación (cliente y servidor)
-    let fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
-    try { fname2 = String(fname2).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
-    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fname2)}`;
-    const r = await fetch(url);
+    let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    try { xlsxName = String(xlsxName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    const urlSignedData = await urlSignedRes.json().catch(()=>({}));
+    if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+    if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
+    const r = await fetch(String(urlSignedData.url));
     if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
     const blob = await r.blob();
-    let downloadName = fname2;
+    let downloadName = xlsxName;
     try { downloadName = String(downloadName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
     const dlUrl = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = dlUrl; a.download = downloadName; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(dlUrl);
@@ -6377,54 +6376,35 @@ async function directExportExcelFromPreview(){
   }catch(_){ showToast('No se pudo exportar Excel', 'error', 4500); }
 }
 
-// Carga de SheetJS (XLSX) con fallback CDN si no está disponible localmente
-(function(){
+// Previsualización integrada mediante Google Drive Viewer (XLSX inline)
+async function updateRutinaPDFPreview(){
   try{
-    function load(u){ return new Promise(function(resolve,reject){ try{ var s=document.createElement('script'); s.src=String(u); s.async=true; s.onload=function(){ try{ resolve(); }catch(_){ resolve(); } }; s.onerror=function(){ try{ reject(new Error('load failed')); }catch(_){ reject('load failed'); } }; document.head.appendChild(s); }catch(e){ reject(e); } }); }
-    (async function(){
-      try{
-        if(typeof window.XLSX === 'undefined'){
-          const urls = [ '/static/libs/sheetjs/xlsx.full.min.js', 'https://unpkg.com/xlsx/dist/xlsx.full.min.js', 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js' ];
-          for(const u of urls){ try{ await load(u); if(typeof window.XLSX !== 'undefined'){ try{ console.log('SheetJS cargado desde:', u); }catch(_){ } break; } }catch(e){ try{ console.warn('Falló carga SheetJS:', u); }catch(_){ } }
-          }
-        }
-      }catch(_){ }
-    })();
-  }catch(_){ }
-})();
-
-// Previsualización XLSX integrada usando SheetJS
-async function updateRutinaXLSXPreview(){
-  try{
-    const cont = document.getElementById('rutina-preview-pdf'); const root = document.getElementById('rutina-preview-xlsx-root'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
-    if(!cont || !root || !empty) return;
+    const cont = document.getElementById('rutina-preview-pdf'); const frame = document.getElementById('rutina-preview-frame'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
+    if(!cont || !frame || !empty) return;
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-    if(!d || !d.id){ empty.style.display='block'; root.style.display='none'; return; }
+    const payload = {
+      nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
+      descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
+      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+      categoria: d.categoria || 'general',
+      ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
+    };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    // Nombre de archivo sugerido para Excel (no descarga automática; se usa para el endpoint)
-    let fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
-    try { fname2 = String(fname2).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
-    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fname2)}&ts=${Date.now()}`;
+    let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    try { xlsxName = String(xlsxName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    const urlSignedData = await urlSignedRes.json().catch(()=>({}));
+    if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+    if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return; }
+    const viewerSrc = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(String(urlSignedData.url))}`;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
-    const r = await fetch(url);
-    if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } if(statusEl){ statusEl.textContent = msg; } root.style.display='none'; empty.style.display='block'; return; }
-    const blob = await r.blob();
-    const data = await blob.arrayBuffer();
-    if(typeof XLSX === 'undefined'){ if(statusEl){ statusEl.textContent = 'SheetJS no disponible'; } root.style.display='none'; empty.style.display='block'; return; }
-    let html = '';
-    try{
-      const wb = XLSX.read(data, { type:'array' });
-      const targetSheetName = (wb && Array.isArray(wb.SheetNames) && wb.SheetNames.length) ? wb.SheetNames[0] : null;
-      if(targetSheetName){ const ws = wb.Sheets[targetSheetName]; html = XLSX.utils.sheet_to_html(ws, { editable:false }); }
-    }catch(_){ }
-    if(!html){ html = '<div class="muted" style="padding:12px">No se pudo renderizar la hoja</div>'; }
-    root.innerHTML = html;
-    root.style.display = 'block';
-    if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); }
-    // Adjuntar zoom con rueda (aplica escala CSS al contenedor)
-    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-xlsx-root'); }catch(_){ }
-  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const root = document.getElementById('rutina-preview-xlsx-root'); if(empty && root){ empty.style.display='block'; root.style.display='none'; } }
+    frame.style.display='block';
+    try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
+    frame.src = viewerSrc;
+    // Adjuntar zoom con rueda
+    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
+  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
 }
 // Zoom con rueda para iframes PDF (aplica escala CSS al iframe)
 function attachWheelZoom(containerId, frameId){
@@ -6518,7 +6498,7 @@ function attachWheelZoom(containerId, frameId){
           if(adv){ adv.style.display = 'none'; state.rutinaPreviewAdvancedHidden = true; }
           if(btnPrevToggle) btnPrevToggle.textContent = 'Mostrar opciones avanzadas';
         }catch(_){ }
-        try{ updateRutinaXLSXPreview(); }catch(_){ }
+        try{ updateRutinaPDFPreview(); }catch(_){ }
         // Bind inline once modal opens
         const closeBtn = document.getElementById('rutina-preview-close');
         const cancelBtn = document.getElementById('rutina-preview-cancel');
@@ -6578,7 +6558,7 @@ function attachWheelZoom(containerId, frameId){
         };
         const diasSel = document.getElementById('rutina-preview-dias'); if(diasSel) diasSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.dias_semana = Number(diasSel.value||3); state.rutinaPreviewDraft = d; refreshPreviewDayOptions(Number(diasSel.value||3)); renderRutinaPreview(); markRutinaDirty(); };
         const weeksSel = document.getElementById('rutina-preview-semanas'); if(weeksSel) weeksSel.onchange = () => {
-          try{ updateRutinaXLSXPreview(); }catch(_){ }
+          try{ updateRutinaPDFPreview(); }catch(_){ }
           // Sincronizar inputs semanales en el editor flotante si está abierto
           try {
             const float = document.getElementById('rutina-preview-float');
@@ -6842,15 +6822,14 @@ function attachWheelZoom(containerId, frameId){
         try{
           const previewEl = document.getElementById('rutina-export-preview'); if(!previewEl) return;
           const { dInner, payload } = buildPayloadFromTable();
-          // Guardar cambios para asegurar que el XLSX refleje exactamente la vista
-          const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
-          const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar antes de previsualizar', 'error', 4500); return; }
-          // Obtener XLSX del backend
           const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
           const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
           const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
-          const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`;
-          const r = await fetch(url);
+          const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+          const urlSignedData = await urlSignedRes.json().catch(()=>({}));
+          if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+          if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
+          const r = await fetch(String(urlSignedData.url));
           if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
           const blob = await r.blob();
           // Renderizar con SheetJS
@@ -6874,16 +6853,17 @@ function attachWheelZoom(containerId, frameId){
         dBtn.onclick = async () => {
           try{
             const { dInner, payload } = buildPayloadFromTable();
-            const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
-            const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar cambios antes de exportar', 'error', 4500); return; }
-            // Exportar Excel desde backend (con selección de semanas)
             const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
-            const url = `/api/rutinas/${dInner.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}`;
-            const r = await fetch(url);
+            const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
+            const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
+            const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            const urlSignedData = await urlSignedRes.json().catch(()=>({}));
+            if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+            if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
+            const r = await fetch(String(urlSignedData.url));
             if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } showToast(msg, 'error', 4500); return; }
             const blob = await r.blob();
-            const fname2 = (document.getElementById('rutina-export-filename')||{}).value || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx');
-            let dlName = fname2;
+            let dlName = fnameSafe;
             try { dlName = String(dlName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
             const dlUrl = URL.createObjectURL(blob);
             const a = document.createElement('a'); a.href = dlUrl; a.download = dlName;
