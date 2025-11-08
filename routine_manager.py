@@ -252,37 +252,70 @@ class RoutineTemplateManager:
 
     def _excel_to_pdf_reportlab_fallback(self, xlsx: Path, target_pdf: Path) -> str:
         """
-        Fallback cuando no hay COM ni LibreOffice: renderiza la primera hoja
-        del Excel a una tabla PDF usando ReportLab. Limita filas/columnas para
-        evitar PDFs gigantes y garantiza una salida legible.
+        Fallback mejorado cuando no hay COM ni LibreOffice: renderiza la hoja
+        de Excel a PDF respetando anchos de columna, alturas de fila, celdas
+        combinadas, fondos, negritas y alineaciones básicas. Esto preserva la
+        estética de las plantillas y evita el PDF "plano".
         """
         try:
+            from openpyxl.utils import get_column_letter, column_index_from_string
+            import re
+            from typing import Optional
             wb = openpyxl.load_workbook(str(xlsx.resolve()), data_only=True)
             ws = wb.active
 
-            max_rows = min(ws.max_row or 1, 200)
-            max_cols = min(ws.max_column or 1, 40)
+            # Determinar el rango útil (primer y último celda con contenido)
+            min_row, min_col, max_row, max_col = None, None, 0, 0
+            for r in ws.iter_rows():
+                for c in r:
+                    if (c.value is not None) or (c.fill and getattr(getattr(c.fill, 'fgColor', None), 'rgb', None)):
+                        rr, cc = c.row, c.column
+                        min_row = rr if (min_row is None or rr < min_row) else min_row
+                        min_col = cc if (min_col is None or cc < min_col) else min_col
+                        max_row = rr if rr > max_row else max_row
+                        max_col = cc if cc > max_col else max_col
+            if min_row is None:
+                min_row, min_col, max_row, max_col = 1, 1, min(ws.max_row or 1, 120), min(ws.max_column or 1, 40)
+
+            # Limitar por seguridad
+            max_row = min(max_row, 200)
+            max_col = min(max_col, 40)
 
             # Construir datos de tabla
             data = []
-            for row in ws.iter_rows(min_row=1, max_row=max_rows, min_col=1, max_col=max_cols):
+            for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
                 row_vals = []
                 for cell in row:
                     val = cell.value
-                    # Convertir valores complejos a texto
                     if val is None:
                         txt = ""
                     else:
                         try:
+                            # Asegurar strings compatibles con ReportLab
                             txt = str(val)
                         except Exception:
                             txt = ""
                     row_vals.append(txt)
                 data.append(row_vals)
 
-            # Si el Excel está vacío, agregar mensaje
             if not data:
                 data = [["Documento vacío"], [f"Origen: {xlsx.name}"]]
+
+            # Calcular anchos de columna aproximados según Excel
+            raw_widths = []
+            for c in range(min_col, max_col + 1):
+                col_letter = get_column_letter(c)
+                dim = ws.column_dimensions.get(col_letter)
+                # Ancho Excel (caracteres) -> puntos aproximados
+                excel_w = (getattr(dim, 'width', None) or 8.43)
+                raw_widths.append(float(excel_w) * 7.2)  # ~7.2 pt por carácter
+
+            # Calcular alturas de fila aproximadas
+            raw_heights = []
+            for r in range(min_row, max_row + 1):
+                dim = ws.row_dimensions.get(r)
+                excel_h = (getattr(dim, 'height', None) or 15.0)  # puntos
+                raw_heights.append(float(excel_h))
 
             # Crear documento PDF
             doc = SimpleDocTemplate(
@@ -293,57 +326,103 @@ class RoutineTemplateManager:
                 topMargin=28,
                 bottomMargin=28,
             )
+            page_width = landscape(A4)[0] - (doc.leftMargin + doc.rightMargin)
+            sum_widths = sum(raw_widths) if raw_widths else page_width
+            scale = page_width / sum_widths if sum_widths > 0 else 1.0
+            col_widths = [w * scale for w in raw_widths]
+
             elements = []
             styles = getSampleStyleSheet()
-            subtitle_style = ParagraphStyle(
-                name="SubTitle",
-                parent=styles["Heading2"],
-                alignment=TA_LEFT,
-                fontSize=14,
-            )
-            elements.append(Paragraph("Vista rápida de rutina (fallback)", subtitle_style))
-            elements.append(Spacer(1, 8))
 
-            # Construir tabla
-            table = Table(data, repeatRows=1)
-            table_style = TableStyle([
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+            # Tabla principal con col/row sizes calculadas
+            table = Table(data, colWidths=col_widths, rowHeights=raw_heights, repeatRows=1)
+            ts = TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
             ])
-            table.setStyle(table_style)
+
+            # Aplicar spans según celdas combinadas
+            try:
+                for rng in ws.merged_cells.ranges:
+                    cr = rng.coord
+                    # e.g., 'A1:C1'
+                    m = re.match(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", cr)
+                    if m:
+                        c1, r1, c2, r2 = m.group(1), int(m.group(2)), m.group(3), int(m.group(4))
+                        sc = column_index_from_string(c1) - min_col
+                        sr = r1 - min_row
+                        ec = column_index_from_string(c2) - min_col
+                        er = r2 - min_row
+                        ts.add("SPAN", (sc, sr), (ec, er))
+            except Exception:
+                pass
+
+            # Función para obtener color hex de openpyxl
+            def _hex_color(oc) -> Optional[str]:
+                try:
+                    if not oc:
+                        return None
+                    rgb = getattr(oc, 'rgb', None)
+                    if rgb and len(rgb) == 8:  # ARGB
+                        return f"#{rgb[2:]}"  # ignora alpha
+                    rgb2 = getattr(oc, 'fgColor', None)
+                    if rgb2 and getattr(rgb2, 'rgb', None):
+                        v = rgb2.rgb
+                        return f"#{v[2:]}" if len(v) == 8 else (f"#{v}" if len(v) == 6 else None)
+                    return None
+                except Exception:
+                    return None
+
+            # Aplicar estilos por celda: fondo, negrita, alineación
+            for rr in range(min_row, max_row + 1):
+                for cc in range(min_col, max_col + 1):
+                    cell = ws.cell(row=rr, column=cc)
+                    tr = rr - min_row
+                    tc = cc - min_col
+                    # Fondo
+                    try:
+                        fill = getattr(cell, 'fill', None)
+                        if fill and getattr(fill, 'fill_type', None) and getattr(fill, 'fgColor', None):
+                            hx = _hex_color(fill.fgColor)
+                            if hx:
+                                ts.add("BACKGROUND", (tc, tr), (tc, tr), colors.HexColor(hx))
+                    except Exception:
+                        pass
+                    # Negrita
+                    try:
+                        font = getattr(cell, 'font', None)
+                        if font and getattr(font, 'bold', False):
+                            ts.add("FONTNAME", (tc, tr), (tc, tr), "Helvetica-Bold")
+                        # Tamaño de fuente aproximado
+                        fs = getattr(font, 'size', None)
+                        if fs:
+                            ts.add("FONTSIZE", (tc, tr), (tc, tr), float(fs))
+                    except Exception:
+                        pass
+                    # Alineación
+                    try:
+                        align = getattr(cell, 'alignment', None)
+                        h = getattr(align, 'horizontal', None)
+                        if h:
+                            ali = 'LEFT'
+                            if str(h).lower() == 'center':
+                                ali = 'CENTER'
+                            elif str(h).lower() == 'right':
+                                ali = 'RIGHT'
+                            ts.add("ALIGN", (tc, tr), (tc, tr), ali)
+                    except Exception:
+                        pass
+
+            table.setStyle(ts)
             elements.append(table)
 
             doc.build(elements)
-            self.logger.info(f"Conversión fallback ReportLab generada: {target_pdf}")
+            self.logger.info(f"Conversión Excel→PDF (renderer Python) generada: {target_pdf}")
             return str(target_pdf)
         except Exception as e:
-            self.logger.error(f"Error en fallback ReportLab: {e}")
-            # Último recurso: generar un PDF mínimo con un aviso
-            try:
-                doc = SimpleDocTemplate(
-                    str(target_pdf.resolve()),
-                    pagesize=landscape(A4),
-                    leftMargin=24,
-                    rightMargin=24,
-                    topMargin=28,
-                    bottomMargin=28,
-                )
-                styles = getSampleStyleSheet()
-                msg = (
-                    "No fue posible convertir Excel a PDF automáticamente en este entorno. "
-                    f"Se incluye este aviso. Archivo original: {xlsx.name}."
-                )
-                doc.build([Paragraph(msg, styles["Normal"])])
-                self.logger.info(f"PDF de aviso generado como último recurso: {target_pdf}")
-                return str(target_pdf)
-            except Exception as final_err:
-                self.logger.error(f"Fallo incluso al generar PDF mínimo: {final_err}")
-                raise final_err
+            self.logger.error(f"Error en fallback ReportLab, sin generar PDF genérico: {e}")
+            # Forzar error para garantizar uso obligatorio de plantillas y flujo Excel→PDF
+            raise e
     
     def _select_template_by_days(self, num_days: int) -> Path:
         """
