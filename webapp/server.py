@@ -2,6 +2,8 @@ import os
 import sys
 import csv
 import json
+import base64
+import zlib
 import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
@@ -167,6 +169,41 @@ def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int) 
         base = f"{payload_id}|{weeks}|{filename}|{ts}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
+
+# Firma stateless basada en payload codificado
+def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int) -> str:
+    try:
+        d = str(data)
+        base = f"{d}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
+    except Exception:
+        base = f"{data}|{weeks}|{filename}|{ts}".encode("utf-8")
+    secret = _get_preview_secret().encode("utf-8")
+    return hmac.new(secret, base, hashlib.sha256).hexdigest()
+
+# Codificación/decodificación del payload efímero para URLs
+def _encode_preview_payload(payload: Dict[str, Any]) -> str:
+    try:
+        raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        comp = zlib.compress(raw, level=6)
+        return base64.urlsafe_b64encode(comp).decode("ascii")
+    except Exception:
+        try:
+            return base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+        except Exception:
+            return ""
+
+def _decode_preview_payload(data: str) -> Optional[Dict[str, Any]]:
+    # Intentar descomprimir; si falla, tratar como base64 plano
+    try:
+        comp = base64.urlsafe_b64decode(str(data))
+        try:
+            raw = zlib.decompress(comp)
+        except Exception:
+            raw = comp
+        obj = json.loads(raw.decode("utf-8"))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
 # Almacenamiento efímero de borradores para previsualización
 _excel_preview_drafts_lock = threading.RLock()
@@ -1634,13 +1671,18 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
         except Exception:
             base_name = "rutina_preview.xlsx"
-        # Guardar borrador efímero y firmar URL
+        # Codificar payload y firmar URL de forma stateless (compatible con serverless)
+        data = _encode_preview_payload(payload)
         try:
-            pid = _save_excel_preview_draft(payload)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            if not data or len(data) > 64_000:
+                # Limitar tamaño por seguridad de URL y visor
+                raise HTTPException(status_code=400, detail="Payload demasiado grande para previsualización")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         ts = int(time.time())
-        sig = _sign_excel_view_draft(pid, weeks, base_name, ts)
+        sig = _sign_excel_view_draft_data(data, weeks, base_name, ts)
         base_url = get_webapp_base_url("")
         if not base_url:
             try:
@@ -1648,7 +1690,7 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             except Exception:
                 base_url = "http://localhost:8000"
         params = {
-            "pid": pid,
+            "data": data,
             "weeks": str(weeks),
             "filename": base_name,
             "ts": str(ts),
@@ -1666,11 +1708,11 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
 
 # Endpoint público para servir XLSX firmado desde borrador efímero
 @app.get("/api/rutinas/preview/excel_view")
-async def api_rutina_preview_excel_view(pid: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
     if not sig:
         raise HTTPException(status_code=403, detail="Firma requerida")
-    if not pid:
-        raise HTTPException(status_code=400, detail="ID de borrador requerido")
+    if not (pid or data):
+        raise HTTPException(status_code=400, detail="Datos de previsualización requeridos")
     try:
         weeks = max(1, min(int(weeks), 4))
     except Exception:
@@ -1692,17 +1734,28 @@ async def api_rutina_preview_excel_view(pid: Optional[str] = None, weeks: int = 
     except Exception:
         raise HTTPException(status_code=403, detail="Timestamp inválido")
     # Verificar firma
-    expected = _sign_excel_view_draft(str(pid), weeks, base_name, int(ts))
-    if not hmac.compare_digest(expected, str(sig)):
-        raise HTTPException(status_code=403, detail="Firma inválida")
+    if data:
+        expected = _sign_excel_view_draft_data(str(data), weeks, base_name, int(ts))
+        if not hmac.compare_digest(expected, str(sig)):
+            raise HTTPException(status_code=403, detail="Firma inválida")
+    else:
+        expected = _sign_excel_view_draft(str(pid), weeks, base_name, int(ts))
+        if not hmac.compare_digest(expected, str(sig)):
+            raise HTTPException(status_code=403, detail="Firma inválida")
     rm = _get_rm()
     if rm is None:
         raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
     try:
-        draft = _get_excel_preview_draft(str(pid))
-        if not draft:
-            raise HTTPException(status_code=404, detail="Borrador no encontrado o expirado")
-        rutina, usuario, ejercicios_por_dia = _build_rutina_from_draft(draft)
+        if data:
+            draft_payload = _decode_preview_payload(str(data))
+            if not isinstance(draft_payload, dict):
+                raise HTTPException(status_code=400, detail="Payload de previsualización inválido")
+            rutina, usuario, ejercicios_por_dia = _build_rutina_from_draft(draft_payload)
+        else:
+            draft = _get_excel_preview_draft(str(pid))
+            if not draft:
+                raise HTTPException(status_code=404, detail="Borrador no encontrado o expirado")
+            rutina, usuario, ejercicios_por_dia = _build_rutina_from_draft(draft)
         out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
         resp = FileResponse(
             out_path,
