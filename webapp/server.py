@@ -815,13 +815,26 @@ def _resolve_existing_dir(*parts: str) -> Path:
 # Helper para secreto de sesion estable
 
 def _get_session_secret() -> str:
+    # 1) Prefer an explicit, stable secret via environment
     try:
         env = os.getenv("WEBAPP_SECRET_KEY", "").strip()
         if env:
             return env
     except Exception:
         pass
-    # Intentar leer/persistir en config/config.json
+
+    # 2) In serverless environments (e.g., Vercel) the filesystem is ephemeral.
+    #    Avoid generating a per-process random secret which invalidates sessions
+    #    across requests. Instead derive a stable fallback from existing env vars.
+    try:
+        if os.getenv("VERCEL") or os.getenv("VERCEL_ENV"):
+            base = (os.getenv("WHATSAPP_APP_SECRET", "") + "|" + os.getenv("WHATSAPP_VERIFY_TOKEN", "")).strip()
+            if base:
+                import hashlib
+                return hashlib.sha256(base.encode("utf-8")).hexdigest()
+    except Exception:
+        pass
+    # 3) Non-serverless: try to read/persist in config/config.json for stability
     try:
         from utils import resource_path  # type: ignore
         cfg_path = resource_path("config/config.json")
@@ -849,7 +862,7 @@ def _get_session_secret() -> str:
         return secret
     except Exception:
         pass
-    # Fallback: secreto efimero
+    # 4) Absolute last resort: ephemeral secret (will reset sessions on process restart)
     import secrets as _secrets
     return _secrets.token_urlsafe(32)
 
@@ -3616,6 +3629,38 @@ async def api_usuario_estados_get(usuario_id: int, _=Depends(require_gestion_acc
         return {"items": items}
     except HTTPException:
         raise
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/usuarios_morosidad_ids")
+async def api_usuarios_morosidad_ids(_=Depends(require_gestion_access)):
+    """Devuelve IDs de usuarios con estado activo 'desactivado_por_morosidad'."""
+    db = _get_db()
+    if db is None:
+        return []
+    guard = _circuit_guard_json(db, "/api/usuarios_morosidad_ids")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(
+                """
+                SELECT usuario_id
+                FROM usuario_estados
+                WHERE activo = TRUE
+                  AND LOWER(estado) = 'desactivado_por_morosidad'
+                """
+            )
+            rows = cur.fetchall() or []
+            ids = []
+            for r in rows:
+                try:
+                    uid = int(r.get("usuario_id"))
+                    ids.append(uid)
+                except Exception:
+                    continue
+            return ids
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -7516,6 +7561,80 @@ async def api_waitlist_events(request: Request, _=Depends(require_gestion_access
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
 
+@app.get("/api/delinquency_alerts_recent")
+async def api_delinquency_alerts_recent(request: Request, _=Depends(require_gestion_access)):
+    """Alertas recientes de desactivación por morosidad para toasts globales.
+    Filtra alertas del día actual registradas en audit_logs con table_name='alerts' y action='ALERT'.
+    """
+    db = _get_db()
+    if db is None:
+        return {"items": []}
+    guard = _circuit_guard_json(db, "/api/delinquency_alerts_recent")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            # Traer alertas del día para reducir ruido; se filtra luego por título/categoría
+            cur.execute(
+                """
+                SELECT id, user_id, new_values, timestamp
+                FROM audit_logs
+                WHERE table_name = 'alerts' AND action = 'ALERT'
+                  AND timestamp >= date_trunc('day', now())
+                ORDER BY id DESC
+                LIMIT 200
+                """
+            )
+            rows = cur.fetchall() or []
+        items = []
+        for r in rows:
+            try:
+                nv = r.get("new_values")
+                alert = {}
+                try:
+                    alert = json.loads(nv) if nv else {}
+                except Exception:
+                    alert = {}
+                title = (alert.get("title") or "").strip()
+                category = (alert.get("category") or "").strip()
+                message = (alert.get("message") or "").strip()
+                # Match específico por título, con fallback por categoría + palabra clave
+                is_delinquency = (title.lower() == "usuario desactivado por morosidad") or (
+                    category.upper() == "PAYMENT" and ("morosidad" in message.lower())
+                )
+                if not is_delinquency:
+                    continue
+                uid = r.get("user_id") or alert.get("user_id")
+                nombre = None
+                try:
+                    u = db.obtener_usuario_por_id(int(uid)) if uid is not None else None  # type: ignore
+                    if u:
+                        # Soportar tanto objeto como dict
+                        nombre = getattr(u, "nombre", None)
+                        if nombre is None and isinstance(u, dict):
+                            nombre = u.get("nombre")
+                except Exception:
+                    nombre = None
+                items.append({
+                    "id": r.get("id"),
+                    "user_id": uid,
+                    "usuario_nombre": nombre,
+                    "title": title or "Usuario desactivado por morosidad",
+                    "message": message,
+                    "timestamp": r.get("timestamp")
+                })
+            except Exception:
+                # Ignorar filas mal formateadas
+                continue
+        return {"items": items}
+    except Exception as e:
+        try:
+            logging.exception("Error in /api/delinquency_alerts_recent")
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.get("/api/asistencias_detalle")
 async def api_asistencias_detalle(request: Request, _=Depends(require_owner)):
     """Listado de asistencias con nombre del usuario para un rango de fechas (por defecto últimos 30 días), con búsqueda y paginación."""
@@ -8801,6 +8920,106 @@ async def api_usuario_whatsapp_historial(usuario_id: int, request: Request, _=De
                     except Exception:
                         pass
         return {"success": True, "items": items}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# Borrar mensaje individual de WhatsApp por ID interno
+@app.delete("/api/usuarios/{usuario_id}/whatsapp/{message_pk}")
+async def api_usuario_whatsapp_delete(usuario_id: int, message_pk: int, request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/delete")
+    if guard:
+        return guard
+    try:
+        # Obtener valores previos para auditoría desde repositorio
+        try:
+            old_item = db.obtener_mensaje_whatsapp_por_pk(int(usuario_id), int(message_pk))  # type: ignore
+        except Exception:
+            old_item = None
+
+        ok = bool(db.eliminar_mensaje_whatsapp_por_pk(int(usuario_id), int(message_pk)))  # type: ignore
+        if not ok:
+            return JSONResponse({"success": False, "message": "Mensaje no encontrado"}, status_code=404)
+
+        # Registrar auditoría de eliminación
+        try:
+            ip_addr = (getattr(request, 'client', None).host if getattr(request, 'client', None) else None)
+            ua = request.headers.get('user-agent', '')
+            sid = getattr(getattr(request, 'session', {}), 'get', lambda *a, **k: None)('session_id')
+            db.registrar_audit_log(  # type: ignore
+                user_id=int(usuario_id),
+                action="DELETE",
+                table_name="whatsapp_messages",
+                record_id=int(message_pk),
+                old_values=json.dumps(old_item, default=str) if old_item else None,
+                new_values=None,
+                ip_address=ip_addr,
+                user_agent=ua,
+                session_id=sid,
+            )
+        except Exception:
+            # No bloquear por fallos en auditoría
+            pass
+
+        return {"success": True, "deleted": int(message_pk)}
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# Borrar mensaje individual de WhatsApp por message_id
+@app.delete("/api/usuarios/{usuario_id}/whatsapp/by-mid/{message_id}")
+async def api_usuario_whatsapp_delete_by_mid(usuario_id: int, message_id: str, request: Request, _=Depends(require_owner)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"success": False, "message": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, "/api/usuarios/{id}/whatsapp/delete_by_mid")
+    if guard:
+        return guard
+    try:
+        # Obtener item previo y pk utilizando repositorio
+        pk_id = None
+        try:
+            old_item = db.obtener_mensaje_whatsapp_por_message_id(int(usuario_id), str(message_id))  # type: ignore
+            if old_item:
+                try:
+                    pk_id = int(old_item.get("id"))
+                except Exception:
+                    pk_id = None
+        except Exception:
+            old_item = None
+
+        # Realizar borrado por message_id usando método del repositorio
+        try:
+            deleted = bool(db.eliminar_mensaje_whatsapp_por_message_id(int(usuario_id), str(message_id)))  # type: ignore
+        except Exception:
+            deleted = False
+
+        if not deleted:
+            return JSONResponse({"success": False, "message": "Mensaje no encontrado"}, status_code=404)
+
+        # Registrar auditoría
+        try:
+            ip_addr = (getattr(request, 'client', None).host if getattr(request, 'client', None) else None)
+            ua = request.headers.get('user-agent', '')
+            sid = getattr(getattr(request, 'session', {}), 'get', lambda *a, **k: None)('session_id')
+            db.registrar_audit_log(  # type: ignore
+                user_id=int(usuario_id),
+                action="DELETE",
+                table_name="whatsapp_messages",
+                record_id=int(pk_id) if pk_id is not None else None,
+                old_values=json.dumps(old_item, default=str) if old_item else None,
+                new_values=None,
+                ip_address=ip_addr,
+                user_agent=ua,
+                session_id=sid,
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "deleted_mid": str(message_id), "deleted_pk": int(pk_id) if pk_id is not None else None}
     except Exception as e:
         import traceback; traceback.print_exc()
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)

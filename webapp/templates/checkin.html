@@ -46,6 +46,7 @@
   <script src="/static/js/toast.js"></script>
 </head>
 <body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}"{% endif %}>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
   <main class="screen">
     <section class="login-card">
       <div class="brand">

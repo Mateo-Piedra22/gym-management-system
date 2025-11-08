@@ -58,7 +58,69 @@
       try { loadQRCodeLib(); } catch(_){}
     })();
   </script>
-  <script src="/static/js/toast.js"></script>
+  <script>
+    // Interceptar guardado de rutina/plantilla para confirmar cuando se crea desde cero
+    document.addEventListener('DOMContentLoaded', () => {
+      // Ocultar y desactivar acciones de asignar/desasignar en panel lateral
+      const sideAssign = document.getElementById('rutina-side-assign');
+      const sideUnassign = document.getElementById('rutina-side-unassign');
+      if(sideAssign){ sideAssign.style.display='none'; sideAssign.disabled = true; }
+      if(sideUnassign){ sideUnassign.style.display='none'; sideUnassign.disabled = true; }
+
+      const saveBtnEl = document.getElementById('rutina-preview-save');
+      if(saveBtnEl){
+        saveBtnEl.addEventListener('click', (e) => {
+          try{
+            const d = (window.state && (window.state.rutinaPreviewDraft || window.state.rutinaPreview)) || {};
+            if(d && !d.id && d._createdFromScratch){
+              const ok = window.confirm('Guardar como plantilla?');
+              if(!ok){
+                showToast('Guardado cancelado', 'info', 2500);
+                e.preventDefault();
+                e.stopImmediatePropagation();
+              }
+            }
+          }catch(_){/* noop */}
+        }, true);
+      }
+    });
+  </script>
+    <script src="/static/js/toast.js"></script>
+    <script>
+      (function () {
+        const TODAY_KEY = new Date().toISOString().slice(0, 10);
+        const STORAGE_KEY = "delinq_alerts_checked_date";
+        if (sessionStorage.getItem(STORAGE_KEY) === TODAY_KEY) return;
+
+        window.addEventListener("DOMContentLoaded", async () => {
+          try {
+            const resp = await fetch("/api/delinquency_alerts_recent", { credentials: "same-origin" });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+            if (alerts.length === 0) {
+              sessionStorage.setItem(STORAGE_KEY, TODAY_KEY);
+              return;
+            }
+
+            const names = alerts.map(a => a.usuario_nombre || a.usuario_id).filter(Boolean);
+            const uniqueNames = Array.from(new Set(names));
+            const listed = uniqueNames.slice(0, 5).join(", ");
+            const more = uniqueNames.length > 5 ? ` y ${uniqueNames.length - 5} más` : "";
+            const msg = uniqueNames.length
+              ? `Usuarios desactivados por morosidad hoy: Se registraron ${alerts.length} alertas. Afectados: ${listed}${more}.`
+              : `Usuarios desactivados por morosidad hoy: Se registraron ${alerts.length} alertas.`;
+
+            if (typeof window.showToast === "function") {
+              window.showToast(msg, "warning", 8000, "Cerrar");
+            }
+            sessionStorage.setItem(STORAGE_KEY, TODAY_KEY);
+          } catch (err) {
+            // Silencioso: no bloquear la UI por errores en el toast
+          }
+        });
+      })();
+    </script>
   <link rel="icon" href="{{ logo_url }}" />
   <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
   <meta name="color-scheme" content="dark light">
@@ -93,6 +155,14 @@
      .chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.25); }
      .chips .chip[data-suggest] { cursor: pointer; }
      .chips .chip[data-suggest]:hover { background: rgba(37,99,235,0.18); border-color: rgba(37,99,235,0.35); }
+
+    /* Badge por categoría de rutina */
+    .badge.cat-badge { display:inline-block; padding:2px 8px; border-radius:12px; border:1px solid var(--border); font-size:12px; line-height:1; }
+    .badge.cat-badge[data-cat="general"] { background: rgba(99,102,241,0.16); color: var(--text); }
+    .badge.cat-badge[data-cat="fuerza"], .badge.cat-badge[data-cat="strength"] { background: rgba(34,197,94,0.16); color: var(--text); }
+    .badge.cat-badge[data-cat="hipertrofia"], .badge.cat-badge[data-cat="hypertrophy"] { background: rgba(236,72,153,0.16); color: var(--text); }
+    .badge.cat-badge[data-cat="cardio"] { background: rgba(59,130,246,0.16); color: var(--text); }
+    .badge.cat-badge[data-cat="rehabilitacion"], .badge.cat-badge[data-cat="rehab"] { background: rgba(245,158,11,0.18); color: var(--text); }
 
     /* States list */
     .state-item { display:flex; align-items:center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 10px; transition: background .15s ease, border-color .15s ease; }
@@ -245,6 +315,18 @@
     .duration-sep { opacity:.6; animation: blink 1s steps(1,end) infinite; }
     @keyframes blink { 50% { opacity:.2; } }
 
+  </style>
+  <style>
+    /* Ocultar acciones de asignar/desasignar según nuevo flujo */
+    button[data-action="assign-template"],
+    button[data-action="assign"],
+    button[data-action="unassign"],
+    #rutina-side-assign,
+    #rutina-side-unassign {
+      display: none !important;
+    }
+    /* Ocultar subtabs de rutinas para vista unificada */
+    #rutinas-subtabs { display: none !important; }
   </style>
 </head>
 <body>
@@ -417,7 +499,7 @@
 
       <section id="panel-ejercicios" class="panel">
   <div class="split">
-    <div class="split-main">
+    <div class="split-main" style="flex:1 1 100%; width:100%">
       <div class="panel-controls">
         <label for="ejercicios-q">Búsqueda</label>
         <input type="text" id="ejercicios-q" placeholder="Nombre o descripción" />
@@ -506,7 +588,7 @@
 </section>
 
 <section id="panel-rutinas" class="panel">
-  <div class="split">
+  <div class="split" style="grid-template-columns: 1fr;">
     <div class="split-main">
       <div class="panel-controls" id="rutinas-subtabs" style="margin-bottom:8px; display:flex; gap:8px; align-items:center">
         <button class="btn small" data-rutinas-tab="plantillas" id="rutinas-tab-plantillas">Plantillas</button>
@@ -524,11 +606,9 @@
           <option value="resistencia">Resistencia</option>
           <option value="fullbody">Full body</option>
         </select>
-        <label for="rutinas-usuario" id="rutinas-usuario-label">Usuario</label>
-        <select id="rutinas-usuario"><option value="">Todos</option></select>
         <button class="btn" id="rutinas-refresh">Actualizar</button>
         <button class="btn info" id="rutinas-export-csv">Exportar CSV</button>
-        <button class="btn" id="rutinas-new">Nueva Plantilla</button>
+        <button class="btn" id="rutinas-new">Nueva</button>
         <span id="rutinas-count" class="muted" style="margin-left:auto"></span>
       </div>
       <div class="table-scroll row-selectable">
@@ -540,7 +620,6 @@
               <th class="th-sortable" data-sort="dias">Días</th>
               <th class="th-sortable" data-sort="categoria">Categoría</th>
               <th class="th-sortable" data-sort="ejercicios"># Ejercicios</th>
-              <th class="th-sortable" data-sort="asignado">Asignada a</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -548,7 +627,13 @@
         </table>
       </div>
       <div class="block" id="rutinas-usuario-block" style="margin-top:12px; display:none">
-        <div class="block-header"><h3 style="margin:0; font-size:16px;">Rutinas del usuario seleccionado</h3></div>
+        <div class="block-header" style="display:flex; align-items:center; gap:12px">
+          <h3 style="margin:0; font-size:16px;">Rutinas</h3>
+          <div class="panel-controls" style="margin-left:auto; display:flex; gap:8px; align-items:center">
+            <label for="rutinas-usuario" id="rutinas-usuario-label" style="white-space:nowrap">Usuario</label>
+            <select id="rutinas-usuario"><option value="">Todos</option></select>
+          </div>
+        </div>
         <div class="block-body">
           <div class="table-scroll">
             <table id="rutinas-usuario-table">
@@ -567,23 +652,6 @@
         </div>
       </div>
     </div>
-    <aside class="split-side">
-      <div class="block">
-        <div class="block-header"><h3 style="margin:0; font-size:16px;">Resumen de rutina</h3></div>
-        <div class="block-body">
-          <div><strong>Nombre:</strong> <span id="rutina-side-nombre">—</span></div>
-          <div><strong>Descripción:</strong>
-            <div id="rutina-side-descripcion" class="muted">—</div>
-          </div>
-          <div style="margin-top:8px">
-            <button class="btn" id="rutina-side-edit" disabled>Abrir</button>
-            <button class="btn" id="rutina-side-delete" disabled>Eliminar</button>
-            <button class="btn" id="rutina-side-assign" disabled>Asignar a usuario</button>
-        <button class="btn outline neutral" id="rutina-side-unassign" disabled>Desasignar</button>
-          </div>
-        </div>
-      </div>
-    </aside>
   </div>
 </section>
 
@@ -942,7 +1010,7 @@
   
   <!-- Modal: Recordatorio de clase por WhatsApp -->
   <div id="modal-wa-clase" class="modal-overlay" style="display:none" aria-hidden="true">
-    <div class="modal" role="dialog" aria-labelledby="wa-clase-title">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wa-clase-title">
       <div class="modal-header">
         <h3 id="wa-clase-title">Recordatorio de clase (WhatsApp)</h3>
         <button class="btn secondary sm" id="wa-clase-close">Cerrar</button>
@@ -966,8 +1034,8 @@
   </div>
 
 <section id="panel-configuracion" class="panel">
-        <div class="split">
-          <div class="split-main">
+        <div class="split" style="grid-template-columns: 1fr;">
+          <div class="split-main" style="flex:1 1 100%; width:100%">
             <div class="block">
               <div class="block-header">
                 <h3 style="margin:0; font-size:16px;">Tipos de cuota</h3>
@@ -1498,6 +1566,27 @@
       </div>
     </div>
 
+    <!-- Modal: Confirmar guardado de cambios del recibo -->
+    <div class="modal-backdrop" id="modal-recibo-save" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-save-title">
+        <div class="modal-header">
+          <h3 id="modal-recibo-save-title" style="margin:0; font-size:16px;">Guardar cambios del recibo</h3>
+          <button class="btn icon-only" id="recibo-save-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted">Se detectaron cambios en fecha o total. ¿Quieres aplicar estos cambios al pago?</p>
+          <div class="input-row">
+            <div style="flex:1"><label class="muted">Fecha nueva</label><div id="recibo-save-fecha">—</div></div>
+        <div style="flex:1"><label class="muted">Total nuevo</label><div><span id="recibo-save-total">—</span></div></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn success" id="recibo-save-apply">Guardar en pago</button>
+          <button class="btn outline neutral" id="recibo-save-discard">Descartar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal: Detalle de Pago -->
     <div class="modal-backdrop" id="modal-pago-detalle" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pago-detalle-title">
@@ -1647,6 +1736,24 @@
       </div>
     </div>
 
+    <!-- Modal: Confirmar eliminación de Mensaje de WhatsApp -->
+    <div class="modal-backdrop" id="modal-wa-delete" aria-hidden="true">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-wa-delete-title">
+        <div class="modal-header">
+          <h3 id="modal-wa-delete-title" style="margin:0; font-size:16px;">Eliminar mensaje de WhatsApp</h3>
+          <button class="btn icon-only" id="wa-delete-close" aria-label="Cerrar">×</button>
+        </div>
+        <div class="modal-body">
+          <p>¿Estás seguro? Esta acción es permanente.</p>
+          <div id="wa-delete-preview" class="muted" style="margin-top:8px"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" id="wa-delete-confirm">Eliminar</button>
+          <button class="btn outline neutral" id="wa-delete-cancel">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal: Pago (Crear/Editar) -->
     <div class="modal-backdrop" id="modal-pago-form" aria-hidden="true">
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pago-form-title">
@@ -1697,6 +1804,17 @@
               </select>
             </div>
           </div>
+          <details id="pago-items-advanced" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:8px;">
+            <summary style="cursor:pointer"><strong>Ítems del pago</strong> <span class="muted">(opcional)</span></summary>
+            <div id="pago-items-list" style="border:1px solid var(--border); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+              <div id="pago-items-rows" style="display:flex; flex-direction:column; gap:8px"></div>
+              <button class="btn success" id="pago-item-add" type="button">Agregar ítem</button>
+            </div>
+            <div class="input-row" style="margin-top:8px;">
+              <div style="flex:1"><label class="muted" for="pago-items-subtotal">Subtotal</label><input id="pago-items-subtotal" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
+              <div style="flex:1"><label class="muted" for="pago-items-total">Total</label><input id="pago-items-total" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
+            </div>
+          </details>
           <div id="pago-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
             <div><strong>Concepto:</strong> <span id="pago-resumen-concepto">Cuota Mensual</span></div>
             <div><strong>Base:</strong> $<span id="pago-resumen-base">—</span></div>
@@ -2062,6 +2180,64 @@
 </div>
 
   <!-- Modales: Rutinas -->
+<div class="modal-backdrop" id="modal-plantilla-new" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-plantilla-new-title" style="width: 60vw; max-width: 720px">
+    <div class="modal-header">
+      <h3 id="modal-plantilla-new-title" style="margin:0; font-size:16px;">Nueva plantilla</h3>
+      <button class="modal-close" id="plantilla-new-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-row">
+          <label for="plantilla-new-nombre">Nombre</label>
+          <input id="plantilla-new-nombre" type="text" placeholder="Ej: Fuerza 1" />
+        </div>
+        <div class="form-row">
+          <label for="plantilla-new-descripcion">Descripción</label>
+          <textarea id="plantilla-new-descripcion" placeholder="Estructura y objetivos"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" id="plantilla-new-confirm">Continuar</button>
+      <button class="btn outline neutral" id="plantilla-new-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+<!-- Modal: Elección de creación de rutina/plantilla -->
+<div class="modal-backdrop" id="modal-rutina-new-choice" style="display:none" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-new-choice-title" style="width: 65vw; max-width: 780px">
+    <div class="modal-header">
+      <h3 id="modal-rutina-new-choice-title" style="margin:0; font-size:16px;">Crear rutina</h3>
+      <button class="modal-close" id="rutina-new-choice-close" aria-label="Cerrar">×</button>
+    </div>
+    <div class="modal-body" style="max-height: 70vh; overflow:auto">
+      <div class="form-grid" style="gap:16px">
+        <div class="form-row" style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
+          <strong style="display:block; margin-bottom:8px">Desde plantilla</strong>
+          <div style="display:grid; grid-template-columns: 1fr; gap:8px">
+            <div>
+              <label for="rutina-choice-template-search">Buscar plantilla</label>
+              <input id="rutina-choice-template-search" type="text" placeholder="Buscar plantilla" aria-label="Buscar plantilla" />
+            </div>
+            <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:end">
+              <select id="rutina-choice-template" aria-label="Plantilla"></select>
+              <button class="btn" id="rutina-choice-template-confirm">Continuar</button>
+            </div>
+          </div>
+        </div>
+        <div class="form-row" style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
+          <strong>Desde cero</strong>
+          <p class="muted" style="margin:6px 0 12px 0">Comenzar con rutina vacía y agregar ejercicios manualmente.</p>
+          <button class="btn" id="rutina-choice-scratch-confirm">Comenzar desde cero</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn outline neutral" id="rutina-new-choice-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="modal-rutina-form" style="display:none" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-title" style="width: 75vw; max-width: 900px">
     <div class="modal-header">
@@ -2100,7 +2276,7 @@
       <button class="btn" id="rutina-delete-confirm">Eliminar</button>
       <button class="btn" id="rutina-delete-cancel">Cancelar</button>
     </div>
-  </div>
+</div>
 </div>
 
 <div class="modal-backdrop" id="modal-rutina-assign" style="display:none" aria-hidden="true">
@@ -2126,8 +2302,10 @@
       <button class="btn" id="rutina-assign-confirm">Asignar</button>
       <button class="btn" id="rutina-assign-cancel">Cancelar</button>
     </div>
-  </div>
 </div>
+</div>
+
+<!-- (El modal de Resumen de Rutina fue removido; se usa un toast no bloqueante) -->
 
 <div class="modal-backdrop" id="modal-rutina-unassign" style="display:none" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-unassign-title" style="width: 70vw; max-width: 900px">
@@ -2164,33 +2342,35 @@
       <button class="modal-close" id="rutina-preview-close" aria-label="Cerrar">×</button>
     </div>
     <div class="modal-body" style="max-height: 82vh; overflow:auto">
-      <div class="form-grid" id="rutina-preview-form" style="margin-bottom:8px">
-        <div class="form-row" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
-          <div style="display:flex; gap:8px; align-items:center; flex:2; min-width:280px">
-            <label for="rutina-preview-nombre" style="white-space:nowrap">Nombre</label>
-            <input id="rutina-preview-nombre" type="text" placeholder="Nombre de la rutina" style="flex:1" />
+      <div class="form-grid" id="rutina-preview-form" style="margin-bottom:12px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; gap:12px">
+        <div class="form-row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end">
+          <div>
+            <label for="rutina-preview-nombre">Nombre</label>
+            <input id="rutina-preview-nombre" type="text" placeholder="Nombre de la rutina" style="width:100%" />
           </div>
-          <div style="display:flex; gap:8px; align-items:center">
-            <label for="rutina-preview-dias" style="white-space:nowrap">Días</label>
-            <select id="rutina-preview-dias">
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-            </select>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center">
-            <label for="rutina-preview-semanas" style="white-space:nowrap">Semana</label>
-            <select id="rutina-preview-semanas">
-              <option value="1" selected>1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-            </select>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex:2; min-width:280px">
-            <label for="rutina-preview-usuario-nombre" style="white-space:nowrap">Usuario (encabezado)</label>
-            <input id="rutina-preview-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" style="flex:1" />
+          <div class="input-row" style="display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:end">
+            <div>
+              <label for="rutina-preview-dias">Días</label>
+              <select id="rutina-preview-dias" style="min-width:88px; width:auto">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+              </select>
+            </div>
+            <div>
+              <label for="rutina-preview-semanas">Semanas</label>
+              <select id="rutina-preview-semanas" style="min-width:100px; width:auto">
+                <option value="1" selected>1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+              </select>
+            </div>
+            <div>
+              <label for="rutina-preview-usuario-nombre">Usuario (encabezado)</label>
+              <input id="rutina-preview-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" style="width:100%" />
+            </div>
           </div>
         </div>
         <div id="rutina-preview-advanced" style="margin-top:4px">
@@ -2245,7 +2425,7 @@
         <button class="btn tertiary" id="rutina-preview-collapse-days">Colapsar días</button>
       </div>
 
-        <div id="rutina-preview-columns" style="display:grid; grid-template-columns: 2fr 1fr; gap:12px; align-items:start">
+      <div id="rutina-preview-columns" style="display:grid; grid-template-columns: 1.6fr 1fr; gap:16px; align-items:start">
           <div>
             <div id="rutina-preview-grid" class="grid" style="display:grid; gap:8px"></div>
           </div>
@@ -2314,7 +2494,7 @@
           </div>
         </div>
       </div>
-        <div class="table-scroll" id="rutina-preview-excel" style="margin-top:12px">
+      <div class="table-scroll" id="rutina-preview-excel" style="margin-top:12px; border:1px solid var(--border); border-radius:12px; background:var(--card); padding:8px">
           <table id="rutina-preview-excel-table">
           <thead>
             <tr>
@@ -2473,7 +2653,7 @@
     </div>
   </div>
 
-  <div id="toast-container" class="toast-container"></div>
+    <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
 
   <script>
     let editingUserId = null;
@@ -2495,6 +2675,33 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const m = String(dt.getMonth()+1).padStart(2,'0');
       const day = String(dt.getDate()).padStart(2,'0');
       return `${y}-${m}-${day}`;
+    }
+    // Formateo de fecha para display en español (DD/MM/YYYY) sin afectar valores de inputs
+    function fmtDateEs(d){
+      if(!d) return '';
+      try{
+        if(typeof d === 'string'){
+          const s = d.trim();
+          // ISO YYYY-MM-DD
+          const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if(m){ return `${m[3]}/${m[2]}/${m[1]}`; }
+          // Intentar parsear por Date
+          const dt = new Date(s);
+          if(!isNaN(dt.getTime())){
+            const dd = String(dt.getDate()).padStart(2,'0');
+            const mm = String(dt.getMonth()+1).padStart(2,'0');
+            const yy = String(dt.getFullYear());
+            return `${dd}/${mm}/${yy}`;
+          }
+          return s;
+        }
+        const dt = new Date(d);
+        if(isNaN(dt.getTime())) return String(d);
+        const dd = String(dt.getDate()).padStart(2,'0');
+        const mm = String(dt.getMonth()+1).padStart(2,'0');
+        const yy = String(dt.getFullYear());
+        return `${dd}/${mm}/${yy}`;
+      }catch(_){ return String(d); }
     }
 
     // ===== WhatsApp por usuario — tarjetas y historial =====
@@ -2543,7 +2750,17 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       return st;
     }
     function getLastWAByType(items, type){
-      const arr = (Array.isArray(items) ? items : []).filter(m => String(m.message_type||'') === String(type));
+      const normalize = (t) => {
+        const v = String(t||'').trim().toLowerCase();
+        if(v === 'bienvenida') return 'welcome';
+        if(v === 'confirmacion_pago' || v === 'payment_confirmation') return 'payment';
+        if(v === 'desactivacion' || v === 'deactivation') return 'deactivation';
+        if(v === 'recordatorio_vencida' || v === 'payment_reminder' || v === 'pago_recordatorio') return 'overdue';
+        if(v === 'recordatorio_clase' || v === 'class_reminder') return 'class_reminder';
+        return v;
+      };
+      const target = normalize(type);
+      const arr = (Array.isArray(items) ? items : []).filter(m => normalize(m.message_type) === target);
       if(arr.length === 0) return null;
       arr.sort((a,b) => {
         const ad = new Date(a.sent_at || a.created_at || 0).getTime();
@@ -2560,7 +2777,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const dtEl = document.getElementById(`usuario-wa-date-${t}`);
         const cardEl = document.getElementById(`usuario-wa-card-${t}`);
         if(stEl) stEl.textContent = last ? mapWAStatusText(last.status) : 'Sin envío';
-        if(dtEl) dtEl.textContent = `Fecha: ${last ? fmtDate(last.sent_at || last.created_at) : '—'}`;
+      if(dtEl) dtEl.textContent = `Fecha: ${last ? fmtDateEs(last.sent_at || last.created_at) : '—'}`;
         const btn = cardEl ? cardEl.querySelector('button[data-type]') : null;
         const isSent = last && ['sent','delivered','read'].includes(String(last.status||'').toLowerCase());
         if(btn){ btn.disabled = !!isSent; btn.title = isSent ? 'Ya enviado' : 'Forzar envío'; }
@@ -2572,8 +2789,17 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       if(!tbody) return;
       tbody.innerHTML = '';
       const filter = document.getElementById('usuario-wa-filter');
-      const ft = filter ? String(filter.value||'').trim() : '';
-      const data = (Array.isArray(items)?items:[]).filter(m => !ft || String(m.message_type||'') === ft);
+      const ft = filter ? String(filter.value||'').trim().toLowerCase() : '';
+      const normalize = (t) => {
+        const v = String(t||'').trim().toLowerCase();
+        if(v === 'bienvenida') return 'welcome';
+        if(v === 'confirmacion_pago' || v === 'payment_confirmation') return 'payment';
+        if(v === 'desactivacion') return 'deactivation';
+        if(v === 'recordatorio_vencida' || v === 'payment_reminder' || v === 'pago_recordatorio') return 'overdue';
+        if(v === 'recordatorio_clase') return 'class_reminder';
+        return v;
+      };
+      const data = (Array.isArray(items)?items:[]).filter(m => !ft || normalize(m.message_type) === ft);
       if(data.length === 0){ if(empty) empty.style.display = 'block'; return; }
       if(empty) empty.style.display = 'none';
       data.forEach(m => {
@@ -2583,7 +2809,19 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const estado = mapWAStatusText(m.status || '');
         const contenido = String(m.message_content||'').slice(0, 100);
         const canRetry = ['welcome','payment','deactivation','overdue','class_reminder'].includes(String(m.message_type||'')) && String(m.status||'').toLowerCase() === 'failed';
-        tr.innerHTML = `<td>${fmtDate(fecha)}</td><td>${tipo}</td><td>${estado}</td><td>${contenido}</td><td>${canRetry ? '<button class="btn sm" data-retry="'+String(m.message_type||'')+'">Reintentar</button>' : ''}</td>`;
+        const midAttr = String(m.message_id||'');
+        const actions = [
+          canRetry ? '<button class="btn sm" data-retry="'+String(m.message_type||'')+'">Reintentar</button>' : '',
+          '<button class="btn sm" data-delete-id="'+String(m.id||'')+'" data-delete-mid="'+midAttr+'">Borrar</button>'
+        ].filter(Boolean).join(' ');
+        tr.innerHTML = `<td>${fmtDateEs(fecha)}</td><td>${tipo}</td><td>${estado}</td><td>${contenido}</td><td>${actions}</td>`;
+        // Guardar info en dataset para preview
+        try {
+          tr.dataset.fecha = String(fecha||'');
+          tr.dataset.tipo = String(tipo||'');
+          tr.dataset.estado = String(estado||'');
+          tr.dataset.contenido = String(contenido||'');
+        } catch(_){ }
         tbody.appendChild(tr);
       });
     }
@@ -2951,7 +3189,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
             <td>${dni}</td>
             <td>${metodo}</td>
             <td>${concepto}</td>
-            <td>${monto}</td>
+            <td>${fmtCurrency(monto)}</td>
             <td class="table-actions">${actionsHTML}</td>
           `;
           tbody.appendChild(tr);
@@ -2962,11 +3200,11 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const totalMonto = items.reduce((acc, r) => acc + (parseFloat(r.monto || 0) || 0), 0);
         const uniqueDni = new Set(items.map(r => String(r.dni || '')));
         document.getElementById('pagos-card-count').textContent = String(items.length);
-        document.getElementById('pagos-card-monto').textContent = `$${totalMonto.toFixed(2)}`;
+    document.getElementById('pagos-card-monto').textContent = fmtCurrency(totalMonto);
         document.getElementById('pagos-card-unique').textContent = String(Array.from(uniqueDni).filter(v => v).length);
         const avg = items.length ? (totalMonto / items.length) : 0;
-        const avgEl = document.getElementById('pagos-card-average');
-        if(avgEl) avgEl.textContent = `$${avg.toFixed(2)}`;
+    const avgEl = document.getElementById('pagos-card-average');
+    if(avgEl) avgEl.textContent = fmtCurrency(avg);
       } catch(err){
         console.error('Error cargando pagos:', err);
       }
@@ -3078,6 +3316,16 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           } catch(e) { return new Set(); }
         })();
         state.asistenciasHoySet = hoySet;
+        // Obtener set de IDs desactivados por morosidad (estado activo)
+        const morosSet = await (async () => {
+          try {
+            const r = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' } });
+            const arr = await r.json().catch(() => []);
+            const list = Array.isArray(arr) ? arr : [];
+            return new Set(list.map(x => Number(x)));
+          } catch(e) { return new Set(); }
+        })();
+        state.morosidadSet = morosSet;
         const tbody = document.querySelector('#usuarios-table tbody');
         tbody.innerHTML = '';
         (Array.isArray(rows) ? rows : []).forEach((u, idx) => {
@@ -3085,21 +3333,24 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           tr.setAttribute('data-index', String(idx));
           const activo = (u.activo === true || u.activo === 'true');
           const asistioHoy = hoySet.has(Number(u.id));
+          const esMoroso = state.morosidadSet && state.morosidadSet.has(Number(u.id));
           const tipoObj = resolveTipoCuota(u.tipo_cuota ?? (u.tipo_cuota_nombre || u.tipo || ''));
           const tipoNombre = tipoObj ? (tipoObj.nombre || '') : (u.tipo_cuota_nombre || u.tipo_cuota || '');
+          const activoLabel = esMoroso ? 'No (morosidad)' : (activo ? 'Sí' : 'No');
           tr.innerHTML = `
             <td>${u.nombre || ''}</td>
             <td>${u.dni || ''}</td>
             <td>${u.telefono || ''}</td>
             <td>${(u.rol || '').toString().toLowerCase()}</td>
             <td>${tipoNombre}</td>
-            <td>${activo ? 'Sí' : 'No'}</td>
+            <td>${activoLabel}</td>
             <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Asistió</span>' : '<span style="padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;">No asistió</span>'}</td>
             <td>
               <button class="btn neutral" data-action="edit" data-id="${u.id}">Editar</button>
               <button class="btn danger" data-action="delete" data-id="${u.id}">Borrar</button>
             </td>
           `;
+          if (esMoroso) { try { tr.style.borderLeft = '4px solid var(--warning)'; tr.setAttribute('data-moroso', 'true'); } catch(_){ /* noop */ } }
           tbody.appendChild(tr);
         });
         document.getElementById('usuarios-count').textContent = `${(Array.isArray(rows) ? rows.length : 0)} usuarios`;
@@ -3229,12 +3480,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const metodo = pago.metodo_pago || pago.metodo || '';
       const concepto = pago.concepto_pago || pago.concepto || '';
       const monto = pago.monto != null ? pago.monto : '';
-      document.getElementById('pago-side-fecha').textContent = fecha ? fmtDate(fecha) : '';
+      document.getElementById('pago-side-fecha').textContent = fecha ? fmtDateEs(fecha) : '';
       document.getElementById('pago-side-nombre').textContent = nombre;
       document.getElementById('pago-side-dni').textContent = dni;
       document.getElementById('pago-side-metodo').textContent = metodo;
       document.getElementById('pago-side-concepto').textContent = concepto;
-      document.getElementById('pago-side-monto').textContent = monto;
+      document.getElementById('pago-side-monto').textContent = fmtCurrency(monto);
       const notasEl = document.getElementById('pago-side-notas');
       if(notasEl) notasEl.textContent = (pago.notas && String(pago.notas).trim()) ? pago.notas : '—';
       const tbody = document.querySelector('#pago-detalles-table tbody');
@@ -3246,7 +3497,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           const cantidad = d.cantidad ?? 1;
           const precio = d.precio_unitario ?? d.precio ?? 0;
           const subtotal = d.subtotal ?? (cantidad * precio);
-          tr.innerHTML = `<td>${concepto}</td><td>${cantidad}</td><td>${precio}</td><td>${subtotal}</td>`;
+          tr.innerHTML = `<td>${concepto}</td><td>${cantidad}</td><td>${fmtCurrency(precio)}</td><td>${fmtCurrency(subtotal)}</td>`;
           tbody.appendChild(tr);
         });
       }
@@ -3291,7 +3542,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const p = state.selectedPago;
       if(!p){ showToast('Selecciona un pago primero', 'warning', 4000); return; }
       const fecha = p.fecha_pago || p.fecha || p.fechaPago || null;
-      document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDate(fecha) : '';
+      document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDateEs(fecha) : '';
       document.getElementById('pago-detalle-nombre').textContent = p.usuario_nombre || p.nombre || '';
       document.getElementById('pago-detalle-dni').textContent = p.dni || '';
       document.getElementById('pago-detalle-monto').textContent = (p.monto != null ? p.monto : '');
@@ -3412,8 +3663,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         finally { reciboBtn.disabled = false; reciboBtn.removeAttribute('aria-busy'); reciboBtn.innerHTML = prevHTML; }
       });
       // Modal recibo preview controls
-      const reciboPrevClose = document.getElementById('recibo-preview-close'); if(reciboPrevClose) reciboPrevClose.addEventListener('click', () => closeModal('modal-recibo-preview'));
-      const reciboPrevCloseBtn = document.getElementById('recibo-preview-close-btn'); if(reciboPrevCloseBtn) reciboPrevCloseBtn.addEventListener('click', () => closeModal('modal-recibo-preview'));
+      const reciboPrevClose = document.getElementById('recibo-preview-close'); if(reciboPrevClose) reciboPrevClose.addEventListener('click', handleReciboPreviewClose);
+      const reciboPrevCloseBtn = document.getElementById('recibo-preview-close-btn'); if(reciboPrevCloseBtn) reciboPrevCloseBtn.addEventListener('click', handleReciboPreviewClose);
       const reciboPrevDownload = document.getElementById('recibo-preview-download'); if(reciboPrevDownload) reciboPrevDownload.addEventListener('click', () => {
         const id = state.previewPagoId; if(!id) { showToast('No hay recibo para descargar', 'warning', 3500); return; }
         const params = buildReciboParams();
@@ -3425,10 +3676,14 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         openModal('modal-recibo-config');
       });
       const fechaEl = document.getElementById('recibo-preview-fecha'); if(fechaEl){
-        const handler = () => updatePeriodoLabel();
+        const handler = () => { updatePeriodoLabel(); try{ refreshReciboPreview(); }catch(_){} };
         fechaEl.addEventListener('input', handler);
         fechaEl.addEventListener('change', handler);
       }
+      // Auto refresh al editar campos del recibo
+      ['recibo-preview-numero','recibo-preview-titulo','recibo-preview-gym-nombre','recibo-preview-gym-direccion','recibo-preview-usuario-nombre','recibo-preview-usuario-dni','recibo-preview-metodo','recibo-preview-observaciones','recibo-preview-emitidopor','recibo-preview-mostrar-logo','recibo-preview-mostrar-metodo','recibo-preview-mostrar-dni'].forEach(id => {
+        const el = document.getElementById(id); if(el){ const h = () => { try{ refreshReciboPreview(); }catch(_){} }; el.addEventListener('input', h); el.addEventListener('change', h); }
+      });
       const reciboPrevApply = document.getElementById('recibo-preview-apply'); if(reciboPrevApply) reciboPrevApply.addEventListener('click', () => {
         const id = state.previewPagoId; if(!id) { showToast('No hay pago seleccionado', 'warning', 3500); return; }
         const frame = document.getElementById('recibo-preview-frame');
@@ -3442,6 +3697,10 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       });
       const itemAddBtn = document.getElementById('recibo-item-add'); if(itemAddBtn) itemAddBtn.addEventListener('click', () => { addItemRow({ descripcion:'', cantidad:1, precio_unitario:0 }); recalcTotalsFromItems(); });
       const comInput = document.getElementById('recibo-total-comision'); if(comInput) comInput.addEventListener('input', recalcTotalsFromItems);
+      // Modal de confirmación de guardado desde vista previa
+      const rscClose = document.getElementById('recibo-save-close'); if(rscClose) rscClose.addEventListener('click', () => closeModal('modal-recibo-save'));
+      const rscDiscard = document.getElementById('recibo-save-discard'); if(rscDiscard) rscDiscard.addEventListener('click', () => { closeModal('modal-recibo-save'); closeModal('modal-recibo-preview'); });
+      const rscApply = document.getElementById('recibo-save-apply'); if(rscApply) rscApply.addEventListener('click', applyReciboChangesToPago);
       const eliminarPagoBtn = document.getElementById('pago-side-eliminar');
       if(eliminarPagoBtn) eliminarPagoBtn.addEventListener('click', () => {
         const p = state.selectedPago; if(!p || !(p.id || p.pago_id)) { showToast('Selecciona un pago válido', 'warning', 4000); return; }
@@ -3460,6 +3719,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const uSel = document.getElementById('pago-usuario'); if(uSel) uSel.addEventListener('change', () => recalcPagoTotal());
       const mSel = document.getElementById('pago-metodo'); if(mSel) mSel.addEventListener('change', () => recalcPagoTotal());
       const cSel = document.getElementById('pago-concepto'); if(cSel) cSel.addEventListener('change', () => recalcPagoTotal());
+      // Editor de ítems en modal de pago
+      const pagoItemAdd = document.getElementById('pago-item-add'); if(pagoItemAdd) pagoItemAdd.addEventListener('click', () => { addPagoItemRow({ descripcion:'', cantidad:1, precio_unitario:0 }); recalcPagoTotal(); });
       // Modal delete pago controls
       document.getElementById('pagos-delete-close').addEventListener('click', () => closeModal('modal-pagos-delete'));
       document.getElementById('pagos-delete-cancel').addEventListener('click', () => closeModal('modal-pagos-delete'));
@@ -3580,12 +3841,22 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
 
     function round2(v){ const n = Number(v) || 0; return Math.round(n * 100) / 100; }
 
+    // Helpers de formato monetario (configurable por locale)
+    function fmtAmount(n){
+      try{ return (window.fmtAmount ? window.fmtAmount(n) : Number(n||0).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 })); }
+      catch(e){ return (Number(n)||0).toFixed(2); }
+    }
+    function fmtCurrency(n){
+      try{ return (window.fmtCurrency ? window.fmtCurrency(n) : new Intl.NumberFormat('es-AR', { style:'currency', currency:'ARS' }).format(Number(n||0))); }
+      catch(e){ return `$${(Number(n)||0).toFixed(2)}`; }
+    }
+
     function updatePagoResumen({ conceptoNombre, base, pct, comision, total }){
       const elConcepto = document.getElementById('pago-resumen-concepto'); if(elConcepto) elConcepto.textContent = conceptoNombre || 'Cuota Mensual';
-      const elBase = document.getElementById('pago-resumen-base'); if(elBase) elBase.textContent = (base != null ? round2(base).toFixed(2) : '—');
-      const elCom = document.getElementById('pago-resumen-comision'); if(elCom) elCom.textContent = (comision != null ? round2(comision).toFixed(2) : '—');
+      const elBase = document.getElementById('pago-resumen-base'); if(elBase) elBase.textContent = (base != null ? fmtAmount(round2(base)) : '—');
+      const elCom = document.getElementById('pago-resumen-comision'); if(elCom) elCom.textContent = (comision != null ? fmtAmount(round2(comision)) : '—');
       const elPct = document.getElementById('pago-resumen-comision-porcentaje'); if(elPct) elPct.textContent = (pct ? `(${round2(pct)}%)` : '');
-      const elTot = document.getElementById('pago-resumen-total'); if(elTot) elTot.textContent = (total != null ? round2(total).toFixed(2) : '—');
+      const elTot = document.getElementById('pago-resumen-total'); if(elTot) elTot.textContent = (total != null ? fmtAmount(round2(total)) : '—');
     }
 
     async function recalcPagoTotal(){
@@ -3603,18 +3874,49 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
         const concepto = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
         let base = 0; let conceptoNombre = 'Cuota Mensual';
-        if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
+        // Si hay ítems en el editor, usar ese subtotal como base y construir etiqueta de concepto
+        const pagoItems = (function(){
+          try{
+            const rows = document.getElementById('pago-items-rows');
+            if(!rows) return [];
+            const arr = [];
+            Array.from(rows.children || []).forEach((row) => {
+              try{
+                const inputs = row.querySelectorAll('input');
+                const desc = (inputs[0]?.value || '').trim();
+                const qty = parseFloat(inputs[1]?.value || '1');
+                const price = parseFloat(inputs[2]?.value || '0');
+                if(desc){ arr.push({ descripcion: desc, cantidad: isNaN(qty)?1:qty, precio_unitario: isNaN(price)?0:price }); }
+              }catch(_){ }
+            });
+            return arr;
+          }catch(_){ return []; }
+        })();
+        if(Array.isArray(pagoItems) && pagoItems.length){
+          let subtotal = 0.0; for(const it of pagoItems){ subtotal += ((it.cantidad||1) * (it.precio_unitario||0)); }
+          base = subtotal;
+          const agg = buildItemsConceptLabel(pagoItems);
+          if(agg.label){ conceptoNombre = agg.label; }
+          // Actualizar campos de subtotal/total de ítems (total se completará luego)
+          try{ const subEl = document.getElementById('pago-items-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2); }catch(_){}
+        } else {
+          if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
+        }
         if(uid){
           const u = (state.usuarios || []).find(x => Number(x.id) === uid);
           const tipoVal = u ? (u.tipo_cuota ?? null) : null;
           const tipoObj = resolveTipoCuota(tipoVal);
-          if(concepto && String(concepto.nombre||'').trim().toLowerCase() === 'cuota mensual'){
-            base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
-          } else {
-            base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+          if(!(Array.isArray(pagoItems) && pagoItems.length)){
+            if(concepto && String(concepto.nombre||'').trim().toLowerCase() === 'cuota mensual'){
+              base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+            } else {
+              base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+            }
           }
         } else {
-          base = concepto ? Number(concepto.precio_base ?? 0) : 0;
+          if(!(Array.isArray(pagoItems) && pagoItems.length)){
+            base = concepto ? Number(concepto.precio_base ?? 0) : 0;
+          }
         }
         const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
         const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
@@ -3623,7 +3925,47 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const total = round2(base + comision);
         if(montoEl){ montoEl.value = total > 0 ? String(total) : ''; }
         updatePagoResumen({ conceptoNombre, base, pct, comision, total });
+        // Actualizar tooltip y total de ítems si el editor está activo
+        try{
+          const elConcepto = document.getElementById('pago-resumen-concepto');
+          if(elConcepto && Array.isArray(pagoItems) && pagoItems.length){
+            const agg = buildItemsConceptLabel(pagoItems);
+            elConcepto.setAttribute('title', agg.tooltip || '');
+          }
+          const itemsTotalEl = document.getElementById('pago-items-total'); if(itemsTotalEl && Array.isArray(pagoItems) && pagoItems.length){ itemsTotalEl.value = Number(total||0).toFixed(2); }
+          // Actualizar select concepto con opción personalizada si aplica
+          const cpEl = document.getElementById('pago-concepto');
+          if(cpEl && Array.isArray(pagoItems) && pagoItems.length){
+            const agg = buildItemsConceptLabel(pagoItems);
+            if(agg.label){
+              let opt = Array.from(cpEl.options || []).find(o => String(o.value) === '__custom__');
+              if(!opt){ opt = document.createElement('option'); opt.value='__custom__'; cpEl.appendChild(opt); }
+              opt.textContent = agg.label; cpEl.value = '__custom__';
+            }
+          }
+        }catch(_){}
       } catch(e){ console.warn('No se pudo recalcular el total del pago:', e); }
+    }
+
+    // ---- Editor de ítems para el modal de pago ----
+    function addPagoItemRow(data){
+      try{
+        const rows = document.getElementById('pago-items-rows'); if(!rows) return;
+        const row = document.createElement('div');
+        row.style.display = 'grid';
+        row.style.gridTemplateColumns = '1fr 100px 140px 40px';
+        row.style.gap = '8px';
+        row.style.alignItems = 'center';
+        const desc = document.createElement('input'); desc.type='text'; desc.placeholder='Descripción'; desc.style.width='100%'; desc.value = (data && (data.descripcion || data.concepto_nombre || data.nombre)) || '';
+        const qty = document.createElement('input'); qty.type='number'; qty.step='1'; qty.inputMode='numeric'; qty.placeholder='1'; qty.value = (data && (data.cantidad != null) ? data.cantidad : 1);
+        const price = document.createElement('input'); price.type='number'; price.step='0.01'; price.inputMode='decimal'; price.placeholder='0.00'; price.value = (data && (data.precio_unitario != null ? data.precio_unitario : (data.precio ?? 0))) || 0;
+        const del = document.createElement('button'); del.type='button'; del.className='btn icon-only'; del.textContent='×'; del.title='Quitar';
+        row.appendChild(desc); row.appendChild(qty); row.appendChild(price); row.appendChild(del);
+        rows.appendChild(row);
+        const onChange = () => { try{ recalcPagoTotal(); }catch(_){} };
+        desc.oninput = onChange; qty.oninput = onChange; price.oninput = onChange;
+        del.onclick = () => { try{ rows.removeChild(row); }catch(_){} try{ recalcPagoTotal(); }catch(_){} };
+      }catch(_){ }
     }
 
     function resetPagoForm(){
@@ -3641,6 +3983,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       resetPagoForm();
       const titleEl = document.getElementById('pago-form-title');
       const now = new Date();
+      // Limpiar ítems del editor
+      try{ const rows = document.getElementById('pago-items-rows'); if(rows) rows.innerHTML = ''; }catch(_){}
       await populatePagoUsuarioSelect(p && (p.usuario_id || (p.usuario && p.usuario.id)));
       await populatePagoMetodoSelect(p && (p.metodo_pago_id || p.metodo_id));
       await populatePagoConceptoSelect(p && p.concepto_id ? p.concepto_id : null);
@@ -3658,6 +4002,14 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }
         const uSel = document.getElementById('pago-usuario'); if(uSel && (p.usuario_id || (p.usuario && p.usuario.id))) uSel.value = String(p.usuario_id || (p.usuario && p.usuario.id));
         const mpSel = document.getElementById('pago-metodo'); if(mpSel && (p.metodo_pago_id || p.metodo_id)) mpSel.value = String(p.metodo_pago_id || p.metodo_id);
+        // Pre-cargar ítems desde conceptos si existen
+        try{
+          const rows = document.getElementById('pago-items-rows');
+          if(rows && Array.isArray(p.conceptos) && p.conceptos.length){
+            p.conceptos.forEach(c => addPagoItemRow({ descripcion: (c.concepto_nombre || c.nombre || ''), cantidad: (c.cantidad != null ? c.cantidad : 1), precio_unitario: (c.precio_unitario != null ? c.precio_unitario : (c.precio ?? 0)) }));
+            const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
+          }
+        }catch(_){}
       } else {
         if(titleEl) titleEl.textContent = 'Registrar pago';
         const mesEl = document.getElementById('pago-mes'); const añoEl = document.getElementById('pago-año');
@@ -3687,6 +4039,22 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       let mes = mesEl && mesEl.value ? Number(mesEl.value) : null;
       let año = añoEl && añoEl.value ? Number(añoEl.value) : null;
       const metodo_pago_id = metodoEl && metodoEl.value ? Number(metodoEl.value) : null;
+      // Leer ítems del editor del modal de pago
+      let pagoItems = [];
+      try{
+        const rows = document.getElementById('pago-items-rows');
+        if(rows){
+          pagoItems = Array.from(rows.children || []).map(r => {
+            const c = r.children || [];
+            const desc = c[0] ? String(c[0].value || '').trim() : '';
+            const qty = c[1] ? Number(c[1].value || 1) : 1;
+            const pu = c[2] ? Number(c[2].value || 0) : 0;
+            return { descripcion: desc, cantidad: qty, precio_unitario: pu };
+          }).filter(it => String(it.descripcion||'').trim());
+        }
+      }catch(_){}
+      const itemsSubtotal = Array.isArray(pagoItems) ? pagoItems.reduce((acc, it) => acc + Number(it.cantidad||1)*Number(it.precio_unitario||0), 0) : 0;
+      const itemsAgg = buildItemsConceptLabel(pagoItems);
       if(!usuario_id || !monto){ showToast('Usuario y monto son obligatorios', 'warning', 4000); return; }
       let url = '/api/pagos'; let method = 'POST'; let body = {};
       const conceptoEl = document.getElementById('pago-concepto');
@@ -3694,6 +4062,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const conceptoSel = conceptoIdRaw ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoIdRaw] : null) : null;
       if(editingPagoId){
         url = `/api/pagos/${editingPagoId}`; method = 'PUT'; body = { usuario_id, monto, metodo_pago_id };
+        // Enviar concepto agregado si hay ítems
+        if(itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
         if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
         else if(mes != null && año != null){ body['mes'] = mes; body['año'] = año; }
       } else {
@@ -3714,8 +4084,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         } else {
           precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
         }
+        // Si hay ítems en el editor, usar su subtotal como base del concepto
+        if(Array.isArray(pagoItems) && pagoItems.length){ precio_unitario = Number(itemsSubtotal||0); }
         const conceptos = concepto_id_final ? [{ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }] : [];
         body = { usuario_id, metodo_pago_id, conceptos };
+        // Enviar concepto agregado para mejorar la visualización
+        if(itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
         if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
         else {
           if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); }
@@ -3787,11 +4161,19 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
     async function populateWizardMetodoSelect(selectedId){ const sel = document.getElementById('wiz-metodo'); if(!sel) return; sel.innerHTML = '<option value="">Seleccionar (opcional)</option>'; if(!Array.isArray(state.metodosPago) || state.metodosPago.length===0){ try{ await loadMetodosPago(); }catch(_){} }
       (Array.isArray(state.metodosPago) ? state.metodosPago : []).forEach(m => { const opt = document.createElement('option'); opt.value = String(m.id); opt.textContent = m.nombre || (`Método ${m.id}`); sel.appendChild(opt); }); if(selectedId){ sel.value = String(selectedId); } }
     async function populateWizardConceptoSelect(selectedId){ const sel = document.getElementById('wiz-concepto'); if(!sel) return; sel.innerHTML = '<option value="">Seleccionar concepto</option>'; if(!Array.isArray(state.conceptosPago) || state.conceptosPago.length===0){ try{ await loadConceptosPago(); }catch(_){} }
-      (Array.isArray(state.conceptosPago) ? state.conceptosPago : []).forEach(c => { const opt = document.createElement('option'); opt.value = String(c.id); opt.textContent = c.nombre || (`Concepto ${c.id}`); sel.appendChild(opt); }); if(selectedId){ sel.value = String(selectedId); } }
+      const arr = (Array.isArray(state.conceptosPago) ? state.conceptosPago : []);
+      arr.forEach(c => { const opt = document.createElement('option'); opt.value = String(c.id); opt.textContent = c.nombre || (`Concepto ${c.id}`); sel.appendChild(opt); });
+      if(selectedId){ sel.value = String(selectedId); }
+      else {
+        const monthly = arr.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual');
+        if(monthly){ sel.value = String(monthly.id); }
+      }
+    }
     async function showPagoWizard(){ try{
       const root = document.getElementById('pago-wizard'); if(!root){ console.warn('No existe #pago-wizard'); return; }
       // Defaults
       const now = new Date(); const mesEl = document.getElementById('wiz-mes'); const añoEl = document.getElementById('wiz-año'); if(mesEl) mesEl.value = String(now.getMonth()+1); if(añoEl) añoEl.value = String(now.getFullYear());
+      const fechaEl = document.getElementById('wiz-fecha'); if(fechaEl) fechaEl.value = fmtDate(now);
       await populateWizardUsuarioSelect(state.selectedUsuario && state.selectedUsuario.id ? state.selectedUsuario.id : null);
       await populateWizardMetodoSelect(null);
       await populateWizardConceptoSelect(null);
@@ -3920,7 +4302,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const estado = (u.activo === true || u.activo === 'true') ? 'Activo' : 'Inactivo';
       document.getElementById('usuario-side-estado').textContent = estado;
       const venc = u.fecha_proximo_vencimiento || u.proximo_vencimiento || null;
-      document.getElementById('usuario-side-vencimiento').textContent = venc ? fmtDate(venc) : '—';
+      document.getElementById('usuario-side-vencimiento').textContent = venc ? fmtDateEs(venc) : '—';
       document.getElementById('usuario-side-cuotas-vencidas').textContent = (u.cuotas_vencidas != null ? u.cuotas_vencidas : '—');
       document.getElementById('usuario-side-nombre').textContent = u.nombre || '';
       document.getElementById('usuario-side-dni').textContent = u.dni || '';
@@ -3929,7 +4311,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const tipoObj = resolveTipoCuota(u.tipo_cuota);
       document.getElementById('usuario-side-tipo-cuota').textContent = tipoObj ? (tipoObj.nombre ?? String(tipoObj.id ?? '')) : (u.tipo_cuota ?? '');
       const up = u.ultimo_pago || u.fecha_ultimo_pago || null;
-      document.getElementById('usuario-side-ultimo-pago').textContent = up ? fmtDate(up) : '—';
+      document.getElementById('usuario-side-ultimo-pago').textContent = up ? fmtDateEs(up) : '—';
       const notasTextarea = document.getElementById('usuario-notas-textarea');
       if(notasTextarea) notasTextarea.value = (u.notas && String(u.notas).trim()) ? String(u.notas) : '';
       const tbody = document.querySelector('#usuario-historial-table tbody');
@@ -3941,7 +4323,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           const metodo = p.metodo_pago || p.metodo || '';
           const concepto = p.concepto_pago || p.concepto || '';
           const monto = p.monto != null ? p.monto : '';
-          tr.innerHTML = `<td>${fecha ? fmtDate(fecha) : ''}</td><td>${metodo}</td><td>${concepto}</td><td>${monto}</td>`;
+          tr.innerHTML = `<td>${fecha ? fmtDateEs(fecha) : ''}</td><td>${metodo}</td><td>${concepto}</td><td>${fmtCurrency(monto)}</td>`;
           tbody.appendChild(tr);
         });
       }
@@ -4079,6 +4461,73 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       if(waCards){ waCards.addEventListener('click', (ev) => { const btn = ev.target.closest('button[data-type]'); if(btn){ const type = btn.getAttribute('data-type'); forceSendWA(type); } }); }
       const waRefresh = document.getElementById('usuario-wa-refresh'); if(waRefresh){ waRefresh.addEventListener('click', () => { const u = state.selectedUsuario; if(u && u.id) loadUsuarioWhatsApp(u.id); }); }
       const waFilter = document.getElementById('usuario-wa-filter'); if(waFilter){ waFilter.addEventListener('change', () => renderUsuarioWAHistoryTable(state.usuarioWAHistorial || [])); }
+      const waTbody = document.getElementById('usuario-wa-historial-body');
+      if(waTbody){
+        waTbody.addEventListener('click', async (ev) => {
+          const btnDel = ev.target.closest('button[data-delete-id]');
+          const btnRetry = ev.target.closest('button[data-retry]');
+          const u = state.selectedUsuario;
+          if(btnDel){
+            const id = btnDel.getAttribute('data-delete-id');
+            const mid = btnDel.getAttribute('data-delete-mid');
+            if(!u || !u.id){ showToast('Selecciona un usuario', 'warning', 3800); return; }
+            // Preparar preview
+            const tr = btnDel.closest('tr');
+            const fecha = tr ? (tr.dataset.fecha || '') : '';
+            const tipo = tr ? (tr.dataset.tipo || '') : '';
+            const estado = tr ? (tr.dataset.estado || '') : '';
+            const contenido = tr ? (tr.dataset.contenido || '') : '';
+            state.deleteWAMessage = { id: String(id||''), mid: String(mid||''), usuarioId: u.id, fecha, tipo, estado, contenido };
+            const prev = document.getElementById('wa-delete-preview');
+            if(prev){
+              prev.innerHTML = `Fecha: ${fecha || '—'}<br>Tipo: ${tipo || '—'}<br>Estado: ${estado || '—'}<br>Contenido: ${contenido || ''}`;
+            }
+            openModal('modal-wa-delete');
+            return;
+          }
+          if(btnRetry){
+            const type = btnRetry.getAttribute('data-retry');
+            forceSendWA(type);
+            return;
+          }
+        });
+      }
+      // Eventos del modal de borrado WA
+      const waClose = document.getElementById('wa-delete-close'); if(waClose){ waClose.addEventListener('click', () => closeModal('modal-wa-delete')); }
+      const waCancel = document.getElementById('wa-delete-cancel'); if(waCancel){ waCancel.addEventListener('click', () => closeModal('modal-wa-delete')); }
+      const waConfirm = document.getElementById('wa-delete-confirm');
+      if(waConfirm){
+        waConfirm.addEventListener('click', async () => {
+          const payload = state.deleteWAMessage || {};
+          state.deleteWAMessage = null;
+          closeModal('modal-wa-delete');
+          const u = state.selectedUsuario;
+          if(!u || !u.id){ showToast('Selecciona un usuario', 'warning', 3800); return; }
+          const id = String(payload.id||'');
+          const mid = String(payload.mid||'');
+          let url = '';
+          if(mid){ url = `/api/usuarios/${u.id}/whatsapp/by-mid/${encodeURIComponent(mid)}`; }
+          else if(id){ url = `/api/usuarios/${u.id}/whatsapp/${encodeURIComponent(id)}`; }
+          else { showToast('Mensaje inválido para borrar', 'error', 4000); return; }
+          try{
+            const res = await fetch(url, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+            const data = await res.json().catch(()=>({}));
+            if(!res.ok || data.success === false){
+              const code = res.status;
+              let msg = data?.detail || data?.error || data?.message || 'No se pudo borrar el mensaje';
+              if(code === 401){ msg = 'Acceso restringido a dueño. Inicie sesión.'; try{ window.location.href = '/gestion/login'; }catch(e){} }
+              else if(code === 403){ msg = 'No autorizado para borrar'; }
+              else if(code === 404){ msg = 'Mensaje no encontrado'; }
+              else if(code >= 500){ msg = 'Error del servidor al borrar mensaje'; }
+              showToast(msg, 'error', 5000);
+            } else {
+              showToast('Mensaje borrado', 'success', 3000);
+              try{ await loadUsuarioWhatsApp(u.id); }catch(_){}
+              try{ await loadWALastForUser(u.id); }catch(_){}
+            }
+          }catch(e){ showToast('Error de red al borrar mensaje', 'error', 4500); }
+        });
+      }
       document.getElementById('usuarios-delete-close').addEventListener('click', () => closeModal('modal-usuarios-delete'));
       document.getElementById('usuarios-delete-cancel').addEventListener('click', () => closeModal('modal-usuarios-delete'));
       document.getElementById('usuarios-delete-confirm').addEventListener('click', async () => {
@@ -4795,13 +5244,22 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
     function renderWAPendingsTable(rows){
       const tbody = document.querySelector('#config-wa-pendings-table tbody'); if(!tbody) return;
       tbody.innerHTML = '';
+      const mapType = (t) => {
+        const v = String(t || '').toLowerCase();
+        if(v === 'welcome' || v === 'bienvenida') return 'Bienvenida';
+        if(v === 'payment_confirmation' || v === 'confirmacion_pago') return 'Confirmación de pago';
+        if(v === 'deactivation' || v === 'desactivacion') return 'Desactivación';
+        if(v === 'overdue' || v === 'payment_reminder' || v === 'pago_recordatorio' || v === 'recordatorio_vencida') return 'Recordatorio vencimiento';
+        if(v === 'class_reminder' || v === 'recordatorio_clase') return 'Recordatorio de clase';
+        return t || '—';
+      };
       (Array.isArray(rows) ? rows : []).forEach(r => {
         const tr = document.createElement('tr');
         const nombre = String(r.usuario_nombre || r.nombre || (r.user_id != null ? `Usuario #${r.user_id}` : '—'));
         const tel = String(r.phone_number || r.telefono || '—');
         const fechaRaw = r.fecha_envio || r.sent_at || r.fecha || '';
-        const fecha = fechaRaw ? fmtDate(fechaRaw) : '—';
-        const tipo = String(r.message_type || r.tipo || '—');
+      const fecha = fechaRaw ? fmtDateEs(fechaRaw) : '—';
+        const tipo = mapType(r.message_type || r.tipo || '—');
         tr.innerHTML = `
           <td>${nombre}</td>
           <td>${tel}</td>
@@ -4878,20 +5336,29 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         if(elServer) elServer.textContent = Boolean(data?.servidor_activo) ? 'Activo' : 'Inactivo';
         if(elConfig) elConfig.textContent = yesNo(Boolean(data?.configuracion_valida));
         // Actualizar botón toggle según estado del servidor
-        try { updateWAServerToggleUI(Boolean(data?.servidor_activo)); } catch(_) {}
+        try {
+          updateWAServerToggleUI(Boolean(data?.servidor_activo));
+          const btnToggle = document.getElementById('config-wa-server-toggle');
+          if(btnToggle){
+            const cfgValid = Boolean(data?.configuracion_valida);
+            btnToggle.disabled = !cfgValid;
+            btnToggle.title = cfgValid ? '' : 'Config. inválida: completa los campos para iniciar.';
+          }
+        } catch(_) {}
         // Rellenar inputs si el estado trae config actual (si está disponible)
         try{
           const cfg = (data && data.config) ? data.config : null;
           if(cfg){
             const phoneEl = document.getElementById('wa-config-phone-number-id'); if(phoneEl && (cfg.phone_number_id != null)) phoneEl.value = String(cfg.phone_number_id || '');
             const acctEl = document.getElementById('wa-config-business-account-id'); if(acctEl && (cfg.whatsapp_business_account_id != null)) acctEl.value = String(cfg.whatsapp_business_account_id || '');
+            // Por seguridad, el token puede no exponerse; solo rellenar si está presente
             const tokenEl = document.getElementById('wa-config-access-token'); if(tokenEl && (cfg.access_token != null)) tokenEl.value = String(cfg.access_token || '');
             const allowEl = document.getElementById('wa-config-allowlist-text'); if(allowEl && (cfg.allowlist_numbers != null)){
               const arr = Array.isArray(cfg.allowlist_numbers) ? cfg.allowlist_numbers : String(cfg.allowlist_numbers || '').split(',');
               allowEl.value = (arr || []).map(x => String(x||'').trim()).filter(x => x).join(', ');
             }
-            const allowChk = document.getElementById('wa-config-allowlist-enabled'); if(allowChk && (cfg.allowlist_enabled != null)) allowChk.checked = String(cfg.allowlist_enabled).toLowerCase() === 'true';
-            const hookChk = document.getElementById('wa-config-enable-webhook'); if(hookChk && (cfg.enable_webhook != null)) hookChk.checked = String(cfg.enable_webhook).toLowerCase() === 'true';
+            const allowChk = document.getElementById('wa-config-allowlist-enabled'); if(allowChk && (cfg.allowlist_enabled != null)) allowChk.checked = !!cfg.allowlist_enabled && String(cfg.allowlist_enabled).toLowerCase() !== 'false';
+            const hookChk = document.getElementById('wa-config-enable-webhook'); if(hookChk && (cfg.enable_webhook != null)) hookChk.checked = !!cfg.enable_webhook && String(cfg.enable_webhook).toLowerCase() !== 'false';
           }
         }catch(_){ }
       }catch(e){ console.warn('No se pudo cargar estado WA:', e); }
@@ -5007,6 +5474,14 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       const elDate = document.getElementById('config-wa-last-date');
       const elStatus = document.getElementById('config-wa-last-status');
       const elDetail = document.getElementById('config-wa-last-detail');
+      const mapType = (t) => {
+        const v = String(t || '').toLowerCase();
+        if(v === 'welcome' || v === 'bienvenida') return 'Bienvenida';
+        if(v === 'payment_confirmation' || v === 'confirmacion_pago') return 'Confirmación de pago';
+        if(v === 'deactivation' || v === 'desactivacion') return 'Desactivación';
+        if(v === 'overdue' || v === 'payment_reminder' || v === 'pago_recordatorio' || v === 'recordatorio_vencida') return 'Recordatorio vencimiento';
+        return t || '—';
+      };
       const setDash = () => { if(elUser) elUser.textContent = '—'; if(elType) elType.textContent = '—'; if(elDate) elDate.textContent = '—'; if(elStatus) elStatus.textContent = '—'; if(elDetail) elDetail.textContent = '—'; };
       const u = Number(uid);
       if(!Number.isFinite(u) || u < 1){ setDash(); return; }
@@ -5016,8 +5491,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const item = (data && typeof data === 'object' && 'item' in data) ? data.item : data;
         if(!item){ setDash(); return; }
         if(elUser) elUser.textContent = `Usuario #${u}`;
-        if(elType) elType.textContent = (item.message_type ?? item.tipo ?? '—');
-        if(elDate) elDate.textContent = (fmtDate(item.fecha_envio ?? item.sent_at) ?? '—');
+        if(elType) elType.textContent = mapType(item.message_type ?? item.tipo ?? '—');
+      if(elDate) elDate.textContent = (fmtDateEs(item.fecha_envio ?? item.sent_at) ?? '—');
         if(elStatus) elStatus.textContent = (item.status ?? '—');
         if(elDetail){
           const raw = String(item.message_content || '').trim();
@@ -5313,8 +5788,9 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
 
     function applyRutinasFilters(){
       const cat = ((document.getElementById('rutinas-categoria')||{}).value || '').toLowerCase();
-      const rows = document.querySelectorAll('#rutinas-table tbody tr');
-      rows.forEach(r => {
+      // Plantillas
+      const rowsPlant = document.querySelectorAll('#rutinas-table tbody tr');
+      rowsPlant.forEach(r => {
         const rc = (r.querySelector('td[data-col="categoria"]')?.textContent || '').toLowerCase();
         const catOk = !cat || rc === cat;
         r.style.display = catOk ? '' : 'none';
@@ -5323,6 +5799,15 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const visibleRows = Array.from(document.querySelectorAll('#rutinas-table tbody tr')).filter(tr => tr.style.display !== 'none').length;
         countEl.textContent = `${visibleRows} mostradas`;
       }
+      // Rutinas por usuario/todas
+      try{
+        const rowsUsr = document.querySelectorAll('#rutinas-usuario-table tbody tr');
+        rowsUsr.forEach(r => {
+          const rc = (r.querySelector('td[data-col="categoria"]')?.textContent || '').toLowerCase();
+          const catOk = !cat || rc === cat;
+          r.style.display = catOk ? '' : 'none';
+        });
+      }catch(_){ }
     }
 
     function updateRutinasTable(){
@@ -5332,25 +5817,18 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       // Sorting
       const sortKey = state.rutinasSortKey || (typeof localStorage !== 'undefined' ? (localStorage.getItem('rutinas-sort-key') || '') : '') || 'nombre';
       const sortDir = state.rutinasSortDir || (typeof localStorage !== 'undefined' ? (localStorage.getItem('rutinas-sort-dir') || '') : '') || 'asc';
-      const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+      // Listado principal: solo plantillas; no mostrar asignación
       const decorated = (Array.isArray(itemsBase) ? itemsBase : []).map((r) => {
         const diasStr = r.dias_semana != null ? String(r.dias_semana) : (r.dias != null ? String(r.dias) : '0');
         const categoriaStr = r.categoria ? String(r.categoria) : 'general';
         const ejerciciosCountNum = Array.isArray(r.ejercicios) ? r.ejercicios.length : Number(r.ejercicios_count || 0) || 0;
-        const assignedStr = (() => {
-          const uid = r.usuario_id;
-          if(uid == null) return '—';
-          const u = users.find(x => String(x.id) === String(uid));
-          return u ? (u.nombre || u.email || `Usuario ${u.id}`) : `ID ${uid}`;
-        })();
         return {
           r,
           nombre: String(r.nombre || r.nombre_rutina || ''),
           descripcion: String(r.descripcion || ''),
           dias: Number(diasStr) || 0,
           categoria: String(categoriaStr || ''),
-          ejercicios: Number(ejerciciosCountNum) || 0,
-          asignado: String(assignedStr || '')
+          ejercicios: Number(ejerciciosCountNum) || 0
         };
       });
       const cmp = (a, b) => {
@@ -5377,27 +5855,20 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const dias = r.dias_semana != null ? String(r.dias_semana) : (r.dias != null ? String(r.dias) : '—');
         const categoria = r.categoria ? String(r.categoria) : 'general';
         const ejerciciosCount = Array.isArray(r.ejercicios) ? r.ejercicios.length : (r.ejercicios_count != null ? String(r.ejercicios_count) : '—');
-        const assigned = (() => {
-          const uid = r.usuario_id;
-          if(uid == null) return '—';
-          const u = users.find(x => String(x.id) === String(uid));
-          return u ? (u.nombre || u.email || `Usuario ${u.id}`) : `ID ${uid}`;
-        })();
         const actionsHTML = `<button class="btn" data-action="preview" data-id="${r.id}">Abrir</button>
-             <button class="btn" data-action="assign-template" data-id="${r.id}">Asignar a usuario</button>
              <button class="btn" data-action="delete" data-id="${r.id}">Eliminar</button>`;
-        const catBadge = `<span class="badge" data-cat="${categoria}" style="display:inline-block;padding:2px 8px;border-radius:12px;background:#eef;color:#334">${categoria}</span>`;
+      const catBadge = `<span class="badge cat-badge" data-cat="${categoria}">${categoria}</span>`;
         tr.innerHTML = `
           <td data-col="nombre">${r.nombre || r.nombre_rutina || ''}</td>
           <td data-col="descripcion">${r.descripcion || ''}</td>
           <td data-col="dias">${dias}</td>
           <td data-col="categoria">${catBadge}</td>
           <td data-col="ejercicios">${ejerciciosCount}</td>
-          <td data-col="asignado">${assigned}</td>
           <td>${actionsHTML}</td>`;
         tr.addEventListener('click', (ev) => {
           const isBtn = !!ev.target.closest('button'); if(isBtn) return;
-          state.selectedRutina = r; updateRutinaSidePanel(r);
+          state.selectedRutina = r;
+          openPlantillaSummaryToast(r);
         });
         tbody.appendChild(tr);
       });
@@ -5408,18 +5879,119 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       }
     }
 
+    // Toast flotante: resumen de plantilla (no bloqueante)
+    function openPlantillaSummaryToast(r){
+      try{
+        const prev = document.getElementById('plantilla-summary-toast'); if(prev) prev.remove();
+        const nombre = String(r?.nombre || r?.nombre_rutina || '');
+        const descripcion = String(r?.descripcion || '');
+        const categoria = String(r?.categoria || 'general');
+        const ejerciciosCount = Array.isArray(r?.ejercicios) ? r.ejercicios.length : Number(r?.ejercicios_count || 0) || 0;
+
+        const wrap = document.createElement('div');
+        wrap.id = 'plantilla-summary-toast';
+        wrap.setAttribute('role', 'status');
+        wrap.setAttribute('aria-live', 'polite');
+        wrap.style.position = 'fixed';
+        wrap.style.right = '16px';
+        wrap.style.bottom = '16px';
+        wrap.style.zIndex = '1000';
+        wrap.style.maxWidth = '520px';
+        wrap.style.boxShadow = '0 8px 24px rgba(0,0,0,0.18)';
+        wrap.style.border = '1px solid var(--border)';
+        wrap.style.background = 'var(--card)';
+        wrap.style.color = 'var(--text)';
+        wrap.style.borderRadius = '12px';
+        wrap.style.padding = '12px 14px';
+        wrap.style.pointerEvents = 'auto';
+        wrap.style.opacity = '0';
+        wrap.style.transform = 'translateY(8px)';
+        wrap.style.transition = 'opacity 180ms ease, transform 180ms ease';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.setAttribute('aria-label', 'Cerrar');
+        closeBtn.textContent = '×';
+        closeBtn.style.position = 'absolute';
+        closeBtn.style.right = '10px';
+        closeBtn.style.top = '8px';
+        closeBtn.style.border = 'none';
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.color = 'var(--text-muted)';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontSize = '18px';
+        closeBtn.addEventListener('click', () => {
+          wrap.style.opacity = '0';
+          wrap.style.transform = 'translateY(8px)';
+          setTimeout(() => { try{ wrap.remove(); }catch(_){ } }, 180);
+        });
+
+        const title = document.createElement('div');
+        title.style.fontWeight = '600';
+        title.style.fontSize = '14px';
+        title.style.marginRight = '24px';
+        title.textContent = nombre || 'Plantilla';
+
+        const desc = document.createElement('div');
+        desc.style.fontSize = '13px';
+        desc.style.marginTop = '6px';
+        desc.style.color = 'var(--text-muted)';
+        desc.textContent = descripcion || 'Sin descripción';
+
+        const meta = document.createElement('div');
+        meta.style.display = 'flex';
+        meta.style.gap = '12px';
+        meta.style.flexWrap = 'wrap';
+        meta.style.alignItems = 'center';
+        meta.style.marginTop = '10px';
+
+        const cat = document.createElement('span');
+        cat.textContent = `Categoría: ${categoria}`;
+        cat.style.fontSize = '12px';
+        cat.style.padding = '2px 8px';
+        cat.style.borderRadius = '12px';
+        cat.style.background = '#eef';
+        cat.style.color = '#334';
+
+        const cnt = document.createElement('span');
+        cnt.textContent = `Ejercicios: ${ejerciciosCount}`;
+        cnt.style.fontSize = '12px';
+        cnt.style.color = 'var(--text-muted)';
+
+        meta.appendChild(cat);
+        meta.appendChild(cnt);
+
+        wrap.appendChild(title);
+        wrap.appendChild(desc);
+        wrap.appendChild(meta);
+        wrap.appendChild(closeBtn);
+
+        document.body.appendChild(wrap);
+        requestAnimationFrame(() => {
+          wrap.style.opacity = '1';
+          wrap.style.transform = 'translateY(0)';
+        });
+        setTimeout(() => {
+          wrap.style.opacity = '0';
+          wrap.style.transform = 'translateY(8px)';
+          setTimeout(() => { try{ wrap.remove(); }catch(_){ } }, 180);
+        }, 30000);
+      }catch(_){ }
+    }
+
     function bindRutinasEvents(){
       if(!document.getElementById('panel-rutinas')) return;
       renderRutinasUsuarioFilter();
-      const btnRefresh = document.getElementById('rutinas-refresh'); if(btnRefresh) btnRefresh.addEventListener('click', () => { loadRutinasPlantillas(); if(state.activeRutinaTab==='usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); } });
-      const qInput = document.getElementById('rutinas-q'); if(qInput) qInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') { loadRutinasPlantillas(); if(state.activeRutinaTab==='usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); } } });
+      const btnRefresh = document.getElementById('rutinas-refresh'); if(btnRefresh) btnRefresh.addEventListener('click', () => { loadRutinasPlantillas(); const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); });
+      const qInput = document.getElementById('rutinas-q'); if(qInput) qInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') { loadRutinasPlantillas(); const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); } });
       const uSel = document.getElementById('rutinas-usuario'); if(uSel) uSel.addEventListener('change', () => {
         applyRutinasFilters();
         const uid = uSel.value || '';
         loadRutinasPorUsuario(uid);
       });
       const catSel = document.getElementById('rutinas-categoria'); if(catSel) catSel.addEventListener('change', () => { applyRutinasFilters(); });
-      const btnNew = document.getElementById('rutinas-new'); if(btnNew) btnNew.addEventListener('click', () => { if(state.activeRutinaTab==='plantillas') openRutinaBuilderNew(); else showRutinaForm(null); });
+      const btnNew = document.getElementById('rutinas-new'); if(btnNew) btnNew.addEventListener('click', () => { openRutinaBuilderNew(); });
+      // (Resumen modal eliminado) — se usa toast de resumen al clicar filas
 
       // Persist and restore filters
       try{
@@ -5430,19 +6002,18 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
 
       // Subtabs toggling
       function applyRutinasTabUI(){
-        const isPlant = state.activeRutinaTab === 'plantillas';
-        const lab = document.getElementById('rutinas-usuario-label'); if(lab) lab.style.display = isPlant ? 'none' : '';
-        const uSel2 = document.getElementById('rutinas-usuario'); if(uSel2) uSel2.style.display = isPlant ? 'none' : '';
+        // Vista unificada: mostrar ambas secciones y controles de usuario
+        const lab = document.getElementById('rutinas-usuario-label'); if(lab) lab.style.display = '';
+        const uSel2 = document.getElementById('rutinas-usuario'); if(uSel2) uSel2.style.display = '';
         const tbl = document.getElementById('rutinas-table'); if(tbl) tbl.parentElement.style.display = '';
-        const block = document.getElementById('rutinas-usuario-block'); if(block) block.style.display = isPlant ? 'none' : '';
-        const btnNewEl = document.getElementById('rutinas-new'); if(btnNewEl) btnNewEl.textContent = isPlant ? 'Nueva Plantilla' : 'Nueva Rutina';
-        // Cargar datos: siempre plantillas; añadir rutinas por usuario si corresponde
+        const block = document.getElementById('rutinas-usuario-block'); if(block) block.style.display = '';
+        const btnNewEl = document.getElementById('rutinas-new'); if(btnNewEl) btnNewEl.textContent = 'Nueva';
+        // Cargar datos de ambas secciones
         loadRutinasPlantillas();
-        if(!isPlant){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; loadRutinasPorUsuario(uid); }
-        // Update subtabs visual state
-        const bPlant = document.getElementById('rutinas-tab-plantillas'); const bUser = document.getElementById('rutinas-tab-usuario');
-        if(bPlant) bPlant.classList.toggle('secondary', !isPlant);
-        if(bUser) bUser.classList.toggle('secondary', isPlant);
+        const uid = (document.getElementById('rutinas-usuario')||{}).value || '';
+        loadRutinasPorUsuario(uid);
+        // Ocultar subtabs visualmente
+        const tabBar = document.getElementById('rutinas-subtabs'); if(tabBar) tabBar.style.display = 'none';
         applyRutinasFilters();
       }
       const tabBar = document.getElementById('rutinas-subtabs');
@@ -5485,12 +6056,6 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
             const id = btn.getAttribute('data-id'); if(id) openRutinaPreview(Number(id));
           } else if(action === 'delete'){
             const id = btn.getAttribute('data-id'); deleteRutina(id);
-          } else if(action === 'assign-template'){
-            const id = btn.getAttribute('data-id'); openAssignPlantilla(id);
-          } else if(action === 'assign'){
-            const id = btn.getAttribute('data-id'); openAssignRutina(id);
-          } else if(action === 'unassign'){
-            const id = btn.getAttribute('data-id'); openUnassignRutina(id);
           }
         });
       }
@@ -5528,7 +6093,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         btnCsv.addEventListener('click', () => {
           try{
             const rows = Array.from(document.querySelectorAll('#rutinas-table tbody tr')).filter(tr => tr.style.display !== 'none');
-            const headers = ['Nombre','Descripcion','Dias','Categoria','#Ejercicios','Asignada a'];
+            const headers = ['Nombre','Descripcion','Dias','Categoria','#Ejercicios'];
             const lines = [headers.join(',')];
             rows.forEach(tr => {
               const cNombre = tr.querySelector('td[data-col="nombre"]')?.textContent || '';
@@ -5536,13 +6101,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
               const cDias = tr.querySelector('td[data-col="dias"]')?.textContent || '';
               const cCat = tr.querySelector('td[data-col="categoria"]')?.textContent || '';
               const cEjs = tr.querySelector('td[data-col="ejercicios"]')?.textContent || '';
-              const cAsign = tr.querySelector('td[data-col="asignado"]')?.textContent || '';
               const esc = (s) => {
                 const t = String(s || '');
                 if(/[",\n]/.test(t)) return '"' + t.replace(/"/g,'""') + '"';
                 return t;
               };
-              lines.push([esc(cNombre), esc(cDesc), esc(cDias), esc(cCat), esc(cEjs), esc(cAsign)].join(','));
+              lines.push([esc(cNombre), esc(cDesc), esc(cDias), esc(cCat), esc(cEjs)].join(','));
             });
             const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -5554,6 +6118,39 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       }
 
       // Preview modal extra actions
+      // Utilidad para estandarizar nombre: "Base - Usuario"
+      function standardizeNombre(base, user){
+        const b = String(base||'').trim();
+        const u = String(user||'').trim();
+        if(!b && !u) return 'Rutina';
+        if(!u) return b || 'Rutina';
+        // Limpia sufijo previo "- algo" si existe
+        const cleaned = b.replace(/\s*-\s*[^-]+$/, '');
+        return `${cleaned || b} - ${u}`;
+      }
+      // Eventos del modal "Nueva plantilla"
+      const pnClose = document.getElementById('plantilla-new-close'); if(pnClose) pnClose.addEventListener('click', () => closeModal('modal-plantilla-new'));
+      const pnCancel = document.getElementById('plantilla-new-cancel'); if(pnCancel) pnCancel.addEventListener('click', () => closeModal('modal-plantilla-new'));
+      const pnConfirm = document.getElementById('plantilla-new-confirm'); if(pnConfirm) pnConfirm.addEventListener('click', async () => {
+        try{
+          const n = (document.getElementById('plantilla-new-nombre')||{}).value || '';
+          const d = (document.getElementById('plantilla-new-descripcion')||{}).value || '';
+          closeModal('modal-plantilla-new');
+          await openRutinaPreview(null);
+          try{
+            const titleEl = document.getElementById('modal-rutina-preview-title'); if(titleEl){ titleEl.textContent = 'Vista previa de plantilla'; }
+          }catch(_){}
+          const nameInput = document.getElementById('rutina-preview-nombre'); if(nameInput) nameInput.value = n;
+          const descInput = document.getElementById('rutina-preview-descripcion'); if(descInput) descInput.value = d;
+          const draft = state.rutinaPreviewDraft || state.rutinaPreview || {};
+          draft.nombre_rutina = String(n||'');
+          draft.descripcion = String(d||'');
+          draft._is_template = true;
+          state.rutinaPreviewDraft = draft;
+          state.rutinaNombreBase = String(n||'');
+          renderRutinaPreview();
+        }catch(_){ showToast('No se pudo abrir la previsualización', 'error', 3000); }
+      });
       const btnPrevNewEj = document.getElementById('rutina-preview-new-ej'); if(btnPrevNewEj) btnPrevNewEj.addEventListener('click', () => { try{ showEjercicioForm(null); }catch(_){ showToast('No se pudo abrir el formulario', 'error', 3000); } });
       const btnPrevEditEj = document.getElementById('rutina-preview-edit-ej'); if(btnPrevEditEj) btnPrevEditEj.addEventListener('click', () => {
         const float = document.getElementById('rutina-preview-float');
@@ -5731,9 +6328,11 @@ function openAssignPlantilla(id){
           const detRes = await fetch(`/api/rutinas/${plantillaId}`, { headers:{ 'Accept':'application/json' } });
           const det = await detRes.json().catch(() => ({}));
           if(!detRes.ok){ showToast(det.detail || det.error || 'No se pudo cargar plantilla', 'error', 4500); return; }
+          const selectedLabel = (() => { try{ const selIdx = userSel ? userSel.selectedIndex : -1; if(selIdx >= 0){ return String(userSel.options[selIdx].textContent||''); } }catch(_){ } return ''; })();
+          const baseNombre = det.nombre_rutina || det.nombre || 'Rutina';
           const payload = {
             usuario_id: Number(userId),
-            nombre_rutina: det.nombre_rutina || det.nombre || 'Rutina',
+            nombre_rutina: standardizeNombre(baseNombre, selectedLabel),
             descripcion: det.descripcion || null,
             dias_semana: Math.max(2, Math.min(5, Number(det.dias_semana || 3))),
             categoria: det.categoria || 'general',
@@ -6129,6 +6728,9 @@ function refreshPreviewDayOptions(dias){
           state._floatKeyHandler = null;
         }catch(_){ }
       }
+
+      // Cierre de modal Resumen
+      const resumenCloseBtn = document.getElementById('rutina-resumen-close'); if(resumenCloseBtn) resumenCloseBtn.addEventListener('click', () => closeModal('modal-rutina-resumen'));
     }
     function applyRutinaPreviewFloat(silent){
       const float = document.getElementById('rutina-preview-float'); if(!float) return;
@@ -6495,6 +7097,7 @@ function attachWheelZoom(containerId, frameId){
           const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo cargar rutina', 'error', 4500); return; }
           state.rutinaPreview = data; state.rutinaPreviewDraft = _deepCopy(data);
           const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl) nameEl.value = (data.nombre_rutina || data.nombre || '') || '';
+          try{ state.rutinaNombreBase = String((data.nombre_rutina || data.nombre || '') || '').replace(/\s*-\s*[^-]+$/, '').trim(); }catch(_){ state.rutinaNombreBase = String((data.nombre_rutina || data.nombre || '') || ''); }
           const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = data.descripcion || '';
           const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
           const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){
@@ -6542,6 +7145,15 @@ function attachWheelZoom(containerId, frameId){
           renderRutinaPreview();
         })();
         openModal('modal-rutina-preview');
+        // Ajustar título según contexto (plantilla vs rutina)
+        try{
+          const titleEl = document.getElementById('modal-rutina-preview-title');
+          if(titleEl){
+            const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+            const isTemplate = (state.activeRutinaTab === 'plantillas') || (d.usuario_id == null);
+            titleEl.textContent = isTemplate ? 'Vista previa de plantilla' : 'Vista previa de rutina';
+          }
+        }catch(_){ }
         try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent=''; const ps = document.getElementById('rutina-preview-pdf-status'); if(ps) ps.style.display='none'; }catch(_){ }
         ensureRutinaAutoSave();
         // Colapsar inputs por defecto y primera carga de PDF
@@ -6621,10 +7233,21 @@ function attachWheelZoom(containerId, frameId){
             }
           } catch(_){ }
         };
-        const catSel = document.getElementById('rutina-preview-categoria'); if(catSel) catSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.categoria = String(catSel.value || 'general'); state.rutinaPreviewDraft = d; renderRutinaPreview(); markRutinaDirty(); };
-        const nameEl2 = document.getElementById('rutina-preview-nombre'); if(nameEl2) nameEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.nombre_rutina = String(nameEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
-        const descEl2 = document.getElementById('rutina-preview-descripcion'); if(descEl2) descEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.descripcion = String(descEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
-        const userNameEl = document.getElementById('rutina-preview-usuario-nombre'); if(userNameEl) userNameEl.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.usuario_nombre_override = String(userNameEl.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
+    const catSel = document.getElementById('rutina-preview-categoria'); if(catSel) catSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.categoria = String(catSel.value || 'general'); state.rutinaPreviewDraft = d; renderRutinaPreview(); markRutinaDirty(); };
+    const nameEl2 = document.getElementById('rutina-preview-nombre'); if(nameEl2) nameEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.nombre_rutina = String(nameEl2.value || ''); state.rutinaPreviewDraft = d; // Actualiza base eliminando sufijo "- usuario" si existe
+      try{ state.rutinaNombreBase = String(nameEl2.value || '').replace(/\s*-\s*[^-]+$/, '').trim(); }catch(_){ state.rutinaNombreBase = String(nameEl2.value||''); }
+      markRutinaDirty(); };
+    const descEl2 = document.getElementById('rutina-preview-descripcion'); if(descEl2) descEl2.oninput = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.descripcion = String(descEl2.value || ''); state.rutinaPreviewDraft = d; markRutinaDirty(); };
+    const userNameEl = document.getElementById('rutina-preview-usuario-nombre'); if(userNameEl) userNameEl.oninput = () => {
+      const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.usuario_nombre_override = String(userNameEl.value || '');
+      // Estandariza automáticamente el nombre si hay base
+      try{
+        const base = state.rutinaNombreBase || (d.nombre_rutina || '');
+        const nuevo = standardizeNombre(base, userNameEl.value || '');
+        if(nameEl2){ nameEl2.value = nuevo; }
+        d.nombre_rutina = nuevo;
+      }catch(_){ }
+      state.rutinaPreviewDraft = d; markRutinaDirty(); };
         if(fApply) fApply.onclick = () => applyRutinaPreviewFloat(false);
         const fRemove = document.getElementById('rutina-preview-float-remove'); if(fRemove) fRemove.onclick = removeRutinaPreviewItem;
         const fClose = document.getElementById('rutina-preview-float-close'); if(fClose) fClose.onclick = () => applyRutinaPreviewFloat(true);
@@ -6679,13 +7302,18 @@ function attachWheelZoom(containerId, frameId){
               const res = await fetch(`/api/rutinas/${d.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payloadBase) });
               const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar rutina', 'error', 4500); return; }
               closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Rutina actualizada', 'success', 2500);
-              if(state.activeRutinaTab==='plantillas') await loadRutinasPlantillas(); else await loadRutinas();
+              await loadRutinasPlantillas();
+              const uidAfter = (document.getElementById('rutinas-usuario')||{}).value || '';
+              await loadRutinasPorUsuario(uidAfter);
             } else {
               // Crear como plantilla (usuario_id null)
               const payload = Object.assign({}, payloadBase, { usuario_id: null });
               const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
               const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear plantilla', 'error', 4500); return; }
-              closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Plantilla creada', 'success', 2500); await loadRutinasPlantillas();
+              closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Plantilla creada', 'success', 2500);
+              await loadRutinasPlantillas();
+              const uidAfterCreate = (document.getElementById('rutinas-usuario')||{}).value || '';
+              await loadRutinasPorUsuario(uidAfterCreate);
             }
           }catch(e){ showToast('Error de red al guardar rutina', 'error', 4500); }
         };
@@ -6960,34 +7588,88 @@ function attachWheelZoom(containerId, frameId){
     }
 
     function openRutinaBuilderNew(){
-      // Abrir el builder en blanco para crear una plantilla nueva
-      openRutinaPreview(null);
+      // Abrir modal de elección: desde plantilla o desde cero
+      (async () => {
+        try{
+          if(!Array.isArray(state.plantillas) || !state.plantillas.length){ await loadRutinasPlantillas(); }
+        }catch(_){}
+        const searchEl = document.getElementById('rutina-choice-template-search');
+        const selEl = document.getElementById('rutina-choice-template');
+        const closeEl = document.getElementById('rutina-new-choice-close');
+        const cancelEl = document.getElementById('rutina-new-choice-cancel');
+        const confirmTpl = document.getElementById('rutina-choice-template-confirm');
+        const confirmScratch = document.getElementById('rutina-choice-scratch-confirm');
+        const items = Array.isArray(state.plantillas) ? state.plantillas : [];
+        function populateSelect(filter){
+          const q = String(filter || '').trim().toLowerCase();
+          if(selEl){ selEl.innerHTML=''; (items||[]).filter(x => !q || String((x.nombre||x.nombre_rutina||'')) .toLowerCase().includes(q)).forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = String(r.id);
+            opt.textContent = String(r.nombre || r.nombre_rutina || `Plantilla ${r.id}`);
+            selEl.appendChild(opt);
+          }); }
+        }
+        populateSelect('');
+        if(searchEl){
+          searchEl.value='';
+          let timer=null;
+          const run = () => { try{ populateSelect(searchEl.value || ''); }catch(_){ } };
+          searchEl.oninput = () => { try{ if(timer) clearTimeout(timer); timer = setTimeout(run, 200); }catch(_){ run(); } };
+        }
+        if(closeEl) closeEl.onclick = () => closeModal('modal-rutina-new-choice');
+        if(cancelEl) cancelEl.onclick = () => closeModal('modal-rutina-new-choice');
+        if(confirmTpl) confirmTpl.onclick = async () => {
+          const id = selEl ? Number(selEl.value || '') : 0;
+          if(!id){ showToast('Selecciona una plantilla', 'info', 2500); return; }
+          closeModal('modal-rutina-new-choice');
+          await openRutinaPreview(Number(id));
+        };
+        if(confirmScratch) confirmScratch.onclick = async () => {
+          closeModal('modal-rutina-new-choice');
+          await openRutinaPreview(null);
+          try{
+            const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
+            d._createdFromScratch = true;
+            state.rutinaPreviewDraft = d;
+            renderRutinaPreview();
+          }catch(_){}
+        };
+        openModal('modal-rutina-new-choice');
+      })();
     }
 
     // ===== Rutinas por usuario =====
     async function loadRutinasPorUsuario(uid){
       const block = document.getElementById('rutinas-usuario-block'); const tbody = document.querySelector('#rutinas-usuario-table tbody');
       if(!block || !tbody){ return; }
-      if(!uid){ block.style.display='none'; tbody.innerHTML=''; return; }
       try{
-        const res = await fetch(`/api/rutinas?usuario_id=${encodeURIComponent(String(uid))}`, { headers:{ 'Accept':'application/json' } });
-        const arr = await res.json().catch(()=>[]);
+        const url = uid ? `/api/rutinas?usuario_id=${encodeURIComponent(String(uid))}` : '/api/rutinas';
+        const res = await fetch(url, { headers:{ 'Accept':'application/json' } });
+        let arr = await res.json().catch(()=>[]);
+        // Asegurar que solo se muestren rutinas con usuario asignado; si hay uid, además debe coincidir
+        arr = (Array.isArray(arr)? arr: []).filter(r => {
+          const hasUser = r && r.usuario_id != null;
+          if(!hasUser) return false; // excluir plantillas o rutinas sin asignar
+          if(uid){ return String(r.usuario_id) === String(uid); }
+          return true;
+        });
+        // Filtro por texto (coincide con el input global de búsqueda)
+        try{
+          const q = ((document.getElementById('rutinas-q')||{}).value || '').trim().toLowerCase();
+          if(q){ arr = arr.filter(r => String(r.nombre_rutina || r.nombre || '').toLowerCase().includes(q)); }
+        }catch(_){ }
         tbody.innerHTML = '';
         (Array.isArray(arr)? arr: []).forEach(r => {
           const tr = document.createElement('tr'); tr.setAttribute('data-id', String(r.id));
           const acciones = `
             <button class="btn info" data-action="preview" data-id="${r.id}">Abrir</button>
-            <button class="btn success" data-action="assign" data-id="${r.id}">Asignar</button>
-            <button class="btn outline neutral" data-action="unassign" data-id="${r.id}">Desasignar</button>
             <button class="btn danger" data-action="delete" data-id="${r.id}">Eliminar</button>`;
-          tr.innerHTML = `<td>${r.nombre_rutina || r.nombre || ''}</td><td>${r.dias_semana || ''}</td><td>${r.categoria || ''}</td><td>${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
+          tr.innerHTML = `<td data-col="nombre">${r.nombre_rutina || r.nombre || ''}</td><td data-col="dias">${r.dias_semana || ''}</td><td data-col="categoria">${r.categoria || ''}</td><td data-col="activa">${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
           tr.addEventListener('click', (ev) => {
             const btn = ev.target.closest('button');
             if(btn){
               const action = btn.getAttribute('data-action'); const id = btn.getAttribute('data-id');
               if(action==='preview'){ if(id) openRutinaPreview(Number(id)); }
-              else if(action==='assign'){ if(id) openAssignRutina(Number(id)); }
-              else if(action==='unassign'){ if(id) openUnassignRutina(Number(id)); }
               else if(action==='delete'){ if(id) deleteRutina(Number(id)); }
             } else {
               // Seleccionar fila para actualizar panel lateral
@@ -7004,7 +7686,9 @@ function attachWheelZoom(containerId, frameId){
           updateRutinaSidePanel(null);
         }
         block.style.display='';
-      }catch(e){ block.style.display='none'; }
+        // Aplicar filtros de categoría de forma unificada
+        applyRutinasFilters();
+      }catch(e){ block.style.display=''; }
     }
 
     function updateRutinaSidePanel(r){
@@ -7018,8 +7702,8 @@ function attachWheelZoom(containerId, frameId){
       const none = '—';
       if(!nombreEl) return;
       if(r){
-        nombreEl.textContent = r.nombre || r.nombre_rutina || none;
-        descEl.textContent = r.descripcion || none;
+        if(nombreEl) nombreEl.textContent = r.nombre || r.nombre_rutina || none;
+        if(descEl) descEl.textContent = r.descripcion || none;
         if(btnEdit) { btnEdit.disabled = false; btnEdit.textContent = 'Abrir'; btnEdit.onclick = () => openRutinaPreview(Number(r.id)); }
         if(btnPrev) { btnPrev.disabled = false; btnPrev.onclick = () => openRutinaPreview(Number(r.id)); }
         if(btnDel) { btnDel.disabled = false; btnDel.onclick = () => deleteRutina(r.id); }
@@ -7039,8 +7723,8 @@ function attachWheelZoom(containerId, frameId){
           btnUn.onclick = canUnassign ? (() => openUnassignRutina(r.id)) : null;
         }
       } else {
-        nombreEl.textContent = none;
-        descEl.textContent = none;
+        if(nombreEl) nombreEl.textContent = none;
+        if(descEl) descEl.textContent = none;
         if(btnEdit) { btnEdit.disabled = true; btnEdit.onclick = null; }
         if(btnPrev) { btnPrev.disabled = true; btnPrev.onclick = null; }
         if(btnDel) { btnDel.disabled = true; btnDel.onclick = null; }
@@ -9070,9 +9754,9 @@ function attachWheelZoom(containerId, frameId){
       const del = document.createElement('button'); del.type='button'; del.className='btn icon-only recibo-item-del'; del.textContent='×'; del.title='Quitar';
       row.appendChild(desc); row.appendChild(qty); row.appendChild(price); row.appendChild(del);
       rows.appendChild(row);
-      const onChange = () => { recalcTotalsFromItems(); };
+      const onChange = () => { recalcTotalsFromItems(); try{ refreshReciboPreview(); }catch(_){} };
       desc.oninput = onChange; qty.oninput = onChange; price.oninput = onChange;
-      del.onclick = () => { try{ rows.removeChild(row); }catch(_){} recalcTotalsFromItems(); };
+      del.onclick = () => { try{ rows.removeChild(row); }catch(_){} recalcTotalsFromItems(); try{ refreshReciboPreview(); }catch(_){} };
     }catch(_){ /* noop */ }
   }
 
@@ -9102,6 +9786,7 @@ function attachWheelZoom(containerId, frameId){
       const subEl = document.getElementById('recibo-total-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2);
       const comEl = document.getElementById('recibo-total-comision'); const com = parseFloat(comEl?.value || '0');
       const totalEl = document.getElementById('recibo-total-total'); if(totalEl) totalEl.value = Number((subtotal||0) + (isNaN(com)?0:com)).toFixed(2);
+      try{ refreshReciboPreview(); }catch(_){}
     }catch(_){ /* noop */ }
   }
 
@@ -9146,6 +9831,103 @@ function attachWheelZoom(containerId, frameId){
       if(tv) params.set('total', tv);
     }catch(_){}
     return params;
+  }
+
+  // Construye una etiqueta de concepto a partir de los ítems
+  function buildItemsConceptLabel(items){
+    try{
+      const list = Array.isArray(items) ? items.filter(it => String(it.descripcion||'').trim()) : [];
+      if(!list.length) return { label:'', tooltip:'' };
+      const first = String(list[0].descripcion||'').trim();
+      const maxLen = 40;
+      const trunc = first.length > maxLen ? (first.slice(0, maxLen-1) + '…') : first;
+      const label = list.length > 1 ? `${trunc} + ${list.length-1} ítems` : trunc;
+      const tooltip = list.map(it => {
+        const desc = String(it.descripcion||'').trim();
+        const qty = Number(it.cantidad != null ? it.cantidad : 1);
+        const pu = Number(it.precio_unitario != null ? it.precio_unitario : 0);
+        const line = Number(qty * pu);
+        return `${desc} × ${qty} @ ${fmtCurrency(pu)} = ${fmtCurrency(line)}`;
+      }).filter(Boolean).join(' · ');
+      return { label, tooltip };
+    }catch(_){ return { label:'', tooltip:'' }; }
+  }
+
+  function refreshReciboPreview(){
+    try{
+      const id = state.previewPagoId;
+      if(!id) return;
+      const frame = document.getElementById('recibo-preview-frame');
+      if(!frame) return;
+      const params = buildReciboParams();
+      params.set('preview','1');
+      const url = `/api/pagos/${id}/recibo.pdf?${params.toString()}#toolbar=0&navpanes=0`;
+      if(frame.src !== url){ frame.src = url; try{ attachWheelZoom('recibo-preview-frame-wrap','recibo-preview-frame'); }catch(_){ } }
+    }catch(_){ /* noop */ }
+  }
+
+  function handleReciboPreviewClose(){
+    try{
+      const orig = state.previewOriginal || {};
+      const fOrig = String(orig.fecha || '').slice(0,10);
+      const mOrig = Number(orig.monto || 0);
+      const fNew = document.getElementById('recibo-preview-fecha')?.value || '';
+      const tNewStr = document.getElementById('recibo-total-total')?.value || '';
+      const tNew = parseFloat(tNewStr || 'NaN');
+      const changedFecha = !!(fNew && fNew !== fOrig);
+      const changedMonto = Number.isFinite(tNew) && Math.abs(tNew - mOrig) >= 0.01;
+      if(changedFecha || changedMonto){
+        const fLbl = document.getElementById('recibo-save-fecha'); if(fLbl) fLbl.textContent = fNew || '—';
+        const tLbl = document.getElementById('recibo-save-total'); if(tLbl) tLbl.textContent = Number.isFinite(tNew) ? fmtCurrency(tNew) : '—';
+        openModal('modal-recibo-save');
+      } else {
+        closeModal('modal-recibo-preview');
+      }
+    }catch(_){ closeModal('modal-recibo-preview'); }
+  }
+
+  async function applyReciboChangesToPago(){
+    try{
+      const id = state.previewPagoId;
+      if(!id){ closeModal('modal-recibo-save'); return; }
+      const usuario_id = state.previewUsuarioId || null;
+      const metodo_pago_id = state.previewMetodoId || null;
+      const fecha_pago = document.getElementById('recibo-preview-fecha')?.value || '';
+      const totalStr = document.getElementById('recibo-total-total')?.value || '';
+      const monto = Number.parseFloat(totalStr || '0') || 0;
+      const items = getItemsArray();
+      const conceptAgg = buildItemsConceptLabel(items);
+      const payload = { usuario_id, monto };
+      if(metodo_pago_id != null) payload.metodo_pago_id = Number(metodo_pago_id);
+      if(fecha_pago) payload.fecha_pago = fecha_pago;
+      if(conceptAgg.label){ payload.concepto = conceptAgg.label; payload.concepto_pago = conceptAgg.label; }
+      const r = await fetch(`/api/pagos/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
+      let j = null; try{ j = await r.json(); }catch(_){}
+      if(r.ok){
+        if (typeof showToast==='function') showToast('Pago actualizado desde vista previa', 'success');
+        // Actualizar resumen visual del concepto y tooltip inmediato
+        try{
+          const rc = document.getElementById('pago-resumen-concepto'); if(rc){ rc.textContent = conceptAgg.label || rc.textContent; rc.setAttribute('title', conceptAgg.tooltip || ''); }
+          const sideC = document.getElementById('pago-side-concepto'); if(sideC){ sideC.textContent = conceptAgg.label || sideC.textContent; sideC.setAttribute('title', conceptAgg.tooltip || ''); }
+        }catch(_){}
+        // Selección del concepto en el select (opción temporal personalizada)
+        try{
+          const cpEl = document.getElementById('pago-concepto');
+          if(cpEl && conceptAgg.label){
+            let opt = Array.from(cpEl.options || []).find(o => String(o.value) === '__custom__');
+            if(!opt){ opt = document.createElement('option'); opt.value='__custom__'; cpEl.appendChild(opt); }
+            opt.textContent = conceptAgg.label;
+            cpEl.value = '__custom__';
+          }
+        }catch(_){}
+        // Refrescar listado
+        closeModal('modal-recibo-save');
+        closeModal('modal-recibo-preview');
+        try{ await loadPayments(); }catch(_){}
+      } else {
+        if (typeof showToast==='function') showToast(j?.detail || j?.error || 'No se pudo actualizar el pago', 'error', 4500);
+      }
+    }catch(_){ if (typeof showToast==='function') showToast('Error al guardar cambios', 'error', 4500); }
   }
 
   function updatePeriodoLabel(){
@@ -9246,6 +10028,10 @@ function attachWheelZoom(containerId, frameId){
           const nombreEl = document.getElementById('recibo-preview-usuario-nombre'); if(nombreEl) nombreEl.value = pago.usuario_nombre || '';
           const dniEl = document.getElementById('recibo-preview-usuario-dni'); if(dniEl) dniEl.value = pago.dni || '';
           const fechaEl = document.getElementById('recibo-preview-fecha'); if(fechaEl){ const f = String(pago.fecha_pago || '').slice(0,10); if(f) fechaEl.value = f; }
+          // Guardar en estado para confirmación y guardado
+          try{ state.previewUsuarioId = pago.usuario_id || (pago.usuario && pago.usuario.id) || null; }catch(_){ state.previewUsuarioId = null; }
+          try{ state.previewMetodoId = pago.metodo_pago_id || pago.metodo_id || null; }catch(_){ state.previewMetodoId = null; }
+          try{ state.previewOriginal = { fecha: String(pago.fecha_pago || pago.fecha || '').slice(0,10) || null, monto: (pago.monto != null ? Number(pago.monto) : null) }; }catch(_){ state.previewOriginal = { fecha: null, monto: null }; }
           // Método de pago nombre
           try{
             const metodoId = String(pago.metodo_pago_id || pago.metodo_id || '').trim();
@@ -9274,6 +10060,7 @@ function attachWheelZoom(containerId, frameId){
       }catch(_){ /* continuar */ }
       if(frame) { frame.src = `/api/pagos/${id}/recibo.pdf?preview=1#toolbar=0&navpanes=0`; try{ attachWheelZoom('recibo-preview-frame-wrap','recibo-preview-frame'); }catch(_){ } }
       updatePeriodoLabel();
+      try{ refreshReciboPreview(); }catch(_){}
       openModal('modal-recibo-preview');
     } catch(_){
       if (typeof showToast==='function') showToast('No se pudo abrir el recibo', 'error', 4500);
@@ -9320,5 +10107,6 @@ function attachWheelZoom(containerId, frameId){
   
   </script>
   <script src="/static/js/ui.js"></script>
+  <script src="/static/js/utils.js"></script>
 </body>
 </html>

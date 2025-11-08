@@ -1569,12 +1569,40 @@ class PaymentManager:
     
     def obtener_estado_whatsapp(self) -> Dict[str, Any]:
         """Obtiene el estado actual del sistema WhatsApp"""
-        return {
-            'disponible': WHATSAPP_AVAILABLE,
-            'habilitado': self.whatsapp_enabled,
-            'servidor_activo': self.whatsapp_manager.servidor_activo if self.whatsapp_manager else False,
-            'configuracion_valida': self.whatsapp_manager.verificar_configuracion() if self.whatsapp_manager else False
-        }
+        try:
+            cfg_full: Dict[str, Any] = {}
+            try:
+                cfg_full = self.db_manager.obtener_configuracion_whatsapp_completa() or {}
+            except Exception:
+                cfg_full = {}
+
+            # Mapear a las claves esperadas por la UI
+            config_ui = {
+                'phone_number_id': cfg_full.get('phone_id') or '',
+                'whatsapp_business_account_id': cfg_full.get('waba_id') or '',
+                # Nota: el token puede no estar presente si se gestiona por entorno seguro
+                'access_token': cfg_full.get('access_token') or '',
+                'allowlist_numbers': cfg_full.get('allowlist_numbers') or '',
+                'allowlist_enabled': cfg_full.get('allowlist_enabled'),
+                'enable_webhook': cfg_full.get('enable_webhook'),
+                'max_retries': cfg_full.get('max_retries'),
+                'retry_delay_seconds': cfg_full.get('retry_delay_seconds'),
+            }
+
+            return {
+                'disponible': WHATSAPP_AVAILABLE,
+                'habilitado': self.whatsapp_enabled,
+                'servidor_activo': self.whatsapp_manager.servidor_activo if self.whatsapp_manager else False,
+                'configuracion_valida': self.whatsapp_manager.verificar_configuracion() if self.whatsapp_manager else False,
+                'config': config_ui,
+            }
+        except Exception:
+            return {
+                'disponible': WHATSAPP_AVAILABLE,
+                'habilitado': self.whatsapp_enabled,
+                'servidor_activo': self.whatsapp_manager.servidor_activo if self.whatsapp_manager else False,
+                'configuracion_valida': self.whatsapp_manager.verificar_configuracion() if self.whatsapp_manager else False
+            }
     def calcular_total_con_comision(self, subtotal: float, metodo_pago_id: Optional[int]) -> Dict[str, float]:
         """Devuelve subtotal, comisión y total aplicando la comisión del método de pago.
         

@@ -10,7 +10,49 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-  <script src="/static/js/toast.js"></script>
+    <script src="/static/js/toast.js"></script>
+    <script>
+      (function () {
+        const TODAY_KEY = new Date().toISOString().slice(0, 10);
+        const STORAGE_KEY = "delinq_alerts_checked_date";
+        if (sessionStorage.getItem(STORAGE_KEY) === TODAY_KEY) return;
+
+        window.addEventListener("DOMContentLoaded", async () => {
+          try {
+            const resp = await fetch("/api/delinquency_alerts_recent", { credentials: "same-origin" });
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
+            if (alerts.length === 0) {
+              sessionStorage.setItem(STORAGE_KEY, TODAY_KEY);
+              return;
+            }
+
+            const names = alerts.map(a => a.usuario_nombre || a.usuario_id).filter(Boolean);
+            const uniqueNames = Array.from(new Set(names));
+            const listed = uniqueNames.slice(0, 5).join(", ");
+            const more = uniqueNames.length > 5 ? ` y ${uniqueNames.length - 5} más` : "";
+            const title = "Usuarios desactivados por morosidad hoy";
+            const msg = uniqueNames.length
+              ? `Usuarios desactivados por morosidad hoy: Se registraron ${alerts.length} alertas. Afectados: ${listed}${more}.`
+              : `Usuarios desactivados por morosidad hoy: Se registraron ${alerts.length} alertas.`;
+
+            if (typeof window.showToast === "function") {
+              const t = window.showToast(msg, "warning", 8000, "Ir a Gestión");
+              try {
+                const btn = t && t.querySelector('.actions .btn');
+                if (btn) {
+                  btn.addEventListener('click', () => { window.location.href = "/gestion"; });
+                }
+              } catch(_){ /* noop */ }
+            }
+            sessionStorage.setItem(STORAGE_KEY, TODAY_KEY);
+          } catch (err) {
+            // Silencioso: no bloquear la UI por errores en el toast
+          }
+        });
+      })();
+    </script>
   <style>
     .layout { display:flex; flex-direction:column; min-height:100vh; }
     header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); transition: transform 200ms ease; }
@@ -146,6 +188,7 @@
   </style>
 </head>
 <body>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
   <div class="layout">
     <header id="main-header">
       <div class="brand">
@@ -212,10 +255,6 @@
       <section class="card tile">
         <div class="label">Nuevos (30 días)</div>
         <div class="value" id="kpi-nuevos">—</div>
-      </section>
-      <section class="card tile">
-        <div class="label">Horas totales (filtrado)</div>
-        <div class="value" id="kpi-horas-totales">—</div>
       </section>
       <!-- Ingresos 12m y Nuevos 12m -->
       <section class="card wide">
@@ -389,7 +428,7 @@
     </main>
   </div>
   <!-- Modal detalle de usuario seleccionado -->
-  <div id="usuario-detail-modal" class="modal" aria-hidden="true">
+  <div id="usuario-detail-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="usuario-modal-title" aria-hidden="true">
     <div class="box">
       <header>
         <h3 id="usuario-modal-title" style="margin:0">Detalle de usuario</h3>
@@ -441,7 +480,7 @@
     </div>
   </div>
   <!-- Modal detalle de profesor seleccionado -->
-  <div id="profesor-detail-modal" class="modal" aria-hidden="true">
+  <div id="profesor-detail-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="profesor-modal-title" aria-hidden="true">
     <div class="box">
       <header>
         <h3 id="profesor-modal-title" style="margin:0">Detalle de profesor</h3>
@@ -500,7 +539,7 @@
     // Toasts de notificación — centralizados en /static/js/toast.js
     // Usa showToast(message, type='info', duration=3500, actionText='OK');
 
-    function fmtCurrency(n) { try { return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n||0); } catch(e) { return (n||0).toFixed(2); } }
+    function fmtCurrency(n) { try { return (window.fmtCurrency ? window.fmtCurrency(n) : new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(n||0)); } catch(e) { return (n||0).toFixed(2); } }
     function fmtNumber(n) {
       const raw = String(n ?? '0');
       const cleaned = raw.replace(/[^0-9\-]/g, '');
@@ -1330,7 +1369,8 @@ async function loadAdvanced() {
         if(arr.length === 0){ tbody.innerHTML = `<tr><td colspan="3" class="empty">Sin datos</td></tr>`; return; }
         arr.forEach(p => {
           const tr = document.createElement('tr');
-          tr.innerHTML = `<td>${p.fecha||''}</td><td>${(p.monto??0).toFixed(2)}</td><td>${p.tipo_cuota||''}</td>`;
+          const monto = Number(p.monto ?? 0);
+          tr.innerHTML = `<td>${p.fecha||''}</td><td>${fmtCurrency(monto)}</td><td>${p.tipo_cuota||''}</td>`;
           tbody.appendChild(tr);
         });
       } catch(e) { console.error('Error cargando pagos usuario', e); }
@@ -1520,5 +1560,6 @@ async function loadAdvanced() {
       }
     });
   </script>
+  <script src="/static/js/utils.js"></script>
 </body>
 </html>

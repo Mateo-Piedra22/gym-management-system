@@ -20221,6 +20221,46 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error obteniendo último mensaje WhatsApp: {e}")
             return None
+
+    def obtener_mensaje_whatsapp_por_pk(self, user_id: int, pk_id: int) -> Optional[Dict]:
+        """Obtiene un mensaje de WhatsApp por clave primaria y usuario."""
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, user_id, message_type, template_name, phone_number, message_id,
+                               sent_at, status, message_content, created_at
+                        FROM whatsapp_messages
+                        WHERE id = %s AND user_id = %s
+                        """,
+                        (int(pk_id), int(user_id))
+                    )
+                    row = cursor.fetchone()
+                    return dict(row) if row else None
+        except Exception as e:
+            logging.error(f"Error obteniendo mensaje WhatsApp por pk id={pk_id} user_id={user_id}: {e}")
+            return None
+
+    def obtener_mensaje_whatsapp_por_message_id(self, user_id: int, message_id: str) -> Optional[Dict]:
+        """Obtiene un mensaje de WhatsApp por message_id y usuario."""
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute(
+                        """
+                        SELECT id, user_id, message_type, template_name, phone_number, message_id,
+                               sent_at, status, message_content, created_at
+                        FROM whatsapp_messages
+                        WHERE message_id = %s AND user_id = %s
+                        """,
+                        (str(message_id), int(user_id))
+                    )
+                    row = cursor.fetchone()
+                    return dict(row) if row else None
+        except Exception as e:
+            logging.error(f"Error obteniendo mensaje WhatsApp por message_id={message_id} user_id={user_id}: {e}")
+            return None
     
     def obtener_telefonos_con_mensajes_fallidos(self, fecha_limite: datetime) -> List[str]:
         """Obtiene teléfonos con mensajes fallidos desde fecha límite"""
@@ -20265,6 +20305,42 @@ class DatabaseManager:
                     return cursor.rowcount > 0
         except Exception as e:
             logging.error(f"Error al actualizar estado del mensaje {message_id}: {e}")
+            return False
+
+    def eliminar_mensaje_whatsapp_por_pk(self, user_id: int, pk_id: int) -> bool:
+        """Elimina un mensaje de WhatsApp por ID interno y usuario."""
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM whatsapp_messages WHERE id = %s AND user_id = %s",
+                        (pk_id, user_id)
+                    )
+                    try:
+                        conn.commit()
+                    except Exception:
+                        pass
+                    return cursor.rowcount > 0
+        except Exception as e:
+            logging.error(f"Error al eliminar mensaje WhatsApp id={pk_id} user_id={user_id}: {e}")
+            return False
+
+    def eliminar_mensaje_whatsapp_por_message_id(self, user_id: int, message_id: str) -> bool:
+        """Elimina un mensaje de WhatsApp por message_id y usuario."""
+        try:
+            with self.get_connection_context() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM whatsapp_messages WHERE message_id = %s AND user_id = %s",
+                        (str(message_id), int(user_id))
+                    )
+                    try:
+                        conn.commit()
+                    except Exception:
+                        pass
+                    return cursor.rowcount > 0
+        except Exception as e:
+            logging.error(f"Error al eliminar mensaje WhatsApp message_id={message_id} user_id={user_id}: {e}")
             return False
 
     def procesar_vencimientos_automaticos(self) -> dict:

@@ -8,6 +8,7 @@ Gestiona el envío de mensajes automáticos para el gimnasio
 import os
 import logging
 import asyncio
+import threading
 import psycopg2.extras
 import json
 from datetime import datetime, timedelta
@@ -56,6 +57,7 @@ class WhatsAppManager:
         self.client = None
         self.wa_client = None
         self.servidor_activo = False
+        self._server_thread = None
         self._config = None
         self._init_deferred = defer_init
         self._client_initialized = False
@@ -1547,33 +1549,63 @@ class WhatsAppManager:
             return False
     
     def iniciar_servidor_webhook(self):
-        """Inicia el servidor webhook para recibir mensajes"""
+        """Inicia el servidor webhook en segundo plano para recibir mensajes"""
         if not self.wa_client:
             logging.error("Cliente WhatsApp no inicializado")
             return
 
+        # Si ya hay un hilo corriendo, no iniciar otro
         try:
-            logging.info("Iniciando servidor webhook de WhatsApp...")
-            self.wa_client.run()
-            try:
+            if self._server_thread and self._server_thread.is_alive():
+                logging.info("Servidor webhook de WhatsApp ya está activo")
                 self.servidor_activo = True
-            except Exception:
-                pass
+                return
+        except Exception:
+            pass
+
+        def _run_server():
+            try:
+                logging.info("[WA] Hilo de servidor webhook iniciando...")
+                self.wa_client.run()
+                logging.info("[WA] Hilo de servidor webhook finalizado")
+            except Exception as e:
+                logging.error(f"Error en hilo de servidor webhook: {e}")
+            finally:
+                try:
+                    self.servidor_activo = False
+                except Exception:
+                    pass
+
+        try:
+            self._server_thread = threading.Thread(target=_run_server, name="WhatsAppWebhookServer", daemon=True)
+            self.servidor_activo = True
+            self._server_thread.start()
+            logging.info("Servidor webhook de WhatsApp iniciado en segundo plano")
         except Exception as e:
             logging.error(f"Error al iniciar servidor webhook: {e}")
+            try:
+                self.servidor_activo = False
+            except Exception:
+                pass
 
     def detener_servidor_webhook(self):
         """Detiene el servidor webhook"""
         if self.wa_client:
             try:
                 self.wa_client.stop()
-                logging.info("Servidor webhook detenido")
-                try:
-                    self.servidor_activo = False
-                except Exception:
-                    pass
+                logging.info("Solicitud de detención enviada al servidor webhook")
             except Exception as e:
                 logging.error(f"Error al detener servidor webhook: {e}")
+        # Intentar unir el hilo si existe
+        try:
+            if self._server_thread and self._server_thread.is_alive():
+                self._server_thread.join(timeout=2.0)
+            self.servidor_activo = False
+        except Exception:
+            try:
+                self.servidor_activo = False
+            except Exception:
+                pass
 
     def iniciar_servidor(self) -> bool:
         """Wrapper seguro para iniciar el servidor webhook y actualizar estado interno"""
@@ -1590,6 +1622,12 @@ class WhatsAppManager:
                     return False
             # Iniciar servidor webhook
             self.iniciar_servidor_webhook()
+            # Confirmar estado inicial sin bloquear
+            try:
+                if self._server_thread and self._server_thread.is_alive():
+                    return True
+            except Exception:
+                pass
             return bool(self.servidor_activo)
         except Exception as e:
             logging.error(f"Error al iniciar servidor WhatsApp: {e}")
