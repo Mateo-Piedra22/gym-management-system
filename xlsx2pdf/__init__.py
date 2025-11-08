@@ -12,19 +12,42 @@ from reportlab.lib import colors
 
 
 def _excel_color_to_hex(cell) -> str:
+    """Obtiene color de fondo de la celda solo si es un relleno SOLID explícito.
+
+    Evita interpretar el color por defecto (auto/tema/indexado) como negro,
+    que causaba páginas completamente negras en el PDF.
+    """
     try:
         fill = getattr(cell, "fill", None)
         if not fill:
             return ""
-        fg = getattr(fill, "fgColor", None)
-        if not fg:
+        # En openpyxl, los patrones reales usan patternType/fill_type == 'solid'
+        pattern = getattr(fill, "patternType", None) or getattr(fill, "fill_type", None)
+        if str(pattern).lower() != "solid":
             return ""
-        # openpyxl may provide rgb like 'FFRRGGBB'
-        rgb = getattr(fg, "rgb", None)
-        if isinstance(rgb, str) and len(rgb) in (6, 8):
-            hexrgb = rgb[-6:]
-            return f"#{hexrgb}"
-        return ""
+        # Preferir start_color sobre fgColor
+        color_obj = getattr(fill, "start_color", None) or getattr(fill, "fgColor", None)
+        if not color_obj:
+            return ""
+        # Solo aceptar colores RGB explícitos
+        ctype = getattr(color_obj, "type", None)
+        rgb = getattr(color_obj, "rgb", None)
+        if ctype != "rgb" or not isinstance(rgb, str):
+            return ""
+        # openpyxl suele proveer ARGB (AARRGGBB)
+        if len(rgb) == 8:
+            hexrgb = rgb[2:]
+        elif len(rgb) == 6:
+            hexrgb = rgb
+        else:
+            return ""
+        # Evitar el valor transparente/auto
+        if hexrgb.lower() in ("000000", "00000000"):
+            # El negro puede ser válido; solo lo aplicamos si pattern == solid (ya cumplido).
+            # Si el template realmente usó negro sólido, se respetará; este chequeo evita
+            # interpretar colores por defecto como negro.
+            pass
+        return f"#{hexrgb}"
     except Exception:
         return ""
 
@@ -134,7 +157,8 @@ def convert(xlsx_path: str, pdf_path: str) -> str:
 
         tbl = Table(data, colWidths=col_widths, rowHeights=row_heights)
         style = TableStyle([
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#888888")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ])
 
         # Fusiones
