@@ -26,14 +26,24 @@
     if (typeof message !== 'string') {
       try { message = String(message); } catch(e) { message = 'Mensaje'; }
     }
+    // Normalizar mensaje para mayor claridad
+    try {
+      message = message.trim();
+      if (message.length > 0) {
+        var first = message.charAt(0).toUpperCase();
+        message = first + message.slice(1);
+        if (!/[\.\!\?]$/.test(message)) message += '.';
+      }
+    } catch(e) {}
     type = type || 'info';
     duration = (typeof duration === 'number' ? duration : 3500);
-    actionText = actionText || 'OK';
+    actionText = actionText || 'Cerrar';
 
     var cont = ensureToastContainer();
     var t = document.createElement('div');
     t.className = 'toast ' + (type || 'info');
     try { t.style.animation = 'toast-in 200ms ease-out'; } catch(e) {}
+    try { t.setAttribute('role', 'alert'); t.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite'); } catch(e) {}
 
     var span = document.createElement('span');
     span.className = 'message';

@@ -14670,13 +14670,16 @@ class DatabaseManager:
             }
     
     def obtener_duracion_sesion_actual_profesor(self, profesor_id: int) -> Dict[str, Any]:
-        """Obtiene la duración de la sesión actual directamente desde la base de datos (sin estado local)."""
+        """Obtiene la duración de la sesión actual directamente desde la BD, calculada en SQL para evitar desfases de zona horaria."""
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    SELECT id, hora_inicio
+                    SELECT 
+                        id,
+                        hora_inicio,
+                        EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - hora_inicio)) AS duracion_segundos
                     FROM profesor_horas_trabajadas
                     WHERE profesor_id = %s AND hora_fin IS NULL
                     ORDER BY hora_inicio DESC
@@ -14695,10 +14698,12 @@ class DatabaseManager:
                         'mensaje': 'No hay sesión activa'
                     }
 
-                sesion_id, hora_inicio = row
-                ahora = datetime.now()
-                duracion = ahora - hora_inicio
-                minutos_transcurridos_int = int(duracion.total_seconds() // 60)
+                sesion_id, _hora_inicio, duracion_segundos = row
+                try:
+                    segundos = max(0, int(duracion_segundos))
+                except Exception:
+                    segundos = 0
+                minutos_transcurridos_int = segundos // 60
                 horas_transcurridas = minutos_transcurridos_int / 60.0
                 horas = minutos_transcurridos_int // 60
                 mins = minutos_transcurridos_int % 60

@@ -9,7 +9,7 @@
     "connect_timeout": 10,
     "application_name": "gym_management_system"
   },
-  "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
+  "webapp_base_url": "https://zurka-gymms.vercel.app/",
   "webapp_session_secret": "XKxlGoO1rbwZqeKbfSTKJ_EoqqdARkI45w7qta5XsGY",
   "scheduled_tasks": {
     "enabled": true,

@@ -2435,21 +2435,26 @@
 
 <!-- Modal: QR Check-in Toast -->
   <div class="modal-backdrop" id="modal-qr-toast" style="display:none" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title">
-      <div class="modal-header">
-        <h3 id="modal-qr-title" style="margin:0; font-size:16px;">QR Check-in</h3>
-        <button class="modal-close" id="qr-close-btn" aria-label="Cerrar">×</button>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title" style="max-width: 380px; border-radius: 12px; overflow: hidden;">
+      <div class="modal-header" style="padding: 12px 16px; background: linear-gradient(180deg, #f8fafc, #eef2f7); border-bottom: 1px solid #e5e7eb;">
+        <h3 id="modal-qr-title" style="margin:0; font-size:16px; font-weight:600;">QR de Check-in</h3>
+        <button class="modal-close" id="qr-close-btn" aria-label="Cerrar" style="border:none; background:transparent; font-size:20px; line-height:1; cursor:pointer;">×</button>
       </div>
-      <div class="modal-body" style="text-align:center">
-        <div class="muted" id="qr-user-name" style="margin-bottom:6px">—</div>
-        <canvas id="qr-canvas" width="240" height="240" style="display:inline-block; border-radius:8px; background:#fff; margin-bottom:8px"></canvas>
-        <div class="muted" id="qr-token-masked" style="margin-top:4px">token: —</div>
-        <div style="margin-top:8px">
-          <strong>Tiempo restante:</strong> <span id="qr-countdown">—</span>
+      <div class="modal-body" style="text-align:center; padding: 16px; background:#fff;">
+        <div id="qr-user-name" style="margin-bottom:8px; color:#334155; font-weight:600;">—</div>
+        <div style="display:inline-block; padding:10px; border-radius:12px; background:#f8fafc; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+          <canvas id="qr-canvas" width="240" height="240" style="display:block; border-radius:8px; background:#fff;"></canvas>
         </div>
-        <div id="qr-status-msg" class="muted" style="margin-top:8px">Esperando confirmación…</div>
+        <div id="qr-token-masked" style="margin-top:10px; color:#64748b; font-size:13px">token: —</div>
+        <div style="margin-top:12px; font-size:13px; color:#334155">
+          <span style="font-weight:600">Tiempo restante:</span> <span id="qr-countdown" aria-live="polite">—</span>
+        </div>
+        <div style="margin-top:8px; height:8px; background:#eef2f7; border-radius:999px; overflow:hidden;" aria-hidden="true" aria-label="Progreso de tiempo restante">
+          <div id="qr-progress" style="height:8px; width:0%; background:#22c55e; transition: width 180ms ease;" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+        </div>
+        <div id="qr-status-msg" style="margin-top:12px; display:inline-block; padding:6px 10px; border-radius:999px; background:#f1f5f9; color:#334155; font-size:12px;">Esperando confirmación…</div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="background:#f8fafc; border-top:1px solid #e5e7eb;">
         <button class="btn outline neutral" id="qr-close-footer">Cerrar</button>
       </div>
     </div>
@@ -2728,10 +2733,30 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
     }
 
     // ===== QR Check-in (Gestión) =====
-    let qrState = { token: null, expiresTs: 0, countdownInt: null, pollInt: null };
+    let qrState = { token: null, expiresTs: 0, totalMs: 0, countdownInt: null, pollInt: null };
     function stopQRTimers(){ if(qrState.countdownInt){ clearInterval(qrState.countdownInt); qrState.countdownInt=null; } if(qrState.pollInt){ clearInterval(qrState.pollInt); qrState.pollInt=null; } }
     function formatCountdown(ms){ if(ms<=0) return '0:00'; const total = Math.floor(ms/1000); const m = Math.floor(total/60); const s = String(total%60).padStart(2,'0'); return `${m}:${s}`; }
-    function updateQRCountdown(){ const el = document.getElementById('qr-countdown'); const now = Date.now(); const rem = Math.max(0, qrState.expiresTs - now); if(el) el.textContent = formatCountdown(rem); if(rem<=0){ const status = document.getElementById('qr-status-msg'); if(status) status.textContent = 'Token expirado'; stopQRTimers(); setTimeout(() => closeQRModal(), 1200); } }
+    function updateQRCountdown(){
+      const el = document.getElementById('qr-countdown');
+      const now = Date.now();
+      const rem = Math.max(0, qrState.expiresTs - now);
+      if(el) el.textContent = formatCountdown(rem);
+      // Actualizar barra de progreso visual
+      const prog = document.getElementById('qr-progress');
+      if (prog) {
+        const total = qrState.totalMs || (5 * 60 * 1000);
+        const used = Math.max(0, total - rem);
+        const pct = Math.min(100, Math.max(0, Math.round((used / total) * 100)));
+        prog.style.width = pct + '%';
+        prog.setAttribute('aria-valuenow', String(pct));
+      }
+      if(rem<=0){
+        const status = document.getElementById('qr-status-msg');
+        if(status) status.textContent = 'Token expirado';
+        stopQRTimers();
+        setTimeout(() => closeQRModal(), 1200);
+      }
+    }
     function pollTokenStatus(){ if(!qrState.token) return; fetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' } })
       .then(r => r.json()).then(j => {
         const status = document.getElementById('qr-status-msg');
@@ -2757,8 +2782,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }
       }).catch(() => {});
     }
-    function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; closeModal('modal-qr-toast'); }
-    async function emitirQRCheckin(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
+    function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; qrState.totalMs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; const prog = document.getElementById('qr-progress'); if(prog){ prog.style.width='0%'; prog.setAttribute('aria-valuenow','0'); } closeModal('modal-qr-toast'); }
+    async function emitirQRCheckin(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero para emitir el QR.', 'warning', 4000); return; }
       const set = state.asistenciasHoySet;
       if(set && set.has(Number(u.id))){
         showToast('El usuario ya asistió hoy. No se emite QR.', 'info', 3500);
@@ -2776,12 +2801,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         const data = await res.json();
         const token = String(data.token || '').trim(); if(!token){ throw new Error('No se generó token'); }
-        qrState.token = token; qrState.expiresTs = Date.now() + (Number(data.expires_minutes||expires_minutes) * 60 * 1000);
+        qrState.token = token; qrState.totalMs = Number(data.expires_minutes||expires_minutes) * 60 * 1000; qrState.expiresTs = Date.now() + qrState.totalMs;
         const un = document.getElementById('qr-user-name'); if(un) un.textContent = String(u.nombre || `Usuario #${u.id}`);
         const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent = `token: ***${token.slice(-4)}`;
         openModal('modal-qr-toast');
-        showToast('Token de check-in generado', 'success', 2500);
-        const statusEl = document.getElementById('qr-status-msg'); if(statusEl) statusEl.textContent = 'Generando QR…';
+        showToast('QR de check-in generado correctamente.', 'success', 2500);
+        const statusEl = document.getElementById('qr-status-msg'); if(statusEl) statusEl.textContent = 'Escanea el QR para registrar asistencia.';
         const canvasEl = document.getElementById('qr-canvas');
         if(canvasEl){ const ctx = canvasEl.getContext('2d'); if(ctx){ ctx.clearRect(0,0,canvasEl.width,canvasEl.height); ctx.fillStyle='#f5f5f5'; ctx.fillRect(0,0,canvasEl.width,canvasEl.height); ctx.strokeStyle='#ddd'; for(let i=0;i<=12;i++){ ctx.beginPath(); ctx.moveTo(i*20,0); ctx.lineTo(i*20,240); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*20); ctx.lineTo(240,i*20); ctx.stroke(); } } }
         let qrLibReady = false;
@@ -2800,7 +2825,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
           if(tm) tm.textContent = `token: ${token}`;
         }
         updateQRCountdown(); stopQRTimers(); qrState.countdownInt = setInterval(updateQRCountdown, 1000); qrState.pollInt = setInterval(pollTokenStatus, 2000);
-      }catch(e){ showToast(`No se pudo emitir token: ${e.message}`, 'error', 4500); }
+      }catch(e){ showToast(`No se pudo generar el QR: ${e.message}`, 'error', 4500); }
     finally {
       if(btnQR){
         btnQR.disabled = false;
