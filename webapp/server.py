@@ -1616,43 +1616,51 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
         raise
     except Exception:
         raise HTTPException(status_code=400, detail="Cuerpo JSON requerido")
-    # Semanas dentro de rango
+    # Generar URL firmada con manejo de errores detallado
     try:
-        weeks = max(1, min(int(weeks), 4))
-    except Exception:
-        weeks = 1
-    # Normalizar nombre
-    try:
-        base_name = os.path.basename(filename) if filename else (payload.get("filename") or "rutina_preview.xlsx")
-        if not base_name.lower().endswith(".xlsx"):
-            base_name = f"{base_name}.xlsx"
-        base_name = base_name[:150]
-        base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
-    except Exception:
-        base_name = "rutina_preview.xlsx"
-    # Guardar borrador efímero y firmar URL
-    try:
-        pid = _save_excel_preview_draft(payload)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    ts = int(time.time())
-    sig = _sign_excel_view_draft(pid, weeks, base_name, ts)
-    base_url = get_webapp_base_url("")
-    if not base_url:
+        # Semanas dentro de rango
         try:
-            base_url = str(request.base_url).rstrip('/')
+            weeks = max(1, min(int(weeks), 4))
         except Exception:
-            base_url = "http://localhost:8000"
-    params = {
-        "pid": pid,
-        "weeks": str(weeks),
-        "filename": base_name,
-        "ts": str(ts),
-        "sig": sig,
-    }
-    qs = urllib.parse.urlencode(params, safe="")
-    full = f"{base_url}/api/rutinas/preview/excel_view?{qs}"
-    return JSONResponse({"url": full})
+            weeks = 1
+        # Normalizar nombre
+        try:
+            base_name = os.path.basename(filename) if filename else (payload.get("filename") or "rutina_preview.xlsx")
+            if not base_name.lower().endswith(".xlsx"):
+                base_name = f"{base_name}.xlsx"
+            base_name = base_name[:150]
+            base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+        except Exception:
+            base_name = "rutina_preview.xlsx"
+        # Guardar borrador efímero y firmar URL
+        try:
+            pid = _save_excel_preview_draft(payload)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        ts = int(time.time())
+        sig = _sign_excel_view_draft(pid, weeks, base_name, ts)
+        base_url = get_webapp_base_url("")
+        if not base_url:
+            try:
+                base_url = str(request.base_url).rstrip('/')
+            except Exception:
+                base_url = "http://localhost:8000"
+        params = {
+            "pid": pid,
+            "weeks": str(weeks),
+            "filename": base_name,
+            "ts": str(ts),
+            "sig": sig,
+        }
+        qs = urllib.parse.urlencode(params, safe="")
+        full = f"{base_url}/api/rutinas/preview/excel_view?{qs}"
+        return JSONResponse({"url": full})
+    except HTTPException:
+        # Propagar errores de validación conocidos
+        raise
+    except Exception as e:
+        logging.exception("Error generando URL firmada de previsualización")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Endpoint público para servir XLSX firmado desde borrador efímero
 @app.get("/api/rutinas/preview/excel_view")
