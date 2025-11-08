@@ -5,7 +5,15 @@
       "src": "api/index.py",
       "use": "@vercel/python",
       "config": {
-        "includeFiles": "{webapp,config}/**"
+        "includeFiles": [
+          "{webapp,config,assets}/**",
+          "database.py",
+          "models.py",
+          "utils.py",
+          "payment_manager.py",
+          "routine_manager.py",
+          "pdf_generator.py"
+        ]
       }
     }
   ],
