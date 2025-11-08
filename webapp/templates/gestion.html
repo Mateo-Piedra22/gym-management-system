@@ -6397,7 +6397,9 @@ async function updateRutinaPDFPreview(){
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
     if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return; }
     // Usar Office Viewer en lugar de Google Viewer para evitar errores de autenticación de Google Cloud
-    const viewerSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(String(urlSignedData.url))}`;
+    let srcUrl = String(urlSignedData.url || "");
+    try { srcUrl = srcUrl.replace(/([^:])\/\/+/, "$1/"); } catch(_) {}
+    const viewerSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(srcUrl)}`;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
     frame.style.display='block';

@@ -1723,12 +1723,17 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             pass
         ts = int(time.time())
         sig = _sign_excel_view_draft_data(data, weeks, base_name, ts)
-        base_url = get_webapp_base_url("")
+        try:
+            base_url = get_webapp_base_url("")
+        except Exception:
+            base_url = ""
         if not base_url:
             try:
-                base_url = str(request.base_url).rstrip('/')
+                base_url = str(request.base_url)
             except Exception:
                 base_url = "http://localhost:8000"
+        # Normalizar para evitar doble barra en la concatenación
+        base_url = str(base_url).rstrip('/')
         params = {
             "data": data,
             "weeks": str(weeks),
