@@ -240,12 +240,36 @@ class RoutineTemplateManager:
                 return str(target_pdf)
             except Exception as lo_err:
                 self.logger.warning(f"LibreOffice no disponible o falló la conversión: {lo_err}")
-                self.logger.info("Aplicando fallback con ReportLab para generar PDF básico desde Excel")
+                # Intento preferido en webapp/Vercel: xlsx2pdf (API y CLI del módulo)
                 try:
-                    return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
-                except Exception as rb_err:
-                    self.logger.error(f"Fallback ReportLab también falló: {rb_err}")
-                    raise lo_err
+                    self.logger.info("Intentando conversión con xlsx2pdf (API)")
+                    from xlsx2pdf import convert as xlsx2pdf_convert  # type: ignore
+                    xlsx2pdf_convert(str(xlsx.resolve()), str(target_pdf.resolve()))
+                    if target_pdf.exists():
+                        self.logger.info(f"Conversión Excel→PDF exitosa con xlsx2pdf (API): {target_pdf}")
+                        return str(target_pdf)
+                    else:
+                        raise RuntimeError("xlsx2pdf API no generó el PDF")
+                except Exception as api_err:
+                    self.logger.warning(f"xlsx2pdf API falló ({api_err}), probando CLI del módulo")
+                    try:
+                        import sys
+                        py = sys.executable or "python"
+                        cmd = [py, "-m", "xlsx2pdf", str(xlsx.resolve()), str(target_pdf.resolve())]
+                        subprocess.run(cmd, check=True)
+                        if target_pdf.exists():
+                            self.logger.info(f"Conversión Excel→PDF exitosa con xlsx2pdf (CLI): {target_pdf}")
+                            return str(target_pdf)
+                        else:
+                            raise RuntimeError("xlsx2pdf CLI no generó el PDF")
+                    except Exception as cli_err:
+                        self.logger.warning(f"xlsx2pdf también falló ({cli_err}), usando fallback ReportLab")
+                        self.logger.info("Aplicando fallback con ReportLab para generar PDF desde Excel")
+                        try:
+                            return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
+                        except Exception as rb_err:
+                            self.logger.error(f"Fallback ReportLab también falló: {rb_err}")
+                            raise cli_err
         except Exception as e:
             self.logger.error(f"Conversión Excel→PDF fallida: {e}")
             raise e

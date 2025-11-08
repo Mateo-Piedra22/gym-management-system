@@ -12,3 +12,4 @@ openpyxl
 xlsxtpl
 bcrypt
 pywa
+xlsx2pdf
