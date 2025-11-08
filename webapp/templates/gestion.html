@@ -2249,7 +2249,7 @@
             <!-- Vista previa PDF integrada -->
             <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
               <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
-  <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel con Google Drive Viewer automáticamente.</div>
+<div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel en el visor automáticamente.</div>
               <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
             </div>
           </div>
@@ -6396,7 +6396,8 @@ async function updateRutinaPDFPreview(){
     const urlSignedData = await urlSignedRes.json().catch(()=>({}));
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
     if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return; }
-    const viewerSrc = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(String(urlSignedData.url))}`;
+    // Usar Office Viewer en lugar de Google Viewer para evitar errores de autenticación de Google Cloud
+    const viewerSrc = `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(String(urlSignedData.url))}`;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
     frame.style.display='block';
