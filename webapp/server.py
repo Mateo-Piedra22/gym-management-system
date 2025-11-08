@@ -24,6 +24,8 @@ import subprocess
 import psycopg2
 import psycopg2.extras
 import time
+import hmac
+import hashlib
 import urllib.parse
 # Asegurar que el directorio raíz del proyecto esté en sys.path para imports (models, payment_manager, database)
 try:
