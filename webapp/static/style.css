@@ -102,7 +102,7 @@ body { margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto
 .btn.outline.success { color: var(--success); border-color: rgba(111,94,168,.5); }
 .btn.outline.warning { color: var(--warning); border-color: rgba(207,168,106,.5); }
 .btn.outline.danger  { color: var(--danger);  border-color: rgba(239,68,68,.5); }
-.btn.outline.info    { color: var(--info);    border-color: rgba(139,120,185,.5); }
+.btn.outline.info    { color: var(--info);    border-color: rgba(139, 120, 185, 0.502); }
 
 .btn.ghost { background: transparent; color: var(--text); border-color: transparent; }
 .btn.ghost:hover { background: rgba(255,255,255,0.06); filter: brightness(1.03); transform: translateY(-1px); box-shadow: var(--shadow-md); }

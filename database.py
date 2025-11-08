@@ -14476,11 +14476,39 @@ class DatabaseManager:
                         'datos': None
                     }
 
-                fin = datetime.now()
+                # Obtener tiempo de fin desde la BD para evitar desfases de zona horaria
+                try:
+                    with self.get_connection_context() as conn_ts:
+                        cur_ts = conn_ts.cursor()
+                        cur_ts.execute("SELECT CURRENT_TIMESTAMP")
+                        r_ts = cur_ts.fetchone()
+                        fin = r_ts[0] if r_ts else datetime.now()
+                except Exception:
+                    fin = datetime.now()
                 inicio_db = sesion_db['hora_inicio']
-                duracion_minutos_db = (fin - inicio_db).total_seconds() / 60
+                # Intentar calcular la duración en minutos directamente en SQL para mayor consistencia
+                duracion_minutos_db = None
+                try:
+                    with self.get_connection_context() as conn_calc:
+                        cur_calc = conn_calc.cursor()
+                        cur_calc.execute(
+                            """
+                            SELECT ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - %s)) / 60.0)
+                            """,
+                            (inicio_db,)
+                        )
+                        r_calc = cur_calc.fetchone()
+                        if r_calc:
+                            duracion_minutos_db = float(r_calc[0])
+                except Exception:
+                    duracion_minutos_db = None
+                if duracion_minutos_db is None:
+                    try:
+                        duracion_minutos_db = (fin - inicio_db).total_seconds() / 60.0
+                    except Exception:
+                        duracion_minutos_db = 0.0
                 if duracion_minutos_db < 1:
-                    duracion_minutos_db = 1  # mínimo 1 minuto
+                    duracion_minutos_db = 1.0  # mínimo 1 minuto
 
                 # Clasificar la sesión: 'En horario' si cae dentro de un bloque asignado, si no 'Horas extra'
                 try:
@@ -14516,13 +14544,13 @@ class DatabaseManager:
                         en_horario = False
                 tipo_actividad = 'En horario' if en_horario else 'Horas extra'
 
-                # Finalizar sesión con tipo_actividad calculado
+                # Finalizar sesión con tipo_actividad calculado y duración consistente en SQL
                 with self.get_connection_context() as conn:
                     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                     sql = """
                     UPDATE profesor_horas_trabajadas 
-                    SET hora_fin = %s, 
-                        minutos_totales = %s,
+                    SET hora_fin = CURRENT_TIMESTAMP,
+                        minutos_totales = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - hora_inicio)) / 60.0),
                         tipo_actividad = %s
                     WHERE id = %s
                     RETURNING 
@@ -14530,12 +14558,15 @@ class DatabaseManager:
                         minutos_totales, horas_totales, tipo_actividad,
                         clase_id, notas, fecha_creacion
                     """
-                    cursor.execute(sql, (fin, round(duracion_minutos_db), tipo_actividad, sesion_db['id']))
+                    cursor.execute(sql, (tipo_actividad, sesion_db['id']))
                     sesion_finalizada = cursor.fetchone()
                     conn.commit()
 
-                # Reemplazar variables de impresión para usar la duración recalculada
-                duracion_minutos = duracion_minutos_db
+                # Usar los minutos_totales devueltos por la BD para imprimir y auditar
+                try:
+                    duracion_minutos = float(sesion_finalizada.get('minutos_totales', duracion_minutos_db)) if sesion_finalizada else float(duracion_minutos_db)
+                except Exception:
+                    duracion_minutos = float(duracion_minutos_db)
 
                 if sesion_finalizada:
                     # Intentar limpiar cualquier estado local residual
@@ -14725,6 +14756,194 @@ class DatabaseManager:
                 'minutos_transcurridos': 0,
                 'horas_transcurridas': 0.0,
                 'tiempo_formateado': '0h 0m',
+                'error': str(e)
+            }
+    
+    def normalizar_sesiones_profesor(
+        self,
+        profesor_id: int,
+        fecha_inicio: Optional[date] = None,
+        fecha_fin: Optional[date] = None,
+        preferencia: str = 'minutos',
+        tolerancia_minutos: int = 5
+    ) -> Dict[str, Any]:
+        """Normaliza sesiones antiguas corrigiendo 'hora_fin' o 'minutos_totales'.
+
+        Regla robusta y segura (por defecto): confiar en los minutos trabajados
+        para reconstruir la hora de fin (`hora_fin = hora_inicio + minutos_totales`).
+        Corrige desfases típicos de zona horaria (p. ej. +/-1h, +/-2h, +/-3h).
+
+        Heurísticas:
+        - Si el delta entre `hora_fin` actual y la esperada por minutos coincide
+          con offsets comunes dentro de la tolerancia, se corrige `hora_fin`.
+        - Si `minutos_totales` está vacío/<=0 pero las marcas de tiempo indican
+          duración positiva, se recalculan los minutos desde timestamps.
+        - Si la preferencia es 'timestamps', se prioriza ajustar los minutos para
+          que coincidan con (hora_fin - hora_inicio).
+
+        Devuelve resumen con conteos y detalles por registro actualizado.
+        """
+        # Normalización segura sin bloque try externo
+        resumen = {
+            'success': True,
+            'profesor_id': profesor_id,
+            'preferencia': preferencia,
+            'tolerancia_minutos': tolerancia_minutos,
+            'total_inspeccionados': 0,
+            'actualizados_hora_fin': 0,
+            'actualizados_minutos': 0,
+            'omitidos': 0,
+            'detalles': []
+        }
+
+        try:
+            with self.get_connection_context() as conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+                sql = (
+                    """
+                    SELECT id, fecha, hora_inicio, hora_fin, minutos_totales
+                    FROM profesor_horas_trabajadas
+                    WHERE profesor_id = %s AND hora_fin IS NOT NULL
+                    """
+                )
+                params: List[Any] = [profesor_id]
+                if fecha_inicio is not None:
+                    sql += " AND fecha >= %s"
+                    params.append(fecha_inicio)
+                if fecha_fin is not None:
+                    sql += " AND fecha <= %s"
+                    params.append(fecha_fin)
+                sql += " ORDER BY fecha ASC, hora_inicio ASC"
+
+                cursor.execute(sql, params)
+                filas = cursor.fetchall() or []
+                resumen['total_inspeccionados'] = len(filas)
+
+                tz_offsets = [180, 120, 60, -60, -120, -180]
+
+                for row in filas:
+                    try:
+                        rid = int(row['id'])
+                        inicio = row['hora_inicio']
+                        fin = row['hora_fin']
+                        minutos = row.get('minutos_totales')
+                        if inicio is None or fin is None:
+                            resumen['omitidos'] += 1
+                            resumen['detalles'].append({'id': rid, 'accion': 'omitido', 'motivo': 'faltan timestamps'})
+                            continue
+
+                        # Duración basada en timestamps actuales
+                        try:
+                            dur_ts_min = (fin - inicio).total_seconds() / 60.0
+                        except Exception:
+                            dur_ts_min = 0.0
+
+                        # Hora de fin esperada confiando en minutos_totales (robusta)
+                        try:
+                            minutos_safe = int(minutos) if minutos is not None else 0
+                        except Exception:
+                            minutos_safe = 0
+                        from datetime import timedelta
+                        fin_esperada = inicio + timedelta(minutes=minutos_safe)
+
+                        # Delta en minutos entre fin actual y esperada
+                        try:
+                            delta_min = (fin - fin_esperada).total_seconds() / 60.0
+                        except Exception:
+                            delta_min = 0.0
+
+                        ajustar_fin = False
+                        ajustar_minutos = False
+
+                        # 1) Si minutos están vacíos/<=0 pero timestamps muestran duración positiva
+                        if (minutos is None or minutos_safe <= 0) and (dur_ts_min > 0.5):
+                            ajustar_minutos = True
+
+                        # 2) Detectar desfase típico de zona horaria (+/-1,2,3 horas)
+                        if not ajustar_fin:
+                            for off in tz_offsets:
+                                if abs(delta_min - off) <= tolerancia_minutos:
+                                    ajustar_fin = True
+                                    break
+
+                        # 3) Regla principal por preferencia
+                        if not ajustar_fin and not ajustar_minutos:
+                            if abs(delta_min) > tolerancia_minutos:
+                                if str(preferencia).lower() in ('minutos', 'minutes'):
+                                    ajustar_fin = True
+                                else:
+                                    ajustar_minutos = True
+
+                        # 4) Si timestamps dan duración negativa y hay minutos positivos, corregir fin
+                        if not ajustar_fin and dur_ts_min < -0.5 and minutos_safe > 0:
+                            ajustar_fin = True
+
+                        if ajustar_fin:
+                            try:
+                                cursor.execute(
+                                    "UPDATE profesor_horas_trabajadas SET hora_fin = %s WHERE id = %s",
+                                    (fin_esperada, rid)
+                                )
+                                resumen['actualizados_hora_fin'] += 1
+                                resumen['detalles'].append({
+                                    'id': rid,
+                                    'accion': 'hora_fin_actualizada',
+                                    'delta_minutos': round(delta_min, 2),
+                                    'fin_anterior': fin.isoformat(),
+                                    'fin_nueva': fin_esperada.isoformat()
+                                })
+                            except Exception as e:
+                                resumen['omitidos'] += 1
+                                resumen['detalles'].append({'id': rid, 'accion': 'error_update_fin', 'error': str(e)})
+                                continue
+                        elif ajustar_minutos:
+                            try:
+                                minutos_nuevos = int(round(dur_ts_min))
+                                if minutos_nuevos < 0:
+                                    minutos_nuevos = 0
+                                cursor.execute(
+                                    "UPDATE profesor_horas_trabajadas SET minutos_totales = %s WHERE id = %s",
+                                    (minutos_nuevos, rid)
+                                )
+                                resumen['actualizados_minutos'] += 1
+                                resumen['detalles'].append({
+                                    'id': rid,
+                                    'accion': 'minutos_actualizados',
+                                    'minutos_anteriores': int(minutos) if minutos is not None else None,
+                                    'minutos_nuevos': minutos_nuevos
+                                })
+                            except Exception as e:
+                                resumen['omitidos'] += 1
+                                resumen['detalles'].append({'id': rid, 'accion': 'error_update_minutos', 'error': str(e)})
+                                continue
+                        else:
+                            resumen['omitidos'] += 1
+                            resumen['detalles'].append({
+                                'id': rid,
+                                'accion': 'sin_cambios',
+                                'delta_minutos': round(delta_min, 2)
+                            })
+                    except Exception as e:
+                        resumen['omitidos'] += 1
+                        try:
+                            registro_id = int(row.get('id')) if isinstance(row, dict) else None
+                        except Exception:
+                            registro_id = None
+                        resumen['detalles'].append({
+                            'id': registro_id,
+                            'accion': 'error_procesamiento_registro',
+                            'error': str(e)
+                        })
+
+                # Commit de todos los cambios y dejar que triggers recalculen horas/minutos
+                conn.commit()
+
+            return resumen
+        except Exception as e:
+            logging.error(f"Error normalizando sesiones del profesor {profesor_id}: {e}")
+            return {
+                'success': False,
                 'error': str(e)
             }
     

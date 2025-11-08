@@ -27,7 +27,7 @@
     .actions { margin-top: 16px; display:flex; gap: 8px; }
     .actions .btn { flex: 1; }
     .msg { margin-top: 10px; padding: 10px; border-radius: 8px; }
-    .msg.ok { background: #163e24; color: #9be7b2; }
+    .msg.ok { background: rgba(139,120,185,0.18); color: var(--text); }
     .msg.err { background: #3a1212; color: #f4aaaa; }
     .scanner { margin-top: 16px; }
   </style>
@@ -35,7 +35,7 @@
     /* Toasts consistentes con Gestión/Login */
     .toast-container { position: fixed; top: 12px; right: 12px; display:flex; flex-direction:column; gap:8px; z-index: 9999; }
     .toast { display:flex; align-items:center; gap:12px; background: var(--card); color: var(--text); border:1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 16px rgba(0,0,0,.4); }
-    .toast.success { border-color: #10b98133; background: #065f4633; }
+    .toast.success { border-color: var(--accent); background: rgba(176,125,93,0.18); }
     .toast.warning { border-color: #f59e0b33; background: #78350f33; }
     .toast.error { border-color: #ef444433; background: #7f1d1d33; }
     .toast .message { flex:1; }

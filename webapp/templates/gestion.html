@@ -180,10 +180,12 @@
     .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
     /* Toasts */
     .toast-container { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: var(--z-toast); pointer-events: none; }
+    /* Centrar toasts cuando el modal de QR está activo */
+    .qr-toast-open #toast-container { left: 50%; transform: translateX(-50%); right: auto; }
     .toast { pointer-events: all; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .toast .message { flex: 1; }
     .toast .actions { display: flex; gap: 8px; }
-    .toast.success { border-left-color: #22c55e; }
+    .toast.success { border-left-color: var(--accent); }
     .toast.warning { border-left-color: #f59e0b; }
     .toast.error { border-left-color: #ef4444; }
     /* Tabs hover */
@@ -192,7 +194,7 @@
 
     /* Zebra stripes y selección */
     .table-scroll tbody tr:nth-child(odd){ background: rgba(255,255,255,.03); }
-    .row-selectable tr.selected{ background: rgba(34,197,94,.14); outline: 1px solid rgba(34,197,94,.35); }
+    .row-selectable tr.selected{ background: rgba(139,120,185,.16); outline: 1px solid rgba(139,120,185,.45); }
     /* Animaciones toast */
     @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
@@ -205,11 +207,11 @@
     #usuario-side{ position: relative; }
     .loader-overlay{ position:absolute; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,0.35); backdrop-filter: blur(2px); z-index: 5; }
     .loader-overlay.active{ display:flex; }
-    .loader-overlay .spinner{ width:24px; height:24px; border:3px solid var(--border); border-top-color:#22c55e; border-radius:50%; animation: spin .8s linear infinite; }
+    .loader-overlay .spinner{ width:24px; height:24px; border:3px solid var(--border); border-top-color: var(--info); border-radius:50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Spinner pequeño para botones */
-    .btn-spinner{ display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:#22c55e; border-radius:50%; animation: spin .8s linear infinite; vertical-align: middle; }
+    .btn-spinner{ display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color: var(--info); border-radius:50%; animation: spin .8s linear infinite; vertical-align: middle; }
 
     /* Overrides: hover chips border accent unificado */
     .chip:hover { border-color: var(--accent); }
@@ -224,15 +226,15 @@
     .main { overflow: auto; height: 100%; min-height: 0; -webkit-overflow-scrolling: touch; }
 
     /* Indicador de sesión tipo "pill" con pulso cuando está activa */
-.session-indicator { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background: rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.35); transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
-.session-indicator::before { content:""; width:8px; height:8px; border-radius:50%; background:#22c55e; }
+.session-indicator { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background: rgba(139,120,185,0.12); color: var(--info); border:1px solid rgba(139,120,185,0.35); transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+.session-indicator::before { content:""; width:8px; height:8px; border-radius:50%; background: var(--info); }
 .session-indicator.active { animation: pulse-glow 2s ease-in-out infinite; }
 .session-indicator.inactive { background: rgba(239,68,68,0.12); color:#ef4444; border-color: rgba(239,68,68,0.35); }
 .session-indicator.inactive::before { background:#ef4444; }
 .session-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; background: rgba(255,255,255,0.08); border:1px solid var(--border); color: inherit; }
 .session-chip i { opacity:.85; }
 .session-state { opacity:.9; }
-    @keyframes pulse-glow { 0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0);} 50% { box-shadow: 0 0 0 8px rgba(34,197,94,0.12);} 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.0);} }
+    @keyframes pulse-glow { 0% { box-shadow: 0 0 0 0 rgba(139,120,185,0.0);} 50% { box-shadow: 0 0 0 8px rgba(139,120,185,0.12);} 100% { box-shadow: 0 0 0 0 rgba(139,120,185,0.0);} }
 
     /* Reloj de duración con flip ligero y dos puntos parpadeantes */
     .duration-timer { display:inline-flex; align-items: baseline; gap:6px; font-variant-numeric: tabular-nums; }
@@ -787,9 +789,10 @@
           </div>
           <div class="block-body">
             <div class="cards">
-              <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-m-horas-trabajadas">0</div></div>
-              <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-m-horas-proyectadas">0</div></div>
-              <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-m-horas-extra">0</div></div>
+  <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-m-horas-trabajadas">0</div></div>
+  <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-m-horas-proyectadas">0</div></div>
+  <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-m-horas-extra">0</div></div>
+  <div class="card"><div class="card-title">Totales (h)</div><div class="card-value" id="prof-m-horas-totales">0</div></div>
             </div>
           </div>
         </div>
@@ -806,9 +809,10 @@
           </div>
           <div class="block-body">
             <div class="cards">
-              <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-w-horas-trabajadas">0</div></div>
-              <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-w-horas-proyectadas">0</div></div>
-              <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-w-horas-extra">0</div></div>
+  <div class="card"><div class="card-title">Trabajadas (h)</div><div class="card-value" id="prof-w-horas-trabajadas">0</div></div>
+  <div class="card"><div class="card-title">Proyectadas (h)</div><div class="card-value" id="prof-w-horas-proyectadas">0</div></div>
+  <div class="card"><div class="card-title">Extras (h)</div><div class="card-value" id="prof-w-horas-extra">0</div></div>
+  <div class="card"><div class="card-title">Totales (h)</div><div class="card-value" id="prof-w-horas-totales">0</div></div>
             </div>
           </div>
         </div>
@@ -928,7 +932,7 @@
             <textarea id="prof-config-certificaciones" placeholder="Certificaciones" rows="3" style="width:100%"></textarea>
           </div>
           <div style="margin-top:12px; font-size:12px; color:var(--muted); line-height:1.4">
-            <strong>Inicio y fin de sesión:</strong> Inicia y termina sesiones desde Gestión. Si la hora de fin es anterior a la de inicio, se considera que cruzó medianoche y se mostrará "(+1d)". La duración se calcula ajustando el fin al día siguiente.
+            <strong>Inicio y fin de sesión:</strong> Inicia y termina sesiones desde Gestión. Si la hora de fin es anterior a la de inicio, se mostrará "(+1d)" solo cuando el cálculo de minutos indique cruce real de medianoche; de lo contrario se mostrará la hora sin la marca.
           </div>
         </div>
       </div>
@@ -2435,26 +2439,27 @@
 
 <!-- Modal: QR Check-in Toast -->
   <div class="modal-backdrop" id="modal-qr-toast" style="display:none" aria-hidden="true">
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title" style="max-width: 380px; border-radius: 12px; overflow: hidden;">
-      <div class="modal-header" style="padding: 12px 16px; background: linear-gradient(180deg, #f8fafc, #eef2f7); border-bottom: 1px solid #e5e7eb;">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title" aria-describedby="modal-qr-desc" style="max-width: 380px;">
+      <div class="modal-header">
         <h3 id="modal-qr-title" style="margin:0; font-size:16px; font-weight:600;">QR de Check-in</h3>
         <button class="modal-close" id="qr-close-btn" aria-label="Cerrar" style="border:none; background:transparent; font-size:20px; line-height:1; cursor:pointer;">×</button>
       </div>
-      <div class="modal-body" style="text-align:center; padding: 16px; background:#fff;">
-        <div id="qr-user-name" style="margin-bottom:8px; color:#334155; font-weight:600;">—</div>
-        <div style="display:inline-block; padding:10px; border-radius:12px; background:#f8fafc; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
-          <canvas id="qr-canvas" width="240" height="240" style="display:block; border-radius:8px; background:#fff;"></canvas>
+      <div class="modal-body" style="text-align:center;">
+        <p id="modal-qr-desc" class="sr-only" style="position:absolute;left:-9999px;">Escanea este código QR para registrar la asistencia. El token expira en pocos minutos.</p>
+        <div id="qr-user-name" style="margin-bottom:8px; color: var(--text); font-weight:600;">—</div>
+        <div style="display:inline-flex; align-items:center; justify-content:center; padding:10px; border-radius:12px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 8px 20px rgba(0,0,0,0.35);">
+          <canvas id="qr-canvas" width="240" height="240" style="display:block; margin:0 auto; border-radius:8px; background: var(--card);"></canvas>
         </div>
-        <div id="qr-token-masked" style="margin-top:10px; color:#64748b; font-size:13px">token: —</div>
-        <div style="margin-top:12px; font-size:13px; color:#334155">
+        <div id="qr-token-masked" style="margin-top:10px; color: var(--muted); font-size:13px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">token: —</div>
+        <div style="margin-top:12px; font-size:13px; color: var(--text)">
           <span style="font-weight:600">Tiempo restante:</span> <span id="qr-countdown" aria-live="polite">—</span>
         </div>
-        <div style="margin-top:8px; height:8px; background:#eef2f7; border-radius:999px; overflow:hidden;" aria-hidden="true" aria-label="Progreso de tiempo restante">
-          <div id="qr-progress" style="height:8px; width:0%; background:#22c55e; transition: width 180ms ease;" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+        <div style="margin-top:8px; height:8px; width:100%; background: rgba(139,120,185,0.22); border-radius:999px; overflow:hidden;" aria-label="Progreso de tiempo restante">
+          <div id="qr-progress" style="display:block; height:100%; width:0%; background:#8b78b9; transition: width 180ms ease; border-radius:999px; will-change: width;" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="0%"></div>
         </div>
-        <div id="qr-status-msg" style="margin-top:12px; display:inline-block; padding:6px 10px; border-radius:999px; background:#f1f5f9; color:#334155; font-size:12px;">Esperando confirmación…</div>
+        <div id="qr-status-msg" style="margin-top:12px; display:inline-block; padding:6px 10px; border-radius:999px; background: rgba(255,255,255,0.06); color: var(--text); font-size:12px;" aria-live="polite" aria-atomic="true">Esperando confirmación…</div>
       </div>
-      <div class="modal-footer" style="background:#f8fafc; border-top:1px solid #e5e7eb;">
+      <div class="modal-footer">
         <button class="btn outline neutral" id="qr-close-footer">Cerrar</button>
       </div>
     </div>
@@ -2746,9 +2751,12 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       if (prog) {
         const total = qrState.totalMs || (5 * 60 * 1000);
         const used = Math.max(0, total - rem);
-        const pct = Math.min(100, Math.max(0, Math.round((used / total) * 100)));
+        const pctBase = Math.round((used / total) * 100);
+        const minWhenActive = rem > 0 ? 3 : 0;
+        const pct = Math.min(100, Math.max(minWhenActive, pctBase));
         prog.style.width = pct + '%';
         prog.setAttribute('aria-valuenow', String(pct));
+        prog.setAttribute('aria-valuetext', 'Restante ' + formatCountdown(rem));
       }
       if(rem<=0){
         const status = document.getElementById('qr-status-msg');
@@ -2775,6 +2783,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
                 }
               } catch(_) {}
             })();
+            // Sincronizar set local para evitar re-emisión inmediata
+            try { if (u && u.id && state.asistenciasHoySet instanceof Set) { state.asistenciasHoySet.add(Number(u.id)); } } catch(_){ }
           }
           if(used || expired){ stopQRTimers(); setTimeout(() => closeQRModal(), 1200); }
         } else {
@@ -2782,7 +2792,7 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         }
       }).catch(() => {});
     }
-    function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; qrState.totalMs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; const prog = document.getElementById('qr-progress'); if(prog){ prog.style.width='0%'; prog.setAttribute('aria-valuenow','0'); } closeModal('modal-qr-toast'); }
+    function closeQRModal(){ stopQRTimers(); qrState.token=null; qrState.expiresTs=0; qrState.totalMs=0; const un = document.getElementById('qr-user-name'); if(un) un.textContent='—'; const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent='token: —'; const prog = document.getElementById('qr-progress'); if(prog){ prog.style.width='0%'; prog.setAttribute('aria-valuenow','0'); } try{ document.body.classList.remove('qr-toast-open'); }catch(_){ } closeModal('modal-qr-toast'); }
     async function emitirQRCheckin(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero para emitir el QR.', 'warning', 4000); return; }
       const set = state.asistenciasHoySet;
       if(set && set.has(Number(u.id))){
@@ -2803,7 +2813,8 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
         const token = String(data.token || '').trim(); if(!token){ throw new Error('No se generó token'); }
         qrState.token = token; qrState.totalMs = Number(data.expires_minutes||expires_minutes) * 60 * 1000; qrState.expiresTs = Date.now() + qrState.totalMs;
         const un = document.getElementById('qr-user-name'); if(un) un.textContent = String(u.nombre || `Usuario #${u.id}`);
-        const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent = `token: ***${token.slice(-4)}`;
+        const tm = document.getElementById('qr-token-masked'); if(tm) tm.textContent = `token: ${token}`;
+        try{ document.body.classList.add('qr-toast-open'); }catch(_){ }
         openModal('modal-qr-toast');
         showToast('QR de check-in generado correctamente.', 'success', 2500);
         const statusEl = document.getElementById('qr-status-msg'); if(statusEl) statusEl.textContent = 'Escanea el QR para registrar asistencia.';
@@ -2833,6 +2844,17 @@ const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUse
       }
     }
     }
+
+    // Accesibilidad: cerrar modal con botones, clic fuera y Escape
+    try {
+      const qrCloseBtn = document.getElementById('qr-close-btn');
+      if(qrCloseBtn) qrCloseBtn.addEventListener('click', () => closeQRModal());
+      const qrCloseFooter = document.getElementById('qr-close-footer');
+      if(qrCloseFooter) qrCloseFooter.addEventListener('click', () => closeQRModal());
+      const qrBackdrop = document.getElementById('modal-qr-toast');
+      if(qrBackdrop) qrBackdrop.addEventListener('click', (ev) => { if(ev.target === qrBackdrop) closeQRModal(); });
+      document.addEventListener('keydown', (ev) => { if(ev.key === 'Escape'){ const el = document.getElementById('modal-qr-toast'); if(el && el.classList.contains('active')){ ev.preventDefault(); closeQRModal(); } } });
+    } catch(_){ }
     async function registrarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       try{
         const res = await fetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) });
@@ -7832,8 +7854,8 @@ function attachWheelZoom(containerId, frameId){
 
       const coverSegment = (blocks, segStart, segEnd) => {
         if(!blocks || blocks.length === 0){
-          // Si no hay horario definido para el día, no marcar extra para este segmento
-          return Math.max(0, segEnd - segStart);
+          // Sin horario definido: no hay cobertura; todo ese segmento será extra
+          return 0;
         }
         let c = 0;
         const left = Math.max(segStart, 0);
@@ -8295,6 +8317,8 @@ function attachWheelZoom(containerId, frameId){
     set(`${prefix}-horas-trabajadas`, hTrab);
     set(`${prefix}-horas-proyectadas`, hProj);
     set(`${prefix}-horas-extra`, hExtDisplay);
+    // Nuevo: Horas totales = trabajadas + extras
+    set(`${prefix}-horas-totales`, Number(hTrab) + Number(hExtDisplay));
   }
   async function loadProfesorResumen(){
     try {
@@ -8308,8 +8332,9 @@ function attachWheelZoom(containerId, frameId){
         const qsM = new URLSearchParams({ profesor_id: String(pid), start: ms, end: me });
         const rM = await fetch('/api/profesor_resumen?' + qsM.toString());
         const resM = await rM.json().catch(() => ({}));
-        // Recalcular extras desde sesiones en el mismo rango para corregir cálculo
+        // Recalcular cobertura (en horario) y extras desde sesiones en el mismo rango
         let extrasMinM = 0;
+        let coveredMinM = 0;
         try{
           const rSM = await fetch('/api/profesor_sesiones?' + qsM.toString());
           const dataSM = await rSM.json().catch(() => ([]));
@@ -8319,10 +8344,13 @@ function attachWheelZoom(containerId, frameId){
             const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
             const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
             const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
-            if(cov) extrasMinM += Math.max(0, cov.extraMin || 0);
+            if(cov){
+              extrasMinM += Math.max(0, cov.extraMin || 0);
+              coveredMinM += Math.max(0, cov.coveredMin || 0);
+            }
           }
         }catch(_){ /* mantener backend si falla */ }
-        const resM2 = Object.assign({}, resM || {}, { horas_extras: (extrasMinM/60) });
+        const resM2 = Object.assign({}, resM || {}, { horas_trabajadas: (coveredMinM/60), horas_extras: (extrasMinM/60) });
         updateResumenCards('prof-m', resM2);
       } catch(_) { updateResumenCards('prof-m', {}); }
       // Semanal: basado en fecha y comienzo de semana
@@ -8339,6 +8367,7 @@ function attachWheelZoom(containerId, frameId){
           const rW = await fetch('/api/profesor_resumen?' + qsW.toString());
           const resW = await rW.json().catch(() => ({}));
           let extrasMinW = 0;
+          let coveredMinW = 0;
           try{
             const rSW = await fetch('/api/profesor_sesiones?' + qsW.toString());
             const dataSW = await rSW.json().catch(() => ([]));
@@ -8348,10 +8377,13 @@ function attachWheelZoom(containerId, frameId){
               const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
               const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
               const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
-              if(cov) extrasMinW += Math.max(0, cov.extraMin || 0);
+              if(cov){
+                extrasMinW += Math.max(0, cov.extraMin || 0);
+                coveredMinW += Math.max(0, cov.coveredMin || 0);
+              }
             }
           }catch(_){ }
-          const resW2 = Object.assign({}, resW || {}, { horas_extras: (extrasMinW/60) });
+          const resW2 = Object.assign({}, resW || {}, { horas_trabajadas: (coveredMinW/60), horas_extras: (extrasMinW/60) });
           updateResumenCards('prof-w', resW2);
         } catch(_) { updateResumenCards('prof-w', {}); }
       } else {
@@ -8406,7 +8438,26 @@ function attachWheelZoom(containerId, frameId){
         const tr = document.createElement('tr');
         const inicioText = extractTime(inicioRaw);
         const finText0 = extractTime(finRaw);
-        const finText = (inicioText && finText0 && finText0 < inicioText) ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
+        const parseMin = (t) => {
+          if(!t || t === '—') return null;
+          try {
+            const [hh, mm] = String(t).split(':');
+            const h = parseInt(hh, 10); const m = parseInt(mm, 10);
+            if(Number.isFinite(h) && Number.isFinite(m)) return h*60 + m;
+          } catch(_){ }
+          return null;
+        };
+        const approxEq = (a, b, tol=3) => (typeof a === 'number' && typeof b === 'number') ? Math.abs(a-b) <= tol : false;
+        const sMin = parseMin(inicioText);
+        const fMin = parseMin(finText0);
+        const minutosNum = Number(minutosVal || 0);
+        // Estrategia: calcular cruce de medianoche a partir de minutos reales desde hora de inicio
+        const crossesByMinutes = (sMin !== null && Number.isFinite(minutosNum)) ? ((sMin + minutosNum) >= 1440) : false;
+        // Respaldo: comparar fin<inicio y que los minutos coincidan con cruce (tolerancia)
+        const expectedMinTimes = (sMin !== null && fMin !== null) ? (fMin - sMin + 1440) : null;
+        const crossesByTimes = (sMin !== null && fMin !== null && fMin < sMin) && (expectedMinTimes !== null) && approxEq(minutosNum, expectedMinTimes, 3);
+        const crossesMidnight = crossesByMinutes || crossesByTimes;
+        const finText = crossesMidnight ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
         // Calcular chip y determinar texto de tipo enriquecido
         let extraBadge = '';
         let covResult = null;
@@ -8546,7 +8597,12 @@ function attachWheelZoom(containerId, frameId){
     </span>`;
     durSpan.innerHTML = html;
     durSpan.setAttribute('data-prev', currentText);
-    if(role === 'profesor' && loginProfId && String(loginProfId) === String(pidSel || loginProfId)){
+    // Actualiza la barra superior para profesores y también para dueño si hay profesor seleccionado
+    const shouldUpdateTopBar = (
+      (role === 'profesor' && loginProfId && String(loginProfId) === String(pidSel || loginProfId)) ||
+      (role !== 'profesor' && !!pidSel)
+    );
+    if(shouldUpdateTopBar){
       updateTopBarDurationHMS(h, m, s);
     }
   }
@@ -8583,10 +8639,11 @@ function attachWheelZoom(containerId, frameId){
     const roleEl = document.getElementById('login-current');
     const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
     if(state.profesores.sesionTimerId){ clearInterval(state.profesores.sesionTimerId); state.profesores.sesionTimerId = null; }
-    if(active && role !== 'dueño'){
+    if(active){
       state.profesores.sesionActive = true;
       startSesionSecondTick();
       state.profesores.sesionTimerId = setInterval(() => { try{ refreshSesionDuration(true); }catch(_){} }, 15000);
+      try{ refreshSesionDuration(true); }catch(_){ }
     } else {
       state.profesores.sesionActive = false;
       stopSesionSecondTick();
@@ -8598,7 +8655,11 @@ function attachWheelZoom(containerId, frameId){
       const roleEl = document.getElementById('login-current');
       const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
       const loginProfId = roleEl ? (roleEl.getAttribute('data-prof-id') || '') : '';
-      if(role !== 'profesor'){
+      const sel = document.getElementById('profesor-select');
+      const pidSel = sel?.value || '';
+      const isOwnerView = (role !== 'profesor');
+      const profId = isOwnerView ? (pidSel || '') : (loginProfId || '');
+      if(isOwnerView && !profId){
         setupSesionTimer(false);
         const el = document.getElementById('login-current');
         if(el){
@@ -8610,7 +8671,7 @@ function attachWheelZoom(containerId, frameId){
         }
         return;
       }
-      const urlActiva = loginProfId ? `/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(loginProfId)}` : `/api/profesor_sesion_activa`;
+      const urlActiva = profId ? `/api/profesor_sesion_activa?profesor_id=${encodeURIComponent(profId)}` : `/api/profesor_sesion_activa`;
       fetch(urlActiva)
         .then(r => r.json().catch(() => ({})))
         .then(d => {
@@ -8758,8 +8819,12 @@ function attachWheelZoom(containerId, frameId){
         const prevMin = Number(state.profesores.lastDurationMin || 0);
         const hadActive = !!state.profesores.sesionActive;
         state.profesores.sesionActive = true;
-        // Solo reiniciar el contador si el minuto reportado avanzó.
-        if(!hadActive || prevMin === 0){
+        // Reglas de sincronización:
+        // - Si no estaba activa o el servidor reporta 0-1 min, alinear y reiniciar.
+        // - Si el servidor avanza minutos, actualizar base y reiniciar delta.
+        // - Si el servidor reduce minutos de forma notable (sesión reiniciada), aceptar reset.
+        const shouldHardReset = (!hadActive) || (prevMin > 0 && min < prevMin && (prevMin - min) >= 1);
+        if(shouldHardReset){
           state.profesores.lastDurationMin = min;
           state.profesores.lastDurationAt = now;
           const baseSec = Math.floor(min * 60);
@@ -8796,6 +8861,12 @@ function attachWheelZoom(containerId, frameId){
       .then(d => {
         if(d && d.success !== false && !d.error){
           if (typeof showToast==='function') showToast('Sesión iniciada', 'success');
+          // Reset local inmediato para empezar en 0 segundos
+          ensureProfesoresState();
+          state.profesores.sesionActive = true;
+          state.profesores.lastDurationMin = 0;
+          state.profesores.lastDurationAt = Date.now();
+          startSesionSecondTick();
           refreshSesion();
           loadProfesorResumen();
         } else {

@@ -115,9 +115,9 @@
     table.data-table thead th { position:sticky; top:0; background:#0b1220; border-bottom:1px solid var(--border); padding:8px 10px; text-align:left; z-index:1; }
     table.data-table tbody td { padding:8px 10px; border-bottom:1px solid var(--border); }
     table.data-table tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
-    table.data-table tbody tr:hover { background: rgba(74,144,226,0.12); }
+    table.data-table tbody tr:hover { background: rgba(176,125,93,0.12); }
     .panel-controls { display:flex; gap:12px; align-items:center; margin:8px 0 12px 0; flex-wrap: wrap; }
-    .selected-row { outline:2px solid #4a90e2; background: rgba(74,144,226,0.16) !important; }
+    .selected-row { outline:2px solid var(--accent); background: rgba(176,125,93,0.16) !important; }
     /* Modal usuario detalle */
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
     .modal.show { display: flex; }
@@ -138,7 +138,7 @@
     .toast { pointer-events: all; background: var(--card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 10px 12px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 24px rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .toast .message { flex: 1; }
     .toast .actions { display: flex; gap: 8px; }
-    .toast.success { border-left-color: #22c55e; }
+    .toast.success { border-left-color: var(--accent); }
     .toast.warning { border-left-color: #f59e0b; }
     .toast.error { border-left-color: #ef4444; }
     @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
@@ -212,6 +212,10 @@
       <section class="card tile">
         <div class="label">Nuevos (30 días)</div>
         <div class="value" id="kpi-nuevos">—</div>
+      </section>
+      <section class="card tile">
+        <div class="label">Horas totales (filtrado)</div>
+        <div class="value" id="kpi-horas-totales">—</div>
       </section>
       <!-- Ingresos 12m y Nuevos 12m -->
       <section class="card wide">
@@ -826,7 +830,7 @@
       const s2 = seriesFromRecord(neu.nuevos);
       chartBar('chart-nuevos', s2.labels, s2.values, 'Altas', themeVars().primary);
       const s3 = seriesFromRecord(asist);
-      chartLine('chart-asistencia', s3.labels, s3.values, 'Asistencias', '#10b981');
+      chartLine('chart-asistencia', s3.labels, s3.values, 'Asistencias', '#8b78b9');
       const s4 = seriesFromRecord(horas);
       chartBar('chart-horas', s4.labels, s4.values, 'Por hora', '#60a5fa');
       chartPie('chart-estado', estado);
@@ -884,8 +888,20 @@ async function loadAdvanced() {
       } catch (err) { console.error(err); showToast('No se pudo exportar los datos.', 'error', 4500); }
     });
     // Aplicación automática al cambiar Desde/Hasta y actualizar vista en español
-    document.getElementById('filter-start').addEventListener('change', async () => { updateDateDisplay('filter-start'); await loadCharts(); });
-    document.getElementById('filter-end').addEventListener('change', async () => { updateDateDisplay('filter-end'); await loadCharts(); });
+    document.getElementById('filter-start').addEventListener('change', async () => {
+      updateDateDisplay('filter-start');
+      await loadCharts();
+      const s = document.getElementById('filter-start')?.value || null;
+      const e = document.getElementById('filter-end')?.value || null;
+      await loadDetalleProfesores(s, e);
+    });
+    document.getElementById('filter-end').addEventListener('change', async () => {
+      updateDateDisplay('filter-end');
+      await loadCharts();
+      const s = document.getElementById('filter-start')?.value || null;
+      const e = document.getElementById('filter-end')?.value || null;
+      await loadDetalleProfesores(s, e);
+    });
     function setDaysPreset(days){
       const end = new Date(); // Hoy
       const start = new Date();
@@ -897,7 +913,11 @@ async function loadAdvanced() {
     document.querySelectorAll('.preset').forEach(btn => {
       btn.addEventListener('click', async () => {
         const days = parseInt(btn.dataset.days);
-        if (!isNaN(days)) { setDaysPreset(days); await loadCharts(); }
+        if (!isNaN(days)) { setDaysPreset(days); await loadCharts();
+          const s = document.getElementById('filter-start')?.value || null;
+          const e = document.getElementById('filter-end')?.value || null;
+          await loadDetalleProfesores(s, e);
+        }
       });
     });
     function applyPresetMTD(){
@@ -913,14 +933,25 @@ async function loadAdvanced() {
       setDateInput('filter-start', start);
       setDateInput('filter-end', end);
     }
-    document.getElementById('preset-mtd').addEventListener('click', async () => { applyPresetMTD(); await loadCharts(); });
-    document.getElementById('preset-qtd').addEventListener('click', async () => { applyPresetQTD(); await loadCharts(); });
+    document.getElementById('preset-mtd').addEventListener('click', async () => { applyPresetMTD(); await loadCharts();
+      const s = document.getElementById('filter-start')?.value || null;
+      const e = document.getElementById('filter-end')?.value || null;
+      await loadDetalleProfesores(s, e);
+    });
+    document.getElementById('preset-qtd').addEventListener('click', async () => { applyPresetQTD(); await loadCharts();
+      const s = document.getElementById('filter-start')?.value || null;
+      const e = document.getElementById('filter-end')?.value || null;
+      await loadDetalleProfesores(s, e);
+    });
     document.getElementById('preset-ytd').addEventListener('click', async () => {
       const end = new Date();
       const start = new Date(end.getFullYear(), 0, 1);
       setDateInput('filter-start', start);
       setDateInput('filter-end', end);
       await loadCharts();
+      const s = document.getElementById('filter-start')?.value || null;
+      const e = document.getElementById('filter-end')?.value || null;
+      await loadDetalleProfesores(s, e);
     });
     // Polyfill para navegadores sin soporte de input type="month"
     (function ensureMonthPicker(){
@@ -1073,6 +1104,15 @@ async function loadAdvanced() {
           });
           tbody.appendChild(tr);
         });
+        // Calcular horas totales agregadas para el rango/mes
+        try{
+          const totHoras = arr.reduce((sum, p) => sum + (Number(p?.horas_mes) || 0), 0);
+          const el = document.getElementById('kpi-horas-totales');
+          if(el){
+            const val = Number.isFinite(totHoras) ? (Math.round(totHoras*100)/100).toFixed(2) : '0.00';
+            el.textContent = val;
+          }
+        }catch(_){ /* silencioso */ }
         setupPagination('tbl-profesores', 'prof-page-size', 'prof-pagination');
       } catch(e) { console.error('Error cargando profesores detalle', e); }
     }
@@ -1156,7 +1196,24 @@ async function loadAdvanced() {
           const fechaText = fecha ? String(fecha).slice(0,10) : '';
           const inicioText = extractTime(inicioRaw);
           const finText0 = extractTime(finRaw);
-          const finText = (inicioText && finText0 && finText0 < inicioText) ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
+          const parseMin = (t) => {
+            if(!t || t === '—') return null;
+            try {
+              const [hh, mm] = String(t).split(':');
+              const h = parseInt(hh, 10); const m = parseInt(mm, 10);
+              if(Number.isFinite(h) && Number.isFinite(m)) return h*60 + m;
+            } catch(_){ }
+            return null;
+          };
+          const approxEq = (a, b, tol=3) => (typeof a === 'number' && typeof b === 'number') ? Math.abs(a-b) <= tol : false;
+          const sMin = parseMin(inicioText);
+          const fMin = parseMin(finText0);
+          const minutosNum = Number(minutosVal || 0);
+          const crossesByMinutes = (sMin !== null && Number.isFinite(minutosNum)) ? ((sMin + minutosNum) >= 1440) : false;
+          const expectedMinTimes = (sMin !== null && fMin !== null) ? (fMin - sMin + 1440) : null;
+          const crossesByTimes = (sMin !== null && fMin !== null && fMin < sMin) && (expectedMinTimes !== null) && approxEq(minutosNum, expectedMinTimes, 3);
+          const crossesMidnight = crossesByMinutes || crossesByTimes;
+          const finText = crossesMidnight ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
           const horasText = (horasVal !== undefined && horasVal !== null) ? String(horasVal) : '—';
           tr.innerHTML = `
             <td>${fechaText}</td>
