@@ -212,8 +212,24 @@ class SecureConfig:
     
     @classmethod
     def get_webapp_base_url(cls) -> str:
-        """Obtiene la URL base de la aplicación web."""
-        return cls.get_env_variable('WEBAPP_BASE_URL', required=True)
+        """Obtiene la URL base de la aplicación web.
+
+        Prioriza `WEBAPP_BASE_URL` y, si no está definida, detecta dominios de Vercel.
+        """
+        import os
+        val = cls.get_env_variable('WEBAPP_BASE_URL', required=False)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        # Detectar variables comunes de Vercel
+        vercel = (
+            os.getenv('VERCEL_URL') or os.getenv('VERCEL_BRANCH_URL') or os.getenv('VERCEL_PROJECT_PRODUCTION_URL') or ''
+        ).strip()
+        if vercel:
+            if vercel.startswith('http://') or vercel.startswith('https://'):
+                return vercel
+            return f"https://{vercel}"
+        # Fallback vacío: el consumidor deberá manejar el caso
+        return ''
     
     @classmethod
     def get_client_base_url(cls) -> str:

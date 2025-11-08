@@ -105,13 +105,24 @@ try:
 except Exception:
     PaymentManager = None
 
-# Base URL pública (Railway) sin túneles
+# Base URL pública (Railway/Vercel) sin túneles
 try:
     from utils import get_webapp_base_url  # type: ignore
 except Exception:
-    def get_webapp_base_url(default: str = "https://gym-ms-zrk.up.railway.app") -> str:  # type: ignore
+    def get_webapp_base_url(default: str = "") -> str:  # type: ignore
         import os as _os
-        return _os.getenv("WEBAPP_BASE_URL", default).strip()
+        # Preferir WEBAPP_BASE_URL explícita
+        env_url = _os.getenv("WEBAPP_BASE_URL", "").strip()
+        if env_url:
+            return env_url
+        # Detectar dominio de Vercel si existe
+        vercel = (_os.getenv("VERCEL_URL") or _os.getenv("VERCEL_BRANCH_URL") or _os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or "").strip()
+        if vercel:
+            if vercel.startswith("http://") or vercel.startswith("https://"):
+                return vercel
+            return f"https://{vercel}"
+        # Fallback antiguo (Railway) solo si se proporciona por default
+        return (default or "").strip()
 
 # Sistema de túneles removido - aplicación usa base de datos Neon única sin túneles
 
@@ -645,7 +656,20 @@ try:
     th = os.getenv("TRUSTED_HOSTS", "").strip()
     hosts = [h.strip() for h in th.split(",") if h.strip()] if th else []
     if not hosts:
-        hosts = ["gym-ms-zrk.up.railway.app", "localhost", "127.0.0.1", "*.loca.lt"]
+        # Permitir dominios de desarrollo/producción comunes
+        hosts = [
+            "localhost",
+            "127.0.0.1",
+            "*.loca.lt",
+            "*.vercel.app",
+            "*.vercel.dev",
+        ]
+        # Añadir dominio dinámico de Vercel si está disponible
+        _vercel = (os.getenv("VERCEL_URL") or os.getenv("VERCEL_BRANCH_URL") or os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or "").strip()
+        if _vercel:
+            hosts.append(_vercel)
+        # Mantener compatibilidad con despliegues anteriores en Railway
+        hosts.append("gym-ms-zrk.up.railway.app")
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
@@ -705,14 +729,23 @@ async def healthz():
         # Fallback defensivo: responder 200 para evitar cascadas de reinicios
         return JSONResponse({"status": "ok"})
 
-# Endpoint para exponer la URL base pública (Railway)
+# Endpoint para exponer la URL base pública (Railway/Vercel)
 @app.get("/webapp/base_url")
 async def webapp_base_url():
     try:
         url = get_webapp_base_url()
         return JSONResponse({"base_url": url})
     except Exception:
-        return JSONResponse({"base_url": "https://gym-ms-zrk.up.railway.app"})
+        # Fallback amigable: intentar Vercel y luego localhost
+        try:
+            v = (os.getenv("VERCEL_URL") or os.getenv("VERCEL_BRANCH_URL") or os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or "").strip()
+            if v:
+                if v.startswith("http://") or v.startswith("https://"):
+                    return JSONResponse({"base_url": v})
+                return JSONResponse({"base_url": f"https://{v}"})
+        except Exception:
+            pass
+        return JSONResponse({"base_url": "http://127.0.0.1:8000/"})
 
 # Endpoints de sincronización removidos - sistema usa base de datos Neon única sin replicación
 

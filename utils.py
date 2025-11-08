@@ -110,28 +110,43 @@ from datetime import datetime, timedelta
 import tempfile
 import os
 
-# --- Webapp Base URL (Railway) ---
-def get_webapp_base_url(default: str = "https://gym-ms-zrk.up.railway.app") -> str:
+# --- Webapp Base URL (Railway/Vercel) ---
+def get_webapp_base_url(default: str = "") -> str:
     """
     Obtiene la URL base pública de la webapp.
 
     Prioridad:
     1) ENV `WEBAPP_BASE_URL`
-    2) config/config.json → `webapp_base_url` o `public_tunnel.base_url`
-    3) Default (dominio Railway proporcionado)
+    2) Variables de Vercel (`VERCEL_URL`, `VERCEL_BRANCH_URL`, `VERCEL_PROJECT_PRODUCTION_URL`)
+    3) config/config.json → `webapp_base_url` o `public_tunnel.base_url`
+    4) Default (si se provee)
     """
     try:
-        env_url = os.getenv("WEBAPP_BASE_URL")
-        if env_url and env_url.strip():
-            return env_url.strip()
-        # Buscar en config.json
+        # 1) ENV explícita
+        env_url = os.getenv("WEBAPP_BASE_URL", "").strip()
+        if env_url:
+            return env_url
+
+        # 2) Detección de dominio Vercel
+        vercel = (
+            os.getenv("VERCEL_URL")
+            or os.getenv("VERCEL_BRANCH_URL")
+            or os.getenv("VERCEL_PROJECT_PRODUCTION_URL")
+            or ""
+        ).strip()
+        if vercel:
+            if vercel.startswith("http://") or vercel.startswith("https://"):
+                return vercel
+            return f"https://{vercel}"
+
+        # 3) Buscar en config.json
         try:
             cfg_path = resource_path("config/config.json")
             if os.path.exists(cfg_path):
                 import json
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                # Nuevo campo dedicado
+                # Campo dedicado
                 c_url = data.get("webapp_base_url")
                 if isinstance(c_url, str) and c_url.strip():
                     return c_url.strip()
@@ -143,9 +158,11 @@ def get_webapp_base_url(default: str = "https://gym-ms-zrk.up.railway.app") -> s
                         return c2.strip()
         except Exception:
             pass
-        return default
+
+        # 4) Fallback
+        return (default or "").strip()
     except Exception:
-        return default
+        return (default or "").strip()
 
 
 def collect_log_candidates(log_dir: str, retention_days: int):

@@ -1873,6 +1873,10 @@
           <div><strong>Minutos calculados:</strong> <span id="sesion-resumen-min">—</span></div>
           <div><strong>Horas:</strong> <span id="sesion-resumen-horas">—</span></div>
         </div>
+        <div id="sesion-extra-info" class="calc-summary" style="margin-top:8px; font-size:12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+          <span id="sesion-chip-cobertura" class="chip success" title="Minutos dentro de horario">En horario: —</span>
+          <span id="sesion-chip-extra" class="chip danger" title="Minutos fuera de horario">Horas extra: —</span>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn success" id="sesion-save">Guardar</button>
@@ -7534,6 +7538,7 @@ function attachWheelZoom(containerId, frameId){
       if(autoOn && sesMin){ sesMin.value = calc != null ? String(calc) : ''; }
       if(resMinEl) resMinEl.textContent = calc != null ? String(calc) : '—';
       if(resHrsEl) resHrsEl.textContent = calc != null ? (calc/60).toFixed(2) : '—';
+      try{ updateExtraIndicators(); }catch(_){}
     }
 
     if(sesSave) sesSave.onclick = saveSesionEdit;
@@ -7739,6 +7744,7 @@ function attachWheelZoom(containerId, frameId){
       closeModal('modal-sesion-form');
       state.profesores.sesionEditId = null;
       await loadProfesorSesiones();
+      await loadProfesorResumen();
     }catch(e){ if (typeof showToast === 'function') showToast('Error de red al actualizar sesión', 'error'); }
   }
 
@@ -7756,13 +7762,94 @@ function attachWheelZoom(containerId, frameId){
     const nombre = fEl && fEl.value ? getWeekdayNameISO(fEl.value) : null;
     if(dayEl) dayEl.textContent = nombre ? `Día: ${nombre}` : '—';
   }
-  function withinBlock(iVal, fVal, bIni, bFin){
-    // Compara HH:MM contra bloque HH:MM
-    const toMin = v => { const [h,m] = String(v).slice(0,5).split(':').map(Number); return (h*60 + m); };
-    const iM = toMin(iVal), fM = toMin(fVal), bI = toMin(bIni), bF = toMin(bFin);
-    if(!isFinite(iM) || !isFinite(fM) || !isFinite(bI) || !isFinite(bF)) return false;
-    if(fM < iM) return false; // no soportamos cruces de medianoche como "En horario"
-    return (iM >= bI) && (fM <= bF);
+  // Cálculo robusto de cobertura y extra con unión de bloques
+  function hmToMin(v){ const s = String(v).slice(0,5); const parts = s.split(':').map(Number); if(parts.length!==2 || parts.some(x=>!isFinite(x))) return null; return parts[0]*60 + parts[1]; }
+  function mergeIntervals(blocks){
+    const sorted = blocks.slice().sort((a,b)=> a.start - b.start);
+    const merged = [];
+    for(const b of sorted){
+      if(!merged.length || b.start > merged[merged.length-1].end){ merged.push({ start:b.start, end:b.end }); }
+      else { merged[merged.length-1].end = Math.max(merged[merged.length-1].end, b.end); }
+    }
+    return merged;
+  }
+  function computeCoverageExtra(dateStr, iVal, fVal){
+    try{
+      ensureProfesoresState();
+      if(!dateStr || !iVal || !fVal) return null;
+      const s = hmToMin(iVal); let e = hmToMin(fVal);
+      if(s==null || e==null) return null;
+      const dObj = new Date(dateStr);
+      const dayName = getWeekdayNameISO(dateStr);
+      const dayNum = dObj.getDay();
+
+      // Construir bloques del día actual
+      const blocksDay = (state.profesores.horarios || [])
+        .filter(h => {
+          const dRaw = (h.dia ?? h.dia_semana);
+          const match = String(dRaw) === String(dayName) || String(dRaw) === String(dayNum);
+          const disp = (h.disponible === undefined) ? true : !!h.disponible;
+          return match && disp;
+        })
+        .map(h => {
+          const si = extractTime(h.inicio || h.hora_inicio || '');
+          const sf = extractTime(h.fin || h.hora_fin || '');
+          return { start: hmToMin(si), end: hmToMin(sf) };
+        })
+        .filter(b => b.start!=null && b.end!=null && b.end>b.start);
+      const unionDay = mergeIntervals(blocksDay);
+
+      // Si la sesión cruza medianoche, partir en dos segmentos y considerar bloques del día siguiente
+      let sessionDuration = 0;
+      let covered = 0;
+      if(e < s){ e += 1440; }
+      sessionDuration = Math.max(0, e - s);
+
+      const coverSegment = (blocks, segStart, segEnd) => {
+        if(!blocks || blocks.length === 0){
+          // Si no hay horario definido para el día, no marcar extra para este segmento
+          return Math.max(0, segEnd - segStart);
+        }
+        let c = 0;
+        const left = Math.max(segStart, 0);
+        const right = Math.min(segEnd, 1440);
+        for(const b of blocks){
+          const overlap = Math.max(0, Math.min(b.end, right) - Math.max(b.start, left));
+          c += overlap;
+        }
+        return c;
+      };
+
+      if(e <= 1440){
+        covered += coverSegment(unionDay, s, e);
+      } else {
+        // Día actual
+        covered += coverSegment(unionDay, s, 1440);
+        // Día siguiente: construir bloques
+        const nextDate = new Date(dObj.getTime());
+        nextDate.setDate(dObj.getDate()+1);
+        const nextName = getWeekdayNameISO(nextDate.toISOString().slice(0,10));
+        const nextNum = nextDate.getDay();
+        const blocksNext = (state.profesores.horarios || [])
+          .filter(h => {
+            const dRaw = (h.dia ?? h.dia_semana);
+            const match = String(dRaw) === String(nextName) || String(dRaw) === String(nextNum);
+            const disp = (h.disponible === undefined) ? true : !!h.disponible;
+            return match && disp;
+          })
+          .map(h => {
+            const si = extractTime(h.inicio || h.hora_inicio || '');
+            const sf = extractTime(h.fin || h.hora_fin || '');
+            return { start: hmToMin(si), end: hmToMin(sf) };
+          })
+          .filter(b => b.start!=null && b.end!=null && b.end>b.start);
+        const unionNext = mergeIntervals(blocksNext);
+        covered += coverSegment(unionNext, 0, e - 1440);
+      }
+
+      const extra = Math.max(0, sessionDuration - covered);
+      return { coveredMin: covered, extraMin: extra, totalMin: sessionDuration };
+    }catch(_){ return null; }
   }
   function predictTipoFromHorario(){
     try{
@@ -7774,21 +7861,30 @@ function attachWheelZoom(containerId, frameId){
       const iVal = iEl?.value || '';
       const fVal = finEl?.value || '';
       if(!dateStr || !iVal || !fVal) return null;
-      const dia = getWeekdayNameISO(dateStr);
-      const diaNum = (new Date(dateStr)).getDay();
-      if(!dia && !Number.isFinite(diaNum)) return null;
-      const blocks = (state.profesores.horarios || []).filter(h => {
-        const dRaw = (h.dia ?? h.dia_semana);
-        return String(dRaw) === String(dia) || String(dRaw) === String(diaNum);
-      });
-      if(!blocks.length) return 'Horas extra';
-      for(const b of blocks){
-        const bIni = (b.inicio || b.hora_inicio || '').toString().slice(0,5);
-        const bFin = (b.fin || b.hora_fin || '').toString().slice(0,5);
-        if(withinBlock(iVal, fVal, bIni, bFin)) return 'En horario';
-      }
-      return 'Horas extra';
+      const cov = computeCoverageExtra(dateStr, iVal, fVal);
+      if(!cov) return null;
+      if(cov.coveredMin > 0 && cov.extraMin > 0) return 'Trabajo - Extra';
+      if(cov.extraMin === 0 && cov.coveredMin > 0) return 'En horario';
+      if(cov.coveredMin === 0 && cov.extraMin > 0) return 'Horas extra';
+      return null;
     }catch(_){ return null; }
+  }
+  function updateExtraIndicators(){
+    const fEl = document.getElementById('sesion-fecha');
+    const iEl = document.getElementById('sesion-inicio');
+    const finEl = document.getElementById('sesion-fin');
+    const chipCov = document.getElementById('sesion-chip-cobertura');
+    const chipExt = document.getElementById('sesion-chip-extra');
+    const dateStr = fEl?.value || '';
+    const iVal = iEl?.value || '';
+    const fVal = finEl?.value || '';
+    const cov = (dateStr && iVal && fVal) ? computeCoverageExtra(dateStr, iVal, fVal) : null;
+    if(!cov){ if(chipCov) chipCov.textContent = 'En horario: —'; if(chipExt) chipExt.textContent = 'Horas extra: —'; return null; }
+    const covH = (cov.coveredMin/60).toFixed(2);
+    const extH = (cov.extraMin/60).toFixed(2);
+    if(chipCov) chipCov.textContent = `En horario: ${cov.coveredMin} (${covH} h)`;
+    if(chipExt) chipExt.textContent = `Horas extra: ${cov.extraMin} (${extH} h)`;
+    return cov;
   }
   function updateTipoHint(){
     const chipTxt = document.getElementById('sesion-tipo-sugerido');
@@ -7809,6 +7905,7 @@ function attachWheelZoom(containerId, frameId){
       const mismatch = (tEl && tEl.value === 'En horario' && pred === 'Horas extra');
       warnEl.style.display = mismatch ? 'block' : 'none';
     }
+    try{ updateExtraIndicators(); }catch(_){}
   }
 
   function addOrUpdateHorario(){
@@ -7905,7 +8002,8 @@ function attachWheelZoom(containerId, frameId){
           }
           if (typeof showToast === 'function') showToast('Sesión eliminada correctamente', 'success');
           closeDeleteSesionModal();
-          loadProfesorSesiones();
+          await loadProfesorSesiones();
+          await loadProfesorResumen();
         })
         .catch(_ => {
           if (typeof showToast === 'function') showToast('Error de red al eliminar sesión', 'error');
@@ -8185,7 +8283,22 @@ function attachWheelZoom(containerId, frameId){
         const qsM = new URLSearchParams({ profesor_id: String(pid), start: ms, end: me });
         const rM = await fetch('/api/profesor_resumen?' + qsM.toString());
         const resM = await rM.json().catch(() => ({}));
-        updateResumenCards('prof-m', resM || {});
+        // Recalcular extras desde sesiones en el mismo rango para corregir cálculo
+        let extrasMinM = 0;
+        try{
+          const rSM = await fetch('/api/profesor_sesiones?' + qsM.toString());
+          const dataSM = await rSM.json().catch(() => ([]));
+          const arrSM = Array.isArray(dataSM) ? dataSM : (Array.isArray(dataSM?.items) ? dataSM.items : []);
+          for(const ses of arrSM){
+            const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
+            const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+            const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+            const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
+            if(cov) extrasMinM += Math.max(0, cov.extraMin || 0);
+          }
+        }catch(_){ /* mantener backend si falla */ }
+        const resM2 = Object.assign({}, resM || {}, { horas_extras: (extrasMinM/60) });
+        updateResumenCards('prof-m', resM2);
       } catch(_) { updateResumenCards('prof-m', {}); }
       // Semanal: basado en fecha y comienzo de semana
       const weekDate = document.getElementById('prof-week-date');
@@ -8200,7 +8313,21 @@ function attachWheelZoom(containerId, frameId){
           const qsW = new URLSearchParams({ profesor_id: String(pid), start: range.start, end: range.end });
           const rW = await fetch('/api/profesor_resumen?' + qsW.toString());
           const resW = await rW.json().catch(() => ({}));
-          updateResumenCards('prof-w', resW || {});
+          let extrasMinW = 0;
+          try{
+            const rSW = await fetch('/api/profesor_sesiones?' + qsW.toString());
+            const dataSW = await rSW.json().catch(() => ([]));
+            const arrSW = Array.isArray(dataSW) ? dataSW : (Array.isArray(dataSW?.items) ? dataSW.items : []);
+            for(const ses of arrSW){
+              const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
+              const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+              const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+              const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
+              if(cov) extrasMinW += Math.max(0, cov.extraMin || 0);
+            }
+          }catch(_){ }
+          const resW2 = Object.assign({}, resW || {}, { horas_extras: (extrasMinW/60) });
+          updateResumenCards('prof-w', resW2);
         } catch(_) { updateResumenCards('prof-w', {}); }
       } else {
         updateResumenCards('prof-w', {});
@@ -8255,6 +8382,44 @@ function attachWheelZoom(containerId, frameId){
         const inicioText = extractTime(inicioRaw);
         const finText0 = extractTime(finRaw);
         const finText = (inicioText && finText0 && finText0 < inicioText) ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
+        // Calcular chip y determinar texto de tipo enriquecido
+        let extraBadge = '';
+        let covResult = null;
+        try{
+          covResult = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText0);
+          if(covResult){
+            const extMin = covResult.extraMin;
+            if(extMin > 0){
+              const h = (extMin/60).toFixed(2);
+              extraBadge = `<span class="chip sm danger" title="Tiempo fuera de horario" style="margin-left:6px">${h} h extra</span>`;
+            } else {
+              extraBadge = `<span class="chip sm success" title="Completamente en horario" style="margin-left:6px">En horario</span>`;
+            }
+          }
+        }catch(_){ }
+        const sanitizeTipo = (s) => {
+          const x = String(s || '').trim();
+          if(!x) return '';
+          // Colapsar duplicados "Horas extra - Horas extra"
+          let y = x.replace(/\s*-\s*Horas extra\s*-\s*Horas extra/gi, ' - Horas extra');
+          if(/^Horas extra\s*-\s*Horas extra$/i.test(y)) y = 'Horas extra';
+          return y.replace(/\s{2,}/g, ' ');
+        };
+        let tipoDisplay = '';
+        if(covResult){
+          if(covResult.coveredMin > 0 && covResult.extraMin > 0){
+            // Forzar clasificación compuesta independientemente del tipo backend
+            tipoDisplay = 'Trabajo - Extra';
+          } else if(covResult.extraMin === 0 && covResult.coveredMin > 0){
+            tipoDisplay = 'Trabajo';
+          } else if(covResult.coveredMin === 0 && covResult.extraMin > 0){
+            tipoDisplay = 'Horas extra';
+          } else {
+            tipoDisplay = sanitizeTipo(tipoVal);
+          }
+        } else {
+          tipoDisplay = sanitizeTipo(tipoVal);
+        }
         const idVal = (ses.id ?? ses.sesion_id ?? ses.id_sesion ?? ses.SesionID ?? '');
         tr.innerHTML = `
           <td>${String(fecha).slice(0,10)}</td>
@@ -8262,7 +8427,7 @@ function attachWheelZoom(containerId, frameId){
           <td>${finText}</td>
           <td>${Number(minutosVal ?? 0)}</td>
           <td>${(horasVal!==undefined && horasVal!==null)?Number(horasVal).toFixed(2):'—'}</td>
-          <td>${tipoVal || ''}</td>
+          <td>${tipoDisplay} ${extraBadge}</td>
           <td>
             <button class="btn tiny" data-action="edit-sesion" data-id="${idVal}">Editar</button>
             <button class="btn tiny danger" data-action="delete-sesion" data-id="${idVal}">Eliminar</button>
@@ -8607,6 +8772,7 @@ function attachWheelZoom(containerId, frameId){
         if(d && d.success !== false && !d.error){
           if (typeof showToast==='function') showToast('Sesión iniciada', 'success');
           refreshSesion();
+          loadProfesorResumen();
         } else {
           if (typeof showToast==='function') showToast('No se pudo iniciar la sesión', 'error');
         }
@@ -8632,6 +8798,7 @@ function attachWheelZoom(containerId, frameId){
           if (typeof showToast==='function') showToast('No se pudo finalizar la sesión', 'error');
         }
         refreshSesion();
+        loadProfesorResumen();
       })
       .catch(_ => { if (typeof showToast==='function') showToast('Error finalizando la sesión', 'error'); });
     }catch(_){}

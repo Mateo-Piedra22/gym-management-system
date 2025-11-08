@@ -1676,6 +1676,7 @@ class DatabaseManager:
                         en_horario = False
                         if profesor_id and dia_nombre and start_dt and end_dt:
                             try:
+                                # Obtener bloques del día y fusionarlos para tratar cobertura continua
                                 with self.get_connection_context() as conn4:
                                     cur4 = conn4.cursor()
                                     cur4.execute(
@@ -1686,17 +1687,34 @@ class DatabaseManager:
                                         """,
                                         (profesor_id, dia_nombre)
                                     )
-                                    bloques = cur4.fetchall() or []
-                                ini_t = start_dt.time()
-                                fin_t = end_dt.time()
-                                for b in bloques:
+                                    raw_bloques = cur4.fetchall() or []
+                                # Normalizar y ordenar
+                                bloques_ord = []
+                                for b in raw_bloques:
                                     try:
                                         h_ini, h_fin = b[0], b[1]
-                                        if (ini_t >= h_ini) and (fin_t <= h_fin):
-                                            en_horario = True
-                                            break
+                                        if h_ini is not None and h_fin is not None and h_ini < h_fin:
+                                            bloques_ord.append((h_ini, h_fin))
                                     except Exception:
                                         continue
+                                bloques_ord.sort(key=lambda x: x[0])
+                                # Fusionar bloques solapados/contiguos
+                                bloques_merged = []
+                                for bi, bf in bloques_ord:
+                                    if not bloques_merged:
+                                        bloques_merged.append([bi, bf])
+                                    else:
+                                        li, lf = bloques_merged[-1]
+                                        if bi <= lf:  # solapa o es contiguo
+                                            bloques_merged[-1][1] = max(lf, bf)
+                                        else:
+                                            bloques_merged.append([bi, bf])
+                                ini_t = start_dt.time()
+                                fin_t = end_dt.time()
+                                for mi, mf in bloques_merged:
+                                    if (ini_t >= mi) and (fin_t <= mf):
+                                        en_horario = True
+                                        break
                             except Exception:
                                 en_horario = False
 
@@ -1746,6 +1764,7 @@ class DatabaseManager:
                             en_horario = False
                             if profesor_id and dia_nombre and start_dt and end_dt:
                                 try:
+                                    # Igualar validación manual con la lógica fusionada
                                     with self.get_connection_context() as conn5:
                                         cur5 = conn5.cursor()
                                         cur5.execute(
@@ -1756,17 +1775,32 @@ class DatabaseManager:
                                             """,
                                             (profesor_id, dia_nombre)
                                         )
-                                        bloques = cur5.fetchall() or []
-                                    ini_t = start_dt.time()
-                                    fin_t = end_dt.time()
-                                    for b in bloques:
+                                        raw_bloques = cur5.fetchall() or []
+                                    bloques_ord = []
+                                    for b in raw_bloques:
                                         try:
                                             h_ini, h_fin = b[0], b[1]
-                                            if (ini_t >= h_ini) and (fin_t <= h_fin):
-                                                en_horario = True
-                                                break
+                                            if h_ini is not None and h_fin is not None and h_ini < h_fin:
+                                                bloques_ord.append((h_ini, h_fin))
                                         except Exception:
                                             continue
+                                    bloques_ord.sort(key=lambda x: x[0])
+                                    bloques_merged = []
+                                    for bi, bf in bloques_ord:
+                                        if not bloques_merged:
+                                            bloques_merged.append([bi, bf])
+                                        else:
+                                            li, lf = bloques_merged[-1]
+                                            if bi <= lf:
+                                                bloques_merged[-1][1] = max(lf, bf)
+                                            else:
+                                                bloques_merged.append([bi, bf])
+                                    ini_t = start_dt.time()
+                                    fin_t = end_dt.time()
+                                    for mi, mf in bloques_merged:
+                                        if (ini_t >= mi) and (fin_t <= mf):
+                                            en_horario = True
+                                            break
                                 except Exception:
                                     en_horario = False
 
@@ -14900,77 +14934,70 @@ class DatabaseManager:
                         # Omite entradas de horario mal formateadas
                         continue
                 
-                # Verificar cada sesión
+                # Verificar cada sesión con cobertura por unión de bloques y arreglar variable no definida
                 for sesion in sesiones:
                     dia_num = int(sesion.get('dia_semana_num', 0) or 0)
+                    dia_nombre = dias_map_nombre.get(dia_num, sesion.get('dia_semana_nombre'))
                     hora_inicio_sesion = sesion['hora_inicio'].time() if hasattr(sesion['hora_inicio'], 'time') else sesion['hora_inicio']
                     hora_fin_sesion = sesion['hora_fin'].time() if hasattr(sesion['hora_fin'], 'time') else sesion['hora_fin']
-                    
-                    # Verificar si el día tiene horarios establecidos
-                    if dia_num not in horarios_por_dia:
-                        # Todo el tiempo trabajado es extra (día no programado)
+
+                    # Construir bloques fusionados (solapados/contiguos) del día
+                    merged = []
+                    if dia_num in horarios_por_dia:
+                        bloques = horarios_por_dia[dia_num]
+                        # ordenar
+                        bloques_ord = sorted([(b['inicio'], b['fin']) for b in bloques], key=lambda x: x[0])
+                        for bi, bf in bloques_ord:
+                            if not merged:
+                                merged.append([bi, bf])
+                            else:
+                                li, lf = merged[-1]
+                                if bi <= lf:  # solapa o contiguo
+                                    merged[-1][1] = max(lf, bf)
+                                else:
+                                    merged.append([bi, bf])
+
+                    # Conversión a minutos para operar robustamente
+                    def _to_min(t):
+                        return (t.hour * 60 + t.minute)
+                    s_ini = _to_min(hora_inicio_sesion)
+                    s_fin = _to_min(hora_fin_sesion)
+
+                    if dia_num not in horarios_por_dia or not merged:
+                        # Día sin disponibilidad: todo es extra
                         minutos_extras = sesion['minutos_totales']
                         horas_extras.append({
                             'sesion_id': sesion['id'],
                             'fecha': sesion['fecha'],
-                            'dia': dias_map_nombre.get(dia_num, sesion.get('dia_semana_nombre')),
+                            'dia': dia_nombre,
                             'hora_inicio': hora_inicio_sesion,
                             'hora_fin': hora_fin_sesion,
-                            'horas_extras': minutos_extras / 60.0,
+                            'horas_extras': round(minutos_extras / 60.0, 2),
                             'motivo': 'Día no programado'
                         })
                         total_horas_extras += minutos_extras / 60.0
                     else:
-                        # Verificar si está dentro de algún horario establecido
-                        esta_en_horario = False
-                        horas_fuera_horario = 0
-                        
-                        for horario in horarios_por_dia[dia_num]:
-                            inicio_establecido = horario['inicio']
-                            fin_establecido = horario['fin']
-                            
-                            # Verificar solapamiento
-                            if (hora_inicio_sesion < fin_establecido and hora_fin_sesion > inicio_establecido):
-                                esta_en_horario = True
-                                
-                                # Calcular horas fuera del horario establecido
-                                if hora_inicio_sesion < inicio_establecido:
-                                    # Trabajó antes del horario
-                                    tiempo_antes = (datetime.combine(date.today(), inicio_establecido) - 
-                                                  datetime.combine(date.today(), hora_inicio_sesion)).total_seconds() / 3600
-                                    horas_fuera_horario += tiempo_antes
-                                
-                                if hora_fin_sesion > fin_establecido:
-                                    # Trabajó después del horario
-                                    tiempo_despues = (datetime.combine(date.today(), hora_fin_sesion) - 
-                                                    datetime.combine(date.today(), fin_establecido)).total_seconds() / 3600
-                                    horas_fuera_horario += tiempo_despues
-                        
-                        if not esta_en_horario:
-                            # Toda la sesión está fuera de horario
-                            minutos_extras = sesion['minutos_totales']
+                        # Calcular cobertura dentro de la unión de bloques
+                        cubierto_min = 0
+                        for bi, bf in merged:
+                            bi_m = _to_min(bi)
+                            bf_m = _to_min(bf)
+                            # solapamiento con sesión
+                            overlap = max(0, min(s_fin, bf_m) - max(s_ini, bi_m))
+                            cubierto_min += overlap
+                        sesion_min = int(sesion['minutos_totales'] or max(0, s_fin - s_ini))
+                        extra_min = max(0, sesion_min - cubierto_min)
+                        if extra_min > 0:
                             horas_extras.append({
                                 'sesion_id': sesion['id'],
                                 'fecha': sesion['fecha'],
                                 'dia': dia_nombre,
                                 'hora_inicio': hora_inicio_sesion,
                                 'hora_fin': hora_fin_sesion,
-                                'horas_extras': minutos_extras / 60.0,
-                                'motivo': 'Fuera de horario establecido'
+                                'horas_extras': round(extra_min / 60.0, 2),
+                                'motivo': 'Parcialmente fuera de horario' if cubierto_min > 0 else 'Fuera de horario establecido'
                             })
-                            total_horas_extras += minutos_extras / 60.0
-                        elif horas_fuera_horario > 0:
-                            # Parte de la sesión está fuera de horario
-                            horas_extras.append({
-                                'sesion_id': sesion['id'],
-                                'fecha': sesion['fecha'],
-                                'dia': dias_map_nombre.get(dia_num, sesion.get('dia_semana_nombre')),
-                                'hora_inicio': hora_inicio_sesion,
-                                'hora_fin': hora_fin_sesion,
-                                'horas_extras': round(horas_fuera_horario, 2),
-                                'motivo': 'Parcialmente fuera de horario'
-                            })
-                            total_horas_extras += horas_fuera_horario
+                            total_horas_extras += (extra_min / 60.0)
                 
                 return {
                     'success': True,

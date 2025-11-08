@@ -262,6 +262,23 @@ table.data-table th, table.data-table td,
   border-color: rgba(76,63,118,.5);
 }
 
+/* Chips estilizados reutilizando colores de botones */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+}
+.chip.sm { padding: 2px 6px; font-size: 12px; }
+.chip.success { background: var(--success); color: #fff; }
+.chip.danger  { background: var(--danger);  color: #fff; }
+.chip.info    { background: var(--info);    color: #fff; }
+.chip.secondary { background: var(--secondary); color: #fff; }
+.chip.neutral { background: var(--neutral); color: #fff; }
+
 /* Scrollbars temáticos (WebKit) y soporte Firefox */
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-thumb { background-color: #374151; border-radius: 10px; border: 2px solid #111827; }

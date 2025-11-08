@@ -81,3 +81,19 @@ python scripts/auto_initialize_system.py
 ## Modelo de Datos
 
 El sistema utiliza una única base de datos Neon y no requiere mecanismos locales de replicación ni reconciliación.
+
+## WebApp y Hosts confiables (Vercel + Railway)
+
+Para exponer la WebApp en producción:
+
+- `WEBAPP_BASE_URL`: URL pública principal. En Vercel, usa tu dominio (`https://tu-dominio.tld`). Si no se define, el sistema detecta `VERCEL_URL`, `VERCEL_BRANCH_URL` o `VERCEL_PROJECT_PRODUCTION_URL` automáticamente.
+- `TRUSTED_HOSTS`: lista separada por comas de dominios permitidos por el middleware de host confiable. Ejemplo recomendado:
+  `TRUSTED_HOSTS=tu-dominio.tld,*.vercel.app,*.vercel.dev,localhost,127.0.0.1,*.loca.lt`
+- Fallback Railway: si despliegas en Railway, `WEBAPP_BASE_URL` puede apuntar a tu dominio en Railway o al dominio generado por la plataforma.
+
+### Variables de entorno Vercel (detectadas automáticamente)
+- `VERCEL_URL`: host de preview/producción sin esquema.
+- `VERCEL_BRANCH_URL`: host para branches (previews).
+- `VERCEL_PROJECT_PRODUCTION_URL`: host del entorno de producción.
+
+No es necesario definir estas variables manualmente; Vercel las inyecta. El sistema arma la URL pública con esquema `https://` y elimina sufijos `/dev`.

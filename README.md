@@ -283,16 +283,16 @@ gym-management-system/
 
 ---
 
-## 🔧 Configuración de Base de Datos (Railway)
+## 🔧 Configuración de Base de Datos (Neon/Railway)
 
 - Edita la configuración desde el escritorio con `cdbconfig.py` (menú: Configuración de Base de Datos). Las pruebas de conexión utilizan la API central `DatabaseManager.test_connection()` para mantener un comportamiento consistente.
 - Campos configurables: `host`, `port`, `database`, `user`, `password`, `sslmode`, `connect_timeout`, `application_name`.
-- Usa los datos provistos por Railway Postgres:
-  - `host`: host de Railway (ej. `containers-us-west-xxx.railway.app`)
-  - `port`: puerto asignado por Railway
-  - `database`: comúnmente `railway`
-  - `user`: comúnmente `postgres`
-  - `sslmode`: recomienda `require`
+- Usa los datos provistos por tu proveedor (Neon recomendado, Railway compatible):
+  - `host`: host del proveedor (ej. `ep-tu-cluster.neon.tech` o `containers-us-west-xxx.railway.app`)
+  - `port`: puerto asignado por el proveedor
+  - `database`: nombre de la base (en Railway suele ser `railway`)
+  - `user`: usuario de la base (comúnmente `postgres`)
+  - `sslmode`: recomendado `require`
 - La configuración se guarda en `config/config.json` y la contraseña en el almacén seguro del sistema (keyring). Opcionalmente, puedes guardar la contraseña en `config.json` como respaldo.
 - Nota: Las variables de entorno `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSLMODE`, `DB_CONNECT_TIMEOUT`, `DB_APPLICATION_NAME` tienen prioridad sobre `config.json`.
 
@@ -305,10 +305,10 @@ gym-management-system/
   - Ejecuta `SELECT 1` y cierra la conexión. Devuelve `True/False`.
 - Beneficios: una única implementación para pruebas, timeouts consistentes y soporte de `options` para timeouts de sesión.
 
-### Comando de inicio web sugerido (Railway)
+### Comando de inicio web sugerido (Desarrollo local)
 
-- `python -m uvicorn webapp.server:app --host 0.0.0.0 --port ${PORT}`
-- Asegura que las variables de entorno de Railway Postgres estén disponibles (mapéalas a las variables `DB_*` si cambian de nombre).
+- `python -m uvicorn webapp.server:app --host 0.0.0.0 --port 8000`
+- Asegura que las variables de entorno de la base de datos estén disponibles (mapea `DATABASE_URL` o usa `DB_*`).
 
 ### 🔒 **Seguridad y Confiabilidad**
 - **Encriptación de Datos**: Protección de información sensible
@@ -499,14 +499,15 @@ Para información sobre licenciamiento empresarial, contactar al equipo comercia
 
 
 python build_installer.py --mode onefile
-### 🌐 **Acceso Web Público (Railway recomendado)**
+### 🌐 **Acceso Web Público y Despliegue (Vercel + Railway fallback)**
 - El servidor web se inicia automáticamente en `main.py` y en el lanzador web `GymMSW.py` usando `start_web_server`.
-- La URL pública ya no depende de LocalTunnel: se resuelve con `get_webapp_base_url()` (por defecto `https://gym-ms-zrk.up.railway.app`).
+- La URL pública se resuelve con `get_webapp_base_url()` priorizando `WEBAPP_BASE_URL` y detección de Vercel (`VERCEL_URL`, `VERCEL_BRANCH_URL`, `VERCEL_PROJECT_PRODUCTION_URL`).
+- Cuando se despliega en Vercel, la app se sirve como función Python (ver `api/index.py` y `vercel.json`). En Railway sigue siendo compatible mediante `uvicorn`.
 - `start_public_tunnel` actúa como un no-op y retorna la URL pública configurada.
 - La URL pública se abre automáticamente en el navegador en `main.py` y se muestra en la ventana/tray de `GymMSW.py`.
 
 #### 🔧 Configuración de URL Pública
-- Archivo `config/config.json` (preferido):
+- Archivo `config/config.json` (opcional):
 ```
 {
   "host": "localhost",
@@ -516,7 +517,7 @@ python build_installer.py --mode onefile
   "sslmode": "prefer",
   "connect_timeout": 10,
   "application_name": "gym_management_system",
-  "webapp_base_url": "https://gym-ms-zrk.up.railway.app",
+  "webapp_base_url": "https://tu-dominio.tld",
   "public_tunnel": {
     "subdomain": "gym-ms-zrk",
     "enabled": false
@@ -524,14 +525,15 @@ python build_installer.py --mode onefile
 }
 ```
 - Variables de entorno:
-  - `WEBAPP_BASE_URL=https://gym-ms-zrk.up.railway.app`
-  - `PUBLIC_TUNNEL_ENABLED=0` (recomendado en Railway)
+  - `WEBAPP_BASE_URL=https://tu-dominio.tld` (recomendado en Vercel; si no, se detecta automáticamente)
+  - `TRUSTED_HOSTS=tu-dominio.tld,*.vercel.app,*.vercel.dev,localhost,127.0.0.1,*.loca.lt`
+  - `PUBLIC_TUNNEL_ENABLED=0` (en Railway)
 
 #### 🚀 Arranque y Uso
 - Desarrollo (aplicación completa): `python main.py`
   - Inicia servidor web y resuelve URL pública con `get_webapp_base_url()`.
-  - Abre el navegador en la URL pública detectada (p. ej., `https://gym-ms-zrk.up.railway.app/`).
-- Si `public_tunnel.enabled` es `false` o `PUBLIC_TUNNEL_ENABLED=0`, se omiten intentos de túnel y se usa la URL de Railway.
+  - Abre el navegador en la URL pública detectada (p. ej., tu dominio en Vercel).
+- Si `public_tunnel.enabled` es `false` o `PUBLIC_TUNNEL_ENABLED=0`, se omiten intentos de túnel y se usa la URL de fallback configurada (Railway o la de `config.json`).
 - Desarrollo (solo web launcher): `python GymMSW.py`
   - Inicia servidor web y muestra ventana/tray con enlaces local y público.
   - Si el túnel público está deshabilitado, el enlace público se omite.
