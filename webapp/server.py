@@ -302,11 +302,30 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
     """Construye Rutina, Usuario y ejercicios_por_dia desde un payload efímero."""
     # Usuario
     u_raw = payload.get("usuario") or {}
+    # Normalizar nombre del usuario con múltiples posibles claves de entrada
+    try:
+        u_nombre = (
+            (u_raw.get("nombre") or u_raw.get("Nombre"))
+            or (payload.get("usuario_nombre") or payload.get("nombre_usuario"))
+            or (payload.get("usuarioNombre") or payload.get("NombreUsuario"))
+            or (payload.get("usuario_nombre_override") or None)
+        )
+        u_nombre = (u_nombre or "").strip() or "Plantilla"
+    except Exception:
+        u_nombre = "Plantilla"
+    try:
+        u_dni = (u_raw.get("dni") or u_raw.get("DNI") or payload.get("usuario_dni") or payload.get("dni_usuario") or None)
+    except Exception:
+        u_dni = None
+    try:
+        u_tel = (u_raw.get("telefono") or u_raw.get("Teléfono") or payload.get("usuario_telefono") or "")
+    except Exception:
+        u_tel = ""
     try:
         usuario = Usuario(
-            nombre=(u_raw.get("nombre") or u_raw.get("Nombre") or "Plantilla"),
-            dni=(u_raw.get("dni") or u_raw.get("DNI") or None),
-            telefono=(u_raw.get("telefono") or u_raw.get("Teléfono") or "")
+            nombre=u_nombre,
+            dni=u_dni,
+            telefono=u_tel,
         )
     except Exception:
         class _Usr:
@@ -314,7 +333,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                 self.nombre = nombre
                 self.dni = None
                 self.telefono = ""
-        usuario = _Usr(u_raw.get("nombre") or "Plantilla")
+        usuario = _Usr(u_nombre or "Plantilla")
     # Rutina básica
     r_raw = payload.get("rutina") or payload
     try:
@@ -1521,6 +1540,19 @@ def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
             if dia is None:
                 # Ignorar ejercicios sin día definido
                 continue
+            # Asegurar que cada ejercicio tenga un nombre visible
+            try:
+                nombre_actual = getattr(r, "nombre_ejercicio", None)
+                if not nombre_actual:
+                    nombre_nested = getattr(getattr(r, "ejercicio", None), "nombre", None)
+                    if nombre_nested:
+                        setattr(r, "nombre_ejercicio", nombre_nested)
+                    else:
+                        # Fallback suave sólo si no hay nombre en DB
+                        eid = getattr(r, "ejercicio_id", None)
+                        setattr(r, "nombre_ejercicio", f"Ejercicio {eid}" if eid is not None else "Ejercicio")
+            except Exception:
+                pass
             grupos.setdefault(int(dia), []).append(r)
         # Ordenar cada día por 'orden' y nombre para consistencia visual
         for dia, arr in grupos.items():
@@ -1570,7 +1602,42 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
                 usuario = db.obtener_usuario(u_id)  # type: ignore
             except Exception:
                 usuario = None
-        if usuario is None:
+        # Si no se pudo obtener o el nombre está vacío, intentar por JOIN directo
+        try:
+            nombre_ok = (getattr(usuario, "nombre", None) or "").strip() if usuario else ""
+        except Exception:
+            nombre_ok = ""
+        if not nombre_ok:
+            try:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        """
+                        SELECT COALESCE(u.nombre,'') AS usuario_nombre,
+                               COALESCE(u.dni,'')     AS dni,
+                               COALESCE(u.telefono,'') AS telefono
+                        FROM rutinas r
+                        LEFT JOIN usuarios u ON u.id = r.usuario_id
+                        WHERE r.id = %s
+                        """,
+                        (int(rutina_id),)
+                    )
+                    row = cur.fetchone() or {}
+                    u_nombre = (row.get("usuario_nombre") or "").strip()
+                    u_dni = (row.get("dni") or "").strip() or None
+                    u_tel = (row.get("telefono") or "").strip()
+                    if u_nombre:
+                        try:
+                            usuario = Usuario(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)  # type: ignore
+                        except Exception:
+                            class _Usr2:
+                                def __init__(self, id=None, nombre="", dni=None, telefono=""):
+                                    self.id = id; self.nombre = nombre; self.dni = dni; self.telefono = telefono
+                            usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
+            except Exception:
+                pass
+        # Fallback final si sigue sin nombre
+        if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
             try:
                 usuario = Usuario(nombre="Plantilla")  # type: ignore
             except Exception:
@@ -1694,7 +1761,42 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
                 usuario = db.obtener_usuario(u_id)  # type: ignore
             except Exception:
                 usuario = None
-        if usuario is None:
+        # Si no se pudo obtener o el nombre está vacío, intentar por JOIN directo
+        try:
+            nombre_ok = (getattr(usuario, "nombre", None) or "").strip() if usuario else ""
+        except Exception:
+            nombre_ok = ""
+        if not nombre_ok:
+            try:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        """
+                        SELECT COALESCE(u.nombre,'') AS usuario_nombre,
+                               COALESCE(u.dni,'')     AS dni,
+                               COALESCE(u.telefono,'') AS telefono
+                        FROM rutinas r
+                        LEFT JOIN usuarios u ON u.id = r.usuario_id
+                        WHERE r.id = %s
+                        """,
+                        (int(rutina_id),)
+                    )
+                    row = cur.fetchone() or {}
+                    u_nombre = (row.get("usuario_nombre") or "").strip()
+                    u_dni = (row.get("dni") or "").strip() or None
+                    u_tel = (row.get("telefono") or "").strip()
+                    if u_nombre:
+                        try:
+                            usuario = Usuario(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)  # type: ignore
+                        except Exception:
+                            class _Usr2:
+                                def __init__(self, id=None, nombre="", dni=None, telefono=""):
+                                    self.id = id; self.nombre = nombre; self.dni = dni; self.telefono = telefono
+                            usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
+            except Exception:
+                pass
+        # Fallback final si sigue sin nombre
+        if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
             try:
                 usuario = Usuario(nombre="Plantilla")  # type: ignore
             except Exception:
