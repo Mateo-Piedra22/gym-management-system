@@ -2246,11 +2246,11 @@
             <div id="rutina-preview-grid" class="grid" style="display:grid; gap:8px"></div>
           </div>
           <div>
-            <!-- Vista previa PDF integrada -->
+            <!-- Vista previa XLSX integrada con SheetJS -->
             <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
               <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
-              <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa PDF guardando la rutina o modifica para que se actualice automáticamente.</div>
-              <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
+              <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina o modifica para que se actualice automáticamente.</div>
+              <div id="rutina-preview-xlsx-root" title="Vista previa de la rutina" style="display:none; width:100%; min-height:480px; transform-origin: center top"></div>
             </div>
           </div>
         </div>
@@ -6340,7 +6340,7 @@ async function autoSaveRutinaDraft(){
     if(putRes.ok){
       state.rutinaPreviewDirty = false; state.lastAutoSaveTs = Date.now();
       try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Guardado'; }catch(_){ }
-      try{ updateRutinaPDFPreview(); }catch(_){ }
+      try{ updateRutinaXLSXPreview(); }catch(_){ }
     } else {
       try{ const st = document.getElementById('rutina-preview-status'); if(st) st.textContent = 'Error al guardar'; }catch(_){ }
     }
@@ -6377,26 +6377,54 @@ async function directExportExcelFromPreview(){
   }catch(_){ showToast('No se pudo exportar Excel', 'error', 4500); }
 }
 
-// Previsualización PDF integrada mediante iframe
-async function updateRutinaPDFPreview(){
+// Carga de SheetJS (XLSX) con fallback CDN si no está disponible localmente
+(function(){
   try{
-    const cont = document.getElementById('rutina-preview-pdf'); const frame = document.getElementById('rutina-preview-frame'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
-    if(!cont || !frame || !empty) return;
+    function load(u){ return new Promise(function(resolve,reject){ try{ var s=document.createElement('script'); s.src=String(u); s.async=true; s.onload=function(){ try{ resolve(); }catch(_){ resolve(); } }; s.onerror=function(){ try{ reject(new Error('load failed')); }catch(_){ reject('load failed'); } }; document.head.appendChild(s); }catch(e){ reject(e); } }); }
+    (async function(){
+      try{
+        if(typeof window.XLSX === 'undefined'){
+          const urls = [ '/static/libs/sheetjs/xlsx.full.min.js', 'https://unpkg.com/xlsx/dist/xlsx.full.min.js', 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js' ];
+          for(const u of urls){ try{ await load(u); if(typeof window.XLSX !== 'undefined'){ try{ console.log('SheetJS cargado desde:', u); }catch(_){ } break; } }catch(e){ try{ console.warn('Falló carga SheetJS:', u); }catch(_){ } }
+          }
+        }
+      }catch(_){ }
+    })();
+  }catch(_){ }
+})();
+
+// Previsualización XLSX integrada usando SheetJS
+async function updateRutinaXLSXPreview(){
+  try{
+    const cont = document.getElementById('rutina-preview-pdf'); const root = document.getElementById('rutina-preview-xlsx-root'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
+    if(!cont || !root || !empty) return;
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-    if(!d || !d.id){ empty.style.display='block'; frame.style.display='none'; return; }
+    if(!d || !d.id){ empty.style.display='block'; root.style.display='none'; return; }
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    // Nombre de archivo sugerido para PDF inline (afecta Save en visor)
-    let pdfName = (d.nombre_rutina || d.nombre || 'rutina') + '.pdf';
-    try { pdfName = String(pdfName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
-    const urlP = `/api/rutinas/${d.id}/export/pdf?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(pdfName)}&ts=${Date.now()}#toolbar=0&navpanes=0`;
+    // Nombre de archivo sugerido para Excel (no descarga automática; se usa para el endpoint)
+    let fname2 = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
+    try { fname2 = String(fname2).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+    const url = `/api/rutinas/${d.id}/export/excel?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fname2)}&ts=${Date.now()}`;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
-    frame.style.display='block';
-    try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
-    frame.src = urlP;
-    // Adjuntar zoom con rueda
-    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
-  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
+    const r = await fetch(url);
+    if(!r.ok){ let msg = `Error ${r.status}`; try{ const err = await r.json(); msg = err.detail || err.error || msg; }catch(_){ } if(statusEl){ statusEl.textContent = msg; } root.style.display='none'; empty.style.display='block'; return; }
+    const blob = await r.blob();
+    const data = await blob.arrayBuffer();
+    if(typeof XLSX === 'undefined'){ if(statusEl){ statusEl.textContent = 'SheetJS no disponible'; } root.style.display='none'; empty.style.display='block'; return; }
+    let html = '';
+    try{
+      const wb = XLSX.read(data, { type:'array' });
+      const targetSheetName = (wb && Array.isArray(wb.SheetNames) && wb.SheetNames.length) ? wb.SheetNames[0] : null;
+      if(targetSheetName){ const ws = wb.Sheets[targetSheetName]; html = XLSX.utils.sheet_to_html(ws, { editable:false }); }
+    }catch(_){ }
+    if(!html){ html = '<div class="muted" style="padding:12px">No se pudo renderizar la hoja</div>'; }
+    root.innerHTML = html;
+    root.style.display = 'block';
+    if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); }
+    // Adjuntar zoom con rueda (aplica escala CSS al contenedor)
+    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-xlsx-root'); }catch(_){ }
+  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const root = document.getElementById('rutina-preview-xlsx-root'); if(empty && root){ empty.style.display='block'; root.style.display='none'; } }
 }
 // Zoom con rueda para iframes PDF (aplica escala CSS al iframe)
 function attachWheelZoom(containerId, frameId){
@@ -6490,7 +6518,7 @@ function attachWheelZoom(containerId, frameId){
           if(adv){ adv.style.display = 'none'; state.rutinaPreviewAdvancedHidden = true; }
           if(btnPrevToggle) btnPrevToggle.textContent = 'Mostrar opciones avanzadas';
         }catch(_){ }
-        try{ updateRutinaPDFPreview(); }catch(_){ }
+        try{ updateRutinaXLSXPreview(); }catch(_){ }
         // Bind inline once modal opens
         const closeBtn = document.getElementById('rutina-preview-close');
         const cancelBtn = document.getElementById('rutina-preview-cancel');
@@ -6550,7 +6578,7 @@ function attachWheelZoom(containerId, frameId){
         };
         const diasSel = document.getElementById('rutina-preview-dias'); if(diasSel) diasSel.onchange = () => { const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; d.dias_semana = Number(diasSel.value||3); state.rutinaPreviewDraft = d; refreshPreviewDayOptions(Number(diasSel.value||3)); renderRutinaPreview(); markRutinaDirty(); };
         const weeksSel = document.getElementById('rutina-preview-semanas'); if(weeksSel) weeksSel.onchange = () => {
-          try{ updateRutinaPDFPreview(); }catch(_){ }
+          try{ updateRutinaXLSXPreview(); }catch(_){ }
           // Sincronizar inputs semanales en el editor flotante si está abierto
           try {
             const float = document.getElementById('rutina-preview-float');

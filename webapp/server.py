@@ -1153,6 +1153,14 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Option
     guard = _circuit_guard_json(db, "/api/rutinas/{rutina_id}/export/pdf")
     if guard:
         return guard
+    # Deshabilitar exportación PDF de rutinas cuando se usa SheetJS en la webapp (se podría llegar a usar pero no en vercel, por eso nomas lo dejo)
+    try:
+        _disable = os.getenv("DISABLE_RUTINA_PDF_EXPORT", "true").strip().lower()
+        if _disable in ("1", "true", "yes", "on"):
+            raise HTTPException(status_code=410, detail="Exportación PDF de rutinas deshabilitada; use la vista previa XLSX en Gestión.")
+    except Exception:
+        # Si hay problemas leyendo env, mantener comportamiento por defecto (deshabilitado)
+        raise HTTPException(status_code=410, detail="Exportación PDF de rutinas deshabilitada; use la vista previa XLSX en Gestión.")
     rm = _get_rm()
     try:
         rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore

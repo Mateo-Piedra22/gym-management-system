@@ -181,58 +181,7 @@ class RoutineTemplateManager:
                 raise FileNotFoundError(f"Archivo Excel no encontrado: {xlsx}")
             target_pdf = Path(pdf_path) if pdf_path else xlsx.with_suffix('.pdf')
 
-            # En Vercel/serverless o en no-Windows, priorizamos el renderer Python (xlsx2pdf)
-            prefer_python_renderer = (
-                os.environ.get("VERCEL") == "1" or os.environ.get("PREFER_XLSX2PDF") == "1" or os.name != 'nt'
-            )
-
-            if prefer_python_renderer:
-                # xlsx2pdf primero (API, luego CLI)
-                try:
-                    self.logger.info("Intentando conversión con xlsx2pdf (API)")
-                    from xlsx2pdf import convert as xlsx2pdf_convert  # type: ignore
-                    xlsx2pdf_convert(str(xlsx.resolve()), str(target_pdf.resolve()))
-                    if target_pdf.exists():
-                        self.logger.info(f"Conversión Excel→PDF exitosa con xlsx2pdf (API): {target_pdf}")
-                        return str(target_pdf)
-                    else:
-                        raise RuntimeError("xlsx2pdf API no generó el PDF")
-                except Exception as api_err:
-                    self.logger.warning(f"xlsx2pdf API falló ({api_err}), probando CLI del módulo")
-                    try:
-                        import sys
-                        py = sys.executable or "python"
-                        cmd = [py, "-m", "xlsx2pdf", str(xlsx.resolve()), str(target_pdf.resolve())]
-                        subprocess.run(cmd, check=True)
-                        if target_pdf.exists():
-                            self.logger.info(f"Conversión Excel→PDF exitosa con xlsx2pdf (CLI): {target_pdf}")
-                            return str(target_pdf)
-                        else:
-                            raise RuntimeError("xlsx2pdf CLI no generó el PDF")
-                    except Exception as cli_err:
-                        self.logger.warning(f"xlsx2pdf también falló ({cli_err}), evaluando LibreOffice y fallback ReportLab")
-                        # Si está disponible LibreOffice, intentar; de lo contrario, fallback
-                        try:
-                            import shutil
-                            soffice = shutil.which("soffice") or shutil.which("soffice.exe")
-                            if not soffice:
-                                raise RuntimeError("LibreOffice no encontrado en el sistema")
-                            outdir = str(target_pdf.parent.resolve())
-                            cmd = [soffice, "--headless", "--convert-to", "pdf", "--outdir", outdir, str(xlsx.resolve())]
-                            subprocess.run(cmd, check=True)
-                            converted = xlsx.with_suffix('.pdf')
-                            if converted.exists() and converted != target_pdf:
-                                try:
-                                    converted.replace(target_pdf)
-                                except Exception:
-                                    pass
-                            self.logger.info(f"Conversión Excel→PDF exitosa con LibreOffice: {target_pdf}")
-                            return str(target_pdf)
-                        except Exception:
-                            self.logger.info("Aplicando fallback con ReportLab para generar PDF desde Excel")
-                            return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
-
-            # Camino Windows tradicional: COM primero
+            com_err = None
             if os.name == 'nt':
                 try:
                     import win32com.client as win32
@@ -240,13 +189,26 @@ class RoutineTemplateManager:
                     excel.Visible = False
                     excel.DisplayAlerts = False
                     wb = excel.Workbooks.Open(str(xlsx.resolve()))
+                    # Forzar orientación horizontal y ajuste de ancho para cada hoja
                     try:
                         for ws in wb.Worksheets:
                             ps = ws.PageSetup
+                            # xlLandscape = 2
                             ps.Orientation = 2
+                            # Ajuste a una página de ancho; deshabilitar zoom para que FitToPages funcione
                             ps.Zoom = False
                             ps.FitToPagesWide = 1
+                            # 0 (o False) permite que la altura fluya en varias páginas si es necesario
                             ps.FitToPagesTall = 0
+                            # Ocultar filas en blanco para preservar bordes y evitar huecos al imprimir
+                            try:
+                                for r in (18, 27, 36, 45):
+                                    try:
+                                        ws.Rows(r).Hidden = True
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                     wb.ExportAsFixedFormat(0, str(target_pdf.resolve()))
@@ -255,9 +217,11 @@ class RoutineTemplateManager:
                     self.logger.info(f"Conversión Excel→PDF exitosa con COM: {target_pdf}")
                     return str(target_pdf)
                 except Exception as e:
-                    self.logger.warning(f"Fallo conversión con COM: {e}")
+                    com_err = e
+                    self.logger.warning(f"Fallo conversión con COM, intentando LibreOffice: {e}")
+            else:
+                self.logger.info("Entorno no Windows: se omite COM y se usa LibreOffice.")
 
-            # Como último recurso fuera del renderer Python, probar LibreOffice si existe
             try:
                 import shutil
                 soffice = shutil.which("soffice") or shutil.which("soffice.exe")
@@ -275,8 +239,13 @@ class RoutineTemplateManager:
                 self.logger.info(f"Conversión Excel→PDF exitosa con LibreOffice: {target_pdf}")
                 return str(target_pdf)
             except Exception as lo_err:
-                self.logger.info(f"LibreOffice no disponible: {lo_err}. Usando fallback ReportLab.")
-                return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
+                self.logger.warning(f"LibreOffice no disponible o falló la conversión: {lo_err}")
+                self.logger.info("Aplicando fallback con ReportLab para generar PDF básico desde Excel")
+                try:
+                    return self._excel_to_pdf_reportlab_fallback(xlsx, target_pdf)
+                except Exception as rb_err:
+                    self.logger.error(f"Fallback ReportLab también falló: {rb_err}")
+                    raise lo_err
         except Exception as e:
             self.logger.error(f"Conversión Excel→PDF fallida: {e}")
             raise e
