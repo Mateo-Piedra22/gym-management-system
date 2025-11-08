@@ -22,6 +22,7 @@ Versión: 60
 """
 
 import os
+import tempfile
 import zipfile
 import logging
 from datetime import datetime, date
@@ -82,14 +83,25 @@ class RoutineTemplateManager:
             5: Path(resource_path(os.path.join("assets", "templates", "Plantilla_5_dias.xlsx")))
         }
         
-        # Directorios de salida
-        self.output_dir_excel = Path("rutinas_exportadas")
-        self.output_dir_pdf = Path("rutinas_exportadas")
-        
-        # Crear directorios si no existen
-        for directory in [self.output_dir_excel, self.output_dir_pdf]:
-            directory.mkdir(exist_ok=True)
-            self.logger.info(f"Directorio '{directory}' verificado/creado.")
+        # Directorios de salida con soporte de entorno y fallback a temporal si FS es de solo lectura
+        pref_rutinas = os.environ.get("RUTINAS_DIR", "rutinas_exportadas")
+        def _ensure_writable_dir(dir_path: str, fallback_subdir: str) -> Path:
+            try:
+                p = Path(dir_path)
+                p.mkdir(exist_ok=True)
+                return p
+            except Exception:
+                tmp_dir = Path(tempfile.gettempdir()) / fallback_subdir
+                try:
+                    tmp_dir.mkdir(exist_ok=True)
+                except Exception:
+                    tmp_dir = Path(tempfile.gettempdir())
+                return tmp_dir
+
+        self.output_dir_excel = _ensure_writable_dir(pref_rutinas, "rutinas_exportadas")
+        self.output_dir_pdf = _ensure_writable_dir(pref_rutinas, "rutinas_exportadas")
+        self.logger.info(f"Directorio Excel: '{self.output_dir_excel}'")
+        self.logger.info(f"Directorio PDF: '{self.output_dir_pdf}'")
         
         # Guardar referencia al database manager
         self.db_manager = database_manager

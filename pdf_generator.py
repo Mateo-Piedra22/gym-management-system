@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import datetime
 from models import Pago, Usuario, Rutina, PagoDetalle
 from reportlab.lib.pagesizes import letter
@@ -12,11 +13,26 @@ from utils import get_gym_name
 
 class PDFGenerator:
     def __init__(self, branding_config=None):
-        self.output_dir_recibos = "recibos"
-        self.output_dir_rutinas = "rutinas_exportadas"
-        for directory in [self.output_dir_recibos, self.output_dir_rutinas]:
-            if not os.path.exists(directory):
-                os.makedirs(directory)
+        # Directorios de salida preferidos (permiten override por variable de entorno)
+        pref_recibos = os.environ.get("RECEIPTS_DIR", "recibos")
+        pref_rutinas = os.environ.get("RUTINAS_DIR", "rutinas_exportadas")
+
+        def ensure_writable_dir(dir_path: str, fallback_subdir: str) -> str:
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+                return dir_path
+            except Exception:
+                # En entornos de despliegue con FS de solo lectura, usar directorio temporal
+                tmp_dir = os.path.join(tempfile.gettempdir(), fallback_subdir)
+                try:
+                    os.makedirs(tmp_dir, exist_ok=True)
+                except Exception:
+                    # Si también falla, devolver el directorio temporal base sin crear subcarpeta
+                    tmp_dir = tempfile.gettempdir()
+                return tmp_dir
+
+        self.output_dir_recibos = ensure_writable_dir(pref_recibos, "recibos")
+        self.output_dir_rutinas = ensure_writable_dir(pref_rutinas, "rutinas_exportadas")
         
         # Usar logo del sistema de branding si está disponible
         self.branding_config = branding_config or {}

@@ -1154,8 +1154,6 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Option
     if guard:
         return guard
     rm = _get_rm()
-    if rm is None:
-        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
     try:
         rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
         if rutina is None:
@@ -1189,9 +1187,21 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Option
             weeks = max(1, min(int(weeks), 4))
         except Exception:
             weeks = 1
-        # Generar primero el Excel con las semanas indicadas y luego convertir a PDF
-        xlsx_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
-        pdf_path = rm.convert_excel_to_pdf(xlsx_path)
+        # Generar PDF de rutina con robustez ante entornos sin gestor o FS restringido
+        try:
+            if rm is None:
+                from pdf_generator import PDFGenerator
+                pdfg = PDFGenerator()
+                pdf_path = pdfg.generar_pdf_rutina(rutina, usuario, ejercicios_por_dia)
+            else:
+                # Generar primero el Excel con las semanas indicadas y luego convertir a PDF
+                xlsx_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+                pdf_path = rm.convert_excel_to_pdf(xlsx_path)
+        except Exception:
+            # Fallback: generación directa de PDF si falla la ruta estándar (p. ej., FS de solo lectura)
+            from pdf_generator import PDFGenerator
+            pdfg = PDFGenerator()
+            pdf_path = pdfg.generar_pdf_rutina(rutina, usuario, ejercicios_por_dia)
         from starlette.responses import FileResponse
         # Determinar nombre de archivo final (permite override por query param)
         try:
