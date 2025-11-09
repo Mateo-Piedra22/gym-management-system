@@ -1652,11 +1652,27 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             raise HTTPException(status_code=502, detail=f"b2_upload_file fallo: {put_resp.status_code} {txt}")
 
         # Construir URL pública
-        public_base = settings.get("public_base_url")
+        public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if not public_base:
-            public_base = f"{download_url}/file" if download_url else "https://f000.backblazeb2.com/file"
-        # Usar el nombre de bucket efectivo resuelto desde la API para evitar desajustes
-        return f"{public_base}/{bucket_name_eff}/{file_name}"
+            public_base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
+        # Normalizar para evitar duplicar el nombre del bucket o el segmento /file
+        base = public_base.rstrip('/')
+        # Si el host ya incluye el bucket como subdominio (estilo S3 virtual-hosted), no añadir /file
+        if f"://{bucket_name_eff}." in base:
+            final_base = base
+            return f"{final_base}/{file_name}"
+        # Si base ya termina con /file/<bucket>, no añadir el bucket de nuevo
+        if base.endswith(f"/file/{bucket_name_eff}"):
+            final_base = base
+        elif base.endswith("/file"):
+            final_base = f"{base}/{bucket_name_eff}"
+        elif "/file/" in base:
+            # Si el base contiene /file/<algo>, simplificar a /file y añadir bucket correcto
+            idx = base.find("/file/")
+            final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+        else:
+            final_base = f"{base}/file/{bucket_name_eff}"
+        return f"{final_base}/{file_name}"
     except HTTPException:
         raise
     except Exception as e:
