@@ -3239,6 +3239,11 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
         except Exception:
             # No bloquear por fallos en auditoría
             pass
+        # Invalidar caché de rutinas para evitar datos obsoletos tras creación
+        try:
+            db.cache.invalidate('rutinas')
+        except Exception:
+            pass
         return {"ok": True, "id": int(new_id)}
     except HTTPException:
         raise
@@ -3301,6 +3306,11 @@ async def api_rutinas_update(rutina_id: int, request: Request, _=Depends(require
                 except Exception:
                     pass
             db.guardar_ejercicios_de_rutina(int(rutina_id), rutina_ejs)  # type: ignore
+        # Invalidar caché de rutinas para reflejar la actualización
+        try:
+            db.cache.invalidate('rutinas')
+        except Exception:
+            pass
         return {"ok": True, "id": int(rutina_id)}
     except HTTPException:
         raise
@@ -3363,6 +3373,11 @@ async def api_rutina_assign(rutina_id: int, request: Request, _=Depends(require_
                 raise HTTPException(status_code=404, detail="Rutina no encontrada")
             cur.execute("UPDATE rutinas SET usuario_id = %s WHERE id = %s", (int(usuario_id), int(rutina_id)))
             conn.commit()
+        # Invalidar caché de rutinas para reflejar la asignación de usuario
+        try:
+            db.cache.invalidate('rutinas')
+        except Exception:
+            pass
         return {"ok": True}
     except HTTPException:
         raise
@@ -3388,6 +3403,11 @@ async def api_rutina_unassign(rutina_id: int, _=Depends(require_gestion_access))
                 raise HTTPException(status_code=404, detail="Rutina no encontrada")
             cur.execute("UPDATE rutinas SET usuario_id = NULL WHERE id = %s", (int(rutina_id),))
             conn.commit()
+        # Invalidar caché de rutinas tras desasignar el usuario
+        try:
+            db.cache.invalidate('rutinas')
+        except Exception:
+            pass
         return {"ok": True}
     except HTTPException:
         raise
