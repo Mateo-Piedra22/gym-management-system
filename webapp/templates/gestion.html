@@ -8262,6 +8262,7 @@ function attachWheelZoom(containerId, frameId){
           // Si hay usuario seleccionado en el modal (o flujo rápido), clonar y asignar al usuario
           const modalUserId = userSelEl ? Number(userSelEl.value || 0) : 0;
           const targetUser = modalUserId || (isQuickFlow && selUser && selUser.id ? Number(selUser.id) : 0);
+          let createdId = null;
           if(targetUser){
             try{
               const detRes = await fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } });
@@ -8290,6 +8291,7 @@ function attachWheelZoom(containerId, frameId){
               if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
               const data = await res.json().catch(() => ({}));
               if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear rutina para usuario', 'error', 4500); return; }
+              try{ createdId = Number((data && (data.id != null ? data.id : data.id)) || null); }catch(_){ createdId = null; }
               // Fallback robusto: si la rutina creada quedó sin usuario, forzar asignación
               try{
                 const detCreated = await fetch(`/api/rutinas/${Number(data.id)}`, { headers:{ 'Accept':'application/json' } });
@@ -8331,7 +8333,18 @@ function attachWheelZoom(containerId, frameId){
                   else { showToast('Rutina creada, pero no se pudo abrir la previsualización', 'warning', 3500); }
                 }
               }catch(_){ }
-            }catch(e){ showToast('Error de red al clonar plantilla', 'error', 4500); }
+            }catch(e){
+              try{ console.error(e); }catch(_){ }
+              const msg = (e && e.message) ? String(e.message) : '';
+              const isNetwork = /network|fetch|failed|abort/i.test(msg);
+              if(createdId){
+                try{ closeModal('modal-rutina-new-choice'); state.rutinaQuickAssignFlow = false; }catch(_){ }
+                showToast('Plantilla clonada, pero ocurrió un problema al actualizar la vista', 'warning', 4500);
+                try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser) } })); }catch(_){ }
+              } else {
+                showToast(isNetwork ? 'Error de red al clonar plantilla' : (msg ? `Error al clonar plantilla: ${msg}` : 'Error al clonar plantilla'), 'error', 4500);
+              }
+            }
           } else {
             showToast('Selecciona un usuario para continuar', 'info', 2500);
             return;
@@ -8342,6 +8355,7 @@ function attachWheelZoom(containerId, frameId){
           const modalUserId2 = userSelEl ? Number(userSelEl.value || 0) : 0;
           const targetUser2 = modalUserId2 || (isQuickFlow && selUser && selUser.id ? Number(selUser.id) : 0);
           if(!targetUser2){ showToast('Selecciona un usuario para continuar', 'info', 2500); return; }
+          let createdId2 = null;
           try{
             const chosenLabel = (() => { try{ const opt = (userSelEl && userSelEl.options[userSelEl.selectedIndex]) ? userSelEl.options[userSelEl.selectedIndex] : null; return String((opt && opt.textContent) || 'Usuario'); }catch(_){ return 'Usuario'; } })();
             const baseNombre = 'Rutina';
@@ -8358,6 +8372,7 @@ function attachWheelZoom(containerId, frameId){
             if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
             const data = await res.json().catch(() => ({}));
             if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear la rutina', 'error', 4500); return; }
+            try{ createdId2 = Number((data && (data.id != null ? data.id : data.id)) || null); }catch(_){ createdId2 = null; }
             closeModal('modal-rutina-new-choice');
             state.rutinaQuickAssignFlow = false;
             showToast('Rutina creada y guardada automáticamente', 'success', 2500);
@@ -8389,7 +8404,18 @@ function attachWheelZoom(containerId, frameId){
                 else { showToast('Rutina creada, pero no se pudo abrir la previsualización', 'warning', 3500); }
               }
             }catch(_){ }
-          }catch(e){ showToast('Error de red al crear rutina', 'error', 4500); }
+          }catch(e){
+            try{ console.error(e); }catch(_){ }
+            const msg = (e && e.message) ? String(e.message) : '';
+            const isNetwork = /network|fetch|failed|abort/i.test(msg);
+            if(createdId2){
+              try{ closeModal('modal-rutina-new-choice'); state.rutinaQuickAssignFlow = false; }catch(_){ }
+              showToast('Rutina creada, pero ocurrió un problema al actualizar la vista', 'warning', 4500);
+              try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser2) } })); }catch(_){ }
+            } else {
+              showToast(isNetwork ? 'Error de red al crear rutina' : (msg ? `Error al crear rutina: ${msg}` : 'Error al crear rutina'), 'error', 4500);
+            }
+          }
         };
         openModal('modal-rutina-new-choice');
       })();
