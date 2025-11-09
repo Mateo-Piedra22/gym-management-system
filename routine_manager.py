@@ -1604,7 +1604,7 @@ class RoutineTemplateManager:
             wb = openpyxl.load_workbook(xlsx_path)
         except Exception:
             return
-        # Generar imagen QR temporal, si es posible
+        # Generar imagen QR temporal, con fallback robusto
         qr_png_path = None
         try:
             import segno  # type: ignore
@@ -1614,7 +1614,15 @@ class RoutineTemplateManager:
             qrcode.save(tmp.name, kind='png', scale=5)
             qr_png_path = tmp.name
         except Exception:
-            qr_png_path = None
+            try:
+                import qrcode  # type: ignore
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                tmp.close()
+                img = qrcode.make(qr_link)
+                img.save(tmp.name)
+                qr_png_path = tmp.name
+            except Exception:
+                qr_png_path = None
         # Cargar icono de smartphone si existe
         phone_icon_path = resource_path(os.path.join('assets', 'web-icon.png'))
         has_phone_icon = os.path.exists(phone_icon_path)
@@ -1657,8 +1665,8 @@ class RoutineTemplateManager:
                         icon = XLImage(phone_icon_path)
                         icon.width = 24
                         icon.height = 24
-                        icon.anchor = f"J{band_row-1 if band_row>1 else band_row}"
-                        ws.add_image(icon)
+                        anchor_icon = f"J{band_row-1 if band_row>1 else band_row}"
+                        ws.add_image(icon, anchor_icon)
                     except Exception:
                         pass
 
@@ -1669,8 +1677,7 @@ class RoutineTemplateManager:
                         img.width = 120
                         img.height = 120
                         anchor_cell = f"K{band_row-1 if band_row>1 else band_row}"
-                        img.anchor = anchor_cell
-                        ws.add_image(img)
+                        ws.add_image(img, anchor_cell)
                     except Exception:
                         pass
                 else:

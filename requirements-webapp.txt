@@ -12,6 +12,7 @@ openpyxl
 Pillow
 xlsxtpl
 segno
+qrcode
 bcrypt
 pywa
 google-cloud-storage
