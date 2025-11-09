@@ -304,7 +304,7 @@
           (err) => { /* Ignorar errores de escaneo continuo */ }
         );
       } catch (e) {
-        window.toast && window.toast.error('No se pudo activar el lector QR');
+        if (typeof window.showToast === 'function') { showToast('No se pudo activar el lector QR', 'error', 4500); }
         console.error(e);
       }
     }
@@ -351,7 +351,7 @@
         if (msgEl) {
           msgEl.textContent = 'No se pudo activar la cámara. Revisá permisos.';
         }
-        window.toast && window.toast.error('No se pudo activar el lector QR');
+        if (typeof window.showToast === 'function') { showToast('No se pudo activar el lector QR', 'error', 4500); }
         console.error(e);
       }
     }
@@ -390,7 +390,7 @@
     async function onScanSuccess(decodedText){
       const { uuid, preview } = extraerUuidYTipo(decodedText);
       if (!uuid){
-        window.toast && window.toast.warning('QR inválido para rutina');
+        if (typeof window.showToast === 'function') { showToast('QR inválido para rutina', 'warning', 3500); }
         return;
       }
       try {
@@ -400,30 +400,30 @@
         const res = await fetch(url);
         const data = await res.json();
         if (!data.ok){
-          window.toast && window.toast.error(data.error || 'No se pudo obtener la rutina');
+          if (typeof window.showToast === 'function') { showToast(data.error || 'No se pudo obtener la rutina', 'error', 4500); }
           return;
         }
         renderRutina(data.rutina);
       } catch (e){
-        window.toast && window.toast.error('Error cargando rutina');
+        if (typeof window.showToast === 'function') { showToast('Error cargando rutina', 'error', 4500); }
         console.error(e);
       }
     }
 
     function mostrarRutinaDesdeQR(qrUrl){
       const { uuid } = extraerUuidYTipo(qrUrl);
-      if (!uuid){ window.toast && window.toast.warning('QR no válido'); return; }
+      if (!uuid){ if (typeof window.showToast === 'function') { showToast('QR no válido', 'warning', 3500); } return; }
       onScanSuccess(uuid);
     }
 
     function mostrarRutinaActiva(){
       const url = "{{ rutina_activa_qr_url if rutina_activa_qr_url else '' }}";
-      if (!url){ window.toast && window.toast.warning('No hay rutina activa con QR'); return; }
+      if (!url){ if (typeof window.showToast === 'function') { showToast('No hay rutina activa con QR', 'warning', 3500); } return; }
       mostrarRutinaDesdeQR(url);
     }
 
     function onRutinaBadgeClick(qrUrl, esActiva){
-      if (!esActiva){ window.toast && window.toast.info('Esta rutina está inactiva'); return; }
+      if (!esActiva){ if (typeof window.showToast === 'function') { showToast('Esta rutina está inactiva', 'info', 3000); } return; }
       abrirModalQR();
     }
 

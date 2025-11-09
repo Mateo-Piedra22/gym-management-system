@@ -7009,7 +7009,13 @@ async function directExportExcelFromPreview(){
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
     let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
     try { xlsxName = String(xlsxName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
-    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    let urlSignedRes;
+    if (d && d.id) {
+      const qs = new URLSearchParams({ weeks: String(weeks), filename: xlsxName });
+      urlSignedRes = await fetch(`/api/rutinas/${encodeURIComponent(String(d.id))}/export/excel_view_url?` + qs.toString(), { method:'GET', headers:{ 'Accept':'application/json' } });
+    } else {
+      urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    }
     const urlSignedData = await urlSignedRes.json().catch(()=>({}));
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
     if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
@@ -7588,7 +7594,13 @@ function attachWheelZoom(containerId, frameId){
             const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
             const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
             const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
-            const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            let urlSignedRes;
+            if (dInner && dInner.id) {
+              const qs = new URLSearchParams({ weeks: String(weeks), filename: fnameSafe });
+              urlSignedRes = await fetch(`/api/rutinas/${encodeURIComponent(String(dInner.id))}/export/excel_view_url?` + qs.toString(), { method:'GET', headers:{ 'Accept':'application/json' } });
+            } else {
+              urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            }
             const urlSignedData = await urlSignedRes.json().catch(()=>({}));
             if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
             if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
