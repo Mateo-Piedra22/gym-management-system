@@ -1522,6 +1522,12 @@ def _get_b2_settings() -> Dict[str, Any]:
         bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
         prefix = (os.getenv("B2_MEDIA_PREFIX") or "ejercicios").strip().strip("/")
         public_base = (os.getenv("B2_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        # Sanitizar prefijo si accidentalmente incluye el nombre del bucket
+        try:
+            if bucket_name and prefix and prefix.lower().startswith((bucket_name + "/").lower()):
+                prefix = prefix[len(bucket_name) + 1 :]
+        except Exception:
+            pass
         return {
             "account_id": account_id,
             "application_key": application_key,
@@ -4697,6 +4703,13 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                 url = None
 
         if not url:
+            # En entornos de producción, permitir exigir almacenamiento remoto
+            try:
+                require_remote = (os.getenv("REQUIRE_REMOTE_MEDIA", "0").strip().lower() in ("1", "true", "yes"))
+            except Exception:
+                require_remote = False
+            if require_remote:
+                raise HTTPException(status_code=502, detail=f"Falló la subida remota (GCS/B2). {b2_err_detail or ''}".strip())
             # Guardar localmente
             try:
                 with open(dest_path, "wb") as f:

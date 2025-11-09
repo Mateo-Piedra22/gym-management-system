@@ -7937,7 +7937,19 @@ function attachWheelZoom(containerId, frameId){
           try{
             const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd });
             const jd = await up.json().catch(() => ({}));
-            if(!up.ok){ showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500); }
+            if(!up.ok){
+              showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500);
+            } else {
+              const loc = String(jd.storage || '').toLowerCase();
+              if(loc === 'b2'){
+                showToast('Video subido a Backblaze B2', 'success', 3000);
+              } else if(loc === 'gcs'){
+                showToast('Video subido a Google Cloud Storage', 'success', 3000);
+              } else if(loc === 'local'){
+                const warn = String(jd.warning || '').trim();
+                showToast(warn || 'Subida remota falló; usando almacenamiento local temporal', 'warning', 6000);
+              }
+            }
           }catch(_){ showToast('Error de red al subir el video', 'error', 4500); }
         } else if(state.ejercicioVideoRemove && state.editingEjercicioOriginalVideoUrl && eid){
           try{
