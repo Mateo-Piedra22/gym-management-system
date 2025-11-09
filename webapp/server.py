@@ -1630,6 +1630,13 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
 
         # 3) Subir archivo
         file_name = f"{settings['prefix']}/{dest_name}" if settings.get("prefix") else dest_name
+        # Sanitizar: evitar que el prefijo incluya accidentalmente el nombre del bucket
+        try:
+            bn_lower = (bucket_name_eff or "").strip().lower()
+            if bn_lower and file_name.lower().startswith(bn_lower + "/"):
+                file_name = file_name[len(bucket_name_eff) + 1 :]
+        except Exception:
+            pass
         try:
             import urllib.parse as _urlparse  # import local para evitar polución global
             file_name_header = _urlparse.quote(file_name)
