@@ -3034,6 +3034,29 @@ async def api_rutinas_plantillas(_=Depends(require_gestion_access)):
         return guard
     try:
         plantillas = db.obtener_plantillas_rutina()  # type: ignore
+
+        # Calcular cantidad de ejercicios por plantilla en una sola consulta
+        counts_map = {}
+        try:
+            ids = [int(r.id) for r in (plantillas or []) if getattr(r, "id", None) is not None]
+            if ids:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        "SELECT rutina_id, COUNT(*) AS c FROM rutina_ejercicios WHERE rutina_id = ANY(%s) GROUP BY rutina_id",
+                        (ids,)
+                    )
+                    rows = cur.fetchall() or []
+                    for rr in rows:
+                        try:
+                            rid = int(rr.get("rutina_id"))
+                            counts_map[rid] = int(rr.get("c") or 0)
+                        except Exception:
+                            pass
+        except Exception:
+            # En caso de error al contar, continuar sin bloquear el endpoint
+            counts_map = {}
+
         return [
             {
                 "id": int(r.id) if r.id is not None else None,
@@ -3044,6 +3067,7 @@ async def api_rutinas_plantillas(_=Depends(require_gestion_access)):
                 "categoria": getattr(r, "categoria", "general"),
                 "fecha_creacion": r.fecha_creacion,
                 "activa": bool(getattr(r, "activa", True)),
+                "ejercicios_count": counts_map.get(int(r.id), 0) if r.id is not None else 0,
             }
             for r in plantillas
         ]

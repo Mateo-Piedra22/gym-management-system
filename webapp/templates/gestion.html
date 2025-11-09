@@ -758,6 +758,8 @@
                   <button class="btn" id="usuario-side-qr">Emitir QR Check-in</button>
         <button class="btn success" id="usuario-side-asistencia">Registrar asistencia</button>
                   <button class="btn" id="usuario-side-ficha">Ver ficha</button>
+                  <button class="btn info" id="usuario-side-rutina-new">Crear rutina</button>
+                  
                   
                 </div>
               </div>
@@ -2269,23 +2271,41 @@
     </div>
     <div class="modal-body" style="max-height: 70vh; overflow:auto">
       <div class="form-grid" style="gap:16px">
-        <div class="form-row" style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
-          <strong style="display:block; margin-bottom:8px">Desde plantilla</strong>
+        <div class="form-row" style="display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
+          <strong style="display:block; font-size:14px; margin-bottom:8px; color: var(--primary)">Asignar a usuario</strong>
+          <div style="display:grid; grid-template-columns: 1fr; gap:8px">
+            <div>
+              <label for="rutina-choice-user-search">Buscar usuario</label>
+              <input id="rutina-choice-user-search" type="text" placeholder="Nombre, DNI o teléfono" aria-label="Buscar usuario" />
+            </div>
+            <div>
+              <label for="rutina-choice-user">Usuario</label>
+              <select id="rutina-choice-user" aria-label="Usuario"></select>
+            </div>
+          </div>
+        </div>
+        <div class="form-row" style="display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
+          <strong style="display:block; font-size:14px; margin-bottom:8px; color: var(--primary)">Desde plantilla</strong>
           <div style="display:grid; grid-template-columns: 1fr; gap:8px">
             <div>
               <label for="rutina-choice-template-search">Buscar plantilla</label>
               <input id="rutina-choice-template-search" type="text" placeholder="Buscar plantilla" aria-label="Buscar plantilla" />
             </div>
-            <div style="display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:end">
+            <div>
+              <label for="rutina-choice-template">Plantilla</label>
               <select id="rutina-choice-template" aria-label="Plantilla"></select>
+            </div>
+            <div style="display:flex; justify-content:flex-start">
               <button class="btn" id="rutina-choice-template-confirm">Continuar</button>
             </div>
           </div>
         </div>
-        <div class="form-row" style="border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
-          <strong>Desde cero</strong>
+        <div class="form-row" style="display:flex; flex-direction:column; align-items:flex-start; border:1px solid var(--border); border-radius:12px; padding:12px; background:var(--card)">
+          <strong style="display:block; font-size:14px; margin-bottom:8px; color: var(--primary)">Desde cero</strong>
           <p class="muted" style="margin:6px 0 12px 0">Comenzar con rutina vacía y agregar ejercicios manualmente.</p>
-          <button class="btn" id="rutina-choice-scratch-confirm">Comenzar desde cero</button>
+          <div style="display:flex; justify-content:flex-start">
+            <button class="btn" id="rutina-choice-scratch-confirm">Comenzar desde cero</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2404,50 +2424,52 @@
             <label for="rutina-preview-nombre">Nombre</label>
             <input id="rutina-preview-nombre" type="text" placeholder="Nombre de la rutina" style="width:100%" />
           </div>
-          <div class="input-row" style="display:grid; grid-template-columns: auto auto 1fr; gap:8px; align-items:end">
-            <div>
-              <label for="rutina-preview-dias">Días</label>
-              <select id="rutina-preview-dias" style="min-width:88px; width:auto">
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-              </select>
-            </div>
-            <div>
-              <label for="rutina-preview-semanas">Semanas</label>
-              <select id="rutina-preview-semanas" style="min-width:100px; width:auto">
-                <option value="1" selected>1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-              </select>
-            </div>
-            <div>
-              <label for="rutina-preview-usuario-nombre">Usuario (encabezado)</label>
-              <input id="rutina-preview-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" style="width:100%" />
-            </div>
+          <div>
+            <label for="rutina-preview-usuario-nombre">Usuario (encabezado)</label>
+            <input id="rutina-preview-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" style="width:100%" />
+          </div>
+        </div>
+        <div class="form-row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; align-items:end">
+          <div>
+            <label for="rutina-preview-dias">Días</label>
+            <select id="rutina-preview-dias" style="min-width:88px; width:auto">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+          <div>
+          <label for="rutina-preview-semanas">Semanas</label>
+          <select id="rutina-preview-semanas" style="min-width:100px; width:auto">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+          </select>
           </div>
         </div>
         <div id="rutina-preview-advanced" style="margin-top:4px">
-          <div class="form-row">
-            <label for="rutina-preview-descripcion">Descripción</label>
-            <textarea id="rutina-preview-descripcion" placeholder="Estructura y objetivos"></textarea>
-          </div>
-          <div class="form-row">
-            <label for="rutina-preview-categoria">Categoría</label>
-            <select id="rutina-preview-categoria">
-              <option value="general">General</option>
-              <option value="fuerza">Fuerza</option>
-              <option value="hipertrofia">Hipertrofia</option>
-              <option value="resistencia">Resistencia</option>
-              <option value="fullbody">Full body</option>
-            </select>
+          <div class="form-row" style="display:grid; grid-template-columns: 1.6fr 1fr; gap:12px; align-items:end">
+            <div>
+              <label for="rutina-preview-descripcion">Descripción</label>
+              <textarea id="rutina-preview-descripcion" placeholder="Estructura y objetivos"></textarea>
+            </div>
+            <div>
+              <label for="rutina-preview-categoria">Categoría</label>
+              <select id="rutina-preview-categoria">
+                <option value="general">General</option>
+                <option value="fuerza">Fuerza</option>
+                <option value="hipertrofia">Hipertrofia</option>
+                <option value="resistencia">Resistencia</option>
+                <option value="fullbody">Full body</option>
+              </select>
+            </div>
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row" style="display:flex; flex-direction:column; gap:8px; align-items:flex-start">
           <label for="rutina-preview-add-ej">Agregar ejercicio</label>
-          <div style="display:grid; grid-template-columns: 1fr; gap:8px">
+          <div style="display:grid; grid-template-columns: 1fr; gap:8px; width:100%">
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
               <input id="rutina-preview-ejercicio-search" type="text" placeholder="Buscar ejercicio..." aria-label="Buscar ejercicio" style="flex:2; min-width:220px" />
               <select id="rutina-preview-filter-group" title="Filtrar por grupo" aria-label="Filtrar por grupo" style="min-width:180px">
@@ -4778,6 +4800,7 @@
       document.getElementById('usuario-side-id').textContent = id ? `#${id}` : '';
       const btnQR = document.getElementById('usuario-side-qr'); if(btnQR) btnQR.disabled = false;
       const btnAsis = document.getElementById('usuario-side-asistencia'); if(btnAsis) btnAsis.disabled = false;
+      const btnRutinaNew = document.getElementById('usuario-side-rutina-new'); if(btnRutinaNew) btnRutinaNew.disabled = false;
       const loader = document.getElementById('usuario-side-loader'); if(loader) loader.classList.add('active');
       try {
         const [detRes, histRes] = await Promise.all([
@@ -4824,6 +4847,7 @@
       document.getElementById('usuario-side-empty').style.display = 'block';
       const btnQR = document.getElementById('usuario-side-qr'); if(btnQR) btnQR.disabled = true;
       const btnAsis = document.getElementById('usuario-side-asistencia'); if(btnAsis) btnAsis.disabled = true;
+      const btnRutinaNew = document.getElementById('usuario-side-rutina-new'); if(btnRutinaNew) btnRutinaNew.disabled = true;
       const tbody = document.querySelector('#usuario-historial-table tbody');
       if(tbody) tbody.innerHTML = '';
       const wtbody = document.getElementById('usuario-wa-historial-body'); if(wtbody) wtbody.innerHTML = '';
@@ -4968,6 +4992,8 @@
       if(asisBtn) asisBtn.addEventListener('click', handleAsistenciaClick);
       const fichaBtn = document.getElementById('usuario-side-ficha');
       if(fichaBtn) fichaBtn.addEventListener('click', openUsuarioSheet);
+      const rutinaNewBtn = document.getElementById('usuario-side-rutina-new');
+      if(rutinaNewBtn){ rutinaNewBtn.addEventListener('click', () => { const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 3000); return; } state.rutinaQuickAssignFlow = true; try{ openRutinaBuilderNew(); }catch(_){ state.rutinaQuickAssignFlow = false; } }); }
       const sheetRegistrar = document.getElementById('usuario-sheet-registrar');
       if(sheetRegistrar) sheetRegistrar.addEventListener('click', function(){ try{ hidePagoWizard(); }catch(_){} showPagoWizard(); });
       const sheetVerPagos = document.getElementById('usuario-sheet-ver-pagos');
@@ -6970,7 +6996,7 @@ function renderRutinaPreview(){
       const name = (item.ejercicio && item.ejercicio.nombre) ? item.ejercicio.nombre : `Ejercicio ${item.ejercicio_id}`;
       const series = item.series != null ? item.series : '';
       const reps = item.repeticiones != null ? item.repeticiones : '';
-      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 4)));
       const S = (typeof series === 'string') ? series.split(',').map(x=>String(x).trim()) : [String(series||'')];
       const R = (typeof reps === 'string') ? reps.split(',').map(x=>String(x).trim()) : [String(reps||'')];
       const pairs = [];
@@ -7109,7 +7135,7 @@ function refreshPreviewDayOptions(dias){
       const weeklyToggle = document.getElementById('rutina-preview-float-weekly');
       const singleWrap = document.getElementById('rutina-preview-float-single');
       const weeklyWrap = document.getElementById('rutina-preview-float-weekly-inputs');
-      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 4)));
       const sInputs = ['s1','s2','s3','s4'].map(id => document.getElementById(`rutina-preview-float-${id}`));
       const rInputs = ['r1','r2','r3','r4'].map(id => document.getElementById(`rutina-preview-float-${id}`));
       const S = typeof item.series === 'string' ? item.series.split(',').map(x=>String(x).trim()) : [];
@@ -7175,7 +7201,7 @@ function refreshPreviewDayOptions(dias){
       const srcOrderF = Number(float.dataset.srcOrder||0);
       // Siempre tomar los valores semanales mostrados en el panel flotante
       // (los inputs individuales no existen en el DOM de esta vista)
-      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+      const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 4)));
       const sVals = [];
       const rVals = [];
       for(let i=1;i<=weeks;i++){
@@ -7418,7 +7444,7 @@ async function directExportExcelFromPreview(){
         )
       }))
     };
-    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 4)));
   const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3)));
     const nombreRutinaSafe = ((document.getElementById('rutina-preview-nombre')||{}).value || d.nombre_rutina || d.nombre || 'rutina');
     const usuarioNombreFull = (((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim());
@@ -7476,7 +7502,7 @@ async function updateRutinaPDFPreview(){
         )
       }))
     };
-    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
+    const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 4)));
   const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3)));
     const nombreRutinaSafe = ((document.getElementById('rutina-preview-nombre')||{}).value || d.nombre_rutina || d.nombre || 'rutina');
     const usuarioNombreFull = (((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim());
@@ -7762,11 +7788,12 @@ function attachWheelZoom(containerId, frameId){
               const uidAfter = (document.getElementById('rutinas-usuario')||{}).value || '';
               await loadRutinasPorUsuario(uidAfter);
             } else {
-              // Crear como plantilla (usuario_id null)
-              const payload = Object.assign({}, payloadBase, { usuario_id: null });
+              // Crear: si tiene usuario_id, crear asignada al usuario; si no, crear como plantilla
+              const hasUsuario = (d.usuario_id != null) && !isNaN(Number(d.usuario_id));
+              const payload = Object.assign({}, payloadBase, { usuario_id: hasUsuario ? Number(d.usuario_id) : null });
               const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
-              const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear plantilla', 'error', 4500); return; }
-              closeModal('modal-rutina-preview'); cleanupKeys(); showToast('Plantilla creada', 'success', 2500);
+              const data = await res.json().catch(()=>({})); if(!res.ok){ showToast(data.detail || data.error || (hasUsuario?'No se pudo crear rutina de usuario':'No se pudo crear plantilla'), 'error', 4500); return; }
+              closeModal('modal-rutina-preview'); cleanupKeys(); showToast(hasUsuario ? 'Rutina creada y asignada al usuario' : 'Plantilla creada', 'success', 2500);
               await loadRutinasPlantillas();
               const uidAfterCreate = (document.getElementById('rutinas-usuario')||{}).value || '';
               await loadRutinasPorUsuario(uidAfterCreate);
@@ -8061,6 +8088,39 @@ function attachWheelZoom(containerId, frameId){
         const cancelEl = document.getElementById('rutina-new-choice-cancel');
         const confirmTpl = document.getElementById('rutina-choice-template-confirm');
         const confirmScratch = document.getElementById('rutina-choice-scratch-confirm');
+        const isQuickFlow = !!state.rutinaQuickAssignFlow;
+        const selUser = state.selectedUsuario || null;
+        const userSearchEl = document.getElementById('rutina-choice-user-search');
+        const userSelEl = document.getElementById('rutina-choice-user');
+        // Prepara selector de usuario en el modal
+        try{
+          if(!Array.isArray(state.usuarios) || !state.usuarios.length){ await loadUsers(); }
+        }catch(_){ }
+        if(userSelEl){
+          userSelEl.innerHTML = '';
+          const def = document.createElement('option'); def.value = ''; def.textContent = 'Selecciona usuario'; userSelEl.appendChild(def);
+          const users = Array.isArray(state.usuarios) ? state.usuarios : [];
+          users.forEach(u => { const opt = document.createElement('option'); opt.value = String(u.id); opt.textContent = u.nombre || u.email || `Usuario ${u.id}`; userSelEl.appendChild(opt); });
+          try{ if(selUser && selUser.id){ userSelEl.value = String(selUser.id); } }catch(_){ }
+          // Deshabilita confirmaciones hasta que haya usuario seleccionado
+          const updateConfirmEnabled = () => {
+            const hasUser = !!(userSelEl && userSelEl.value);
+            if(confirmTpl) confirmTpl.disabled = !hasUser;
+            if(confirmScratch) confirmScratch.disabled = !hasUser;
+          };
+          updateConfirmEnabled();
+          userSelEl.onchange = updateConfirmEnabled;
+        }
+        if(userSearchEl){
+          userSearchEl.value = '';
+          userSearchEl.oninput = () => {
+            const q = (userSearchEl.value || '').toLowerCase();
+            Array.from((userSelEl||{options:[]}).options).forEach(opt => {
+              if(!opt.value) return;
+              opt.hidden = q.length > 0 && !(opt.textContent || '').toLowerCase().includes(q);
+            });
+          };
+        }
         const items = Array.isArray(state.plantillas) ? state.plantillas : [];
         function populateSelect(filter){
           const q = String(filter || '').trim().toLowerCase();
@@ -8078,22 +8138,77 @@ function attachWheelZoom(containerId, frameId){
           const run = () => { try{ populateSelect(searchEl.value || ''); }catch(_){ } };
           searchEl.oninput = () => { try{ if(timer) clearTimeout(timer); timer = setTimeout(run, 200); }catch(_){ run(); } };
         }
-        if(closeEl) closeEl.onclick = () => closeModal('modal-rutina-new-choice');
-        if(cancelEl) cancelEl.onclick = () => closeModal('modal-rutina-new-choice');
+        if(closeEl) closeEl.onclick = () => { state.rutinaQuickAssignFlow = false; closeModal('modal-rutina-new-choice'); };
+        if(cancelEl) cancelEl.onclick = () => { state.rutinaQuickAssignFlow = false; closeModal('modal-rutina-new-choice'); };
         if(confirmTpl) confirmTpl.onclick = async () => {
           const id = selEl ? Number(selEl.value || '') : 0;
           if(!id){ showToast('Selecciona una plantilla', 'info', 2500); return; }
-          closeModal('modal-rutina-new-choice');
-          await openRutinaPreview(Number(id));
+          // Si hay usuario seleccionado en el modal (o flujo rápido), clonar y asignar al usuario
+          const modalUserId = userSelEl ? Number(userSelEl.value || 0) : 0;
+          const targetUser = modalUserId || (isQuickFlow && selUser && selUser.id ? Number(selUser.id) : 0);
+          if(targetUser){
+            try{
+              const detRes = await fetch(`/api/rutinas/${id}`, { headers:{ 'Accept':'application/json' } });
+              if(detRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+              const det = await detRes.json().catch(() => ({}));
+              if(!detRes.ok){ showToast(det.detail || det.error || 'No se pudo cargar plantilla', 'error', 4500); return; }
+              const baseNombre = det.nombre_rutina || det.nombre || 'Rutina';
+              const userLabel = (() => { try{ const opt = (userSelEl && userSelEl.options[userSelEl.selectedIndex]) ? userSelEl.options[userSelEl.selectedIndex] : null; return String((opt && opt.textContent) || 'Usuario'); }catch(_){ return 'Usuario'; } })();
+              const nombreAuto = standardizeNombre(baseNombre, userLabel);
+              const diasMax = Math.max(2, Math.min(5, Number(det.dias_semana || 3)));
+              const payload = {
+                usuario_id: Number(targetUser),
+                nombre_rutina: nombreAuto,
+                descripcion: det.descripcion || null,
+                dias_semana: diasMax,
+                categoria: det.categoria || 'general',
+                ejercicios: (Array.isArray(det.ejercicios)? det.ejercicios: []).map(x => ({
+                  ejercicio_id: Number(x.ejercicio_id),
+                  dia_semana: Math.max(1, Math.min(diasMax, Number(x.dia_semana||1))),
+                  series: x.series,
+                  repeticiones: x.repeticiones,
+                  orden: Number(x.orden||1)
+                }))
+              };
+              const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+              if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+              const data = await res.json().catch(() => ({}));
+              if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear rutina para usuario', 'error', 4500); return; }
+              closeModal('modal-rutina-new-choice');
+              state.rutinaQuickAssignFlow = false;
+              showToast('Plantilla clonada para el usuario', 'success', 2500);
+              await openRutinaPreview(Number(data.id));
+            }catch(e){ showToast('Error de red al clonar plantilla', 'error', 4500); }
+          } else {
+            showToast('Selecciona un usuario para continuar', 'info', 2500);
+            return;
+          }
         };
         if(confirmScratch) confirmScratch.onclick = async () => {
+          // Requiere usuario seleccionado
+          const modalUserId2 = userSelEl ? Number(userSelEl.value || 0) : 0;
+          const targetUser2 = modalUserId2 || (isQuickFlow && selUser && selUser.id ? Number(selUser.id) : 0);
+          if(!targetUser2){ showToast('Selecciona un usuario para continuar', 'info', 2500); return; }
           closeModal('modal-rutina-new-choice');
           await openRutinaPreview(null);
           try{
             const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
             d._createdFromScratch = true;
+            // Si hay usuario seleccionado en el modal (o flujo rápido), prefijar usuario y nombre automáticamente
+            if(targetUser2){
+              d.usuario_id = Number(targetUser2);
+              try{
+                const chosenLabel = (() => { try{ const opt = (userSelEl && userSelEl.options[userSelEl.selectedIndex]) ? userSelEl.options[userSelEl.selectedIndex] : null; return String((opt && opt.textContent) || 'Usuario'); }catch(_){ return 'Usuario'; } })();
+                const uEl = document.getElementById('rutina-preview-usuario-nombre'); if(uEl) uEl.value = chosenLabel;
+                const nameEl = document.getElementById('rutina-preview-nombre');
+                const baseNombre = (nameEl && nameEl.value) ? nameEl.value : 'Rutina';
+                const nombreAuto = standardizeNombre(baseNombre, chosenLabel);
+                if(nameEl) nameEl.value = nombreAuto;
+              }catch(_){ }
+            }
             state.rutinaPreviewDraft = d;
             renderRutinaPreview();
+            state.rutinaQuickAssignFlow = false;
           }catch(_){}
         };
         openModal('modal-rutina-new-choice');
