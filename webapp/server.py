@@ -3186,15 +3186,59 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
         ejercicios = payload.get("ejercicios")
         if ejercicios and isinstance(ejercicios, list):
             rutina_ejs = []
+            # Normalización robusta de ejercicios provenientes de plantillas
             for item in ejercicios:
                 try:
+                    # ejercicio_id obligatorio y numérico
+                    raw_eid = item.get("ejercicio_id")
+                    if raw_eid is None:
+                        continue
+                    try:
+                        eid = int(str(raw_eid).strip())
+                    except Exception:
+                        # Si no es convertible, saltar este ejercicio
+                        continue
+
+                    # dia_semana dentro de rango 1..dias_semana
+                    try:
+                        dia = int(item.get("dia_semana") or 1)
+                    except Exception:
+                        dia = 1
+                    dia = max(1, min(dia_semana, dia))
+
+                    # series: aceptar entero o texto; vacíos quedan en None
+                    s_val = item.get("series")
+                    series_out = None
+                    if s_val is not None:
+                        s_txt = str(s_val).strip()
+                        if s_txt != "" and s_txt.lower() != "null":
+                            # Si es numérico, guardarlo como entero; si no, como texto
+                            try:
+                                series_out = int(float(s_txt))
+                            except Exception:
+                                series_out = s_txt
+
+                    # repeticiones: texto libre; vacíos quedan en "" para exportaciones
+                    r_val = item.get("repeticiones")
+                    repeticiones_out = ""
+                    if r_val is not None:
+                        r_txt = str(r_val).strip()
+                        if r_txt.lower() != "null":
+                            repeticiones_out = r_txt
+
+                    # orden: entero, default 1
+                    try:
+                        orden_out = int(item.get("orden") or 1)
+                    except Exception:
+                        orden_out = 1
+
                     rutina_ejs.append(RutinaEjercicio(
                         rutina_id=int(new_id),
-                        ejercicio_id=int(item.get("ejercicio_id")),
-                        dia_semana=int(item.get("dia_semana") or 1),
-                        series=item.get("series"),
-                        repeticiones=item.get("repeticiones"),
-                        orden=item.get("orden"),
+                        ejercicio_id=eid,
+                        dia_semana=dia,
+                        series=series_out,
+                        repeticiones=repeticiones_out,
+                        orden=orden_out,
                     ))  # type: ignore
                 except Exception:
                     # Ignorar entradas inválidas sin detener creación
