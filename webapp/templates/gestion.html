@@ -8277,6 +8277,16 @@ function attachWheelZoom(containerId, frameId){
               if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
               const data = await res.json().catch(() => ({}));
               if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear rutina para usuario', 'error', 4500); return; }
+              // Fallback robusto: si la rutina creada quedó sin usuario, forzar asignación
+              try{
+                const detCreated = await fetch(`/api/rutinas/${Number(data.id)}`, { headers:{ 'Accept':'application/json' } });
+                const detData = await detCreated.json().catch(() => ({}));
+                if(detCreated.ok && (!detData || detData.usuario_id == null)){
+                  const assignRes = await fetch(`/api/rutinas/${Number(data.id)}/assign`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: Number(targetUser) }) });
+                  if(assignRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+                  if(!assignRes.ok){ const ad = await assignRes.json().catch(()=>({})); showToast(ad.detail || ad.error || 'No se pudo asignar la rutina al usuario', 'warning', 3500); }
+                }
+              }catch(_){ /* No bloquear si falla el fallback */ }
               closeModal('modal-rutina-new-choice');
               state.rutinaQuickAssignFlow = false;
               showToast('Plantilla clonada para el usuario', 'success', 2500);
