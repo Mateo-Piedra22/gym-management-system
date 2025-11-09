@@ -1515,7 +1515,8 @@ def _get_b2_settings() -> Dict[str, Any]:
     Devuelve un dict con claves: account_id, application_key, bucket_id, bucket_name, prefix, public_base_url.
     """
     try:
-        account_id = (os.getenv("B2_ACCOUNT_ID") or "").strip()
+        # B2 usa KeyID para b2_authorize_account; soportar ambas variables por compatibilidad
+        account_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or "").strip()
         application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
         bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
         bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
@@ -4655,9 +4656,18 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         if not url:
             try:
                 url = _upload_media_to_b2(dest_name, data, content_type)
-            except HTTPException:
-                raise
-            except Exception:
+            except HTTPException as he:
+                # Tratar B2 como opcional: no abortar, continuar al fallback local
+                try:
+                    logging.warning(f"B2 fallback error: {getattr(he, 'detail', he)}")
+                except Exception:
+                    pass
+                url = None
+            except Exception as e:
+                try:
+                    logging.warning(f"B2 fallback error: {e}")
+                except Exception:
+                    pass
                 url = None
 
         if not url:
