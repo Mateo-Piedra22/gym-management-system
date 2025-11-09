@@ -388,7 +388,9 @@
     }
 
     async function onScanSuccess(decodedText){
-      const { uuid, preview } = extraerUuidYTipo(decodedText);
+      const s = String(decodedText || '');
+      const isAbsolute = /^https?:\/\//i.test(s);
+      const { uuid, preview } = extraerUuidYTipo(s);
       if (!uuid){
         if (typeof window.showToast === 'function') { showToast('QR inválido para rutina', 'warning', 3500); }
         return;
@@ -396,7 +398,7 @@
       try {
         // Detener y cerrar el modal tras un escaneo válido para evitar duplicados
         await cerrarModalQR();
-        const url = preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`;
+        const url = isAbsolute ? s : (preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`);
         const res = await fetch(url);
         const data = await res.json();
         if (!data.ok){
@@ -413,7 +415,8 @@
     function mostrarRutinaDesdeQR(qrUrl){
       const { uuid } = extraerUuidYTipo(qrUrl);
       if (!uuid){ if (typeof window.showToast === 'function') { showToast('QR no válido', 'warning', 3500); } return; }
-      onScanSuccess(uuid);
+      // Pasar la URL completa para conservar si es preview o real
+      onScanSuccess(qrUrl);
     }
 
     function mostrarRutinaActiva(){

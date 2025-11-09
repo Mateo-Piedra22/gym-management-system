@@ -1739,8 +1739,19 @@ class RoutineTemplateManager:
                         # Aumentar tamaño del QR en hoja
                         img.width = 180
                         img.height = 180
-                        anchor_cell = f"K{band_row}"
-                        ws.add_image(img, anchor_cell)
+                        # Usar anclaje OneCellAnchor cuando esté disponible para mayor compatibilidad
+                        if AnchorMarker and OneCellAnchor and XDRPositiveSize2D:
+                            def _px_to_emu(px: float) -> int:
+                                return int(round(px * 9525))
+                            # Columna K es índice 11 (base 1), OneCellAnchor usa base 0
+                            marker = AnchorMarker(col=11 - 1, colOff=_px_to_emu(0),
+                                                  row=band_row - 1, rowOff=_px_to_emu(0))
+                            ext = XDRPositiveSize2D(cx=_px_to_emu(img.width), cy=_px_to_emu(img.height))
+                            img.anchor = OneCellAnchor(_from=marker, ext=ext)
+                            ws.add_image(img)
+                        else:
+                            anchor_cell = f"K{band_row}"
+                            ws.add_image(img, anchor_cell)
                         image_inserted = True
                     except Exception:
                         image_inserted = False
