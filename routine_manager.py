@@ -1754,7 +1754,7 @@ class RoutineTemplateManager:
                 ws.cell(row=band_row, column=1, value="")
                 # Banda más compacta y armoniosa
                 try:
-                    ws.row_dimensions[band_row].height = 95  # ~70-80px según Excel
+                    ws.row_dimensions[band_row].height = 100  # ~80-85px según Excel
                 except Exception:
                     pass
 
@@ -1797,9 +1797,9 @@ class RoutineTemplateManager:
                 if qr_png_path and os.path.exists(qr_png_path):
                     try:
                         img = XLImage(qr_png_path)
-                        # Tamaño más compacto y minimalista
-                        img.width = 160
-                        img.height = 160
+                        # Tamaño más compacto y legible
+                        img.width = 128
+                        img.height = 128
                         # Usar anclaje OneCellAnchor cuando esté disponible para mayor compatibilidad
                         if AnchorMarker and OneCellAnchor and XDRPositiveSize2D:
                             def _px_to_emu(px: float) -> int:

@@ -2647,8 +2647,13 @@
       <div style="margin-top:12px">
         <div style="display:flex; align-items:center; gap:8px; justify-content:space-between; flex-wrap:wrap">
           <span class="muted">Vista previa literal del Excel generado</span>
-          <div style="display:flex; gap:8px; align-items:center">
-        <button class="btn info" id="rutina-export-preview-btn">Actualizar vista previa</button>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <label for="rutina-export-sheet" class="muted" style="font-size:13px">Hoja</label>
+            <select id="rutina-export-sheet" aria-label="Seleccionar hoja" style="min-width:140px"><option value="0">Hoja 1</option></select>
+            <label for="rutina-export-zoom" class="muted" style="font-size:13px">Zoom</label>
+            <input id="rutina-export-zoom" type="range" min="50" max="200" step="10" value="100" aria-label="Zoom de vista previa" />
+            <span id="rutina-export-zoom-label" class="muted" aria-live="polite">100%</span>
+            <button class="btn info" id="rutina-export-preview-btn">Actualizar vista previa</button>
             <button class="btn success" id="rutina-export-save-btn">Guardar cambios</button>
           </div>
         </div>
@@ -8028,9 +8033,25 @@ function attachWheelZoom(containerId, frameId){
           const buf = await blob.arrayBuffer();
           let wb; try{ wb = XLSX.read(buf, { type:'array' }); }catch(_){ wb = null; }
           if(!wb || !wb.SheetNames || !wb.SheetNames.length){ previewEl.innerHTML = '<p class="muted">No se pudo interpretar el Excel.</p>'; return; }
-          const ws = wb.Sheets[wb.SheetNames[0]];
+          // Selección de hoja
+          const sheetEl = document.getElementById('rutina-export-sheet');
+          let sheetIndex = 0;
+          if(sheetEl){
+            const names = wb.SheetNames || [];
+            const currLen = (sheetEl.options || []).length;
+            if(currLen !== names.length){
+              sheetEl.innerHTML = names.map((nm, idx) => `<option value="${idx}">${String(nm)}</option>`).join('');
+            }
+            sheetIndex = Math.max(0, Math.min((wb.SheetNames.length-1), Number(sheetEl.value || 0)));
+          }
+          const ws = wb.Sheets[wb.SheetNames[sheetIndex]];
           const html = XLSX.utils.sheet_to_html(ws, { id:'rutina-export-preview-table', editable:false });
-          previewEl.innerHTML = html;
+          // Contenedor con zoom
+          previewEl.innerHTML = `<div id="rutina-export-preview-zoomable" style="transform-origin: top left;">${html}</div>`;
+          const zoomEl = document.getElementById('rutina-export-zoom');
+          const zoomVal = Math.max(50, Math.min(200, Number((zoomEl||{}).value || 100)));
+          const zoomWrap = document.getElementById('rutina-export-preview-zoomable'); if(zoomWrap){ zoomWrap.style.transform = `scale(${zoomVal/100})`; }
+          const zLbl = document.getElementById('rutina-export-zoom-label'); if(zLbl){ zLbl.textContent = `${zoomVal}%`; }
           const tbl = previewEl.querySelector('table'); if(tbl){ tbl.style.width = 'max-content'; tbl.style.minWidth = '100%'; tbl.style.borderCollapse = 'collapse'; }
           const cells = previewEl.querySelectorAll('th, td'); cells.forEach(el => { el.style.padding = '10px'; el.style.borderBottom = '1px solid var(--border)'; el.style.textAlign = 'left'; });
           showToast('Vista previa actualizada', 'success', 1200);
@@ -8040,6 +8061,14 @@ function attachWheelZoom(containerId, frameId){
       const prevBtn = document.getElementById('rutina-export-preview-btn'); if(prevBtn){ prevBtn.onclick = updateExcelPreview; }
       const weeksEl = document.getElementById('rutina-export-weeks'); if(weeksEl){ weeksEl.onchange = updateExcelPreview; }
       const unameEl = document.getElementById('rutina-export-usuario-nombre'); if(unameEl){ unameEl.oninput = updateExcelPreview; }
+      const sheetSel = document.getElementById('rutina-export-sheet'); if(sheetSel){ sheetSel.onchange = updateExcelPreview; }
+      const zoomEl = document.getElementById('rutina-export-zoom'); if(zoomEl){
+        zoomEl.oninput = () => {
+          const z = Math.max(50, Math.min(200, Number(zoomEl.value || 100)));
+          const zLbl = document.getElementById('rutina-export-zoom-label'); if(zLbl){ zLbl.textContent = `${z}%`; }
+          const wrap = document.getElementById('rutina-export-preview-zoomable'); if(wrap){ wrap.style.transform = `scale(${z/100})`; }
+        };
+      }
       const dBtn = document.getElementById('rutina-export-download'); if(dBtn){
         dBtn.onclick = async () => {
           try{
@@ -8189,27 +8218,27 @@ function attachWheelZoom(containerId, frameId){
           const modalUserId2 = userSelEl ? Number(userSelEl.value || 0) : 0;
           const targetUser2 = modalUserId2 || (isQuickFlow && selUser && selUser.id ? Number(selUser.id) : 0);
           if(!targetUser2){ showToast('Selecciona un usuario para continuar', 'info', 2500); return; }
-          closeModal('modal-rutina-new-choice');
-          await openRutinaPreview(null);
           try{
-            const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-            d._createdFromScratch = true;
-            // Si hay usuario seleccionado en el modal (o flujo rápido), prefijar usuario y nombre automáticamente
-            if(targetUser2){
-              d.usuario_id = Number(targetUser2);
-              try{
-                const chosenLabel = (() => { try{ const opt = (userSelEl && userSelEl.options[userSelEl.selectedIndex]) ? userSelEl.options[userSelEl.selectedIndex] : null; return String((opt && opt.textContent) || 'Usuario'); }catch(_){ return 'Usuario'; } })();
-                const uEl = document.getElementById('rutina-preview-usuario-nombre'); if(uEl) uEl.value = chosenLabel;
-                const nameEl = document.getElementById('rutina-preview-nombre');
-                const baseNombre = (nameEl && nameEl.value) ? nameEl.value : 'Rutina';
-                const nombreAuto = standardizeNombre(baseNombre, chosenLabel);
-                if(nameEl) nameEl.value = nombreAuto;
-              }catch(_){ }
-            }
-            state.rutinaPreviewDraft = d;
-            renderRutinaPreview();
+            const chosenLabel = (() => { try{ const opt = (userSelEl && userSelEl.options[userSelEl.selectedIndex]) ? userSelEl.options[userSelEl.selectedIndex] : null; return String((opt && opt.textContent) || 'Usuario'); }catch(_){ return 'Usuario'; } })();
+            const baseNombre = 'Rutina';
+            const nombreAuto = standardizeNombre(baseNombre, chosenLabel);
+            const payload = {
+              usuario_id: Number(targetUser2),
+              nombre_rutina: nombreAuto,
+              descripcion: null,
+              dias_semana: 3,
+              categoria: 'general',
+              ejercicios: []
+            };
+            const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+            if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+            const data = await res.json().catch(() => ({}));
+            if(!res.ok){ showToast(data.detail || data.error || 'No se pudo crear la rutina', 'error', 4500); return; }
+            closeModal('modal-rutina-new-choice');
             state.rutinaQuickAssignFlow = false;
-          }catch(_){}
+            showToast('Rutina creada y guardada automáticamente', 'success', 2500);
+            await openRutinaPreview(Number(data.id));
+          }catch(e){ showToast('Error de red al crear rutina', 'error', 4500); }
         };
         openModal('modal-rutina-new-choice');
       })();
