@@ -600,21 +600,28 @@
         <button class="btn small" data-rutinas-tab="plantillas" id="rutinas-tab-plantillas">Plantillas</button>
         <button class="btn small secondary" data-rutinas-tab="usuario" id="rutinas-tab-usuario">Rutinas de usuario</button>
       </div>
-      <div class="panel-controls">
-        <label for="rutinas-q">Búsqueda</label>
-        <input type="text" id="rutinas-q" placeholder="Nombre o descripción" />
-        <label for="rutinas-categoria">Categoría</label>
-        <select id="rutinas-categoria">
-          <option value="">Todas</option>
-          <option value="general" selected>General</option>
-          <option value="fuerza">Fuerza</option>
-          <option value="hipertrofia">Hipertrofia</option>
-          <option value="resistencia">Resistencia</option>
-          <option value="fullbody">Full body</option>
-        </select>
+      <div class="panel-controls" style="display:flex; align-items:center; gap:8px">
         <button class="btn" id="rutinas-refresh">Actualizar</button>
         <button class="btn info" id="rutinas-export-csv">Exportar CSV</button>
+        <div style="display:flex; align-items:center; gap:6px">
+          <div style="display:flex; align-items:center; gap:6px">
+            <label for="rutinas-q" class="muted" style="white-space:nowrap">Búsqueda</label>
+            <input type="text" id="rutinas-q" placeholder="Nombre o descripción" />
+          </div>
+          <div style="display:flex; align-items:center; gap:6px">
+            <label for="rutinas-categoria" class="muted" style="white-space:nowrap">Categoría</label>
+            <select id="rutinas-categoria">
+              <option value="">Todas</option>
+              <option value="general" selected>General</option>
+              <option value="fuerza">Fuerza</option>
+              <option value="hipertrofia">Hipertrofia</option>
+              <option value="resistencia">Resistencia</option>
+              <option value="fullbody">Full body</option>
+            </select>
+          </div>
+        </div>
         <button class="btn" id="rutinas-new">Nueva</button>
+        <button class="btn secondary" id="rutinas-new-template">Nueva Plantilla</button>
         <span id="rutinas-count" class="muted" style="margin-left:auto"></span>
       </div>
       <div class="table-scroll row-selectable">
@@ -2245,14 +2252,46 @@
       <button class="modal-close" id="plantilla-new-close" aria-label="Cerrar">×</button>
     </div>
     <div class="modal-body">
-      <div class="form-grid">
-        <div class="form-row">
+      <div class="form-grid" style="display:grid; grid-template-columns: 1fr; gap:12px">
+        <div class="form-row" style="display:grid; grid-template-columns: 1fr; gap:8px">
           <label for="plantilla-new-nombre">Nombre</label>
-          <input id="plantilla-new-nombre" type="text" placeholder="Ej: Fuerza 1" />
+          <input id="plantilla-new-nombre" type="text" placeholder="Ej: Fuerza 1" aria-label="Nombre de plantilla" />
         </div>
-        <div class="form-row">
+        <div class="form-row" style="display:grid; grid-template-columns: 1fr; gap:8px">
           <label for="plantilla-new-descripcion">Descripción</label>
-          <textarea id="plantilla-new-descripcion" placeholder="Estructura y objetivos"></textarea>
+          <textarea id="plantilla-new-descripcion" placeholder="Estructura y objetivos" aria-label="Descripción de plantilla"></textarea>
+        </div>
+        <div class="form-row" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px">
+          <div>
+            <label for="plantilla-new-categoria">Categoría</label>
+            <select id="plantilla-new-categoria" aria-label="Categoría de plantilla">
+              <option value="general" selected>General</option>
+              <option value="fuerza">Fuerza</option>
+              <option value="hipertrofia">Hipertrofia</option>
+              <option value="resistencia">Resistencia</option>
+              <option value="fullbody">Full body</option>
+            </select>
+          </div>
+          <div>
+            <label for="plantilla-new-dias">Días</label>
+            <select id="plantilla-new-dias" aria-label="Días por semana">
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" style="display:grid; grid-template-columns: 1fr; gap:8px">
+          <div>
+            <label for="plantilla-new-semanas">Semanas</label>
+            <select id="plantilla-new-semanas" aria-label="Cantidad de semanas">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4" selected>4</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
@@ -4445,6 +4484,7 @@
         await res.json().catch(()=>null);
         hidePagoForm();
         await loadPayments();
+        try{ document.dispatchEvent(new CustomEvent('pagos:updated')); }catch(_){}
       } catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 
@@ -4700,6 +4740,7 @@
         await res.json().catch(()=>null);
         hidePagoWizard();
         await loadPayments();
+        try{ document.dispatchEvent(new CustomEvent('pagos:updated')); }catch(_){}
       }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 
@@ -4712,6 +4753,7 @@
         closeModal('modal-pagos-delete');
         if(state.selectedPago && (state.selectedPago.id === id || state.selectedPago.pago_id === id)) clearPagoSelection();
         await loadPayments();
+        try{ document.dispatchEvent(new CustomEvent('pagos:updated')); }catch(_){}
       } catch(e){ showToast('Error de red al eliminar', 'error', 4500); }
     }
 
@@ -6438,6 +6480,7 @@
       });
       const catSel = document.getElementById('rutinas-categoria'); if(catSel) catSel.addEventListener('change', () => { applyRutinasFilters(); });
       const btnNew = document.getElementById('rutinas-new'); if(btnNew) btnNew.addEventListener('click', () => { openRutinaBuilderNew(); });
+      const btnNewTpl = document.getElementById('rutinas-new-template'); if(btnNewTpl) btnNewTpl.addEventListener('click', () => { try{ openModal('modal-plantilla-new'); }catch(_){ showToast('No se pudo abrir nueva plantilla', 'error', 3000); } });
       // (Resumen modal eliminado) — se usa toast de resumen al clicar filas
 
       // Persist and restore filters
@@ -6616,6 +6659,21 @@
           state.rutinaPreviewDraft = draft;
           state.rutinaNombreBase = String(n||'');
           renderRutinaPreview();
+          try{
+            const c = (document.getElementById('plantilla-new-categoria')||{}).value || 'general';
+            const diasSel = Number((document.getElementById('plantilla-new-dias')||{}).value || 3);
+            const semanasSel = Number((document.getElementById('plantilla-new-semanas')||{}).value || 4);
+            const catSel = document.getElementById('rutina-preview-categoria'); if(catSel){ catSel.value = String(c); catSel.disabled = false; }
+            const diasInput = document.getElementById('rutina-preview-dias'); if(diasInput) diasInput.value = String(Math.max(2, Math.min(5, diasSel)));
+            const semSel = document.getElementById('rutina-preview-semanas'); if(semSel) semSel.value = String(Math.max(1, Math.min(4, semanasSel)));
+            const d2 = state.rutinaPreviewDraft || state.rutinaPreview || {};
+            d2.categoria = String(c||'general');
+            d2.dias_semana = Math.max(2, Math.min(5, diasSel||3));
+            d2._weeks = Math.max(1, Math.min(4, semanasSel||4));
+            state.rutinaPreviewDraft = d2;
+            refreshPreviewDayOptions(Number(d2.dias_semana||3));
+            renderRutinaPreview();
+          }catch(__){}
         }catch(_){ showToast('No se pudo abrir la previsualización', 'error', 3000); }
       });
       const btnPrevNewEj = document.getElementById('rutina-preview-new-ej'); if(btnPrevNewEj) btnPrevNewEj.addEventListener('click', () => { try{ showEjercicioForm(null); }catch(_){ showToast('No se pudo abrir el formulario', 'error', 3000); } });
@@ -6672,6 +6730,7 @@
         closeModal('modal-rutina-form');
         showToast('Rutina guardada', 'success', 2500);
         await loadRutinas();
+        try{ document.dispatchEvent(new CustomEvent('rutinas:updated')); }catch(_){}
       }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 
@@ -6690,6 +6749,7 @@
         closeModal('modal-rutina-delete');
         showToast('Rutina eliminada', 'success', 2500);
         await loadRutinas();
+        try{ document.dispatchEvent(new CustomEvent('rutinas:updated')); }catch(_){}
       }catch(e){ showToast('Error de red al eliminar', 'error', 4500); }
     }
 
@@ -6815,6 +6875,7 @@ function openAssignPlantilla(id){
           closeModal('modal-rutina-assign'); state.assignPlantillaId = null; showToast('Plantilla clonada y asignada', 'success', 2500);
           // Refrescar vista de usuario si está activa, si no, las plantillas
           if(state.activeRutinaTab === 'usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; await loadRutinasPorUsuario(uid); } else { await loadRutinasPlantillas(); }
+          try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'assign', usuarioId: Number(userId) } })); }catch(_){}
         } else if(id){
           // Asignar rutina existente
           const res = await fetch(`/api/rutinas/${id}/assign`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: Number(userId) }) });
@@ -6822,6 +6883,7 @@ function openAssignPlantilla(id){
           const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo asignar', 'error', 4500); return; }
           closeModal('modal-rutina-assign'); showToast('Rutina asignada', 'success', 2500);
           if(state.activeRutinaTab === 'usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; await loadRutinasPorUsuario(uid); } else { await loadRutinasPlantillas(); }
+          try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'assign', usuarioId: Number(userId) } })); }catch(_){}
         } else {
           showToast('Acción no válida', 'warning', 2500);
         }
@@ -6891,6 +6953,7 @@ function openUnassignRutina(id){
         } else {
           await loadRutinas();
         }
+        try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'unassign', usuarioId: Number(userId) } })); }catch(_){}
       }catch(e){ showToast('Error de red al desasignar', 'error', 4500); }
     }
 
@@ -7589,8 +7652,8 @@ function attachWheelZoom(containerId, frameId){
   const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
           const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){
             const isPlantilla = (data.usuario_id == null) || (state.activeRutinaTab === 'plantillas');
-            catEl.value = String(isPlantilla ? 'general' : (data.categoria || 'general'));
-            catEl.disabled = !!isPlantilla;
+            catEl.value = String(data.categoria || 'general');
+            catEl.disabled = false;
             // Ocultar la tabla de ejercicios en rutinas de usuario (solo mostrar en plantillas)
             try{
               const excelTable = document.getElementById('rutina-preview-excel');
@@ -7604,7 +7667,7 @@ function attachWheelZoom(containerId, frameId){
           const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl) nameEl.value = '';
           const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = '';
           const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = '3';
-          const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){ catEl.value = 'general'; catEl.disabled = true; }
+          const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){ catEl.value = 'general'; catEl.disabled = false; }
           refreshPreviewDayOptions(Number(diasEl ? diasEl.value : 3));
         }
         // Prefijar campo de usuario en encabezado según selección/override
@@ -7781,7 +7844,7 @@ function attachWheelZoom(containerId, frameId){
             nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
             descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
   dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
-            categoria: ((d.usuario_id == null) || (state.activeRutinaTab==='plantillas')) ? 'general' : (d.categoria || 'general'),
+            categoria: (document.getElementById('rutina-preview-categoria')||{}).value || (d.categoria || 'general'),
             ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
           };
           try{
@@ -7792,6 +7855,7 @@ function attachWheelZoom(containerId, frameId){
               await loadRutinasPlantillas();
               const uidAfter = (document.getElementById('rutinas-usuario')||{}).value || '';
               await loadRutinasPorUsuario(uidAfter);
+              try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'update', usuarioId: Number(uidAfter||0) } })); }catch(_){}
             } else {
               // Crear: si tiene usuario_id, crear asignada al usuario; si no, crear como plantilla
               const hasUsuario = (d.usuario_id != null) && !isNaN(Number(d.usuario_id));
@@ -7802,6 +7866,7 @@ function attachWheelZoom(containerId, frameId){
               await loadRutinasPlantillas();
               const uidAfterCreate = (document.getElementById('rutinas-usuario')||{}).value || '';
               await loadRutinasPorUsuario(uidAfterCreate);
+              try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(uidAfterCreate||0), assigned: !!hasUsuario } })); }catch(_){}
             }
           }catch(e){ showToast('Error de red al guardar rutina', 'error', 4500); }
         };
@@ -8008,6 +8073,15 @@ function attachWheelZoom(containerId, frameId){
             const putRes = await fetch(`/api/rutinas/${dInner.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
             const putData = await putRes.json().catch(()=>({})); if(!putRes.ok){ showToast(putData.detail || putData.error || 'No se pudo guardar', 'error', 4500); return; }
             showToast('Cambios guardados', 'success', 2000);
+            try{
+              document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'export-save', rutinaId: Number(dInner.id||0) } }));
+              if(state && state.activeRutinaTab === 'usuario'){
+                const uid = (document.getElementById('rutinas-usuario')||{}).value || '';
+                await loadRutinasPorUsuario(uid);
+              } else {
+                await loadRutinasPlantillas();
+              }
+            }catch(_){ }
           }catch(_){ showToast('Error guardando cambios', 'error', 4500); }
         };
       }
@@ -10643,7 +10717,7 @@ function attachWheelZoom(containerId, frameId){
         // Refrescar listado
         closeModal('modal-recibo-save');
         closeModal('modal-recibo-preview');
-        try{ await loadPayments(); }catch(_){}
+        try{ await loadPayments(); try{ document.dispatchEvent(new CustomEvent('pagos:updated')); }catch(__){} }catch(_){}
       } else {
         if (typeof showToast==='function') showToast(j?.detail || j?.error || 'No se pudo actualizar el pago', 'error', 4500);
       }
@@ -10818,6 +10892,20 @@ function attachWheelZoom(containerId, frameId){
 
     document.addEventListener('DOMContentLoaded', () => {
       init();
+      // Refrescar automáticamente tablas de Pagos y Rutinas cuando se emitan eventos
+      try{
+        document.addEventListener('pagos:updated', () => { try{ loadPayments(); }catch(_){ } });
+        document.addEventListener('rutinas:updated', () => {
+          try{
+            if(state && state.activeRutinaTab === 'usuario'){
+              const uid = (document.getElementById('rutinas-usuario')||{}).value || '';
+              loadRutinasPorUsuario(uid);
+            } else {
+              loadRutinasPlantillas();
+            }
+          }catch(_){ }
+        });
+      }catch(_){ }
       // Inicializar numeración de recibos (indicador y eventos)
       updateReciboNextNumber();
       bindReciboConfigEvents();
