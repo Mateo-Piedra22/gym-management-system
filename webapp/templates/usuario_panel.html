@@ -44,6 +44,10 @@
     .modal .content { padding: 16px; }
     .modal .content video, .modal .content img { width: 100%; height: auto; border-radius: 12px; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+    /* Skeleton shimmer */
+    .skeleton { background: linear-gradient(90deg, #e6e6e6 0%, #f2f2f2 50%, #e6e6e6 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    @media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
     @media print {
       @page { size: A4 landscape; margin: 12mm; }
       .print-band { display:block; position: fixed; bottom: 0; left: 0; width: 100%; padding: 8mm 12mm; background: white; border-top: 1px solid #999; }
@@ -241,6 +245,7 @@
           </div>
         </div>
         <div class="scan-results" id="scan-results" aria-live="polite"></div>
+        <div id="scan-loading" class="muted" style="margin-top:8px; display:none;" aria-live="assertive" aria-busy="true">⏳ Cargando rutina…</div>
       </section>
 
       <div class="modal-backdrop" id="exercise-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="exercise-modal-title">
@@ -282,6 +287,37 @@
     }
 
     let qrInstance = null;
+    // Guardas para evitar múltiples disparos del mismo escaneo
+    let qrScanBusy = false;
+    let lastDecodedText = '';
+    let lastScanTime = 0;
+
+    function showScanLoading(){
+      const resSec = document.getElementById('rutina-scan-result');
+      if (resSec) { resSec.style.display = ''; }
+      const cont = document.getElementById('scan-results');
+      if (cont) {
+        cont.innerHTML = '';
+        // Skeleton accesible para lista de días con shimmer
+        const makeLine = (w) => `<div class="skeleton" style="height:14px; width:${w}%; border-radius:4px; margin:6px 0;"></div>`;
+        const makeDay = () => `
+          <div class="day" aria-hidden="true" style="padding:8px 0;">
+            <div class="skeleton" style="height:20px; width:40%; border-radius:6px; margin-bottom:10px;"></div>
+            <div>${makeLine(70)}${makeLine(60)}${makeLine(65)}${makeLine(50)}</div>
+          </div>
+        `;
+        const skeletonWrap = document.createElement('div');
+        skeletonWrap.setAttribute('aria-hidden', 'true');
+        skeletonWrap.innerHTML = `${makeDay()}${makeDay()}${makeDay()}`;
+        cont.appendChild(skeletonWrap);
+      }
+      const load = document.getElementById('scan-loading');
+      if (load) { load.style.display = ''; }
+    }
+    function hideScanLoading(){
+      const load = document.getElementById('scan-loading');
+      if (load) { load.style.display = 'none'; }
+    }
     async function activarLectorQR(){
       const activarBtn = document.getElementById('btn-activar-lector');
       const detenerBtn = document.getElementById('btn-detener-lector');
@@ -389,17 +425,44 @@
 
     async function onScanSuccess(decodedText){
       const s = String(decodedText || '');
+      const now = Date.now();
+      // Evitar múltiples callbacks del mismo QR en ventana de 3s
+      if (qrScanBusy) return;
+      if (s === lastDecodedText && (now - lastScanTime) < 3000) return;
+      lastDecodedText = s;
+      lastScanTime = now;
+      qrScanBusy = true;
       const isAbsolute = /^https?:\/\//i.test(s);
       const { uuid, preview } = extraerUuidYTipo(s);
       if (!uuid){
         if (typeof window.showToast === 'function') { showToast('QR inválido para rutina', 'warning', 3500); }
+        qrScanBusy = false;
         return;
       }
       try {
         // Detener y cerrar el modal tras un escaneo válido para evitar duplicados
         await cerrarModalQR();
-        const url = isAbsolute ? s : (preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`);
-        const res = await fetch(url);
+        showScanLoading();
+
+        // Normalizar URL: si es absoluta y de otro origen, usar ruta local
+        let url = '';
+        if (isAbsolute) {
+          try {
+            const abs = new URL(s, window.location.href);
+            const pathMatch = abs.pathname.match(/\/api\/rutinas\/(preview\/)?qr_scan\/([\w-]+)/);
+            if (abs.origin !== window.location.origin && pathMatch) {
+              url = pathMatch[0];
+            } else {
+              url = abs.href;
+            }
+          } catch (_) {
+            url = preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`;
+          }
+        } else {
+          url = preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`;
+        }
+
+        const res = await fetch(url, { credentials: 'include' });
         const data = await res.json();
         if (!data.ok){
           if (typeof window.showToast === 'function') { showToast(data.error || 'No se pudo obtener la rutina', 'error', 4500); }
@@ -409,6 +472,9 @@
       } catch (e){
         if (typeof window.showToast === 'function') { showToast('Error cargando rutina', 'error', 4500); }
         console.error(e);
+      } finally {
+        hideScanLoading();
+        qrScanBusy = false;
       }
     }
 
@@ -435,6 +501,7 @@
       if (resSec) { resSec.style.display = ''; }
       const cont = document.getElementById('scan-results');
       if (!cont) return;
+      hideScanLoading();
       cont.innerHTML = '';
       const h = document.createElement('h4');
       h.textContent = String(rutina.nombre_rutina || rutina.nombre || 'Rutina');
