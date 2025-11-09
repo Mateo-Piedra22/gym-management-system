@@ -3315,6 +3315,42 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
             db.cache.invalidate('rutinas')
         except Exception:
             pass
+        # Responder con detalle completo para evitar inconsistencias del lado del cliente
+        try:
+            r = db.obtener_rutina_completa(int(new_id))  # type: ignore
+        except Exception:
+            r = None
+        if r is not None:
+            ejercicios_out = []
+            for re in getattr(r, "ejercicios", []) or []:
+                ej = getattr(re, "ejercicio", None)
+                ejercicios_out.append({
+                    "id": re.id,
+                    "rutina_id": re.rutina_id,
+                    "ejercicio_id": re.ejercicio_id,
+                    "dia_semana": re.dia_semana,
+                    "series": re.series,
+                    "repeticiones": re.repeticiones,
+                    "orden": re.orden,
+                    "ejercicio": {
+                        "id": getattr(ej, "id", re.ejercicio_id) if ej is not None else re.ejercicio_id,
+                        "nombre": getattr(ej, "nombre", None) if ej is not None else None,
+                        "grupo_muscular": getattr(ej, "grupo_muscular", None) if ej is not None else None,
+                        "descripcion": getattr(ej, "descripcion", None) if ej is not None else None,
+                    }
+                })
+            return {
+                "id": int(r.id) if r.id is not None else int(new_id),
+                "usuario_id": r.usuario_id,
+                "nombre_rutina": r.nombre_rutina,
+                "descripcion": r.descripcion,
+                "dias_semana": r.dias_semana,
+                "categoria": getattr(r, "categoria", "general"),
+                "fecha_creacion": r.fecha_creacion,
+                "activa": bool(getattr(r, "activa", True)),
+                "ejercicios": ejercicios_out,
+            }
+        # Si no se pudo recuperar el detalle (fallback), devolver al menos el id
         return {"ok": True, "id": int(new_id)}
     except HTTPException:
         raise

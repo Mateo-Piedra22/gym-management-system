@@ -6872,6 +6872,19 @@ function openAssignPlantilla(id){
           };
           const res = await fetch('/api/rutinas', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
           const data = await res.json().catch(() => ({})); if(!res.ok){ showToast(data.detail || data.error || 'No se pudo asignar plantilla', 'error', 4500); return; }
+          // Fallback robusto: si la rutina creada quedó sin usuario, forzar asignación
+          try{
+            const createdId = Number((data && data.id) ? data.id : (data && data.ok ? data.id : 0));
+            if(createdId){
+              const detCreated = await fetch(`/api/rutinas/${createdId}`, { headers:{ 'Accept':'application/json' } });
+              const detData = await detCreated.json().catch(() => ({}));
+              if(detCreated.ok && (!detData || detData.usuario_id == null)){
+                const assignRes = await fetch(`/api/rutinas/${createdId}/assign`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: Number(userId) }) });
+                if(assignRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
+                if(!assignRes.ok){ const ad = await assignRes.json().catch(()=>({})); showToast(ad.detail || ad.error || 'No se pudo asignar la rutina al usuario', 'warning', 3500); }
+              }
+            }
+          }catch(_){ /* No bloquear si falla el fallback */ }
           closeModal('modal-rutina-assign'); state.assignPlantillaId = null; showToast('Plantilla clonada y asignada', 'success', 2500);
           // Refrescar vista de usuario si está activa, si no, las plantillas
           if(state.activeRutinaTab === 'usuario'){ const uid = (document.getElementById('rutinas-usuario')||{}).value || ''; await loadRutinasPorUsuario(uid); } else { await loadRutinasPlantillas(); }
