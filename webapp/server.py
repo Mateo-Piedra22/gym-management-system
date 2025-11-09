@@ -1515,8 +1515,9 @@ def _get_b2_settings() -> Dict[str, Any]:
     Devuelve un dict con claves: account_id, application_key, bucket_id, bucket_name, prefix, public_base_url.
     """
     try:
-        # B2 usa KeyID para b2_authorize_account; soportar ambas variables por compatibilidad
-        account_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or "").strip()
+        # B2 usa applicationKeyId (keyId) para b2_authorize_account; mantener también accountId para otras llamadas
+        key_id = (os.getenv("B2_KEY_ID") or "").strip()
+        account_id = (os.getenv("B2_ACCOUNT_ID") or "").strip()
         application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
         bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
         bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
@@ -1529,6 +1530,7 @@ def _get_b2_settings() -> Dict[str, Any]:
         except Exception:
             pass
         return {
+            "key_id": key_id,
             "account_id": account_id,
             "application_key": application_key,
             "bucket_id": bucket_id,
@@ -1538,6 +1540,7 @@ def _get_b2_settings() -> Dict[str, Any]:
         }
     except Exception:
         return {
+            "key_id": "",
             "account_id": "",
             "application_key": "",
             "bucket_id": "",
@@ -1552,14 +1555,16 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
     Devuelve la URL pública resultante o None si B2 no está configurado.
     """
     settings = _get_b2_settings()
-    if not (settings.get("account_id") and settings.get("application_key") and settings.get("bucket_id") and settings.get("bucket_name")):
+    if not (settings.get("application_key") and settings.get("bucket_id")):
         return None
     if requests is None:
         raise HTTPException(status_code=500, detail="Dependencia 'requests' no instalada para usar B2.")
     try:
         # 1) Autorizar cuenta (GET + Basic Auth según especificación de B2)
         import base64 as _b64
-        basic = _b64.b64encode(f"{settings['account_id']}:{settings['application_key']}".encode("ascii")).decode("ascii")
+        # Autenticación con applicationKeyId (key_id) si existe; fallback a account_id
+        user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
+        basic = _b64.b64encode(f"{user_id}:{settings['application_key']}".encode("ascii")).decode("ascii")
         auth_resp = requests.get(
             "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
             headers={"Authorization": f"Basic {basic}"},
@@ -1577,6 +1582,28 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         auth_token = auth_json.get("authorizationToken", "")
         if not api_url or not auth_token:
             raise HTTPException(status_code=502, detail="Respuesta de autorización B2 inválida")
+
+        # 1.1) Verificar que bucket_id corresponde al nombre real (evita URLs públicas erróneas)
+        bucket_name_eff = (settings.get("bucket_name") or "").strip()
+        try:
+            acct_id_for_list = (settings.get("account_id") or auth_json.get("accountId") or "").strip()
+            if acct_id_for_list:
+                list_resp = requests.post(
+                    f"{api_url}/b2api/v2/b2_list_buckets",
+                    headers={"Authorization": auth_token},
+                    json={"accountId": acct_id_for_list},
+                    timeout=8,
+                )
+                if list_resp.status_code == 200:
+                    buckets = list_resp.json().get("buckets", [])
+                    for b in (buckets or []):
+                        if str(b.get("bucketId", "")) == str(settings.get("bucket_id", "")):
+                            bn = (b.get("bucketName") or "").strip()
+                            if bn:
+                                bucket_name_eff = bn
+                            break
+        except Exception:
+            pass
 
         # 2) Obtener URL de subida
         up_resp = requests.post(
@@ -1628,7 +1655,8 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         public_base = settings.get("public_base_url")
         if not public_base:
             public_base = f"{download_url}/file" if download_url else "https://f000.backblazeb2.com/file"
-        return f"{public_base}/{settings['bucket_name']}/{file_name}"
+        # Usar el nombre de bucket efectivo resuelto desde la API para evitar desajustes
+        return f"{public_base}/{bucket_name_eff}/{file_name}"
     except HTTPException:
         raise
     except Exception as e:
