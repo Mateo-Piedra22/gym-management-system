@@ -9,7 +9,9 @@ psutil
 psycopg2-binary
 reportlab
 openpyxl
+Pillow
 xlsxtpl
+segno
 bcrypt
 pywa
 google-cloud-storage

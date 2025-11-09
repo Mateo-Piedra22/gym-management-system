@@ -6,12 +6,14 @@ reportlab
 matplotlib
 pandas
 openpyxl==3.1.2
+Pillow
 PyQt-Fluent-Widgets
 pyinstaller
 psycopg2-binary
 psutil
 pywa
 xlsxtpl
+segno
 fastapi==0.114.0
 uvicorn[standard]==0.30.0
 starlette==0.37.2

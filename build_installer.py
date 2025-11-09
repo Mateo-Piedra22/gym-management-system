@@ -260,7 +260,8 @@ def build_with_pyinstaller(script_path: Path, target_name: str, base_dist_dir: P
     # Agregar otros imports ocultos necesarios
     hidden_imports = [
         "reportlab", "psutil", "keyring", "openpyxl", "xlwt", "xlsxtpl",
-        "jinja2", "pywa", "itsdangerous", "psycopg2", "matplotlib", "pandas"
+        "jinja2", "pywa", "itsdangerous", "psycopg2", "matplotlib", "pandas",
+        "segno", "Pillow", "PIL", "PIL.Image"
     ]
     
     for imp in hidden_imports:

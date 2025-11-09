@@ -533,17 +533,23 @@ class RoutineTemplateManager:
             'Semana_numero': current_week,
         })
 
-        # Construir enlace para QR usando uuid_rutina si disponible
+        # Construir enlace para QR usando uuid_rutina si disponible (con fallback a uuid)
         try:
             base_url = get_webapp_base_url() or "http://127.0.0.1:8000"
         except Exception:
             base_url = "http://127.0.0.1:8000"
-        uuid_val = getattr(rutina, 'uuid_rutina', '') or ''
+        uuid_val = (getattr(rutina, 'uuid_rutina', '') or getattr(rutina, 'uuid', '') or '')
         qr_link = ''
         if isinstance(uuid_val, str) and uuid_val:
             # Enlace al endpoint público JSON de la rutina
             qr_link = f"{base_url.rstrip('/')}/api/rutinas/qr_scan/{uuid_val}"
         template_data['uuid_rutina'] = uuid_val
+        # Refuerzo: si el objeto tiene uuid pero no uuid_rutina, propagar para consistencia
+        try:
+            if not getattr(rutina, 'uuid_rutina', '') and getattr(rutina, 'uuid', ''):
+                setattr(rutina, 'uuid_rutina', getattr(rutina, 'uuid'))
+        except Exception:
+            pass
         template_data['qr_link'] = qr_link
         
         # Generar variables específicas por día para plantillas perfectas
@@ -988,6 +994,19 @@ class RoutineTemplateManager:
         """
         try:
             wb = openpyxl.load_workbook(str(template_path), data_only=False)
+            # Si la plantilla ya contiene estructuras de bucle Jinja, nunca forzar fallback
+            try:
+                for sh in wb.worksheets:
+                    for row in sh.iter_rows():
+                        for cell in row:
+                            v = cell.value
+                            if isinstance(v, str):
+                                s = v.strip()
+                                if ('{% for' in s) or ('{%\nfor' in s) or ('{{ dias' in s) or ('{{ dias.' in s) or ('{{ dias[' in s):
+                                    wb.close()
+                                    return False
+            except Exception:
+                pass
             patterns = {
                 'ejercicio': re.compile(r"\{\{\s*ejercicio_dia_(\d+)\s*\}\}"),
                 'series': re.compile(r"\{\{\s*series_dia_(\d+)(?:_S\d+)?\s*\}\}"),
