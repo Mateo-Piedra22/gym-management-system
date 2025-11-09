@@ -6309,7 +6309,7 @@
       // Listado principal: solo plantillas; no mostrar asignación
       const decorated = (Array.isArray(itemsBase) ? itemsBase : []).map((r) => {
         const diasStr = r.dias_semana != null ? String(r.dias_semana) : (r.dias != null ? String(r.dias) : '0');
-        const categoriaStr = r.categoria ? String(r.categoria) : 'general';
+        const categoriaStr = r.categoria ? String(r.categoria) : 'Todas';
         const ejerciciosCountNum = Array.isArray(r.ejercicios) ? r.ejercicios.length : Number(r.ejercicios_count || 0) || 0;
         return {
           r,
