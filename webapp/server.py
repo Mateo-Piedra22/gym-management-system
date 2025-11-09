@@ -1324,10 +1324,42 @@ except Exception:
 
 # Static y assets basados en BASE_DIR
 BASE_DIR = _compute_base_dir()
+
+# Detectar entornos serverless (Vercel/Railway) donde el FS es de solo lectura
+def _is_serverless_env() -> bool:
+    try:
+        return bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV") or os.getenv("RAILWAY"))
+    except Exception:
+        return False
+
+# mkdir seguro que no bloquea el arranque si falla
+def _safe_mkdir(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return True
+    except Exception as e:
+        try:
+            logging.warning(f"No se pudo crear directorio {path}: {e}")
+        except Exception:
+            pass
+        return False
+
 static_dir = _resolve_existing_dir("webapp", "static")
-static_dir.mkdir(parents=True, exist_ok=True)
+try:
+    _safe_mkdir(static_dir)
+except Exception:
+    pass
+
 uploads_dir = _resolve_existing_dir("webapp", "uploads")
-uploads_dir.mkdir(parents=True, exist_ok=True)
+# En serverless, usar /tmp si la ruta del proyecto no existe o no es escribible
+if _is_serverless_env() and not uploads_dir.exists():
+    try:
+        tmp_base = Path(os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp")
+        uploads_dir = tmp_base / "uploads"
+    except Exception:
+        pass
+_safe_mkdir(uploads_dir)
+
 templates_dir = _resolve_existing_dir("webapp", "templates")
 templates = Jinja2Templates(directory=str(templates_dir))
 
@@ -1476,6 +1508,107 @@ def _upload_media_to_gcs(dest_name: str, data: bytes, content_type: str) -> Opti
         logging.error(f"Error subiendo a GCS: {e}")
         raise HTTPException(status_code=500, detail=f"Error subiendo a GCS: {e}")
 
+
+# Configuración y utilidades para subida de medios a Backblaze B2 (fallback)
+def _get_b2_settings() -> Dict[str, Any]:
+    """Lee configuración de Backblaze B2 desde variables de entorno.
+    Devuelve un dict con claves: account_id, application_key, bucket_id, bucket_name, prefix, public_base_url.
+    """
+    try:
+        account_id = (os.getenv("B2_ACCOUNT_ID") or "").strip()
+        application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
+        bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
+        bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
+        prefix = (os.getenv("B2_MEDIA_PREFIX") or "ejercicios").strip().strip("/")
+        public_base = (os.getenv("B2_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        return {
+            "account_id": account_id,
+            "application_key": application_key,
+            "bucket_id": bucket_id,
+            "bucket_name": bucket_name,
+            "prefix": prefix,
+            "public_base_url": public_base,
+        }
+    except Exception:
+        return {
+            "account_id": "",
+            "application_key": "",
+            "bucket_id": "",
+            "bucket_name": "",
+            "prefix": "ejercicios",
+            "public_base_url": "",
+        }
+
+
+def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optional[str]:
+    """Sube el contenido a Backblaze B2 usando su API nativa.
+    Devuelve la URL pública resultante o None si B2 no está configurado.
+    """
+    settings = _get_b2_settings()
+    if not (settings.get("account_id") and settings.get("application_key") and settings.get("bucket_id") and settings.get("bucket_name")):
+        return None
+    if requests is None:
+        raise HTTPException(status_code=500, detail="Dependencia 'requests' no instalada para usar B2.")
+    try:
+        # 1) Autorizar cuenta
+        auth_resp = requests.post(
+            "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
+            auth=(settings["account_id"], settings["application_key"]),
+            timeout=8,
+        )
+        if auth_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code}")
+        auth_json = auth_resp.json()
+        api_url = auth_json.get("apiUrl", "")
+        download_url = auth_json.get("downloadUrl", "")
+        auth_token = auth_json.get("authorizationToken", "")
+        if not api_url or not auth_token:
+            raise HTTPException(status_code=502, detail="Respuesta de autorización B2 inválida")
+
+        # 2) Obtener URL de subida
+        up_resp = requests.post(
+            f"{api_url}/b2api/v2/b2_get_upload_url",
+            headers={"Authorization": auth_token},
+            json={"bucketId": settings["bucket_id"]},
+            timeout=8,
+        )
+        if up_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"b2_get_upload_url fallo: {up_resp.status_code}")
+        up_json = up_resp.json()
+        upload_url = up_json.get("uploadUrl", "")
+        upload_token = up_json.get("authorizationToken", "")
+        if not upload_url or not upload_token:
+            raise HTTPException(status_code=502, detail="Respuesta de upload URL B2 inválida")
+
+        # 3) Subir archivo
+        file_name = f"{settings['prefix']}/{dest_name}" if settings.get("prefix") else dest_name
+        try:
+            import urllib.parse as _urlparse  # import local para evitar polución global
+            file_name_header = _urlparse.quote(file_name)
+        except Exception:
+            file_name_header = file_name.replace(" ", "%20")
+        headers = {
+            "Authorization": upload_token,
+            "X-Bz-File-Name": file_name_header,
+            "Content-Type": (content_type or "application/octet-stream"),
+            # Evita calcular sha1 en servidor (válido para B2)
+            "X-Bz-Content-Sha1": "do_not_verify",
+        }
+        put_resp = requests.post(upload_url, headers=headers, data=data, timeout=30)
+        if put_resp.status_code != 200:
+            # Si falla, devolver None para permitir siguientes fallbacks
+            raise HTTPException(status_code=502, detail=f"b2_upload_file fallo: {put_resp.status_code}")
+
+        # Construir URL pública
+        public_base = settings.get("public_base_url")
+        if not public_base:
+            public_base = f"{download_url}/file" if download_url else "https://f000.backblazeb2.com/file"
+        return f"{public_base}/{settings['bucket_name']}/{file_name}"
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error subiendo a Backblaze B2: {e}")
+        raise HTTPException(status_code=500, detail=f"Error subiendo a Backblaze B2: {e}")
 
 def _get_password() -> str:
     # Leer directamente desde la base de datos para sincronización inmediata
@@ -4503,8 +4636,16 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         except HTTPException:
             raise
         except Exception:
-            # Fallback a almacenamiento local si falla GCS
             url = None
+
+        # Fallback: Backblaze B2 si GCS no devuelve URL
+        if not url:
+            try:
+                url = _upload_media_to_b2(dest_name, data, content_type)
+            except HTTPException:
+                raise
+            except Exception:
+                url = None
 
         if not url:
             # Guardar localmente

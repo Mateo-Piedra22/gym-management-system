@@ -70,8 +70,16 @@ def generate_css_from_qss(qss_path: Path, css_path: Path) -> None:
     lines.append(".control, .input { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }")
     lines.append("input:focus, select:focus, textarea:focus, .control:focus, .input:focus { outline: none; border-color: var(--primary); }")
     lines.append(".panel-controls label { display: inline-flex; align-items: center; gap: 8px; }")
-    css_path.parent.mkdir(parents=True, exist_ok=True)
-    css_path.write_text("\n".join(lines), encoding="utf-8")
+    try:
+        css_path.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        # En entornos serverless el FS puede ser de solo lectura
+        pass
+    try:
+        css_path.write_text("\n".join(lines), encoding="utf-8")
+    except Exception:
+        # Silenciar si no se puede escribir; la UI usará DEFAULT_THEME
+        pass
 
 
 def read_theme_vars(css_path: Path) -> Dict[str, str]:
