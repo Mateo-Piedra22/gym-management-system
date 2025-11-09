@@ -3199,9 +3199,10 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
             if usuario_id is not None:
                 with db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    # Forzar la asignación del usuario a la nueva rutina, sin condición adicional
                     cur.execute(
-                        "UPDATE rutinas SET usuario_id = %s WHERE id = %s AND (usuario_id IS NULL OR usuario_id <> %s)",
-                        (int(usuario_id), int(new_id), int(usuario_id))
+                        "UPDATE rutinas SET usuario_id = %s WHERE id = %s",
+                        (int(usuario_id), int(new_id))
                     )
                     conn.commit()
         except Exception:
