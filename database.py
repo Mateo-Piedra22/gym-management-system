@@ -11807,14 +11807,21 @@ class DatabaseManager:
             if row:
                 rutina = dict(row)
                 rutina['ejercicios'] = []
-                sql_ejercicios = """
-                SELECT re.*, e.nombre, e.grupo_muscular,
-                       e.descripcion as ejercicio_descripcion
-                FROM rutina_ejercicios re
-                JOIN ejercicios e ON re.ejercicio_id = e.id
-                WHERE re.rutina_id = %s
-                ORDER BY re.dia_semana, re.orden
-                """
+                # Incluir columnas de video si existen en la tabla ejercicios
+                ejercicios_cols = self.get_table_columns('ejercicios') or []
+                has_video_url = 'video_url' in ejercicios_cols
+                has_video_mime = 'video_mime' in ejercicios_cols
+
+                sql_ejercicios = (
+                    "SELECT re.*, e.nombre, e.grupo_muscular, "
+                    "e.descripcion as ejercicio_descripcion" +
+                    (", e.video_url as ejercicio_video_url" if has_video_url else "") +
+                    (", e.video_mime as ejercicio_video_mime" if has_video_mime else "") +
+                    " FROM rutina_ejercicios re "
+                    "JOIN ejercicios e ON re.ejercicio_id = e.id "
+                    "WHERE re.rutina_id = %s "
+                    "ORDER BY re.dia_semana, re.orden"
+                )
                 cursor.execute(sql_ejercicios, (row['id'],))
                 for ejercicio_row in cursor.fetchall():
                     ejercicio_data = {
@@ -11823,6 +11830,11 @@ class DatabaseManager:
                         'grupo_muscular': ejercicio_row['grupo_muscular'],
                         'descripcion': ejercicio_row['ejercicio_descripcion']
                     }
+                    # Adjuntar datos de video si están disponibles
+                    if has_video_url:
+                        ejercicio_data['video_url'] = ejercicio_row.get('ejercicio_video_url')
+                    if has_video_mime:
+                        ejercicio_data['video_mime'] = ejercicio_row.get('ejercicio_video_mime')
                     rutina_ejercicio = dict(ejercicio_row)
                     rutina_ejercicio['ejercicio'] = ejercicio_data
                     rutina['ejercicios'].append(rutina_ejercicio)

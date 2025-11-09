@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, 
 import logging
 from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.encoders import jsonable_encoder
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -436,6 +437,102 @@ def _get_excel_preview_draft(pid: str) -> Optional[Dict[str, Any]]:
 _excel_preview_routines_lock = threading.RLock()
 _excel_preview_routines: Dict[str, Dict[str, Any]] = {}
 
+# Catálogo de ejercicios para enriquecer video_url/mime en previsualización
+_ejercicios_catalog_lock = threading.RLock()
+_ejercicios_catalog_cache: Dict[str, Any] = {"ts": 0, "by_id": {}, "by_name": {}}
+
+def _load_ejercicios_catalog(force: bool = False) -> Dict[str, Any]:
+    """Carga catálogo de ejercicios con video_url y video_mime desde DB o JSON.
+
+    TTL simple para evitar consultas repetidas.
+    """
+    try:
+        now = int(time.time())
+        with _ejercicios_catalog_lock:
+            ts = int(_ejercicios_catalog_cache.get("ts", 0) or 0)
+            if (not force) and ts and (now - ts) < 300:
+                return _ejercicios_catalog_cache
+            by_id: Dict[int, Dict[str, Any]] = {}
+            by_name: Dict[str, Dict[str, Any]] = {}
+
+            rows = None
+            db = _get_db()
+            if db is not None:
+                try:
+                    with db.get_connection_context() as conn:  # type: ignore
+                        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                        cols = db.get_table_columns('ejercicios') or []  # type: ignore
+                        select_cols = ['id', 'nombre']
+                        if 'video_url' in cols:
+                            select_cols.append('video_url')
+                        if 'video_mime' in cols:
+                            select_cols.append('video_mime')
+                        cur.execute(f"SELECT {', '.join(select_cols)} FROM ejercicios")
+                        rows = cur.fetchall()
+                except Exception:
+                    rows = None
+
+            if rows:
+                for r in rows:
+                    try:
+                        eid = int(r.get('id') or 0)
+                    except Exception:
+                        eid = 0
+                    name = (r.get('nombre') or '').strip().lower()
+                    info = {
+                        'video_url': r.get('video_url'),
+                        'video_mime': r.get('video_mime'),
+                    }
+                    if eid:
+                        by_id[eid] = info
+                    if name:
+                        by_name[name] = info
+            else:
+                # Fallback a ejercicios.json
+                try:
+                    p = Path(__file__).resolve().parent.parent / 'ejercicios.json'
+                    data = json.loads(p.read_text(encoding='utf-8'))
+                    for it in (data or []):
+                        try:
+                            eid = int(it.get('id') or 0)
+                        except Exception:
+                            eid = 0
+                        name = (it.get('nombre') or '').strip().lower()
+                        info = {
+                            'video_url': it.get('video_url'),
+                            'video_mime': it.get('video_mime'),
+                        }
+                        if eid:
+                            by_id[eid] = info
+                        if name:
+                            by_name[name] = info
+                except Exception:
+                    pass
+
+            _ejercicios_catalog_cache = {"ts": now, "by_id": by_id, "by_name": by_name}
+            return _ejercicios_catalog_cache
+    except Exception:
+        return {"ts": 0, "by_id": {}, "by_name": {}}
+
+def _lookup_video_info(ejercicio_id: Any, nombre: Optional[str]) -> Dict[str, Any]:
+    """Busca video_url/mime por id o nombre en el catálogo."""
+    try:
+        cat = _load_ejercicios_catalog()
+        info = None
+        if ejercicio_id is not None:
+            try:
+                info = cat.get('by_id', {}).get(int(ejercicio_id))
+            except Exception:
+                info = None
+        if (not info) and nombre:
+            try:
+                info = cat.get('by_name', {}).get(str(nombre).strip().lower())
+            except Exception:
+                info = None
+        return info or {'video_url': None, 'video_mime': None}
+    except Exception:
+        return {'video_url': None, 'video_mime': None}
+
 def _clean_preview_routines() -> None:
     try:
         now = int(time.time())
@@ -657,11 +754,18 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                     repeticiones=str(repes) if repes is not None else "",
                     orden=int(orden) if (isinstance(orden, (int, str)) and str(orden).isdigit()) else idx + 1,
                 )
+                # Enriquecer con video_url si corresponde
+                info = _lookup_video_info(ejercicio_id, nombre_e or (ej_obj_raw.get("nombre") if isinstance(ej_obj_raw, dict) else None))
+                vid = (ej_obj_raw.get("video_url") if isinstance(ej_obj_raw, dict) else None) or info.get("video_url")
+                mime = (ej_obj_raw.get("video_mime") if isinstance(ej_obj_raw, dict) else None) or info.get("video_mime")
                 if ej_obj_raw and isinstance(ej_obj_raw, dict):
                     try:
-                        re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))
+                        re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"), video_url=vid, video_mime=mime)  # type: ignore
                     except Exception:
-                        pass
+                        try:
+                            re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))  # type: ignore
+                        except Exception:
+                            pass
                 if nombre_e:
                     try:
                         setattr(re, "nombre_ejercicio", nombre_e)
@@ -710,11 +814,17 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                         repeticiones=str(repes) if repes is not None else "",
                         orden=int(orden) if (isinstance(orden, (int, str)) and str(orden).isdigit()) else j + 1,
                     )
+                    info = _lookup_video_info(ejercicio_id, nombre_e or (ej_obj_raw.get("nombre") if isinstance(ej_obj_raw, dict) else None))
+                    vid = (ej_obj_raw.get("video_url") if isinstance(ej_obj_raw, dict) else None) or info.get("video_url")
+                    mime = (ej_obj_raw.get("video_mime") if isinstance(ej_obj_raw, dict) else None) or info.get("video_mime")
                     if ej_obj_raw and isinstance(ej_obj_raw, dict):
                         try:
-                            re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))
+                            re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"), video_url=vid, video_mime=mime)  # type: ignore
                         except Exception:
-                            pass
+                            try:
+                                re.ejercicio = Ejercicio(nombre=(ej_obj_raw.get("nombre") or nombre_e or "Ejercicio"))  # type: ignore
+                            except Exception:
+                                pass
                     if nombre_e:
                         try:
                             setattr(re, "nombre_ejercicio", nombre_e)
@@ -10125,22 +10235,30 @@ async def api_rutina_qr_scan(uuid_rutina: str, request: Request):
       "rutina": { id, uuid_rutina, nombre_rutina, descripcion, dias_semana, categoria, activa, ejercicios: [...], dias: [...] }
     }
     """
-    db = _get_db()
-    if db is None:
-        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=500)
     uid = str(uuid_rutina or "").strip()
     if not uid or len(uid) < 8:
         return JSONResponse({"ok": False, "error": "UUID inválido"}, status_code=400)
-    try:
-        rutina = db.obtener_rutina_completa_por_uuid_dict(uid)  # type: ignore
-    except Exception:
-        rutina = None
+
+    # Intentar obtener desde DB; si no está disponible, caer a preview efímero
+    db = _get_db()
+    rutina = None
+    if db is not None:
+        try:
+            rutina = db.obtener_rutina_completa_por_uuid_dict(uid)  # type: ignore
+        except Exception:
+            rutina = None
+    if rutina is None:
+        # Fallback defensivo: si existe una rutina efímera guardada para este UUID, utilizarla
+        try:
+            rutina = _get_excel_preview_routine(uid)
+        except Exception:
+            rutina = None
     if not rutina:
         return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
     if not bool(rutina.get("activa", True)):
         return JSONResponse({"ok": False, "error": "Rutina inactiva"}, status_code=403)
 
-    # Restringir el acceso: si hay usuario logueado, el QR debe corresponder a su rutina activa
+    # Conceder acceso temporal por 1 día a esta rutina en la sesión (logged o guest)
     try:
         usuario_id = request.session.get("usuario_id")
     except Exception:
@@ -10152,44 +10270,62 @@ async def api_rutina_qr_scan(uuid_rutina: str, request: Request):
             rid_user = None
         if rid_user is None or int(usuario_id) != int(rid_user):
             return JSONResponse({"ok": False, "error": "QR no corresponde a tu rutina"}, status_code=403)
+    # Acceso temporal siempre: actúa como llave por 1 día
+    try:
+        request.session["qr_access_rutina_id"] = int(rutina.get("id") or 0)
+        request.session["qr_access_until"] = int(time.time()) + 24 * 60 * 60
+    except Exception:
+        pass
 
-        # Conceder acceso temporal por 1 día a esta rutina en la sesión del usuario
-        try:
-            request.session["qr_access_rutina_id"] = int(rutina.get("id") or 0)
-            request.session["qr_access_until"] = int(time.time()) + 24 * 60 * 60
-        except Exception:
-            pass
-
-    ejercicios = rutina.get("ejercicios") or []
+    # Construir respuesta por días con tolerancia a datos inesperados
+    try:
+        ejercicios = rutina.get("ejercicios") or []
+    except Exception:
+        ejercicios = []
     dias_map: dict[int, list[dict]] = {}
-    for it in ejercicios:
-        try:
-            d = int(it.get("dia_semana") or 1)
-        except Exception:
-            d = 1
-        dias_map.setdefault(d, []).append(it)
-    dias = []
-    for d in sorted(dias_map.keys()):
-        items = dias_map[d]
-        items_sorted = sorted(items, key=lambda x: int(x.get("orden") or 0))
-        dias.append({
-            "numero": d,
-            "nombre": f"Día {d}",
-            "ejercicios": [
-                {
-                    "nombre": (e.get("ejercicio") or {}).get("nombre"),
-                    "descripcion": (e.get("ejercicio") or {}).get("descripcion"),
-                    "video_url": (e.get("ejercicio") or {}).get("video_url"),
-                    "series": e.get("series") or "",
-                    "repeticiones": e.get("repeticiones") or "",
-                    "ejercicio_id": int(e.get("ejercicio_id") or 0)
-                }
-                for e in items_sorted
-            ]
-        })
-    out = dict(rutina)
+    try:
+        for it in ejercicios or []:
+            try:
+                d = int(it.get("dia_semana") or 1)
+            except Exception:
+                d = 1
+            dias_map.setdefault(d, []).append(it)
+        dias = []
+        for d in sorted(list(dias_map.keys())):
+            items = dias_map.get(d, []) or []
+            try:
+                items_sorted = sorted(items, key=lambda x: int(x.get("orden") or 0))
+            except Exception:
+                items_sorted = list(items)
+            dias.append({
+                "numero": d,
+                "nombre": f"Día {d}",
+                "ejercicios": [
+                    {
+                        "nombre": (e.get("ejercicio") or {}).get("nombre"),
+                        "descripcion": (e.get("ejercicio") or {}).get("descripcion"),
+                        "video_url": (e.get("ejercicio") or {}).get("video_url"),
+                        "series": e.get("series") or "",
+                        "repeticiones": e.get("repeticiones") or "",
+                        "ejercicio_id": int(e.get("ejercicio_id") or 0)
+                    }
+                    for e in items_sorted or []
+                ]
+            })
+    except Exception:
+        dias = []
+    try:
+        out = dict(rutina)
+    except Exception:
+        out = {"id": rutina.get("id"), "uuid_rutina": rutina.get("uuid_rutina"), "nombre_rutina": rutina.get("nombre_rutina")}
     out["dias"] = dias
-    return JSONResponse({"ok": True, "rutina": out}, status_code=200)
+    # Serialización robusta: evitar fallos por tipos no JSON (datetime, Decimal)
+    try:
+        payload = {"ok": True, "rutina": out}
+        return Response(content=json.dumps(payload, default=str, separators=(",", ":")), media_type="application/json")
+    except Exception:
+        # Fallback por si algún objeto extraño persiste
+        return JSONResponse(content=jsonable_encoder({"ok": True, "rutina": out}), status_code=200)
 
 # --- Endpoint público de previsualización: escaneo de QR efímero por UUID ---
 @app.get("/api/rutinas/preview/qr_scan/{uuid_rutina}")
@@ -10223,7 +10359,10 @@ async def api_rutina_preview_qr_scan(uuid_rutina: str):
                 {
                     "nombre": (e.get("ejercicio") or {}).get("nombre"),
                     "descripcion": (e.get("ejercicio") or {}).get("descripcion"),
-                    "video_url": (e.get("ejercicio") or {}).get("video_url"),
+                    "video_url": (
+                        (e.get("ejercicio") or {}).get("video_url")
+                        or _lookup_video_info(e.get("ejercicio_id"), (e.get("ejercicio") or {}).get("nombre")).get("video_url")
+                    ),
                     "series": e.get("series") or "",
                     "repeticiones": e.get("repeticiones") or "",
                     "ejercicio_id": int(e.get("ejercicio_id") or 0)
@@ -10233,4 +10372,8 @@ async def api_rutina_preview_qr_scan(uuid_rutina: str):
         })
     out = dict(rutina)
     out["dias"] = dias
-    return JSONResponse({"ok": True, "rutina": out}, status_code=200)
+    try:
+        payload = {"ok": True, "rutina": out}
+        return Response(content=json.dumps(payload, default=str, separators=(",", ":")), media_type="application/json")
+    except Exception:
+        return JSONResponse(content=jsonable_encoder({"ok": True, "rutina": out}), status_code=200)
