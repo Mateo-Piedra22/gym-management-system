@@ -3144,7 +3144,35 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
         descripcion = payload.get("descripcion")
         dias_semana = int(payload.get("dias_semana") or 1)
         categoria = (payload.get("categoria") or "general").strip() or "general"
-        usuario_id = payload.get("usuario_id")
+        # Coerción robusta de usuario_id (evitar nulls no deseados)
+        raw_uid = payload.get("usuario_id")
+        usuario_id = None
+        try:
+            if raw_uid is not None:
+                s = str(raw_uid).strip().lower()
+                if s != "" and s != "null":
+                    val = int(raw_uid)
+                    if val > 0:
+                        usuario_id = val
+        except Exception:
+            usuario_id = None
+        # Validación explícita: existencia y estado activo del usuario (si corresponde)
+        if usuario_id is not None:
+            try:
+                if not db.usuario_id_existe(int(usuario_id)):  # type: ignore
+                    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute("SELECT activo FROM usuarios WHERE id = %s", (int(usuario_id),))
+                    row = cur.fetchone()
+                    activo = (row.get("activo") if isinstance(row, dict) else (row[0] if row else False))
+                    if not row or not bool(activo):
+                        raise HTTPException(status_code=403, detail="Usuario inactivo: no se puede crear rutina")
+            except HTTPException:
+                raise
+            except Exception:
+                # No bloquear si falla la validación explícita; el repositorio valida nuevamente
+                pass
         rutina = Rutina(usuario_id=usuario_id, nombre_rutina=nombre_rutina, descripcion=descripcion, dias_semana=dias_semana, categoria=categoria)  # type: ignore
         new_id = db.crear_rutina(rutina)  # type: ignore
 
@@ -3166,9 +3194,57 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
                     pass
             if rutina_ejs:
                 db.guardar_ejercicios_de_rutina(int(new_id), rutina_ejs)  # type: ignore
+        # Asegurar que usuario_id quede seteado si fue enviado (doble verificación defensiva)
+        try:
+            if usuario_id is not None:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        "UPDATE rutinas SET usuario_id = %s WHERE id = %s AND (usuario_id IS NULL OR usuario_id <> %s)",
+                        (int(usuario_id), int(new_id), int(usuario_id))
+                    )
+                    conn.commit()
+        except Exception:
+            # Si falla esta operación defensiva, no bloquear la creación
+            pass
+        # Registrar auditoría de creación de rutina
+        try:
+            creator_uid = None
+            try:
+                creator_uid = int(request.session.get("user_id")) if request.session.get("user_id") else None
+            except Exception:
+                creator_uid = None
+            ip_addr = (getattr(request, 'client', None).host if getattr(request, 'client', None) else None)
+            ua = request.headers.get('user-agent', '')
+            sid = getattr(getattr(request, 'session', {}), 'get', lambda *a, **k: None)('session_id')
+            new_vals = {
+                "usuario_id": usuario_id,
+                "nombre_rutina": nombre_rutina,
+                "descripcion": descripcion,
+                "dias_semana": dias_semana,
+                "categoria": categoria,
+                "ejercicios_count": len(ejercicios) if isinstance(ejercicios, list) else 0,
+            }
+            db.registrar_audit_log(  # type: ignore
+                user_id=int(creator_uid) if creator_uid is not None else (int(usuario_id) if usuario_id is not None else None),
+                action="CREATE",
+                table_name="rutinas",
+                record_id=int(new_id),
+                old_values=None,
+                new_values=json.dumps(new_vals, default=str),
+                ip_address=ip_addr,
+                user_agent=ua,
+                session_id=sid,
+            )
+        except Exception:
+            # No bloquear por fallos en auditoría
+            pass
         return {"ok": True, "id": int(new_id)}
     except HTTPException:
         raise
+    except PermissionError as e:
+        # Mapear validación de repositorio a respuesta HTTP adecuada
+        return JSONResponse({"error": str(e)}, status_code=403)
     except Exception as e:
         import traceback
         traceback.print_exc()
