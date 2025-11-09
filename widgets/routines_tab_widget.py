@@ -812,7 +812,15 @@ class RoutinesTabWidget(QWidget):
         except Exception:
             pass
         
-        default_filename = f"rutina_{self.selected_user.nombre.replace(' ', '_')}_{QDate.currentDate().toString('yyyy-MM-dd')}.pdf"
+        rname = (getattr(self.current_routine, 'nombre_rutina', None) or getattr(self.current_routine, 'nombre', None) or 'Rutina')
+        uname = (self.selected_user.nombre or '').strip()
+        parts = uname.split() if uname else []
+        first = parts[0] if parts else ''
+        last = parts[-1] if len(parts) > 1 else ''
+        date_str = QDate.currentDate().toString('dd-MM-yyyy')
+        days_count = int(self.routine_days_spinbox.value()) if self.routine_days_spinbox else 1
+        days_seg = f"{days_count}-dias"
+        default_filename = f"rutina_{rname.replace(' ', '_')}_{days_seg}_{(first + ('_' + last if last else '')).replace(' ', '_')}_{date_str}.pdf"
         filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Rutina en PDF", default_filename, "PDF Files (*.pdf)")
         if filepath:
             try:
@@ -869,7 +877,15 @@ class RoutinesTabWidget(QWidget):
         except Exception:
             pass
         
-        default_filename = f"rutina_{self.selected_user.nombre.replace(' ', '_')}_{QDate.currentDate().toString('yyyy-MM-dd')}.xlsx"
+        rname = (getattr(self.current_routine, 'nombre_rutina', None) or getattr(self.current_routine, 'nombre', None) or 'Rutina')
+        uname = (self.selected_user.nombre or '').strip()
+        parts = uname.split() if uname else []
+        first = parts[0] if parts else ''
+        last = parts[-1] if len(parts) > 1 else ''
+        date_str = QDate.currentDate().toString('dd-MM-yyyy')
+        days_count = int(self.routine_days_spinbox.value()) if self.routine_days_spinbox else 1
+        days_seg = f"{days_count}-dias"
+        default_filename = f"rutina_{rname.replace(' ', '_')}_{days_seg}_{(first + ('_' + last if last else '')).replace(' ', '_')}_{date_str}.xlsx"
         filepath, _ = QFileDialog.getSaveFileName(self, "Guardar Rutina en Excel", default_filename, "Excel Files (*.xlsx)")
         if filepath:
             try:

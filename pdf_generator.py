@@ -315,8 +315,36 @@ class PDFGenerator:
 
     # --- NUEVO MÉTODO PARA EXPORTAR RUTINAS ---
     def generar_pdf_rutina(self, rutina: Rutina, usuario: Usuario, exercises_by_day: dict) -> str:
-        fecha_str = datetime.now().strftime("%Y%m%d")
-        filename = f"rutina_{usuario.nombre.replace(' ', '_')}_{fecha_str}.pdf"
+        # Formato: rutina_{nombreRutina}_{CantDias}_{Nombre_Apellido}_{dd-mm-aaaa}.pdf
+        rname = (getattr(rutina, "nombre_rutina", None) or getattr(rutina, "nombre", None) or "Rutina")
+        uname = (getattr(usuario, "nombre", "") or "").strip()
+        parts = uname.split() if uname else []
+        first = parts[0] if parts else ""
+        last = parts[-1] if len(parts) > 1 else ""
+        def _safe_slug(s: str) -> str:
+            import re as _re
+            s = (s or "").strip()
+            s = _re.sub(r"[^\w\s-]", "", s)
+            s = _re.sub(r"\s+", "_", s)
+            return s
+        base = _safe_slug(rname) or "Rutina"
+        user_seg = _safe_slug(first) + (("_" + _safe_slug(last)) if last else "")
+        # Cantidad de días profesional y entendible, clamped a 1-5
+        try:
+            num_days = min(5, max(1, len(exercises_by_day or {})))
+        except Exception:
+            num_days = 1
+        days_seg = f"{num_days}-dias"
+        fc = getattr(rutina, "fecha_creacion", None)
+        try:
+            from datetime import date as _date
+            if isinstance(fc, (datetime, _date)):
+                fecha_str = f"{getattr(fc, 'day', fc.day):02d}-{getattr(fc, 'month', fc.month):02d}-{getattr(fc, 'year', fc.year)}"
+            else:
+                fecha_str = datetime.now().strftime("%d-%m-%Y")
+        except Exception:
+            fecha_str = datetime.now().strftime("%d-%m-%Y")
+        filename = f"rutina_{base}_{days_seg}_{user_seg or 'Usuario'}_{fecha_str}.pdf"
         filepath = os.path.join(self.output_dir_rutinas, filename)
 
         doc = SimpleDocTemplate(filepath, pagesize=letter, rightMargin=inch/2, leftMargin=inch/2, topMargin=inch/2, bottomMargin=inch/2)

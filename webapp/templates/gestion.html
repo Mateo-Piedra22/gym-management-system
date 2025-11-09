@@ -1554,6 +1554,7 @@
               <div style="flex:1"><label class="muted" for="recibo-total-subtotal">Subtotal</label><input id="recibo-total-subtotal" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
               <div style="flex:1"><label class="muted" for="recibo-total-comision">Comisión</label><input id="recibo-total-comision" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
               <div style="flex:1"><label class="muted" for="recibo-total-total">Total</label><input id="recibo-total-total" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" /></div>
+              <div style="flex:1"><label class="muted" for="recibo-total-items">Total de ítems</label><input id="recibo-total-items" type="number" step="1" inputmode="numeric" placeholder="0" style="width:100%" /></div>
             </div>
           </details>
           <div class="input-row">
@@ -1612,6 +1613,22 @@
           <div class="input-row">
             <div style="flex:1"><label class="muted">Método</label><div id="pago-detalle-metodo"></div></div>
             <div style="flex:1"><label class="muted">Concepto</label><div id="pago-detalle-concepto"></div></div>
+          </div>
+          <div style="margin-top:12px">
+            <h4 style="margin:0 0 8px 0; font-size:14px;">Items</h4>
+            <div class="table-scroll table-compact">
+              <table id="pago-detalle-items-table">
+                <thead><tr><th>Concepto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="input-row" style="margin-top:8px">
+            <div style="flex:1"><label class="muted">Total de ítems</label><div id="pago-detalle-total-items">0</div></div>
+          </div>
+          <div style="margin-top:12px">
+            <h4 style="margin:0 0 8px 0; font-size:14px;">Notas</h4>
+            <div id="pago-detalle-notas" class="muted">—</div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1819,6 +1836,7 @@
             <div class="input-row" style="margin-top:8px;">
               <div style="flex:1"><label class="muted" for="pago-items-subtotal">Subtotal</label><input id="pago-items-subtotal" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
               <div style="flex:1"><label class="muted" for="pago-items-total">Total</label><input id="pago-items-total" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
+              <div style="flex:1"><label class="muted" for="pago-items-count">Total de ítems</label><input id="pago-items-count" type="number" step="1" inputmode="numeric" placeholder="0" style="width:100%" readonly /></div>
             </div>
           </details>
           <div id="pago-resumen" class="calc-summary" style="margin-top:8px; font-size:12px; color:#555">
@@ -1826,6 +1844,7 @@
             <div><strong>Base:</strong> $<span id="pago-resumen-base">—</span></div>
             <div><strong>Comisión:</strong> $<span id="pago-resumen-comision">—</span> <span id="pago-resumen-comision-porcentaje"></span></div>
             <div><strong>Total:</strong> $<span id="pago-resumen-total">—</span></div>
+            <div><strong>Ítems:</strong> <span id="pago-resumen-items">0</span></div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1882,6 +1901,18 @@
             </select>
           </div>
         </div>
+        <details id="wiz-items-advanced" style="border:1px solid var(--border); border-radius:6px; padding:10px; margin-top:8px;">
+          <summary style="cursor:pointer"><strong>Ítems del pago</strong> <span class="muted">(opcional)</span></summary>
+          <div id="wiz-items-list" style="border:1px solid var(--border); border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+            <div id="wiz-items-rows" style="display:flex; flex-direction:column; gap:8px"></div>
+            <button class="btn success" id="wiz-item-add" type="button">Agregar ítem</button>
+          </div>
+          <div class="input-row" style="margin-top:8px;">
+            <div style="flex:1"><label class="muted" for="wiz-items-subtotal">Subtotal</label><input id="wiz-items-subtotal" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
+            <div style="flex:1"><label class="muted" for="wiz-items-total">Total</label><input id="wiz-items-total" type="number" step="0.01" inputmode="decimal" placeholder="0.00" style="width:100%" readonly /></div>
+            <div style="flex:1"><label class="muted" for="wiz-items-count">Total de ítems</label><input id="wiz-items-count" type="number" step="1" inputmode="numeric" placeholder="0" style="width:100%" readonly /></div>
+          </div>
+        </details>
       </div>
       <div class="wizard-step" data-step="3">
         <div class="input-row">
@@ -1906,6 +1937,7 @@
           <div><strong>Base:</strong> $<span id="wiz-resumen-base">—</span></div>
           <div><strong>Comisión:</strong> $<span id="wiz-resumen-comision">—</span> <span id="wiz-resumen-comision-porcentaje"></span></div>
           <div><strong>Total:</strong> $<span id="wiz-resumen-total">—</span></div>
+          <div><strong>Ítems:</strong> <span id="wiz-resumen-items">0</span></div>
         </div>
       </div>
     </div>
@@ -3562,16 +3594,61 @@
       if(tbody) tbody.innerHTML = '';
     }
 
-    function openPagoDetalleModal(){
+    function renderPagoDetalleModal(pago, detalles){
+      const fecha = pago.fecha_pago || pago.fecha || pago.fechaPago || '';
+      const nombre = pago.usuario_nombre || pago.nombre || '';
+      const dni = pago.dni || '';
+      const metodo = pago.metodo_pago || pago.metodo || '';
+      const concepto = pago.concepto_pago || pago.concepto || '';
+      const monto = pago.monto != null ? Number(pago.monto) : 0;
+      document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDateEs(fecha) : '';
+      document.getElementById('pago-detalle-nombre').textContent = nombre;
+      document.getElementById('pago-detalle-dni').textContent = dni;
+      document.getElementById('pago-detalle-metodo').textContent = metodo;
+      document.getElementById('pago-detalle-concepto').textContent = concepto;
+      document.getElementById('pago-detalle-monto').textContent = fmtCurrency(monto);
+      const notasEl = document.getElementById('pago-detalle-notas');
+      if(notasEl) notasEl.textContent = (pago.notas && String(pago.notas).trim()) ? pago.notas : '—';
+      const tbody = document.querySelector('#pago-detalle-items-table tbody');
+      if(tbody){
+        tbody.innerHTML = '';
+        const list = Array.isArray(detalles) ? detalles : [];
+        if(list.length === 0){
+          const tr = document.createElement('tr');
+          tr.innerHTML = '<td colspan="4" class="muted">No hay items</td>';
+          tbody.appendChild(tr);
+        } else {
+          list.forEach(d => {
+            const tr = document.createElement('tr');
+            const c = d.concepto_nombre || d.concepto || d.descripcion || '';
+            const cantidad = d.cantidad ?? 1;
+            const precio = d.precio_unitario ?? d.precio ?? 0;
+            const subtotal = d.subtotal ?? (Number(cantidad||0) * Number(precio||0));
+            tr.innerHTML = `<td>${c}</td><td>${cantidad}</td><td>${fmtCurrency(precio)}</td><td>${fmtCurrency(subtotal)}</td>`;
+            tbody.appendChild(tr);
+          });
+        }
+        // Total de ítems
+        try{ const cntEl = document.getElementById('pago-detalle-total-items'); if(cntEl) cntEl.textContent = String(list.length); }catch(_){}
+      }
+    }
+
+    async function openPagoDetalleModal(){
       const p = state.selectedPago;
       if(!p){ showToast('Selecciona un pago primero', 'warning', 4000); return; }
-      const fecha = p.fecha_pago || p.fecha || p.fechaPago || null;
-      document.getElementById('pago-detalle-fecha').textContent = fecha ? fmtDateEs(fecha) : '';
-      document.getElementById('pago-detalle-nombre').textContent = p.usuario_nombre || p.nombre || '';
-      document.getElementById('pago-detalle-dni').textContent = p.dni || '';
-      document.getElementById('pago-detalle-monto').textContent = (p.monto != null ? p.monto : '');
-      document.getElementById('pago-detalle-metodo').textContent = p.metodo_pago || p.metodo || '';
-      document.getElementById('pago-detalle-concepto').textContent = p.concepto_pago || p.concepto || '';
+      let pago = p; let detalles = [];
+      try {
+        const id = p.id || p.pago_id;
+        if(id){
+          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
+          let data = null; try{ data = await res.json(); }catch(_){ data = null; }
+          if(res.ok && data){
+            pago = data.pago || p;
+            detalles = Array.isArray(data.detalles) ? data.detalles : [];
+          }
+        }
+      } catch(_){ /* ignorar */ }
+      renderPagoDetalleModal(pago, detalles);
       openModal('modal-pago-detalle');
     }
 
@@ -3661,6 +3738,9 @@
       if(verUsuarioBtn) verUsuarioBtn.addEventListener('click', navigateToUsuarioDesdePago);
       const verDetalleBtn = document.getElementById('pago-side-ver-detalle');
       if(verDetalleBtn) verDetalleBtn.addEventListener('click', openPagoDetalleModal);
+      // Cierres del modal de detalle de pago
+      const pagoDetClose = document.getElementById('pago-detalle-close'); if(pagoDetClose) pagoDetClose.addEventListener('click', () => closeModal('modal-pago-detalle'));
+      const pagoDetCerrar = document.getElementById('pago-detalle-cerrar'); if(pagoDetCerrar) pagoDetCerrar.addEventListener('click', () => closeModal('modal-pago-detalle'));
       const exportBtn = document.getElementById('pagos-export-csv');
       if(exportBtn) exportBtn.addEventListener('click', exportPagosCSV);
       const editarPagoBtn = document.getElementById('pago-side-editar');
@@ -3740,9 +3820,98 @@
       const pagoCancel = document.getElementById('pago-form-cancel'); if(pagoCancel) pagoCancel.addEventListener('click', hidePagoForm);
       const pagoSave = document.getElementById('pago-save'); if(pagoSave) pagoSave.addEventListener('click', savePago);
       // Recalcular al cambiar usuario o método de pago
-      const uSel = document.getElementById('pago-usuario'); if(uSel) uSel.addEventListener('change', () => recalcPagoTotal());
-      const mSel = document.getElementById('pago-metodo'); if(mSel) mSel.addEventListener('change', () => recalcPagoTotal());
-      const cSel = document.getElementById('pago-concepto'); if(cSel) cSel.addEventListener('change', () => recalcPagoTotal());
+      const uSel = document.getElementById('pago-usuario'); if(uSel) uSel.addEventListener('change', () => { 
+        try{
+          recalcPagoTotal();
+          const rows = document.getElementById('pago-items-rows'); if(!rows) return;
+          const conceptoEl = document.getElementById('pago-concepto');
+          const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+          const conceptoSel = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
+          const uid = uSel && uSel.value ? Number(uSel.value) : null;
+          let pu = 0;
+          try{
+            const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+            const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+            if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ pu = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+            else { pu = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+          }catch(_){ pu = 0; }
+          // Aplicar comisión/descuento del método al precio del primer ítem
+          const metodoEl = document.getElementById('pago-metodo');
+          const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
+          const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
+          const pct = metodo ? Number(metodo.comision_porcentaje ?? metodo.comision ?? 0) : 0;
+          const puFinal = Number((Number(pu||0) * (1 + (Number(pct||0)/100))).toFixed(2));
+          let firstRow = rows.children && rows.children[0] ? rows.children[0] : null;
+          if(firstRow){ try{ const inputs = firstRow.querySelectorAll('input'); if(inputs[2]) inputs[2].value = String(Number(puFinal||0).toFixed(2)); }catch(_){ } }
+          rows.setAttribute('data-price-includes-commission', pct ? '1' : '0');
+          recalcPagoTotal();
+        }catch(_){ }
+      });
+      const mSel = document.getElementById('pago-metodo'); if(mSel) mSel.addEventListener('change', () => { 
+        try{
+          recalcPagoTotal();
+          const rows = document.getElementById('pago-items-rows'); if(!rows) return;
+          const cEl = document.getElementById('pago-concepto');
+          const cId = cEl && cEl.value ? String(cEl.value) : '';
+          const conceptoSel = cId ? (state.conceptosPagoMap ? state.conceptosPagoMap[cId] : null) : null;
+          const uEl = document.getElementById('pago-usuario'); const uid = uEl && uEl.value ? Number(uEl.value) : null;
+          let puBase = 0;
+          try{
+            const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+            const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+            if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ puBase = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+            else { puBase = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+          }catch(_){ puBase = 0; }
+          const metodoId = mSel && mSel.value ? String(mSel.value) : '';
+          const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
+          const pct = metodo ? Number(metodo.comision_porcentaje ?? metodo.comision ?? 0) : 0;
+          const puFinal = Number((Number(puBase||0) * (1 + (Number(pct||0)/100))).toFixed(2));
+          let firstRow = rows.children && rows.children[0] ? rows.children[0] : null;
+          const desc = conceptoSel ? (String(conceptoSel.nombre||'').trim() || 'Concepto') : 'Concepto';
+          if(!firstRow){ addPagoItemRow({ descripcion: desc, cantidad: 1, precio_unitario: puFinal }); }
+          else { try{ const inputs = firstRow.querySelectorAll('input'); if(inputs[1]) inputs[1].value = '1'; if(inputs[2]) inputs[2].value = String(Number(puFinal||0).toFixed(2)); }catch(_){ } }
+          rows.setAttribute('data-price-includes-commission', pct ? '1' : '0');
+          const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
+          recalcPagoTotal();
+        }catch(_){ }
+      });
+      const cSel = document.getElementById('pago-concepto'); if(cSel) cSel.addEventListener('change', () => { 
+        try{
+          recalcPagoTotal();
+          const rows = document.getElementById('pago-items-rows'); if(!rows) return;
+          const conceptoId = cSel && cSel.value ? String(cSel.value) : '';
+          const conceptoSel = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
+          const uSel2 = document.getElementById('pago-usuario'); const uid2 = uSel2 && uSel2.value ? Number(uSel2.value) : null;
+          let pu = 0; 
+          try{
+            const u = (state.usuarios || []).find(x => Number(x.id) === uid2);
+            const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+            if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ pu = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+            else { pu = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+          }catch(_){ pu = 0; }
+          const desc = conceptoSel ? (String(conceptoSel.nombre||'').trim() || 'Concepto') : 'Concepto';
+          // Aplicar comisión/descuento del método al precio del primer ítem
+          const metodoEl2 = document.getElementById('pago-metodo');
+          const metodoId2 = metodoEl2 && metodoEl2.value ? String(metodoEl2.value) : '';
+          const metodo2 = metodoId2 ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId2] : null) : null;
+          const pct2 = metodo2 ? Number(metodo2.comision_porcentaje ?? metodo2.comision ?? 0) : 0;
+          const puFinal2 = Number((Number(pu||0) * (1 + (Number(pct2||0)/100))).toFixed(2));
+          let firstRow = rows.children && rows.children[0] ? rows.children[0] : null;
+          if(!firstRow){
+            addPagoItemRow({ descripcion: desc, cantidad: 1, precio_unitario: puFinal2 });
+          } else {
+            try{
+              const inputs = firstRow.querySelectorAll('input');
+              if(inputs[0]) inputs[0].value = desc;
+              if(inputs[1]) inputs[1].value = '1';
+              if(inputs[2]) inputs[2].value = String(Number(puFinal2||0).toFixed(2));
+            }catch(_){ }
+          }
+          rows.setAttribute('data-price-includes-commission', pct2 ? '1' : '0');
+          const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
+          recalcPagoTotal();
+        }catch(_){ }
+      });
       // Editor de ítems en modal de pago
       const pagoItemAdd = document.getElementById('pago-item-add'); if(pagoItemAdd) pagoItemAdd.addEventListener('click', () => { addPagoItemRow({ descripcion:'', cantidad:1, precio_unitario:0 }); recalcPagoTotal(); });
       // Modal delete pago controls
@@ -3840,25 +4009,62 @@
       }catch(e){ console.warn('No se pudo cargar catálogo de tipos de cuota:', e); }
     }
 
+    function normalizeStr(s){
+      try {
+        return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      } catch (_) {
+        return String(s || '').trim().toLowerCase();
+      }
+    }
     function resolveTipoCuota(val){
       if(val == null) return null;
-      const sv = String(val).trim();
-      if(!sv) return null;
+      // Manejar objetos directamente {id, nombre, precio}
+      if(typeof val === 'object'){
+        try{
+          const obj = val;
+          const activos = Array.isArray(state.tiposCuotaActivos) ? state.tiposCuotaActivos : [];
+          const catalogo = Array.isArray(state.tiposCuotaCatalogo) ? state.tiposCuotaCatalogo : [];
+          const id = obj.id ?? obj.tipo_id ?? obj.tipoCuotaId ?? null;
+          const nombre = obj.nombre ?? obj.tipo_nombre ?? obj.tipoCuotaNombre ?? null;
+          let tipo = null;
+          if(id != null){
+            const idStr = String(id);
+            tipo = activos.find(t => String(t.id) === idStr) || catalogo.find(t => String(t.id) === idStr) || null;
+          }
+          if(!tipo && nombre){
+            const normNombre = normalizeStr(nombre);
+            tipo = activos.find(t => normalizeStr(t.nombre||'') === normNombre) || catalogo.find(t => normalizeStr(t.nombre||'') === normNombre) || null;
+          }
+          if(tipo) return tipo;
+          // Si el objeto ya trae precio, devolverlo como fallback
+          if(obj && (obj.precio != null || obj.precio_base != null)) return obj;
+        }catch(_){ /* noop */ }
+      }
+      const raw = String(val).trim();
+      if(!raw) return null;
+      const norm = normalizeStr(raw);
       const activos = Array.isArray(state.tiposCuotaActivos) ? state.tiposCuotaActivos : [];
       let tipo = null;
-      if(/^[0-9]+$/.test(sv)){
-        tipo = activos.find(t => String(t.id) === sv);
+      // Permitir IDs con decimales o texto adicional (p.ej. "1", "1.0", "ID 1")
+      const idMatch = norm.match(/^([0-9]+)/);
+      if(idMatch){
+        const idStr = idMatch[1];
+        tipo = activos.find(t => String(t.id) === idStr);
       }
       if(!tipo){
-        tipo = activos.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
+        tipo = activos.find(t => normalizeStr(t.nombre || '') === norm);
       }
       if(tipo) return tipo;
       const catalogo = Array.isArray(state.tiposCuotaCatalogo) ? state.tiposCuotaCatalogo : [];
-      if(/^[0-9]+$/.test(sv)){
-        tipo = catalogo.find(t => String(t.id) === sv);
+      if(idMatch && !tipo){
+        const idStr = idMatch[1];
+        tipo = catalogo.find(t => String(t.id) === idStr);
       }
       if(!tipo){
-        tipo = catalogo.find(t => String(t.nombre || '').trim().toLowerCase() === sv.toLowerCase());
+        tipo = catalogo.find(t => normalizeStr(t.nombre || '') === norm);
+      }
+      if(!tipo && state.tiposCuotaMap){
+        tipo = state.tiposCuotaMap[raw] || state.tiposCuotaMap[norm] || (idMatch ? state.tiposCuotaMap[idMatch[1]] : null) || null;
       }
       return tipo || null;
     }
@@ -3923,6 +4129,7 @@
           if(agg.label){ conceptoNombre = agg.label; }
           // Actualizar campos de subtotal/total de ítems (total se completará luego)
           try{ const subEl = document.getElementById('pago-items-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2); }catch(_){}
+          try{ const cntEl = document.getElementById('pago-items-count'); if(cntEl) cntEl.value = String(pagoItems.length||0); }catch(_){}
         } else {
           if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
         }
@@ -3945,26 +4152,40 @@
         const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
         const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
         const pct = metodo ? Number(metodo.comision_porcentaje ?? metodo.comision ?? 0) : 0;
-        const comision = round2(base * pct / 100);
+        const rowsEl = document.getElementById('pago-items-rows');
+        const includeInPrice = !!(rowsEl && rowsEl.getAttribute('data-price-includes-commission') === '1');
+        const pctEffective = includeInPrice ? 0 : pct;
+        const comision = round2(base * pctEffective / 100);
         const total = round2(base + comision);
         if(montoEl){ montoEl.value = total > 0 ? String(total) : ''; }
         updatePagoResumen({ conceptoNombre, base, pct, comision, total });
-        // Actualizar tooltip y total de ítems si el editor está activo
+        // Actualizar tooltip y totales de ítems con fallback: si no hay filas, tratar el concepto como un ítem único
         try{
           const elConcepto = document.getElementById('pago-resumen-concepto');
-          if(elConcepto && Array.isArray(pagoItems) && pagoItems.length){
-            const agg = buildItemsConceptLabel(pagoItems);
+          const itemsSubtotalEl = document.getElementById('pago-items-subtotal');
+          const itemsTotalEl = document.getElementById('pago-items-total');
+          const itemsCountEl = document.getElementById('pago-resumen-items');
+          const cpEl = document.getElementById('pago-concepto');
+          const effectiveItems = (Array.isArray(pagoItems) && pagoItems.length) ? pagoItems : (
+            concepto ? [{ descripcion: conceptoNombre, cantidad: 1, precio_unitario: Number(base||0) }] : []
+          );
+          if(elConcepto && Array.isArray(effectiveItems) && effectiveItems.length){
+            const agg = buildItemsConceptLabel(effectiveItems);
             elConcepto.setAttribute('title', agg.tooltip || '');
           }
-          const itemsTotalEl = document.getElementById('pago-items-total'); if(itemsTotalEl && Array.isArray(pagoItems) && pagoItems.length){ itemsTotalEl.value = Number(total||0).toFixed(2); }
-          // Actualizar select concepto con opción personalizada si aplica
-          const cpEl = document.getElementById('pago-concepto');
+          if(itemsSubtotalEl && Array.isArray(effectiveItems) && effectiveItems.length){
+            const subt = effectiveItems.reduce((acc, it) => acc + Number(it.cantidad||1)*Number(it.precio_unitario||0), 0);
+            itemsSubtotalEl.value = Number(subt||0).toFixed(2);
+          }
+          if(itemsTotalEl && Array.isArray(effectiveItems) && effectiveItems.length){ itemsTotalEl.value = Number(total||0).toFixed(2); }
+          if(itemsCountEl){ itemsCountEl.textContent = String((effectiveItems||[]).length||0); }
+          // Solo convertir el concepto en personalizado si hay ítems explícitos cargados en el editor
           if(cpEl && Array.isArray(pagoItems) && pagoItems.length){
             const agg = buildItemsConceptLabel(pagoItems);
             if(agg.label){
               let opt = Array.from(cpEl.options || []).find(o => String(o.value) === '__custom__');
               if(!opt){ opt = document.createElement('option'); opt.value='__custom__'; cpEl.appendChild(opt); }
-              opt.textContent = agg.label; cpEl.value = '__custom__';
+              opt.textContent = agg.label; opt.title = agg.tooltip || ''; cpEl.value = '__custom__'; cpEl.title = agg.tooltip || '';
             }
           }
         }catch(_){}
@@ -4030,7 +4251,31 @@
         try{
           const rows = document.getElementById('pago-items-rows');
           if(rows && Array.isArray(p.conceptos) && p.conceptos.length){
-            p.conceptos.forEach(c => addPagoItemRow({ descripcion: (c.concepto_nombre || c.nombre || ''), cantidad: (c.cantidad != null ? c.cantidad : 1), precio_unitario: (c.precio_unitario != null ? c.precio_unitario : (c.precio ?? 0)) }));
+            p.conceptos.forEach(c => addPagoItemRow({ descripcion: (c.descripcion || c.concepto_nombre || c.nombre || ''), cantidad: (c.cantidad != null ? c.cantidad : 1), precio_unitario: (c.precio_unitario != null ? c.precio_unitario : (c.precio ?? 0)) }));
+            const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
+          }
+        }catch(_){}
+        // Fallback: si no hay conceptos explícitos, inicializar una fila con el concepto seleccionado
+        try{
+          const rows = document.getElementById('pago-items-rows');
+          if(rows && (!Array.isArray(p.conceptos) || p.conceptos.length === 0)){
+            const conceptoEl = document.getElementById('pago-concepto');
+            const uSel2 = document.getElementById('pago-usuario');
+            const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+            const conceptoSel = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
+            const uid2 = uSel2 && uSel2.value ? Number(uSel2.value) : null;
+            let pu = 0;
+            if(p && p.monto != null){ pu = Number(p.monto||0); }
+            else {
+              try{
+                const u = (state.usuarios || []).find(x => Number(x.id) === uid2);
+                const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+                if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ pu = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+                else { pu = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+              }catch(_){ pu = 0; }
+            }
+            const desc = conceptoSel ? (String(conceptoSel.nombre||'').trim() || 'Concepto') : (p && (p.concepto_pago || p.concepto) ? String(p.concepto_pago || p.concepto) : 'Concepto');
+            addPagoItemRow({ descripcion: desc, cantidad: 1, precio_unitario: pu });
             const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
           }
         }catch(_){}
@@ -4040,6 +4285,26 @@
         if(mesEl) mesEl.value = String(now.getMonth()+1);
         if(añoEl) añoEl.value = String(now.getFullYear());
         const uSel = document.getElementById('pago-usuario'); if(uSel && state.selectedUsuario && state.selectedUsuario.id) uSel.value = String(state.selectedUsuario.id);
+        // Fallback de creación: añadir fila inicial representando el concepto seleccionado (Cuota Mensual por defecto)
+        try{
+          const rows = document.getElementById('pago-items-rows');
+          if(rows){
+            const conceptoEl = document.getElementById('pago-concepto');
+            const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
+            const conceptoSel = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
+            const uid = uSel && uSel.value ? Number(uSel.value) : null;
+            let pu = 0;
+            try{
+              const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+              const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
+              if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ pu = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+              else { pu = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+            }catch(_){ pu = 0; }
+            const desc = conceptoSel ? (String(conceptoSel.nombre||'').trim() || 'Concepto') : 'Concepto';
+            addPagoItemRow({ descripcion: desc, cantidad: 1, precio_unitario: pu });
+            const adv = document.getElementById('pago-items-advanced'); if(adv) adv.open = true;
+          }
+        }catch(_){}
       }
       await recalcPagoTotal();
       openModal('modal-pago-form');
@@ -4084,35 +4349,62 @@
       const conceptoEl = document.getElementById('pago-concepto');
       const conceptoIdRaw = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
       const conceptoSel = conceptoIdRaw ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoIdRaw] : null) : null;
-      if(editingPagoId){
-        url = `/api/pagos/${editingPagoId}`; method = 'PUT'; body = { usuario_id, monto, metodo_pago_id };
-        // Enviar concepto agregado si hay ítems
-        if(itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
-        if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
-        else if(mes != null && año != null){ body['mes'] = mes; body['año'] = año; }
-      } else {
-        // Crear pago avanzado con conceptos + fecha/mes-año
+    if(editingPagoId){
+      url = `/api/pagos/${editingPagoId}`; method = 'PUT';
+      // Construir conceptos desde el editor y añadir SIEMPRE el ítem del concepto original al inicio
+      let conceptos = Array.isArray(pagoItems) ? pagoItems.filter(it => String(it.descripcion||'').trim()).map(it => ({ descripcion: String(it.descripcion||'').trim(), cantidad: Number(it.cantidad||1), precio_unitario: Number(it.precio_unitario||0) })) : [];
+      // Recalcular precio unitario del concepto seleccionado (cuota mensual usa precio de tipo de cuota)
+      let precio_concepto = 0;
+      try {
+        const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id);
+        const tipoVal = u ? (u.tipo_cuota ?? null) : null;
+        const tipoObj = resolveTipoCuota(tipoVal);
+        if(conceptoSel && String(conceptoSel.nombre||'').trim().toLowerCase() === 'cuota mensual'){
+          precio_concepto = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+        } else {
+          precio_concepto = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+        }
+      } catch(_){ precio_concepto = 0; }
+      const desc = conceptoSel ? (String(conceptoSel.nombre||'').trim() || 'Concepto') : ((itemsAgg && itemsAgg.label) ? itemsAgg.label : 'Concepto');
+      const pu = Number.isFinite(precio_concepto) && precio_concepto>0 ? precio_concepto : Number(monto||0);
+      if(conceptoSel && conceptoSel.id != null){ conceptos.unshift({ concepto_id: Number(conceptoSel.id), cantidad: 1, precio_unitario: pu }); }
+      else { conceptos.unshift({ descripcion: desc, cantidad: 1, precio_unitario: pu }); }
+      body = { usuario_id, monto, metodo_pago_id, conceptos };
+      // Enviar concepto agregado para visualización rápida
+      if(itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
+      if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
+      else if(mes != null && año != null){ body['mes'] = mes; body['año'] = año; }
+    } else {
+        // Crear pago avanzado con conceptos detallados + fecha/mes-año
         let concepto_id_final = conceptoSel ? Number(conceptoSel.id) : null;
         if(!concepto_id_final){
           const items = Array.isArray(state.conceptosPago) ? state.conceptosPago : [];
           const monthly = items.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual');
           if(monthly) concepto_id_final = Number(monthly.id);
         }
-        // Determinar precio unitario según concepto (variable para cuota mensual)
-        let precio_unitario = 0;
+        // Determinar precio unitario del concepto seleccionado (sin mezclar ítems)
+        let precio_concepto = 0;
         const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id);
         const tipoVal = u ? (u.tipo_cuota ?? null) : null;
         const tipoObj = resolveTipoCuota(tipoVal);
         if(conceptoSel && String(conceptoSel.nombre||'').trim().toLowerCase() === 'cuota mensual'){
-          precio_unitario = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+          precio_concepto = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
         } else {
-          precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+          precio_concepto = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
         }
-        // Si hay ítems en el editor, usar su subtotal como base del concepto
-        if(Array.isArray(pagoItems) && pagoItems.length){ precio_unitario = Number(itemsSubtotal||0); }
-        const conceptos = concepto_id_final ? [{ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }] : [];
+        // Construir arreglo de conceptos: primero el concepto seleccionado (si existe), luego los ítems personalizados
+        const conceptos = [];
+        if(concepto_id_final){ conceptos.push({ concepto_id: concepto_id_final, cantidad: 1, precio_unitario: precio_concepto }); }
+        if(Array.isArray(pagoItems) && pagoItems.length){
+          pagoItems.forEach(it => {
+            const desc = String(it.descripcion||'').trim();
+            const qty = Number(it.cantidad||1);
+            const pu = Number(it.precio_unitario||0);
+            if(desc && qty > 0 && pu >= 0){ conceptos.push({ descripcion: desc, cantidad: qty, precio_unitario: pu }); }
+          });
+        }
         body = { usuario_id, metodo_pago_id, conceptos };
-        // Enviar concepto agregado para mejorar la visualización
+        // Enviar etiqueta agregada para visualización
         if(itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
         if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
         else {
@@ -4145,6 +4437,16 @@
     }
     async function recalcPagoTotalWizard(){
       try{
+        // Asegurar catálogos necesarios para resolver tipo de cuota y concepto mensual
+        try {
+          await ensureMonthlyQuotaConceptVariableActive();
+        } catch(_){ }
+        try {
+          if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){
+            await loadTiposCuotaActivos();
+          }
+        } catch(_){ }
+        try { await ensureTiposCuotaCatalogo(); } catch(_){ }
         const usuarioEl = document.getElementById('wiz-usuario');
         const metodoEl = document.getElementById('wiz-metodo');
         const conceptoEl = document.getElementById('wiz-concepto');
@@ -4153,18 +4455,58 @@
         const conceptoId = conceptoEl && conceptoEl.value ? String(conceptoEl.value) : '';
         const concepto = conceptoId ? (state.conceptosPagoMap ? state.conceptosPagoMap[conceptoId] : null) : null;
         let base = 0; let conceptoNombre = 'Cuota Mensual';
-        if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
-        if(uid){
-          const u = (state.usuarios || []).find(x => Number(x.id) === uid);
-          const tipoVal = u ? (u.tipo_cuota ?? null) : null;
-          const tipoObj = resolveTipoCuota(tipoVal);
-          if(concepto && String(concepto.nombre||'').trim().toLowerCase() === 'cuota mensual'){
-            base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
-          } else {
-            base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+        // Ítems del wizard: si existen, dominan el cálculo del base
+        let wizItems = [];
+        try{
+          const rows = document.getElementById('wiz-items-rows');
+          if(rows){
+            Array.from(rows.children || []).forEach(row => {
+              try{
+                const inputs = row.querySelectorAll('input');
+                const desc = (inputs[0]?.value || '').trim();
+                const qty = parseFloat(inputs[1]?.value || '1');
+                const price = parseFloat(inputs[2]?.value || '0');
+                if(desc){ wizItems.push({ descripcion: desc, cantidad: isNaN(qty)?1:qty, precio_unitario: isNaN(price)?0:price }); }
+              }catch(_){ }
+            });
           }
+        }catch(_){ }
+        if(Array.isArray(wizItems) && wizItems.length){
+          let subtotal = 0.0; for(const it of wizItems){ subtotal += ((it.cantidad||1) * (it.precio_unitario||0)); }
+          base = subtotal;
+          const agg = buildItemsConceptLabel(wizItems);
+          if(agg.label){ conceptoNombre = agg.label; }
+          // Actualizar UI de ítems
+          try{ const subEl = document.getElementById('wiz-items-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2); }catch(_){}
+          try{ const cntEl = document.getElementById('wiz-items-count'); if(cntEl) cntEl.value = String(wizItems.length||0); }catch(_){}
+          // Actualizar select concepto con etiqueta personalizada
+          try{
+            if(conceptoEl){
+              let opt = Array.from(conceptoEl.options || []).find(o => String(o.value) === '__custom__');
+              if(!opt){ opt = document.createElement('option'); opt.value='__custom__'; conceptoEl.appendChild(opt); }
+              opt.textContent = agg.label || 'Personalizado'; opt.title = agg.tooltip || '';
+              conceptoEl.value = '__custom__'; conceptoEl.title = agg.tooltip || '';
+            }
+          }catch(_){}
         } else {
-          base = concepto ? Number(concepto.precio_base ?? 0) : 0;
+          if(concepto){ conceptoNombre = concepto.nombre || conceptoNombre; }
+          if(uid){
+            const u = (state.usuarios || []).find(x => Number(x.id) === uid);
+            const tipoValCandidates = [u ? u.tipo_cuota : null, u ? (u.tipo_cuota_nombre ?? null) : null, u ? (u.tipo ?? null) : null, u ? (u.tipo_cuota_id ?? null) : null];
+            let tipoObj = null;
+            for(const cand of tipoValCandidates){
+              if(cand == null) continue;
+              const r = resolveTipoCuota(cand);
+              if(r){ tipoObj = r; break; }
+            }
+            if(concepto && normalizeStr(concepto.nombre) === normalizeStr('Cuota Mensual')){
+              base = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0;
+            } else {
+              base = concepto ? Number(concepto.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0);
+            }
+          } else {
+            base = concepto ? Number(concepto.precio_base ?? 0) : 0;
+          }
         }
         const metodoId = metodoEl && metodoEl.value ? String(metodoEl.value) : '';
         const metodo = metodoId ? (state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null) : null;
@@ -4172,12 +4514,18 @@
         const comision = round2(base * pct / 100);
         const total = round2(base + comision);
         if(montoEl){ montoEl.value = total > 0 ? String(total) : ''; }
+        // Si hay ítems, completar total de ítems
+        try{ const itemsTotalEl = document.getElementById('wiz-items-total'); if(itemsTotalEl && Array.isArray(wizItems)){ itemsTotalEl.value = Number(total||0).toFixed(2); } }catch(_){}
         const root = document.getElementById('pago-wizard'); if(root){
-          const cEl = root.querySelector('#wiz-resumen-concepto'); if(cEl) cEl.textContent = conceptoNombre;
-          const bEl = root.querySelector('#wiz-resumen-base'); if(bEl) bEl.textContent = base>0 ? String(base) : '—';
-          const comEl = root.querySelector('#wiz-resumen-comision'); if(comEl) comEl.textContent = comision>0 ? String(comision) : '—';
+          const effectiveItems = (Array.isArray(wizItems) && wizItems.length) ? wizItems : (
+            concepto ? [{ descripcion: (concepto.nombre || 'Cuota Mensual'), cantidad: 1, precio_unitario: Number(base||0) }] : []
+          );
+          const cEl = root.querySelector('#wiz-resumen-concepto'); if(cEl){ cEl.textContent = conceptoNombre; try{ const itemsAgg = buildItemsConceptLabel(effectiveItems); cEl.setAttribute('title', itemsAgg.tooltip || ''); }catch(_){ } }
+          const bEl = root.querySelector('#wiz-resumen-base'); if(bEl) bEl.textContent = base>0 ? Number(base).toFixed(2) : '—';
+          const comEl = root.querySelector('#wiz-resumen-comision'); if(comEl) comEl.textContent = comision>0 ? Number(comision).toFixed(2) : '—';
           const pctEl = root.querySelector('#wiz-resumen-comision-porcentaje'); if(pctEl) pctEl.textContent = pct>0 ? `(${pct}% del método)` : '';
-          const tEl = root.querySelector('#wiz-resumen-total'); if(tEl) tEl.textContent = total>0 ? String(total) : '—';
+          const tEl = root.querySelector('#wiz-resumen-total'); if(tEl) tEl.textContent = total>0 ? Number(total).toFixed(2) : '—';
+          const iEl = root.querySelector('#wiz-resumen-items'); if(iEl) iEl.textContent = String((effectiveItems||[]).length||0);
         }
       } catch(e){ console.warn('No se pudo recalcular total en wizard:', e); }
     }
@@ -4189,9 +4537,25 @@
       arr.forEach(c => { const opt = document.createElement('option'); opt.value = String(c.id); opt.textContent = c.nombre || (`Concepto ${c.id}`); sel.appendChild(opt); });
       if(selectedId){ sel.value = String(selectedId); }
       else {
-        const monthly = arr.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual');
+        const monthly = arr.find(c => normalizeStr(c.nombre) === normalizeStr('Cuota Mensual'));
         if(monthly){ sel.value = String(monthly.id); }
       }
+    }
+    function addWizardItemRow(){
+      try{
+        const rows = document.getElementById('wiz-items-rows'); if(!rows) return;
+        const row = document.createElement('div'); row.className = 'input-row'; row.style.gap = '8px';
+        const colDesc = document.createElement('div'); colDesc.style.flex = '2'; const lblDesc = document.createElement('label'); lblDesc.className = 'muted'; lblDesc.textContent = 'Descripción'; const inpDesc = document.createElement('input'); inpDesc.type = 'text'; inpDesc.placeholder = 'Ej. Producto, servicio, etc.'; inpDesc.style.width = '100%'; colDesc.appendChild(lblDesc); colDesc.appendChild(inpDesc);
+        const colQty = document.createElement('div'); colQty.style.flex = '1'; const lblQty = document.createElement('label'); lblQty.className = 'muted'; lblQty.textContent = 'Cantidad'; const inpQty = document.createElement('input'); inpQty.type = 'number'; inpQty.step = '1'; inpQty.inputMode = 'numeric'; inpQty.placeholder = '1'; inpQty.style.width = '100%'; colQty.appendChild(lblQty); colQty.appendChild(inpQty);
+        const colPU = document.createElement('div'); colPU.style.flex = '1'; const lblPU = document.createElement('label'); lblPU.className = 'muted'; lblPU.textContent = 'Precio unitario'; const inpPU = document.createElement('input'); inpPU.type = 'number'; inpPU.step = '0.01'; inpPU.inputMode = 'decimal'; inpPU.placeholder = '0.00'; inpPU.style.width = '100%'; colPU.appendChild(lblPU); colPU.appendChild(inpPU);
+        const colActions = document.createElement('div'); colActions.style.display = 'flex'; colActions.style.alignItems = 'flex-end'; const delBtn = document.createElement('button'); delBtn.className = 'btn danger'; delBtn.type='button'; delBtn.textContent = 'Eliminar'; colActions.appendChild(delBtn);
+        row.appendChild(colDesc); row.appendChild(colQty); row.appendChild(colPU); row.appendChild(colActions);
+        rows.appendChild(row);
+        const onChange = () => { try{ recalcPagoTotalWizard(); }catch(_){ } };
+        [inpDesc, inpQty, inpPU].forEach(inp => { inp.addEventListener('input', onChange); inp.addEventListener('change', onChange); });
+        delBtn.onclick = () => { try{ rows.removeChild(row); }catch(_){ } onChange(); };
+        onChange();
+      }catch(_){ /* noop */ }
     }
     async function showPagoWizard(){ try{
       const root = document.getElementById('pago-wizard'); if(!root){ console.warn('No existe #pago-wizard'); return; }
@@ -4202,6 +4566,11 @@
       await populateWizardMetodoSelect(null);
       await populateWizardConceptoSelect(null);
       await recalcPagoTotalWizard();
+      // Preparar editor de ítems
+      try{ const wizRows = document.getElementById('wiz-items-rows'); if(wizRows) wizRows.innerHTML = ''; }catch(_){}
+      try{ const addBtn = document.getElementById('wiz-item-add'); if(addBtn) addBtn.onclick = () => addWizardItemRow(); }catch(_){}
+      // Precargar una fila vacía por conveniencia
+      try{ addWizardItemRow(); }catch(_){}
       // Bind events (idempotente)
       const usuarioEl = document.getElementById('wiz-usuario'); if(usuarioEl){ usuarioEl.addEventListener('change', recalcPagoTotalWizard); usuarioEl.addEventListener('change', () => { try{ clearFieldError('wiz-usuario'); }catch(_){ } }); }
       const conceptoEl = document.getElementById('wiz-concepto'); if(conceptoEl) conceptoEl.addEventListener('change', recalcPagoTotalWizard);
@@ -4264,15 +4633,38 @@
       clearFieldError('wiz-usuario');
       clearFieldError('wiz-monto');
       if(!usuario_id){ setFieldError('wiz-usuario', 'Debes seleccionar un usuario.'); showToast('Selecciona un usuario', 'warning', 3000); try{ usuarioEl?.focus(); }catch(_){ } return; }
-      if(!monto){ setFieldError('wiz-monto', 'El monto no puede ser vacío.'); showToast('El monto no puede ser vacío', 'warning', 3000); try{ usuarioEl?.focus(); }catch(_){ } return; }
+      // El monto es calculado automáticamente a partir del concepto y método; no exigir valor manual
       let url = '/api/pagos'; let method = 'POST'; let body = {};
-      let concepto_id_final = conceptoSel ? Number(conceptoSel.id) : null;
-      if(!concepto_id_final){ const items = Array.isArray(state.conceptosPago) ? state.conceptosPago : []; const monthly = items.find(c => String(c.nombre||'').trim().toLowerCase() === 'cuota mensual'); if(monthly) concepto_id_final = Number(monthly.id); }
-      let precio_unitario = 0; const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id); const tipoVal = u ? (u.tipo_cuota ?? null) : null; const tipoObj = resolveTipoCuota(tipoVal);
-      if(conceptoSel && String(conceptoSel.nombre||'').trim().toLowerCase() === 'cuota mensual'){ precio_unitario = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
-      else { precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
-      const conceptos = concepto_id_final ? [{ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }] : [];
+      // Leer ítems del wizard
+      let pagoItems = [];
+      try{
+        const rows = document.getElementById('wiz-items-rows');
+        if(rows){ Array.from(rows.children || []).forEach(row => {
+          try{
+            const inputs = row.querySelectorAll('input');
+            const desc = (inputs[0]?.value || '').trim();
+            const qty = parseFloat(inputs[1]?.value || '1');
+            const price = parseFloat(inputs[2]?.value || '0');
+            if(desc){ pagoItems.push({ descripcion: desc, cantidad: isNaN(qty)?1:qty, precio_unitario: isNaN(price)?0:price }); }
+          }catch(_){ }
+        }); }
+      }catch(_){ }
+      const itemsAgg = buildItemsConceptLabel(pagoItems);
+      // Si hay ítems, sólo enviar esos conceptos; si no, enviar el concepto seleccionado (o mensual por defecto)
+      let conceptos = [];
+      if(Array.isArray(pagoItems) && pagoItems.length){
+        conceptos = pagoItems.filter(it => String(it.descripcion||'').trim()).map(it => ({ descripcion: String(it.descripcion||'').trim(), cantidad: Number(it.cantidad||1), precio_unitario: Number(it.precio_unitario||0) }));
+      } else {
+        let concepto_id_final = conceptoSel ? Number(conceptoSel.id) : null;
+        if(!concepto_id_final){ const items = Array.isArray(state.conceptosPago) ? state.conceptosPago : []; const monthly = items.find(c => normalizeStr(c.nombre) === normalizeStr('Cuota Mensual')); if(monthly) concepto_id_final = Number(monthly.id); }
+        let precio_unitario = 0; const u = (state.usuarios || []).find(x => Number(x.id) === usuario_id); const tipoValCandidates = [u ? u.tipo_cuota : null, u ? (u.tipo_cuota_nombre ?? null) : null, u ? (u.tipo ?? null) : null, u ? (u.tipo_cuota_id ?? null) : null]; let tipoObj = null; for(const cand of tipoValCandidates){ if(cand == null) continue; const r = resolveTipoCuota(cand); if(r){ tipoObj = r; break; } }
+        if(conceptoSel && normalizeStr(conceptoSel.nombre) === normalizeStr('Cuota Mensual')){ precio_unitario = tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0; }
+        else { precio_unitario = conceptoSel ? Number(conceptoSel.precio_base ?? 0) : (tipoObj ? Number(tipoObj.precio ?? tipoObj.precio_base ?? 0) : 0); }
+        if(concepto_id_final){ conceptos.push({ concepto_id: concepto_id_final, cantidad: 1, precio_unitario }); }
+      }
       body = { usuario_id, metodo_pago_id, conceptos };
+      // Etiqueta de concepto agregada para visualización cuando hay ítems
+      if(Array.isArray(pagoItems) && pagoItems.length && itemsAgg && itemsAgg.label){ body['concepto'] = itemsAgg.label; body['concepto_pago'] = itemsAgg.label; }
       if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
       else { if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); } body['mes'] = mes; body['año'] = año; }
       try{
@@ -6142,15 +6534,35 @@
       }
 
       // Preview modal extra actions
-      // Utilidad para estandarizar nombre: "Base - Usuario"
+      // Nombre automático: "rutina_NombreRutina_Nombre_Apellido_FechaCreación(dd-mm-aaaa)"
       function standardizeNombre(base, user){
         const b = String(base||'').trim();
         const u = String(user||'').trim();
-        if(!b && !u) return 'Rutina';
-        if(!u) return b || 'Rutina';
-        // Limpia sufijo previo "- algo" si existe
-        const cleaned = b.replace(/\s*-\s*[^-]+$/, '');
-        return `${cleaned || b} - ${u}`;
+        // Limpia sufijo previo "- algo" si existe en base
+        const cleanedBase = b.replace(/\s*-\s*[^-]+$/, '').trim();
+        // Normaliza para underscores y caracteres seguros
+        const safeSlug = (s) => String(s||'')
+          .normalize('NFKD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^\w\s-]/g, '')
+          .trim()
+          .replace(/\s+/g, '_');
+        const formatDate = (dt) => {
+          const d = String(dt.getDate()).padStart(2,'0');
+          const m = String(dt.getMonth()+1).padStart(2,'0');
+          const y = dt.getFullYear();
+          return `${d}-${m}-${y}`;
+        };
+        const parts = u.split(/\s+/).filter(Boolean);
+        const first = parts[0] || '';
+        const last = parts.length > 1 ? parts[parts.length - 1] : '';
+        const baseSeg = safeSlug(cleanedBase || '');
+        const userFirst = safeSlug(first);
+        const userLast = safeSlug(last);
+        const dateSeg = formatDate(new Date());
+        const nombreRutina = baseSeg || 'Rutina';
+        const usuarioSeg = userLast ? `${userFirst}_${userLast}` : (userFirst || 'Usuario');
+        return `rutina_${nombreRutina}_${usuarioSeg}_${dateSeg}`;
       }
       // Eventos del modal "Nueva plantilla"
       const pnClose = document.getElementById('plantilla-new-close'); if(pnClose) pnClose.addEventListener('click', () => closeModal('modal-plantilla-new'));
@@ -6511,7 +6923,7 @@ function renderRutinaPreview(){
   const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
   const diasRaw = Number(d.dias_semana || 3);
   const dias = Math.max(2, Math.min(5, diasRaw));
-  cont.style.gridTemplateColumns = `repeat(${Math.max(1, dias)}, 1fr)`;
+  cont.style.gridTemplateColumns = `repeat(${Math.max(2, dias)}, 1fr)`;
   cont.innerHTML = '';
   const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
   const selectedSet = new Set(Array.isArray(state.rutinaSelected) ? state.rutinaSelected.map(String) : []);
@@ -6774,7 +7186,7 @@ function refreshPreviewDayOptions(dias){
       const s = sVals.join(',');
       const r = rVals.join(',');
       const o = Math.max(1, Number((document.getElementById('rutina-preview-float-orden')||{}).value || 1));
-      const dMax = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || 3)));
+  const dMax = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || 3)));
       let dsel = Number((document.getElementById('rutina-preview-float-dia')||{}).value || 1) || 1; dsel = Math.max(1, Math.min(dMax, dsel));
       const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
       const ejs = Array.isArray(d.ejercicios) ? d.ejercicios : [];
@@ -6966,7 +7378,7 @@ async function autoSaveRutinaDraft(){
     const payload = {
       nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
-      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+  dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
       ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
     };
@@ -6985,10 +7397,10 @@ async function autoSaveRutinaDraft(){
 async function directExportExcelFromPreview(){
   try{
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-    const payload = {
+  const payload = {
       nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
-      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+  dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
       usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
       usuario_nombre_override: ((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim() || null,
@@ -7007,8 +7419,15 @@ async function directExportExcelFromPreview(){
       }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
-    try { xlsxName = String(xlsxName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+  const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3)));
+    const nombreRutinaSafe = ((document.getElementById('rutina-preview-nombre')||{}).value || d.nombre_rutina || d.nombre || 'rutina');
+    const usuarioNombreFull = (((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim());
+    const dateStr = (() => { const dt = new Date(); const dd = String(dt.getDate()).padStart(2,'0'); const mm = String(dt.getMonth()+1).padStart(2,'0'); const yy = String(dt.getFullYear()); return `${dd}-${mm}-${yy}`; })();
+    const segs = ['rutina', nombreRutinaSafe, `${diasCount}-dias`];
+    if (usuarioNombreFull) segs.push(usuarioNombreFull);
+    segs.push(dateStr);
+    let xlsxName = segs.join('_') + '.xlsx';
+    try { xlsxName = String(xlsxName).replace(/\s+/g,'_').replace(/[\\/:*?"<>|]+/g, '_').slice(0,150); } catch(_) {}
     let urlSignedRes;
     if (d && d.id) {
       const qs = new URLSearchParams({ weeks: String(weeks), filename: xlsxName });
@@ -7036,10 +7455,10 @@ async function updateRutinaPDFPreview(){
     const cont = document.getElementById('rutina-preview-pdf'); const frame = document.getElementById('rutina-preview-frame'); const empty = document.getElementById('rutina-preview-pdf-empty'); const statusEl = document.getElementById('rutina-preview-pdf-status');
     if(!cont || !frame || !empty) return;
     const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-    const payload = {
+  const payload = {
       nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
       descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
-      dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+  dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
       categoria: d.categoria || 'general',
       usuario_id: (typeof d.usuario_id !== 'undefined' ? d.usuario_id : null),
       usuario_nombre_override: ((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim() || null,
@@ -7058,8 +7477,15 @@ async function updateRutinaPDFPreview(){
       }))
     };
     const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-preview-semanas')||{}).value || 1)));
-    let xlsxName = (d.nombre_rutina || d.nombre || 'rutina') + '.xlsx';
-    try { xlsxName = String(xlsxName).replace(/[\\/:*?"<>|]+/g, '_'); } catch(_) {}
+  const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3)));
+    const nombreRutinaSafe = ((document.getElementById('rutina-preview-nombre')||{}).value || d.nombre_rutina || d.nombre || 'rutina');
+    const usuarioNombreFull = (((document.getElementById('rutina-preview-usuario-nombre')||{}).value || '').trim());
+    const dateStr = (() => { const dt = new Date(); const dd = String(dt.getDate()).padStart(2,'0'); const mm = String(dt.getMonth()+1).padStart(2,'0'); const yy = String(dt.getFullYear()); return `${dd}-${mm}-${yy}`; })();
+    const segs = ['rutina', nombreRutinaSafe, `${diasCount}-dias`];
+    if (usuarioNombreFull) segs.push(usuarioNombreFull);
+    segs.push(dateStr);
+    let xlsxName = segs.join('_') + '.xlsx';
+    try { xlsxName = String(xlsxName).replace(/\s+/g,'_').replace(/[\\/:*?"<>|]+/g, '_').slice(0,150); } catch(_) {}
     const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
     const urlSignedData = await urlSignedRes.json().catch(()=>({}));
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
@@ -7129,7 +7555,7 @@ function attachWheelZoom(containerId, frameId){
           const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl) nameEl.value = (data.nombre_rutina || data.nombre || '') || '';
           try{ state.rutinaNombreBase = String((data.nombre_rutina || data.nombre || '') || '').replace(/\s*-\s*[^-]+$/, '').trim(); }catch(_){ state.rutinaNombreBase = String((data.nombre_rutina || data.nombre || '') || ''); }
           const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = data.descripcion || '';
-          const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
+  const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
           const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){
             const isPlantilla = (data.usuario_id == null) || (state.activeRutinaTab === 'plantillas');
             catEl.value = String(isPlantilla ? 'general' : (data.categoria || 'general'));
@@ -7292,7 +7718,7 @@ function attachWheelZoom(containerId, frameId){
         const bulkDelBtn = document.getElementById('rutina-preview-bulk-delete'); if(bulkDelBtn){ bulkDelBtn.onclick = () => bulkDeleteSelected(); }
         const compactBtn = document.getElementById('rutina-preview-toggle-compact'); if(compactBtn){ compactBtn.onclick = () => { state.rutinaCompact = !state.rutinaCompact; renderRutinaPreview(); compactBtn.textContent = state.rutinaCompact ? 'Vista normal' : 'Vista compacta'; }; }
         const collapseBtn = document.getElementById('rutina-preview-collapse-days'); if(collapseBtn){ collapseBtn.onclick = () => {
-          const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
+  const d = state.rutinaPreviewDraft || state.rutinaPreview || {}; const diasMax = Math.max(2, Math.min(5, Number(d.dias_semana||3)));
           const collapsed = state.rutinaDayCollapsed || {}; let anyExpanded = false; for(let i=1;i<=diasMax;i++){ if(!collapsed[i]) { anyExpanded = true; break; } }
           const next = anyExpanded ? true : false; state.rutinaDayCollapsed = {}; for(let i=1;i<=diasMax;i++){ state.rutinaDayCollapsed[i] = next; }
           renderRutinaPreview();
@@ -7323,7 +7749,7 @@ function attachWheelZoom(containerId, frameId){
           const payloadBase = {
             nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (d.nombre_rutina||''),
             descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || d.descripcion || null,
-            dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
+  dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || d.dias_semana || 3))),
             categoria: ((d.usuario_id == null) || (state.activeRutinaTab==='plantillas')) ? 'general' : (d.categoria || 'general'),
             ejercicios: (Array.isArray(d.ejercicios)? d.ejercicios: []).map(x => ({ ejercicio_id: Number(x.ejercicio_id), dia_semana: Number(x.dia_semana||1), series: x.series, repeticiones: x.repeticiones, orden: Number(x.orden||1) }))
           };
@@ -7521,7 +7947,7 @@ function attachWheelZoom(containerId, frameId){
       const payload = {
         nombre_rutina: (document.getElementById('rutina-preview-nombre')||{}).value || (dInner.nombre_rutina||''),
         descripcion: (document.getElementById('rutina-preview-descripcion')||{}).value || dInner.descripcion || null,
-        dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
+  dias_semana: Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || dInner.dias_semana || 3))),
         categoria: dInner.categoria || 'general',
         usuario_id: (typeof dInner.usuario_id !== 'undefined' ? dInner.usuario_id : null),
         usuario_nombre_override: ((document.getElementById('rutina-export-usuario-nombre')||{}).value || '').trim() || null,
@@ -9921,6 +10347,7 @@ function attachWheelZoom(containerId, frameId){
       let subtotal = 0.0;
       for(const it of items){ subtotal += ((it.cantidad||1) * (it.precio_unitario||0)); }
       const subEl = document.getElementById('recibo-total-subtotal'); if(subEl) subEl.value = Number(subtotal||0).toFixed(2);
+      try{ const cntEl = document.getElementById('recibo-total-items'); if(cntEl) cntEl.value = String(items.length||0); }catch(_){}
       const comEl = document.getElementById('recibo-total-comision'); const com = parseFloat(comEl?.value || '0');
       const totalEl = document.getElementById('recibo-total-total'); if(totalEl) totalEl.value = Number((subtotal||0) + (isNaN(com)?0:com)).toFixed(2);
       try{ refreshReciboPreview(); }catch(_){}
@@ -9979,13 +10406,18 @@ function attachWheelZoom(containerId, frameId){
       const maxLen = 40;
       const trunc = first.length > maxLen ? (first.slice(0, maxLen-1) + '…') : first;
       const label = list.length > 1 ? `${trunc} + ${list.length-1} ítems` : trunc;
-      const tooltip = list.map(it => {
+      const lines = [];
+      let total = 0;
+      for(const it of list){
         const desc = String(it.descripcion||'').trim();
         const qty = Number(it.cantidad != null ? it.cantidad : 1);
         const pu = Number(it.precio_unitario != null ? it.precio_unitario : 0);
         const line = Number(qty * pu);
-        return `${desc} × ${qty} @ ${fmtCurrency(pu)} = ${fmtCurrency(line)}`;
-      }).filter(Boolean).join(' · ');
+        total += line;
+        lines.push(`• ${desc} × ${qty} @ ${fmtCurrency(pu)} = ${fmtCurrency(line)}`);
+      }
+      const header = `Ítems: ${list.length} · Total: ${fmtCurrency(total)}`;
+      const tooltip = [header, ...lines].join('\n');
       return { label, tooltip };
     }catch(_){ return { label:'', tooltip:'' }; }
   }
@@ -10034,7 +10466,14 @@ function attachWheelZoom(containerId, frameId){
       const monto = Number.parseFloat(totalStr || '0') || 0;
       const items = getItemsArray();
       const conceptAgg = buildItemsConceptLabel(items);
-      const payload = { usuario_id, monto };
+      // Construir conceptos desde las filas del recibo; si no hay, asegurar ítem del concepto/monto
+      let conceptos = Array.isArray(items) ? items.filter(it => String(it.descripcion||'').trim()).map(it => ({ descripcion: String(it.descripcion||'').trim(), cantidad: Number(it.cantidad||1), precio_unitario: Number(it.precio_unitario||0) })) : [];
+      if(conceptos.length === 0){
+        const desc = conceptAgg.label ? conceptAgg.label : 'Concepto';
+        const pu = Number(monto||0);
+        conceptos.push({ descripcion: desc, cantidad: 1, precio_unitario: pu });
+      }
+      const payload = { usuario_id, monto, conceptos };
       if(metodo_pago_id != null) payload.metodo_pago_id = Number(metodo_pago_id);
       if(fecha_pago) payload.fecha_pago = fecha_pago;
       if(conceptAgg.label){ payload.concepto = conceptAgg.label; payload.concepto_pago = conceptAgg.label; }
@@ -10081,7 +10520,7 @@ function attachWheelZoom(containerId, frameId){
         }
       }
       if(!per){ per = state.previewPeriodo || ''; }
-      const tipo = (state.previewTipoCuota || '').trim();
+      const tipo = String(state.previewTipoCuota || '').trim();
       const parts = [];
       if(per) parts.push(`Periodo: ${per}`);
       if(tipo) parts.push(`Tipo: ${tipo}`);
@@ -10155,6 +10594,19 @@ function attachWheelZoom(containerId, frameId){
         }
       }catch(_){ /* continuar */ }
       try{ const titEl = document.getElementById('recibo-preview-titulo'); if(titEl && !titEl.value) titEl.value = 'RECIBO DE PAGO'; }catch(_){}
+      // Prefill "Emitido por" con el profesor en sesión si el campo está vacío
+      try{
+        const emitEl = document.getElementById('recibo-preview-emitidopor');
+        const sessEl = document.getElementById('login-current');
+        const profUidRaw = sessEl ? (sessEl.getAttribute('data-prof-uid') || '') : '';
+        const profUid = String(profUidRaw).trim();
+        if(emitEl && !emitEl.value && profUid){
+          const rU = await fetch(`/api/usuarios/${encodeURIComponent(profUid)}`, { headers: { 'Accept': 'application/json' } });
+          let jU = null; try{ jU = await rU.json(); }catch(_){}
+          const nombre = jU ? ((jU.usuario && jU.usuario.nombre) || jU.nombre || '') : '';
+          if(nombre) emitEl.value = String(nombre).trim();
+        }
+      }catch(_){ /* continuar */ }
       // Prefill desde el pago: usuario, fecha y detalles
       try{
         const r2 = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
@@ -10174,10 +10626,26 @@ function attachWheelZoom(containerId, frameId){
             const metodoId = String(pago.metodo_pago_id || pago.metodo_id || '').trim();
             if(metodoId){ const m = state.metodosPagoMap ? state.metodosPagoMap[metodoId] : null; const metEl = document.getElementById('recibo-preview-metodo'); if(metEl) metEl.value = m ? (m.nombre || '') : (metodoId || ''); }
           }catch(_){ /* continuar */ }
-          // Tipo de cuota y periodo en estado
+          // Tipo de cuota y periodo en estado (resolver etiqueta legible)
           try{
-            const u = (state.usuarios || []).find(x => Number(x.id) === Number(pago.usuario_id));
-            state.previewTipoCuota = u ? (u.tipo_cuota || null) : null;
+            try{
+              if(!Array.isArray(state.tiposCuotaActivos) || state.tiposCuotaActivos.length === 0){
+                await loadTiposCuotaActivos();
+              }
+            }catch(__){}
+            try{ await ensureTiposCuotaCatalogo(); }catch(__){}
+            let u = (state.usuarios || []).find(x => Number(x.id) === Number(pago.usuario_id));
+            if(!u){
+              try{
+                const rU = await fetch(`/api/usuarios/${encodeURIComponent(pago.usuario_id)}`, { headers: { 'Accept':'application/json' } });
+                let jU = null; try{ jU = await rU.json(); }catch(__){}
+                u = jU && (jU.usuario || jU);
+              }catch(__){ /* continuar */ }
+            }
+            const tipoVal = u ? (u.tipo_cuota ?? null) : null;
+            const tipoObj = resolveTipoCuota(tipoVal);
+            const label = tipoObj ? (tipoObj.nombre || String(tipoObj.id || '')) : (tipoVal || '');
+            state.previewTipoCuota = label || null;
           }catch(_){ state.previewTipoCuota = null; }
           try{
             const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -10187,7 +10655,7 @@ function attachWheelZoom(containerId, frameId){
           // Limpiar ítems y precargar desde detalles
           const rows = document.getElementById('recibo-items-rows'); if(rows) rows.innerHTML = '';
           if(detalles.length){
-            detalles.forEach(d => { addItemRow({ descripcion: d.concepto_nombre, cantidad: d.cantidad, precio_unitario: d.precio_unitario }); });
+            detalles.forEach(d => { addItemRow({ descripcion: (d.descripcion || d.concepto_nombre || ''), cantidad: d.cantidad, precio_unitario: d.precio_unitario }); });
           } else {
             // Si no hay detalles, agregar un ítem vacío para edición rápida
             addItemRow({ descripcion: '', cantidad: 1, precio_unitario: Number(pago.monto||0) });

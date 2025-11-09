@@ -291,6 +291,10 @@
     let qrScanBusy = false;
     let lastDecodedText = '';
     let lastScanTime = 0;
+    // Cache de rutina para evitar recargas constantes
+    let currentRoutineUuid = null;
+    let currentRoutineData = null;
+    let fetchInFlight = false;
 
     function showScanLoading(){
       const resSec = document.getElementById('rutina-scan-result');
@@ -444,6 +448,15 @@
         await cerrarModalQR();
         showScanLoading();
 
+        // Si ya tenemos la misma rutina cargada, no refetch y renderizamos cache
+        if (uuid === currentRoutineUuid && currentRoutineData) {
+          renderRutina(currentRoutineData);
+          return;
+        }
+
+        if (fetchInFlight) { return; }
+        fetchInFlight = true;
+
         // Normalizar URL: si es absoluta y de otro origen, usar ruta local
         let url = '';
         if (isAbsolute) {
@@ -468,13 +481,16 @@
           if (typeof window.showToast === 'function') { showToast(data.error || 'No se pudo obtener la rutina', 'error', 4500); }
           return;
         }
-        renderRutina(data.rutina);
+        currentRoutineUuid = uuid;
+        currentRoutineData = data.rutina;
+        renderRutina(currentRoutineData);
       } catch (e){
         if (typeof window.showToast === 'function') { showToast('Error cargando rutina', 'error', 4500); }
         console.error(e);
       } finally {
         hideScanLoading();
         qrScanBusy = false;
+        fetchInFlight = false;
       }
     }
 
@@ -505,49 +521,88 @@
       cont.innerHTML = '';
       const h = document.createElement('h4');
       h.textContent = String(rutina.nombre_rutina || rutina.nombre || 'Rutina');
+      h.style.marginBottom = '8px';
       cont.appendChild(h);
       const dias = Array.isArray(rutina.dias) ? rutina.dias : [];
+      // Grid móvil-friendly por días
+      const grid = document.createElement('div');
+      grid.style.display = 'grid';
+      grid.style.gap = '8px';
+      grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(240px, 1fr))';
       dias.forEach(d => {
-        const day = document.createElement('div');
-        day.className = 'day';
-        const title = document.createElement('h5');
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.gap = '8px';
+        const head = document.createElement('div');
+        head.style.display = 'flex';
+        head.style.alignItems = 'center';
+        head.style.justifyContent = 'space-between';
+        head.style.gap = '8px';
+        const title = document.createElement('strong');
         title.textContent = String(d.nombre || `Día ${d.numero}`);
-        day.appendChild(title);
-        const table = document.createElement('table');
-        table.className = 'table';
-        const thead = document.createElement('thead');
-        thead.innerHTML = '<tr><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr>';
-        table.appendChild(thead);
-        const tbody = document.createElement('tbody');
         const ejercicios = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+        const count = document.createElement('span');
+        count.textContent = `${ejercicios.length} ejercicios`;
+        count.className = 'muted';
+        head.appendChild(title);
+        head.appendChild(count);
+        card.appendChild(head);
+
         if (ejercicios.length === 0){
-          const empty = document.createElement('tr');
-          empty.innerHTML = '<td colspan="3" class="muted">Sin ejercicios en este día</td>';
-          tbody.appendChild(empty);
+          const empty = document.createElement('p');
+          empty.className = 'muted';
+          empty.textContent = 'Sin ejercicios en este día';
+          card.appendChild(empty);
         } else {
+          const list = document.createElement('div');
+          list.style.display = 'flex';
+          list.style.flexDirection = 'column';
+          list.style.gap = '6px';
           ejercicios.forEach(e => {
-            const row = document.createElement('tr');
-            row.setAttribute('role', 'button');
-            row.setAttribute('tabindex', '0');
-            row.setAttribute('aria-label', `Ver ejercicio ${String(e.nombre || 'Ejercicio')}`);
-            const nombreTd = document.createElement('td');
-            nombreTd.textContent = String(e.nombre || 'Ejercicio');
-            const seriesTd = document.createElement('td');
-            seriesTd.textContent = String(e.series || '-');
-            const repsTd = document.createElement('td');
-            repsTd.textContent = String(e.repeticiones || '-');
-            row.appendChild(nombreTd);
-            row.appendChild(seriesTd);
-            row.appendChild(repsTd);
-            row.addEventListener('click', () => abrirModalEjercicio(e));
-            row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirModalEjercicio(e); } });
-            tbody.appendChild(row);
+            const tile = document.createElement('div');
+            tile.style.display = 'flex';
+            tile.style.alignItems = 'center';
+            tile.style.justifyContent = 'space-between';
+            tile.style.gap = '8px';
+            tile.style.padding = '8px 10px';
+            tile.style.border = '1px solid var(--border)';
+            tile.style.borderRadius = '10px';
+            tile.style.background = 'var(--card)';
+            tile.setAttribute('role','button');
+            tile.setAttribute('tabindex','0');
+            tile.setAttribute('aria-label', `Ver ejercicio ${String(e.nombre || 'Ejercicio')}`);
+            const left = document.createElement('div');
+            left.style.display = 'flex';
+            left.style.flexDirection = 'column';
+            left.style.gap = '2px';
+            const n = document.createElement('div');
+            n.textContent = String(e.nombre || 'Ejercicio');
+            n.style.fontWeight = '600';
+            const meta = document.createElement('div');
+            meta.className = 'muted';
+            const s = String(e.series || '-');
+            const r = String(e.repeticiones || '-');
+            meta.textContent = (s !== '-' && r !== '-') ? `${s} series · ${r} reps` : (s !== '-' ? `${s} series` : (r !== '-' ? `${r} reps` : '')); 
+            left.appendChild(n);
+            left.appendChild(meta);
+            const action = document.createElement('button');
+            action.className = 'btn';
+            action.textContent = 'Ver';
+            action.setAttribute('aria-label', `Ver ${String(e.nombre || 'Ejercicio')}`);
+            action.addEventListener('click', (ev) => { ev.stopPropagation(); abrirModalEjercicio(e); });
+            tile.addEventListener('click', () => abrirModalEjercicio(e));
+            tile.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirModalEjercicio(e); } });
+            tile.appendChild(left);
+            tile.appendChild(action);
+            list.appendChild(tile);
           });
+          card.appendChild(list);
         }
-        table.appendChild(tbody);
-        day.appendChild(table);
-        cont.appendChild(day);
+        grid.appendChild(card);
       });
+      cont.appendChild(grid);
     }
 
     function abrirModalEjercicio(ej){
@@ -556,7 +611,10 @@
       const desc = document.getElementById('exercise-desc');
       const media = document.getElementById('exercise-media');
       const titleEl = document.getElementById('exercise-modal-title');
-      name.textContent = String(ej.nombre || 'Ejercicio');
+      // Título en barra superior
+      titleEl.textContent = String(ej.nombre || 'Ejercicio');
+      // No duplicar título dentro del contenido
+      name.textContent = '';
       desc.textContent = String(ej.descripcion || '');
       media.innerHTML = '';
       const url = ej.video_url;
@@ -578,6 +636,8 @@
       } else {
         const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Sin video disponible'; media.appendChild(p);
       }
+      // Asegurar que descripción vaya debajo del video y con separación
+      desc.style.marginTop = '12px';
       bd.classList.add('active');
       if (titleEl){ try { titleEl.setAttribute('tabindex','-1'); titleEl.focus(); } catch(_){ } }
       bd.addEventListener('click', (ev) => { if (ev.target === bd) cerrarModalEjercicio(); });

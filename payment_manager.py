@@ -212,6 +212,140 @@ class PaymentManager:
         except Exception as e:
             logging.error(f"Error al recalcular estado de usuario tras modificar pago: {e}")
 
+    def modificar_pago_avanzado(self, pago_id: int, usuario_id: int, 
+                                metodo_pago_id: Optional[int], 
+                                conceptos: List[Dict[str, Any]], 
+                                fecha_pago: Optional[datetime] = None,
+                                monto_personalizado: Optional[float] = None) -> bool:
+        """Actualiza un pago existente con una lista de conceptos (ítems) y método de pago.
+
+        - Recalcula el total con comisión según el método de pago, salvo que se provea monto_personalizado.
+        - Actualiza el registro principal en `pagos` (usuario, monto, fecha, método, mes/año).
+        - Reemplaza completamente los `pago_detalles` asociados al pago.
+        - Invalida caches relevantes y recalcula estado del usuario.
+        """
+        # Validaciones mínimas
+        if not isinstance(conceptos, list) or len(conceptos) == 0:
+            raise ValueError("Se requiere una lista de 'conceptos' para la modificación avanzada")
+
+        try:
+            usuario = self.db_manager.obtener_usuario(usuario_id)
+            if not usuario:
+                raise ValueError(f"No existe usuario con ID: {usuario_id}")
+
+            # Si no se proporciona fecha, intentar obtener del pago existente
+            if fecha_pago is None:
+                try:
+                    pago_existente = self.obtener_pago(pago_id)
+                    if pago_existente and getattr(pago_existente, 'fecha_pago', None):
+                        fecha_pago = pago_existente.fecha_pago if not isinstance(pago_existente.fecha_pago, str) else datetime.fromisoformat(pago_existente.fecha_pago)
+                    else:
+                        fecha_pago = datetime.now()
+                except Exception:
+                    fecha_pago = datetime.now()
+
+            # Derivar mes/año de la fecha
+            mes = fecha_pago.month
+            año = fecha_pago.year
+
+            # Calcular total de conceptos y comisión
+            if monto_personalizado is not None:
+                total_final = float(monto_personalizado)
+            else:
+                total_conceptos = 0.0
+                for c in conceptos:
+                    cantidad = float(c.get('cantidad', 1))
+                    precio = float(c.get('precio_unitario', 0.0))
+                    if cantidad <= 0 or precio < 0:
+                        raise ValueError("Cantidad/precio inválidos en conceptos")
+                    total_conceptos += cantidad * precio
+                comision = self.calcular_comision(float(total_conceptos), metodo_pago_id)
+                total_final = float(total_conceptos) + comision
+
+            with self.db_manager.get_connection_context() as conn:
+                cursor = conn.cursor()
+
+                # Actualizar pago principal, incluyendo mes/año para mantener consistencia con fecha
+                cursor.execute(
+                    """
+                    UPDATE pagos
+                    SET usuario_id = %s,
+                        monto = %s,
+                        fecha_pago = %s,
+                        metodo_pago_id = %s,
+                        mes = %s,
+                        año = %s
+                    WHERE id = %s
+                    """,
+                    (usuario_id, total_final, fecha_pago, metodo_pago_id, mes, año, pago_id)
+                )
+
+                # Reemplazar detalles
+                cursor.execute("DELETE FROM pago_detalles WHERE pago_id = %s", (pago_id,))
+
+                filas = []
+                for concepto in conceptos:
+                    cantidad = float(concepto.get('cantidad', 1))
+                    precio = float(concepto.get('precio_unitario', 0.0))
+                    subtotal = cantidad * precio
+                    cid_raw = concepto.get('concepto_id', None)
+                    try:
+                        cid_val = int(cid_raw) if cid_raw is not None else None
+                    except Exception:
+                        cid_val = None
+                    descripcion = concepto.get('descripcion')
+                    filas.append((pago_id, cid_val, descripcion, cantidad, precio, subtotal, subtotal))
+
+                if filas:
+                    try:
+                        psycopg2.extras.execute_values(
+                            cursor,
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, descripcion, cantidad, precio_unitario, subtotal, total) VALUES %s",
+                            filas,
+                            page_size=250
+                        )
+                    except Exception:
+                        # Fallback secuencial
+                        for row in filas:
+                            cursor.execute(
+                                "INSERT INTO pago_detalles (pago_id, concepto_id, descripcion, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                                row
+                            )
+
+                conn.commit()
+
+            # Alertar modificación avanzada
+            try:
+                nombre = usuario.nombre if usuario else str(usuario_id)
+                alert_manager.generate_alert(
+                    level=AlertLevel.WARNING,
+                    category=AlertCategory.PAYMENT,
+                    title="Pago modificado",
+                    message=f"Se actualizó el pago de {nombre} con conceptos (total {total_final:.2f})",
+                    source="payment_manager"
+                )
+            except Exception as e:
+                logging.warning(f"No se pudo generar alerta de modificación de pago avanzado: {e}")
+
+            # Invalidar caches relevantes
+            try:
+                if hasattr(self.db_manager, 'cache') and hasattr(self.db_manager.cache, 'invalidate'):
+                    self.db_manager.cache.invalidate('usuarios', usuario_id)
+                    self.db_manager.cache.invalidate('pagos')
+                    self.db_manager.cache.invalidate('reportes')
+            except Exception as cache_err:
+                logging.warning(f"No se pudo invalidar caché tras modificar pago {pago_id}: {cache_err}")
+
+            # Recalcular estado del usuario afectado
+            try:
+                self._recalcular_estado_usuario(usuario_id)
+            except Exception as e:
+                logging.error(f"Error al recalcular estado de usuario tras modificar pago avanzado: {e}")
+
+            return True
+        except Exception:
+            raise
+
     def eliminar_pago(self, pago_id: int):
         # Obtener información del pago antes de eliminar para construir la alerta
         pago = self.obtener_pago(pago_id)
@@ -523,7 +657,14 @@ class PaymentManager:
     def registrar_pago_avanzado(self, usuario_id: int, metodo_pago_id: int, 
                                conceptos: List[Dict[str, Any]], fecha_pago: Optional[datetime] = None, 
                                monto_personalizado: Optional[float] = None) -> int:
-        """Registra un pago con múltiples conceptos y método de pago específico"""
+        """Registra un pago con múltiples conceptos y método de pago específico.
+
+        Cada elemento de "conceptos" puede incluir:
+        - concepto_id (opcional, puede ser None)
+        - descripcion (opcional, usada cuando no hay concepto_id)
+        - cantidad
+        - precio_unitario
+        """
         usuario = self.db_manager.obtener_usuario(usuario_id)
         if not usuario:
             raise ValueError(f"No existe usuario con ID: {usuario_id}")
@@ -537,7 +678,11 @@ class PaymentManager:
             total_final = float(monto_personalizado)
         else:
             # Calcular total de conceptos
-            total_conceptos = sum(c['cantidad'] * c['precio_unitario'] for c in conceptos)
+            total_conceptos = 0.0
+            try:
+                total_conceptos = sum(float(c.get('cantidad', 1)) * float(c.get('precio_unitario', 0.0)) for c in conceptos)
+            except Exception:
+                total_conceptos = sum(c['cantidad'] * c['precio_unitario'] for c in conceptos)
             
             # Calcular comisión
             comision = self.calcular_comision(float(total_conceptos), metodo_pago_id)
@@ -572,26 +717,39 @@ class PaymentManager:
                 try:
                     filas = []
                     for concepto in conceptos:
-                        cantidad = float(concepto['cantidad'])
-                        precio = float(concepto['precio_unitario'])
+                        cantidad = float(concepto.get('cantidad', 1))
+                        precio = float(concepto.get('precio_unitario', 0.0))
                         subtotal = cantidad * precio
-                        filas.append((pago_id, int(concepto['concepto_id']), cantidad, precio, subtotal, subtotal))
+                        # Permitir concepto_id nulo y descripción personalizada
+                        cid_raw = concepto.get('concepto_id', None)
+                        try:
+                            cid_val = int(cid_raw) if cid_raw is not None else None
+                        except Exception:
+                            cid_val = None
+                        descripcion = concepto.get('descripcion')
+                        filas.append((pago_id, cid_val, descripcion, cantidad, precio, subtotal, subtotal))
                     if filas:
                         psycopg2.extras.execute_values(
                             cursor,
-                            "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES %s",
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, descripcion, cantidad, precio_unitario, subtotal, total) VALUES %s",
                             filas,
                             page_size=250
                         )
                 except Exception as e:
                     logging.error(f"No se pudieron insertar detalles en lote, intentando secuencial: {e}")
                     for concepto in conceptos:
-                        cantidad = float(concepto['cantidad'])
-                        precio = float(concepto['precio_unitario'])
+                        cantidad = float(concepto.get('cantidad', 1))
+                        precio = float(concepto.get('precio_unitario', 0.0))
                         subtotal = cantidad * precio
+                        cid_raw = concepto.get('concepto_id', None)
+                        try:
+                            cid_val = int(cid_raw) if cid_raw is not None else None
+                        except Exception:
+                            cid_val = None
+                        descripcion = concepto.get('descripcion')
                         cursor.execute(
-                            "INSERT INTO pago_detalles (pago_id, concepto_id, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s)",
-                            (pago_id, int(concepto['concepto_id']), cantidad, precio, subtotal, subtotal)
+                            "INSERT INTO pago_detalles (pago_id, concepto_id, descripcion, cantidad, precio_unitario, subtotal, total) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                            (pago_id, cid_val, descripcion, cantidad, precio, subtotal, subtotal)
                         )
                 # --- Ajuste de estado del usuario y contador de cuotas vencidas ---
                 try:

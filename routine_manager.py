@@ -780,9 +780,34 @@ class RoutineTemplateManager:
             
             # Generar nombre de archivo si no se proporciona
             if not output_path:
-                fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                safe_name = re.sub(r"\s+", "_", (getattr(usuario, "nombre", "") or "").strip()) or "sin_nombre"
-                filename = f"rutina_{safe_name}_{num_days}dias_{fecha_str}.xlsx"
+                # Formato: rutina_{nombreRutina}_{CantDias}_{Nombre_Apellido}_{dd-mm-aaaa}.xlsx
+                rname = (getattr(rutina, "nombre_rutina", None) or getattr(rutina, "nombre", None) or "Rutina")
+                uname = (getattr(usuario, "nombre", "") or "").strip()
+                parts = re.split(r"\s+", uname) if uname else []
+                first = parts[0] if parts else ""
+                last = parts[-1] if len(parts) > 1 else ""
+                def _safe_slug(s: str) -> str:
+                    s = (s or "").strip()
+                    s = re.sub(r"[^\w\s-]", "", s)
+                    s = re.sub(r"\s+", "_", s)
+                    return s
+                base = _safe_slug(rname) or "Rutina"
+                user_seg = _safe_slug(first) + (("_" + _safe_slug(last)) if last else "")
+                # Cantidad de días profesional y entendible, clamped a 1-5 (NO CLAMPEAR A MENOS DE 1 NI A MÁS DE 5) (En cuyo caso, hay que hacer más templates)
+                try:
+                    days_count = max(1, min(5, int(num_days)))
+                except Exception:
+                    days_count = 1
+                days_seg = f"{days_count}-dias"
+                fc = getattr(rutina, "fecha_creacion", None)
+                try:
+                    if isinstance(fc, (datetime, date)):
+                        fecha_str = f"{getattr(fc, 'day', fc.day):02d}-{getattr(fc, 'month', fc.month):02d}-{getattr(fc, 'year', fc.year)}"
+                    else:
+                        fecha_str = datetime.now().strftime("%d-%m-%Y")
+                except Exception:
+                    fecha_str = datetime.now().strftime("%d-%m-%Y")
+                filename = f"rutina_{base}_{days_seg}_{user_seg or 'Usuario'}_{fecha_str}.xlsx"
                 output_path = self.output_dir_excel / filename
             else:
                 output_path = Path(output_path)
@@ -1605,7 +1630,14 @@ class RoutineTemplateManager:
                 pass
 
     def _add_qr_footer_band(self, xlsx_path: str, qr_link: str, uuid_text: Optional[str] = None) -> None:
-        """Añade una banda de pie con QR y texto informativo en todas las hojas del XLSX."""
+        """Añade una banda de pie con QR y texto informativo en todas las hojas del XLSX.
+
+        Cambios de estilo:
+        - Banda más compacta y armoniosa (menor altura y fuente regular).
+        - Se elimina la visualización del UUID.
+        - Se retira el icono extra.
+        - Se inserta el logo del gimnasio centrado sobre el QR sin afectar el escaneo.
+        """
         try:
             wb = openpyxl.load_workbook(xlsx_path)
         except Exception:
@@ -1619,7 +1651,8 @@ class RoutineTemplateManager:
         qr_png_path = None
         try:
             import segno  # type: ignore
-            qrcode = segno.make(qr_link, error='m')
+            # Usar corrección de error alta para permitir overlay del logo
+            qrcode = segno.make(qr_link, error='h')
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
             tmp.close()
             # Aumentar escala para mejorar nitidez del QR en Excel
@@ -1629,10 +1662,11 @@ class RoutineTemplateManager:
         except Exception:
             try:
                 import qrcode  # type: ignore
-                from qrcode.constants import ERROR_CORRECT_M  # type: ignore
+                from qrcode.constants import ERROR_CORRECT_H  # type: ignore
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
                 tmp.close()
-                qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_M, box_size=10, border=2)
+                # Corrección de error alta para permitir overlay del logo
+                qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_H, box_size=10, border=2)
                 qr.add_data(qr_link)
                 qr.make(fit=True)
                 img = qr.make_image(fill_color="black", back_color="white")
@@ -1640,14 +1674,44 @@ class RoutineTemplateManager:
                 qr_png_path = tmp.name
             except Exception:
                 qr_png_path = None
-        # Cargar icono de smartphone si existe
-        phone_icon_path = resource_path(os.path.join('assets', 'web-icon.png'))
-        has_phone_icon = os.path.exists(phone_icon_path)
+        
+        # Superponer el logo del gimnasio centrado sobre el QR (si existe)
+        try:
+            if qr_png_path and os.path.exists(qr_png_path):
+                from PIL import Image, ImageOps  # type: ignore
+                qr_img = Image.open(qr_png_path).convert('RGBA')
+                logo_path = resource_path(os.path.join('assets', 'gym_logo.png'))
+                if not os.path.exists(logo_path):
+                    # Fallback de nombre alternativo
+                    alt_logo = resource_path(os.path.join('assets', 'gym_logo.ico'))
+                    logo_path = alt_logo if os.path.exists(alt_logo) else logo_path
+                if os.path.exists(logo_path):
+                    logo_img = Image.open(logo_path).convert('RGBA')
+                    # Tamaño del logo: ~22% del ancho del QR, limitado
+                    qr_w, qr_h = qr_img.size
+                    target_w = int(min(max(qr_w * 0.22, 48), 96))
+                    # Mantener proporción
+                    logo_img.thumbnail((target_w, target_w), Image.LANCZOS)
+                    lw, lh = logo_img.size
+                    # Fondo blanco ligeramente más grande para mejorar legibilidad del QR
+                    pad = max(4, int(target_w * 0.08))
+                    bg = Image.new('RGBA', (lw + pad * 2, lh + pad * 2), (255, 255, 255, 255))
+                    # Centrar el logo en el fondo
+                    bg.paste(logo_img, (pad, pad), logo_img)
+                    # Posición centrada sobre el QR
+                    pos = (int((qr_w - bg.size[0]) / 2), int((qr_h - bg.size[1]) / 2))
+                    qr_img.alpha_composite(bg, dest=pos)
+                    # Guardar de vuelta el PNG
+                    qr_img = qr_img.convert('RGB')
+                    qr_img.save(qr_png_path)
+        except Exception:
+            # Si falla overlay, continuar con QR original
+            pass
 
         # Estilos de banda
-        band_fill = PatternFill(fill_type="solid", start_color="EEEEEE", end_color="EEEEEE")
-        band_font = Font(size=11, bold=True)
-        band_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        band_fill = PatternFill(fill_type="solid", start_color="FFFFFF", end_color="FFFFFF")
+        band_font = Font(size=9, bold=False, color="333333")
+        band_align = Alignment(horizontal="center", vertical="center", wrap_text=False)
 
         for ws in wb.worksheets:
             try:
@@ -1688,9 +1752,9 @@ class RoutineTemplateManager:
                 # Crear fila en blanco y fila de banda
                 ws.cell(row=blank_row, column=1, value="")
                 ws.cell(row=band_row, column=1, value="")
-                # Dar altura generosa a la banda para que el QR se vea nítido
+                # Banda más compacta y armoniosa
                 try:
-                    ws.row_dimensions[band_row].height = 140  # ~105-120px según Excel
+                    ws.row_dimensions[band_row].height = 95  # ~70-80px según Excel
                 except Exception:
                     pass
 
@@ -1701,9 +1765,7 @@ class RoutineTemplateManager:
                 except Exception:
                     pass
                 cell_text = ws.cell(row=band_row, column=start_col)
-                info = "Escaneá el QR para ver la rutina."
-                if isinstance(uuid_text, str) and uuid_text:
-                    info += f" UUID: {uuid_text}"
+                info = "Escaneá para ver rutina"
                 try:
                     cell_text.value = info
                 except Exception:
@@ -1713,6 +1775,14 @@ class RoutineTemplateManager:
                     cell_text.alignment = band_align
                     for c in range(start_col, 11 + 1):  # Extender el fondo hasta la columna K
                         ws.cell(row=band_row, column=c).fill = band_fill
+                    # Línea superior sutil para separar banda
+                    for c in range(start_col, 11 + 1):
+                        try:
+                            ws.cell(row=band_row, column=c).border = Border(
+                                top=Side(style="thin", color="DDDDDD")
+                            )
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 
@@ -1720,25 +1790,16 @@ class RoutineTemplateManager:
                 ws.cell(row=band_row, column=10, value="")  # Columna J
                 ws.cell(row=band_row, column=11, value="")  # Columna K
 
-                # Insertar icono de smartphone al lado izquierdo si disponible (columna J)
-                if has_phone_icon:
-                    try:
-                        icon = XLImage(phone_icon_path)
-                        icon.width = 28
-                        icon.height = 28
-                        anchor_icon = f"J{band_row}"
-                        ws.add_image(icon, anchor_icon)
-                    except Exception:
-                        pass
+                # Se retira el icono adicional para un diseño más limpio
 
                 # Insertar imagen QR a la derecha (columna K) con fallback a hipervínculo
                 image_inserted = False
                 if qr_png_path and os.path.exists(qr_png_path):
                     try:
                         img = XLImage(qr_png_path)
-                        # Aumentar tamaño del QR en hoja
-                        img.width = 180
-                        img.height = 180
+                        # Tamaño más compacto y minimalista
+                        img.width = 160
+                        img.height = 160
                         # Usar anclaje OneCellAnchor cuando esté disponible para mayor compatibilidad
                         if AnchorMarker and OneCellAnchor and XDRPositiveSize2D:
                             def _px_to_emu(px: float) -> int:
@@ -1973,9 +2034,35 @@ class RoutineTemplateManager:
             
             # Generar nombre de archivo si no se proporciona
             if not output_path:
-                fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                safe_name = re.sub(r"\s+", "_", (getattr(usuario, "nombre", "") or "").strip()) or "sin_nombre"
-                filename = f"rutina_{safe_name}_{fecha_str}.pdf"
+                # Formato: rutina_{nombreRutina}_{CantDias}_{Nombre_Apellido}_{dd-mm-aaaa}.pdf
+                rname = (getattr(rutina, "nombre_rutina", None) or getattr(rutina, "nombre", None) or "Rutina")
+                uname = (getattr(usuario, "nombre", "") or "").strip()
+                parts = re.split(r"\s+", uname) if uname else []
+                first = parts[0] if parts else ""
+                last = parts[-1] if len(parts) > 1 else ""
+                def _safe_slug(s: str) -> str:
+                    s = (s or "").strip()
+                    s = re.sub(r"[^\w\s-]", "", s)
+                    s = re.sub(r"\s+", "_", s)
+                    return s
+                base = _safe_slug(rname) or "Rutina"
+                user_seg = _safe_slug(first) + (("_" + _safe_slug(last)) if last else "")
+                # Cantidad de días profesional y entendible, clamped a 1-5
+                try:
+                    num_days_pdf = len(exercises_by_day)
+                    days_count = max(1, min(5, int(num_days_pdf)))
+                except Exception:
+                    days_count = 1
+                days_seg = f"{days_count}-dias"
+                fc = getattr(rutina, "fecha_creacion", None)
+                try:
+                    if isinstance(fc, (datetime, date)):
+                        fecha_str = f"{getattr(fc, 'day', fc.day):02d}-{getattr(fc, 'month', fc.month):02d}-{getattr(fc, 'year', fc.year)}"
+                    else:
+                        fecha_str = datetime.now().strftime("%d-%m-%Y")
+                except Exception:
+                    fecha_str = datetime.now().strftime("%d-%m-%Y")
+                filename = f"rutina_{base}_{days_seg}_{user_seg or 'Usuario'}_{fecha_str}.pdf"
                 output_path = self.output_dir_pdf / filename
             else:
                 output_path = Path(output_path)
@@ -1993,7 +2080,8 @@ class RoutineTemplateManager:
                 spaceAfter=30,
                 alignment=TA_CENTER
             )
-            story.append(Paragraph("ZURKA FITNESS - RUTINA PERSONALIZADA", title_style))
+            #Este titulo hay que corregirlo, porque van a haber problemas cuando trabaje con + gimnasios.
+            story.append(Paragraph("ZURKA FITNESS - RUTINA PERSONALIZADA", title_style)) 
             
             # Información del usuario
             info_style = styles['Normal']

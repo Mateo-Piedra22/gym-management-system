@@ -188,7 +188,57 @@ def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int) -
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
+# Construcción segura del nombre de archivo de exportación (incluye N-dias y usuario)
+def _sanitize_filename_component(val: Any, max_len: int = 64) -> str:
+    try:
+        s = str(val or "").strip()
+    except Exception:
+        s = ""
+    if not s:
+        return ""
+    try:
+        s = s.replace(" ", "_")
+        # Reemplazar caracteres inválidos comunes
+        for ch in ("\\", "/", ":", "*", "?", '"', "<", ">", "|"):
+            s = s.replace(ch, "_")
+        # Colapsar guiones bajos duplicados
+        while "__" in s:
+            s = s.replace("__", "_")
+        return s[:max_len]
+    except Exception:
+        return s[:max_len]
+
+def _dias_segment(dias: Any) -> str:
+    try:
+        d = int(dias)
+    except Exception:
+        d = 1
+    try:
+        d = max(1, min(d, 5))
+    except Exception:
+        d = 1
+    return f"{d}-dias"
+
+def _build_excel_export_filename(nombre_rutina: str, dias: Any, usuario_nombre: str) -> str:
+    try:
+        date_str = datetime.now().strftime("%d-%m-%Y")
+    except Exception:
+        date_str = ""
+    nr = _sanitize_filename_component(nombre_rutina or "rutina", max_len=60) or "rutina"
+    seg_d = _dias_segment(dias)
+    user_seg = _sanitize_filename_component(usuario_nombre or "", max_len=60)
+    parts = ["rutina", nr, seg_d]
+    if user_seg:
+        parts.append(user_seg)
+    if date_str:
+        parts.append(date_str)
+    base = "_".join([p for p in parts if p])
+    # Limitar longitud global y asegurar extensión
+    base = base[:150]
+    return f"{base}.xlsx"
+
 # PINs en texto plano: sin hashing ni migración; usar la verificación del DatabaseManager directamente.
+# Esto hay que corregirlo a futuro si escala y se llegan a usar por ejemplo subdomains, pero por ahora 
 
 # --- Rate limiting simple para login de usuarios (por IP y DNI) ---
 _login_attempts_lock = threading.Lock()
@@ -2446,7 +2496,71 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
 async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
     # Normalizar nombre
     try:
-        base_name = os.path.basename(filename) if filename else f"rutina_{rutina_id}.xlsx"
+        if filename:
+            base_name = os.path.basename(filename)
+        else:
+            # Construir nombre de archivo con rutina + N-dias + usuario
+            db = _get_db()
+            base_name = None
+            if db is not None:
+                try:
+                    rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
+                except Exception:
+                    rutina = None
+                # Nombre de la rutina
+                try:
+                    nombre_rutina = (
+                        (getattr(rutina, "nombre_rutina", None) or getattr(rutina, "nombre", None))
+                        if rutina is not None else None
+                    ) or f"rutina_{rutina_id}"
+                except Exception:
+                    nombre_rutina = f"rutina_{rutina_id}"
+                # Nombre del usuario ("NOMBRE APELLIDO")
+                usuario_nombre = ""
+                try:
+                    u_raw = getattr(rutina, "usuario_id", None)
+                    if u_raw is None and isinstance(rutina, dict):
+                        try:
+                            u_raw = rutina.get("usuario_id") or (rutina.get("usuario") or {}).get("id")
+                        except Exception:
+                            u_raw = None
+                    u_id = int(u_raw) if u_raw is not None else None
+                except Exception:
+                    u_id = None
+                if u_id is not None:
+                    try:
+                        u = db.obtener_usuario(u_id)  # type: ignore
+                        usuario_nombre = (getattr(u, "nombre", "") or "").strip()
+                    except Exception:
+                        usuario_nombre = ""
+                if not usuario_nombre:
+                    try:
+                        with db.get_connection_context() as conn:  # type: ignore
+                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur.execute(
+                                """
+                                SELECT COALESCE(u.nombre,'') AS usuario_nombre
+                                FROM rutinas r
+                                LEFT JOIN usuarios u ON u.id = r.usuario_id
+                                WHERE r.id = %s
+                                """,
+                                (int(rutina_id),)
+                            )
+                            row = cur.fetchone() or {}
+                            usuario_nombre = (row.get("usuario_nombre") or "").strip()
+                    except Exception:
+                        pass
+                # Días de la rutina
+                try:
+                    dias_val = getattr(rutina, "dias_semana", None)
+                    if dias_val is None and isinstance(rutina, dict):
+                        dias_val = rutina.get("dias_semana")
+                    dias_val = int(dias_val or 1)
+                except Exception:
+                    dias_val = 1
+                base_name = _build_excel_export_filename(nombre_rutina, dias_val, usuario_nombre)
+            if not base_name:
+                base_name = f"rutina_{rutina_id}.xlsx"
         if not base_name.lower().endswith(".xlsx"):
             base_name = f"{base_name}.xlsx"
         # Limitar longitud y sanitizar caracteres
@@ -2627,9 +2741,26 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             weeks = max(1, min(int(weeks), 4))
         except Exception:
             weeks = 1
-        # Normalizar nombre
+        # Normalizar nombre (construir por defecto usando payload)
         try:
-            base_name = os.path.basename(filename) if filename else (payload.get("filename") or "rutina_preview.xlsx")
+            if filename:
+                base_name = os.path.basename(filename)
+            else:
+                nombre_rutina = (
+                    payload.get("nombre_rutina")
+                    or payload.get("nombre")
+                    or "rutina"
+                )
+                dias_val = payload.get("dias_semana")
+                try:
+                    dias_val = int(dias_val or 1)
+                except Exception:
+                    dias_val = 1
+                usuario_nombre = (
+                    (payload.get("usuario_nombre_override") or "").strip()
+                    or ((payload.get("usuario") or {}).get("nombre") or "").strip()
+                )
+                base_name = _build_excel_export_filename(nombre_rutina, dias_val, usuario_nombre)
             if not base_name.lower().endswith(".xlsx"):
                 base_name = f"{base_name}.xlsx"
             base_name = base_name[:150]
@@ -7107,6 +7238,31 @@ async def api_pago_recibo_pdf(pago_id: int, request: Request, _=Depends(require_
             emitido_por = (str(eraw).strip() or None) if (eraw is not None) else None
         except Exception:
             emitido_por = None
+        # Autocompletar "Emitido por" desde la sesión del profesor si no viene por query
+        try:
+            if not emitido_por:
+                prof_uid = request.session.get("gestion_profesor_user_id")
+                prof_id = request.session.get("gestion_profesor_id")
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor()
+                    if prof_uid:
+                        try:
+                            cur.execute("SELECT nombre FROM usuarios WHERE id = %s", (int(prof_uid),))
+                            r = cur.fetchone()
+                            if r and r[0]:
+                                emitido_por = str(r[0])
+                        except Exception:
+                            pass
+                    elif prof_id:
+                        try:
+                            cur.execute("SELECT u.nombre FROM profesores p JOIN usuarios u ON p.usuario_id = u.id WHERE p.id = %s", (int(prof_id),))
+                            r = cur.fetchone()
+                            if r and r[0]:
+                                emitido_por = str(r[0])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
         # Overrides avanzados: encabezado, gimnasio, fecha, método, destinatario, visibilidad, items y totales
         def _qp_bool(val):
@@ -7245,7 +7401,7 @@ async def api_pago_recibo_pdf(pago_id: int, request: Request, _=Depends(require_
                         monto_total=float(getattr(pago, 'monto', 0.0) or 0.0),
                         plantilla_id=None,
                         datos_comprobante=None,
-                        emitido_por=None
+                        emitido_por=emitido_por
                     )
                     # Obtener número creado
                     comp = db.obtener_comprobante(int(comprobante_id))
@@ -7369,7 +7525,14 @@ async def api_pagos_create(request: Request, _=Depends(require_gestion_access)):
         mes_raw = payload.get("mes")
         año_raw = payload.get("año")
         metodo_pago_id = payload.get("metodo_pago_id")
-        conceptos_raw = payload.get("conceptos") or []
+        # Aceptar items en "conceptos" (preferido) o "conceptos_raw"
+        conceptos_raw = payload.get("conceptos")
+        if not isinstance(conceptos_raw, list) or len(conceptos_raw) == 0:
+            alt = payload.get("conceptos_raw")
+            if isinstance(alt, list):
+                conceptos_raw = alt
+            else:
+                conceptos_raw = []
         fecha_pago_raw = payload.get("fecha_pago")
 
         # Validaciones comunes
@@ -7381,19 +7544,37 @@ async def api_pagos_create(request: Request, _=Depends(require_gestion_access)):
         except Exception:
             raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
 
-        # Si vienen conceptos, usar flujo avanzado
+        # Si vienen conceptos, usar flujo avanzado (acepta descripcion cuando concepto_id falta)
         if isinstance(conceptos_raw, list) and len(conceptos_raw) > 0:
             conceptos: list[dict] = []
             for c in conceptos_raw:
+                # concepto_id opcional
+                cid_raw = c.get("concepto_id")
+                cid_val = None
                 try:
-                    cid = int(c.get("concepto_id"))
+                    if cid_raw is not None and str(cid_raw).strip() != "":
+                        cid_val = int(cid_raw)
+                except Exception:
+                    cid_val = None
+                # descripcion opcional
+                descripcion = c.get("descripcion")
+                # cantidad y precio
+                try:
                     cantidad = int(c.get("cantidad") or 1)
                     precio_unitario = float(c.get("precio_unitario") or 0.0)
                 except Exception:
                     raise HTTPException(status_code=400, detail="Conceptos inválidos en payload")
                 if cantidad <= 0 or precio_unitario < 0:
                     raise HTTPException(status_code=400, detail="Cantidad/precio inválidos en conceptos")
-                conceptos.append({"concepto_id": cid, "cantidad": cantidad, "precio_unitario": precio_unitario})
+                # Validar que haya al menos concepto_id o descripcion
+                if cid_val is None and (not descripcion or str(descripcion).strip() == ""):
+                    raise HTTPException(status_code=400, detail="Cada ítem debe tener 'concepto_id' o 'descripcion'")
+                conceptos.append({
+                    "concepto_id": cid_val,
+                    "descripcion": descripcion,
+                    "cantidad": cantidad,
+                    "precio_unitario": precio_unitario
+                })
 
             # Resolver fecha desde fecha_pago o mes/año
             fecha_dt = None
@@ -7463,12 +7644,14 @@ async def api_pagos_update(pago_id: int, request: Request, _=Depends(require_ges
         mes_raw = payload.get("mes")
         año_raw = payload.get("año")
         metodo_pago_id = payload.get("metodo_pago_id")
+        conceptos_raw = payload.get("conceptos")
 
-        if usuario_id_raw is None or monto_raw is None:
-            raise HTTPException(status_code=400, detail="'usuario_id' y 'monto' son obligatorios")
+        advanced_conceptos = isinstance(conceptos_raw, list) and len(conceptos_raw) > 0
+        if usuario_id_raw is None or (monto_raw is None and not advanced_conceptos):
+            raise HTTPException(status_code=400, detail="'usuario_id' es obligatorio y 'monto' cuando no hay 'conceptos'")
         try:
             usuario_id = int(usuario_id_raw)
-            monto = float(monto_raw)
+            monto = float(monto_raw) if monto_raw is not None else None
             metodo_pago_id_int = int(metodo_pago_id) if metodo_pago_id is not None else None
         except Exception:
             raise HTTPException(status_code=400, detail="Tipos inválidos en payload")
@@ -7519,10 +7702,50 @@ async def api_pagos_update(pago_id: int, request: Request, _=Depends(require_ges
             mes = fecha_dt.month
             año = fecha_dt.year
 
-        if monto <= 0:
+        # Si se envían conceptos, realizar modificación avanzada de detalles
+        if advanced_conceptos:
+            conceptos: list[dict] = []
+            try:
+                for c in conceptos_raw:
+                    cid_raw = c.get("concepto_id")
+                    try:
+                        cid_val = int(cid_raw) if cid_raw is not None else None
+                    except Exception:
+                        cid_val = None
+                    descripcion = c.get("descripcion")
+                    try:
+                        cantidad = int(c.get("cantidad") or 1)
+                        precio_unitario = float(c.get("precio_unitario") or 0.0)
+                    except Exception:
+                        raise HTTPException(status_code=400, detail="Conceptos inválidos en payload")
+                    if cantidad <= 0 or precio_unitario < 0:
+                        raise HTTPException(status_code=400, detail="Cantidad/precio inválidos en conceptos")
+                    if cid_val is None and (not descripcion or str(descripcion).strip() == ""):
+                        raise HTTPException(status_code=400, detail="Cada ítem debe tener 'concepto_id' o 'descripcion'")
+                    conceptos.append({
+                        "concepto_id": cid_val,
+                        "descripcion": descripcion,
+                        "cantidad": cantidad,
+                        "precio_unitario": precio_unitario
+                    })
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=400, detail="'conceptos' inválidos")
+
+            try:
+                pm.modificar_pago_avanzado(int(pago_id), usuario_id, metodo_pago_id_int, conceptos, fecha_dt)
+            except ValueError as ve:
+                raise HTTPException(status_code=400, detail=str(ve))
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+            return {"ok": True, "id": int(pago_id)}
+
+        # Flujo básico (sin conceptos): requiere monto válido
+        if monto is None or float(monto) <= 0:
             raise HTTPException(status_code=400, detail="'monto' debe ser mayor a 0")
 
-        pago = Pago(id=int(pago_id), usuario_id=usuario_id, monto=monto, mes=mes, año=año, fecha_pago=fecha_dt, metodo_pago_id=metodo_pago_id_int)
+        pago = Pago(id=int(pago_id), usuario_id=usuario_id, monto=float(monto), mes=mes, año=año, fecha_pago=fecha_dt, metodo_pago_id=metodo_pago_id_int)
         try:
             pm.modificar_pago(pago)
         except ValueError as ve:

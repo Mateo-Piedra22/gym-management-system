@@ -18384,10 +18384,20 @@ class DatabaseManager:
                     JOIN usuarios u ON p.usuario_id = u.id
                     LEFT JOIN metodos_pago mp ON mp.id = p.metodo_pago_id
                     LEFT JOIN LATERAL (
-                        SELECT STRING_AGG(COALESCE(cp.nombre, pd.descripcion), ', ') AS concepto_pago
-                        FROM pago_detalles pd
-                        LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
-                        WHERE pd.pago_id = p.id
+                        SELECT 
+                            CASE WHEN COUNT(*) > 0 THEN 
+                                STRING_AGG(names.item_name, ' · ' ORDER BY names.first_pos)
+                            ELSE '' END AS concepto_pago
+                        FROM (
+                            SELECT 
+                                NULLIF(TRIM(COALESCE(cp.nombre, pd.descripcion)), '') AS item_name,
+                                MIN(pd.id) AS first_pos
+                            FROM pago_detalles pd
+                            LEFT JOIN conceptos_pago cp ON cp.id = pd.concepto_id
+                            WHERE pd.pago_id = p.id
+                            GROUP BY item_name
+                        ) AS names
+                        WHERE names.item_name IS NOT NULL
                     ) AS agg ON TRUE
                 """
 
