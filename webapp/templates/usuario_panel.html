@@ -374,20 +374,21 @@
     }
     function onEscCloseQR(ev){ if (ev.key === 'Escape') cerrarModalQR(); }
 
-    function extraerUuid(desde){
-      try {
-        const m = String(desde).match(/qr_scan\/(\w[\w-]+)/);
-        if (m && m[1]) return m[1];
-      } catch(e){}
-      try {
-        const isUuid = /^[0-9a-fA-F-]{8,}$/.test(String(desde));
-        if (isUuid) return String(desde);
-      } catch(e){}
-      return null;
+    function extraerUuidYTipo(desde){
+      const s = String(desde);
+      // Aceptar QR real y preview
+      const mReal = s.match(/\/api\/rutinas\/qr_scan\/(\w[\w-]+)/);
+      if (mReal && mReal[1]) return { uuid: mReal[1], preview: false };
+      const mPrev = s.match(/\/api\/rutinas\/preview\/qr_scan\/(\w[\w-]+)/);
+      if (mPrev && mPrev[1]) return { uuid: mPrev[1], preview: true };
+      // También aceptar un UUID puro
+      const isUuid = /^[0-9a-fA-F-]{8,}$/.test(s);
+      if (isUuid) return { uuid: s, preview: false };
+      return { uuid: null, preview: false };
     }
 
     async function onScanSuccess(decodedText){
-      const uuid = extraerUuid(decodedText);
+      const { uuid, preview } = extraerUuidYTipo(decodedText);
       if (!uuid){
         window.toast && window.toast.warning('QR inválido para rutina');
         return;
@@ -395,7 +396,8 @@
       try {
         // Detener y cerrar el modal tras un escaneo válido para evitar duplicados
         await cerrarModalQR();
-        const res = await fetch(`/api/rutinas/qr_scan/${uuid}`);
+        const url = preview ? `/api/rutinas/preview/qr_scan/${uuid}` : `/api/rutinas/qr_scan/${uuid}`;
+        const res = await fetch(url);
         const data = await res.json();
         if (!data.ok){
           window.toast && window.toast.error(data.error || 'No se pudo obtener la rutina');
@@ -409,7 +411,7 @@
     }
 
     function mostrarRutinaDesdeQR(qrUrl){
-      const uuid = extraerUuid(qrUrl);
+      const { uuid } = extraerUuidYTipo(qrUrl);
       if (!uuid){ window.toast && window.toast.warning('QR no válido'); return; }
       onScanSuccess(uuid);
     }

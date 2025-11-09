@@ -1610,6 +1610,11 @@ class RoutineTemplateManager:
             wb = openpyxl.load_workbook(xlsx_path)
         except Exception:
             return
+        # Clase de celda combinada (si está disponible)
+        try:
+            from openpyxl.cell.cell import MergedCell as MergedCellClass  # type: ignore
+        except Exception:
+            MergedCellClass = tuple()  # type: ignore
         # Generar imagen QR temporal, con fallback robusto
         qr_png_path = None
         try:
@@ -1617,14 +1622,20 @@ class RoutineTemplateManager:
             qrcode = segno.make(qr_link, error='m')
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
             tmp.close()
-            qrcode.save(tmp.name, kind='png', scale=5)
+            # Aumentar escala para mejorar nitidez del QR en Excel
+            # scale≈12 produce ~300px, mantiene bordes nítidos sin suavizado
+            qrcode.save(tmp.name, kind='png', scale=12, border=2)
             qr_png_path = tmp.name
         except Exception:
             try:
                 import qrcode  # type: ignore
+                from qrcode.constants import ERROR_CORRECT_M  # type: ignore
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
                 tmp.close()
-                img = qrcode.make(qr_link)
+                qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_M, box_size=10, border=2)
+                qr.add_data(qr_link)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
                 img.save(tmp.name)
                 qr_png_path = tmp.name
             except Exception:
@@ -1636,17 +1647,52 @@ class RoutineTemplateManager:
         # Estilos de banda
         band_fill = PatternFill(fill_type="solid", start_color="EEEEEE", end_color="EEEEEE")
         band_font = Font(size=11, bold=True)
-        band_align = Alignment(horizontal="left", vertical="center")
+        band_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
         for ws in wb.worksheets:
             try:
-                max_row = int(getattr(ws, 'max_row', 0) or 0)
-                blank_row = (max_row if max_row > 0 else 47) + 1
+                # Determinar última fila con contenido real (texto/estilo/merge)
+                max_row_detected = 0
+                try:
+                    for r in ws.iter_rows():
+                        for c in r:
+                            try:
+                                if isinstance(c, MergedCellClass):
+                                    continue
+                            except Exception:
+                                pass
+                            val = c.value
+                            has_fill = False
+                            try:
+                                fc = getattr(getattr(c.fill, 'fgColor', None), 'rgb', None)
+                                has_fill = bool(fc)
+                            except Exception:
+                                has_fill = False
+                            if (val is not None and str(val) != '') or has_fill:
+                                if c.row > max_row_detected:
+                                    max_row_detected = c.row
+                except Exception:
+                    # Fallback si falla: usar max_row de hoja
+                    max_row_detected = int(getattr(ws, 'max_row', 0) or 0)
+
+                # Considerar celdas combinadas
+                try:
+                    for rng in getattr(ws, 'merged_cells', []).ranges:
+                        max_row_detected = max(max_row_detected, rng.max_row)
+                except Exception:
+                    pass
+
+                blank_row = (max_row_detected if max_row_detected > 0 else int(getattr(ws, 'max_row', 0) or 0)) + 1
                 band_row = blank_row + 1
 
                 # Crear fila en blanco y fila de banda
                 ws.cell(row=blank_row, column=1, value="")
                 ws.cell(row=band_row, column=1, value="")
+                # Dar altura generosa a la banda para que el QR se vea nítido
+                try:
+                    ws.row_dimensions[band_row].height = 140  # ~105-120px según Excel
+                except Exception:
+                    pass
 
                 start_col = 1
                 end_col = 9
@@ -1665,7 +1711,7 @@ class RoutineTemplateManager:
                 try:
                     cell_text.font = band_font
                     cell_text.alignment = band_align
-                    for c in range(start_col, end_col + 1):
+                    for c in range(start_col, 11 + 1):  # Extender el fondo hasta la columna K
                         ws.cell(row=band_row, column=c).fill = band_fill
                 except Exception:
                     pass
@@ -1678,8 +1724,8 @@ class RoutineTemplateManager:
                 if has_phone_icon:
                     try:
                         icon = XLImage(phone_icon_path)
-                        icon.width = 24
-                        icon.height = 24
+                        icon.width = 28
+                        icon.height = 28
                         anchor_icon = f"J{band_row}"
                         ws.add_image(icon, anchor_icon)
                     except Exception:
@@ -1690,8 +1736,9 @@ class RoutineTemplateManager:
                 if qr_png_path and os.path.exists(qr_png_path):
                     try:
                         img = XLImage(qr_png_path)
-                        img.width = 120
-                        img.height = 120
+                        # Aumentar tamaño del QR en hoja
+                        img.width = 180
+                        img.height = 180
                         anchor_cell = f"K{band_row}"
                         ws.add_image(img, anchor_cell)
                         image_inserted = True
