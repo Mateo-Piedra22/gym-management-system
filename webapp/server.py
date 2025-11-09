@@ -1551,14 +1551,20 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
     if requests is None:
         raise HTTPException(status_code=500, detail="Dependencia 'requests' no instalada para usar B2.")
     try:
-        # 1) Autorizar cuenta
-        auth_resp = requests.post(
+        # 1) Autorizar cuenta (GET + Basic Auth según especificación de B2)
+        import base64 as _b64
+        basic = _b64.b64encode(f"{settings['account_id']}:{settings['application_key']}".encode("ascii")).decode("ascii")
+        auth_resp = requests.get(
             "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
-            auth=(settings["account_id"], settings["application_key"]),
+            headers={"Authorization": f"Basic {basic}"},
             timeout=8,
         )
         if auth_resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code}")
+            try:
+                txt = auth_resp.text
+            except Exception:
+                txt = ""
+            raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code} {txt}")
         auth_json = auth_resp.json()
         api_url = auth_json.get("apiUrl", "")
         download_url = auth_json.get("downloadUrl", "")
@@ -1574,12 +1580,20 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             timeout=8,
         )
         if up_resp.status_code != 200:
-            raise HTTPException(status_code=502, detail=f"b2_get_upload_url fallo: {up_resp.status_code}")
+            try:
+                txt = up_resp.text
+            except Exception:
+                txt = ""
+            raise HTTPException(status_code=502, detail=f"b2_get_upload_url fallo: {up_resp.status_code} {txt}")
         up_json = up_resp.json()
         upload_url = up_json.get("uploadUrl", "")
         upload_token = up_json.get("authorizationToken", "")
         if not upload_url or not upload_token:
-            raise HTTPException(status_code=502, detail="Respuesta de upload URL B2 inválida")
+            try:
+                dbg = up_resp.text
+            except Exception:
+                dbg = ""
+            raise HTTPException(status_code=502, detail=f"Respuesta de upload URL B2 inválida {dbg}")
 
         # 3) Subir archivo
         file_name = f"{settings['prefix']}/{dest_name}" if settings.get("prefix") else dest_name
@@ -1598,7 +1612,11 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         put_resp = requests.post(upload_url, headers=headers, data=data, timeout=30)
         if put_resp.status_code != 200:
             # Si falla, devolver None para permitir siguientes fallbacks
-            raise HTTPException(status_code=502, detail=f"b2_upload_file fallo: {put_resp.status_code}")
+            try:
+                txt = put_resp.text
+            except Exception:
+                txt = ""
+            raise HTTPException(status_code=502, detail=f"b2_upload_file fallo: {put_resp.status_code} {txt}")
 
         # Construir URL pública
         public_base = settings.get("public_base_url")
@@ -4645,27 +4663,35 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
 
         # Intentar subir a GCS si está configurado
         url: Optional[str] = None
+        storage: str = ""
         try:
             url = _upload_media_to_gcs(dest_name, data, content_type)
+            if url:
+                storage = "gcs"
         except HTTPException:
             raise
         except Exception:
             url = None
 
         # Fallback: Backblaze B2 si GCS no devuelve URL
+        b2_err_detail: Optional[str] = None
         if not url:
             try:
                 url = _upload_media_to_b2(dest_name, data, content_type)
+                if url:
+                    storage = "b2"
             except HTTPException as he:
                 # Tratar B2 como opcional: no abortar, continuar al fallback local
                 try:
-                    logging.warning(f"B2 fallback error: {getattr(he, 'detail', he)}")
+                    b2_err_detail = str(getattr(he, 'detail', he))
+                    logging.warning(f"B2 fallback error: {b2_err_detail}")
                 except Exception:
                     pass
                 url = None
             except Exception as e:
                 try:
-                    logging.warning(f"B2 fallback error: {e}")
+                    b2_err_detail = str(e)
+                    logging.warning(f"B2 fallback error: {b2_err_detail}")
                 except Exception:
                     pass
                 url = None
@@ -4679,6 +4705,7 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                 raise HTTPException(status_code=500, detail=f"Error guardando archivo: {e}")
             # URL relativa local
             url = f"/uploads/{dest_name}"
+            storage = "local"
         try:
             # Intentar garantizar columnas de medios (rápido y seguro)
             try:
@@ -4728,7 +4755,10 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error actualizando ejercicio: {e}")
 
-        return {"ok": True, "url": url, "mime": content_type, "filename": dest_name}
+        resp = {"ok": True, "url": url, "mime": content_type, "filename": dest_name, "storage": storage}
+        if storage == "local" and b2_err_detail:
+            resp["warning"] = f"Remote upload failed; using local storage. {b2_err_detail}"
+        return resp
     except HTTPException:
         raise
     except Exception as e:
