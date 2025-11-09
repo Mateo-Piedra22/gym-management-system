@@ -12,3 +12,4 @@ openpyxl
 xlsxtpl
 bcrypt
 pywa
+google-cloud-storage

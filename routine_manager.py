@@ -55,7 +55,7 @@ from openpyxl.utils import get_column_letter, column_index_from_string
 # Importaciones del proyecto
 from models import Rutina, RutinaEjercicio, Usuario, Ejercicio
 from database import DatabaseManager
-from utils import resource_path
+from utils import resource_path, get_webapp_base_url
 
 
 class RoutineTemplateManager:
@@ -515,6 +515,7 @@ class RoutineTemplateManager:
             'semana': template_data['semana_num'],
             'semana_texto': template_data['semana'],  # "Semana x"
             'Semana': template_data['semana'],        # Alias "Semana x"
+            'uuid': getattr(rutina, 'uuid_rutina', '') or getattr(rutina, 'uuid', '') or ''
         }
         
         # Variables específicas para plantillas perfectas (formato requerido)
@@ -531,6 +532,19 @@ class RoutineTemplateManager:
             'Semana_num': current_week,
             'Semana_numero': current_week,
         })
+
+        # Construir enlace para QR usando uuid_rutina si disponible
+        try:
+            base_url = get_webapp_base_url() or "http://127.0.0.1:8000"
+        except Exception:
+            base_url = "http://127.0.0.1:8000"
+        uuid_val = getattr(rutina, 'uuid_rutina', '') or ''
+        qr_link = ''
+        if isinstance(uuid_val, str) and uuid_val:
+            # Enlace al endpoint público JSON de la rutina
+            qr_link = f"{base_url.rstrip('/')}/api/rutinas/qr_scan/{uuid_val}"
+        template_data['uuid_rutina'] = uuid_val
+        template_data['qr_link'] = qr_link
         
         # Generar variables específicas por día para plantillas perfectas
         for day_num in sorted(exercises_by_day.keys()):
@@ -937,6 +951,13 @@ class RoutineTemplateManager:
                         pass
                 except Exception:
                     pass
+
+                # Insertar banda de pie con QR tras ajustes finales
+                try:
+                    if template_data.get('qr_link'):
+                        self._add_qr_footer_band(str(output_path), template_data.get('qr_link'), template_data.get('uuid_rutina'))
+                except Exception:
+                    pass
                 
                 # Intentar eliminar plantilla temporal
                 try:
@@ -1125,6 +1146,13 @@ class RoutineTemplateManager:
                     wb2.close()
                 except Exception:
                     pass
+            except Exception:
+                pass
+
+            # Insertar banda de pie con QR tras ajustes finales en fallback
+            try:
+                if template_data.get('qr_link'):
+                    self._add_qr_footer_band(str(output_path), template_data.get('qr_link'), template_data.get('uuid_rutina'))
             except Exception:
                 pass
             
@@ -1550,6 +1578,109 @@ class RoutineTemplateManager:
                 self.logger.warning(f"No se pudo insertar el logo en {cell.coordinate}: {e}")
             except Exception:
                 pass
+
+    def _add_qr_footer_band(self, xlsx_path: str, qr_link: str, uuid_text: Optional[str] = None) -> None:
+        """Añade una banda de pie con QR y texto informativo en todas las hojas del XLSX."""
+        try:
+            wb = openpyxl.load_workbook(xlsx_path)
+        except Exception:
+            return
+        # Generar imagen QR temporal, si es posible
+        qr_png_path = None
+        try:
+            import segno  # type: ignore
+            qrcode = segno.make(qr_link, error='m')
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            tmp.close()
+            qrcode.save(tmp.name, kind='png', scale=5)
+            qr_png_path = tmp.name
+        except Exception:
+            qr_png_path = None
+        # Cargar icono de smartphone si existe
+        phone_icon_path = resource_path(os.path.join('assets', 'web-icon.png'))
+        has_phone_icon = os.path.exists(phone_icon_path)
+
+        # Estilos de banda
+        band_fill = PatternFill(fill_type="solid", start_color="EEEEEE", end_color="EEEEEE")
+        band_font = Font(size=11, bold=True)
+        band_align = Alignment(horizontal="left", vertical="center")
+
+        for ws in wb.worksheets:
+            try:
+                max_row = (getattr(ws, 'max_row', 0) or 0)
+                band_row = max_row + 2 if max_row else 48
+                ws.cell(row=band_row, column=1, value="")
+                start_col = 1
+                end_col = 9
+                try:
+                    ws.merge_cells(start_row=band_row, start_column=start_col, end_row=band_row, end_column=end_col)
+                except Exception:
+                    pass
+                cell_text = ws.cell(row=band_row, column=start_col)
+                info = "Escaneá el QR para ver la rutina."
+                if isinstance(uuid_text, str) and uuid_text:
+                    info += f" UUID: {uuid_text}"
+                try:
+                    cell_text.value = info
+                except Exception:
+                    pass
+                try:
+                    cell_text.font = band_font
+                    cell_text.alignment = band_align
+                    for c in range(start_col, end_col + 1):
+                        ws.cell(row=band_row, column=c).fill = band_fill
+                except Exception:
+                    pass
+
+                # Insertar icono de smartphone al lado izquierdo si disponible
+                if has_phone_icon:
+                    try:
+                        icon = XLImage(phone_icon_path)
+                        icon.width = 24
+                        icon.height = 24
+                        icon.anchor = f"J{band_row-1 if band_row>1 else band_row}"
+                        ws.add_image(icon)
+                    except Exception:
+                        pass
+
+                # Insertar imagen QR a la derecha (columna K)
+                if qr_png_path and os.path.exists(qr_png_path):
+                    try:
+                        img = XLImage(qr_png_path)
+                        img.width = 120
+                        img.height = 120
+                        anchor_cell = f"K{band_row-1 if band_row>1 else band_row}"
+                        img.anchor = anchor_cell
+                        ws.add_image(img)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        link_cell = ws.cell(row=band_row, column=11, value=f"QR: {qr_link}")
+                        # añadir hipervínculo y estilo
+                        try:
+                            link_cell.hyperlink = qr_link
+                            link_cell.font = Font(color="0000EE", underline="single")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+            except Exception:
+                continue
+
+        try:
+            wb.save(xlsx_path)
+        except Exception:
+            pass
+        try:
+            wb.close()
+        except Exception:
+            pass
+        try:
+            if qr_png_path and os.path.exists(qr_png_path):
+                os.remove(qr_png_path)
+        except Exception:
+            pass
 
     def _load_exercises_sequential(self, sheet, dias_data: List[Dict[str, Any]], current_week: Optional[int] = None):
         """

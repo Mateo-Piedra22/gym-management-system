@@ -22,7 +22,7 @@ class Asistencia:
 
 @dataclass
 class Ejercicio:
-    id: Optional[int] = None; nombre: str = ""; grupo_muscular: Optional[str] = None; descripcion: Optional[str] = None; objetivo: str = "general"
+    id: Optional[int] = None; nombre: str = ""; grupo_muscular: Optional[str] = None; descripcion: Optional[str] = None; objetivo: str = "general"; video_url: Optional[str] = None; video_mime: Optional[str] = None
 
     def get(self, key, default=None):
         """Compatibilidad con acceso tipo diccionario (p. ej., obj.get('campo'))."""

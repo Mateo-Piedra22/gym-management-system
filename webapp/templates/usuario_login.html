@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acceso Usuario • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    .screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: 100%; max-width: 420px; padding: 24px; border-radius: 16px; background: var(--card); border: 1px solid var(--border); box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom: 16px; }
+    .brand img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 20px; }
+    .brand .muted { margin: 2px 0 0 0; line-height: 1.3; }
+    label { display:block; margin-bottom: 8px; color: var(--muted); }
+    input[type=text], input[type=password] { width:100%; padding:12px 14px; border-radius: 12px; border:1px solid var(--border); background: #0b1220; color: var(--text); outline: none; }
+    .actions { margin-top: 16px; display:flex; gap: 8px; }
+    .error { margin-top: 10px; color: #f87171; font-size: 14px; }
+  </style>
+  <style>
+    .toast-container { position: fixed; top: 12px; right: 12px; display:flex; flex-direction:column; gap:8px; z-index: 9999; }
+    .toast { display:flex; align-items:center; gap:12px; background: var(--card); color: var(--text); border:1px solid var(--border); border-radius: 12px; padding: 12px 14px; box-shadow: 0 6px 16px rgba(0,0,0,.4); }
+    .toast.success { border-color: var(--accent); background: rgba(176,125,93,0.18); }
+    .toast.warning { border-color: #f59e0b33; background: #78350f33; }
+    .toast.error { border-color: #ef444433; background: #7f1d1d33; }
+    .toast .message { flex:1; }
+    .toast .actions .btn { background: transparent; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; color: var(--text); cursor: pointer; }
+    @keyframes toast-in { from { transform: translateY(-6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
+  </style>
+  <script src="/static/js/toast.js"></script>
+  <link rel="icon" href="{{ logo_url }}" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="x-error" content="{{ error | e if error else '' }}">
+  <meta name="robots" content="noindex, nofollow">
+  <style>
+    .brand-actions .icon-only { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); color: var(--text); }
+  </style>
+  </head>
+<body>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
+  <main class="screen">
+    <section class="login-card" aria-labelledby="login-title">
+      <div class="brand">
+        <img src="{{ logo_url }}" alt="Logo" />
+        <div>
+          <h1 id="login-title">{{ gym_name }}</h1>
+          <p class="muted">Acceso para usuarios</p>
+        </div>
+        <div class="brand-actions" style="margin-left:auto; display:flex; align-items:center;">
+          <a href="/" class="back-link icon-only" title="Volver al inicio" aria-label="Volver al inicio">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+          </a>
+        </div>
+      </div>
+      <form method="post" action="/usuario/login" aria-describedby="form-help">
+        <label for="dni">DNI</label>
+        <input type="text" id="dni" name="dni" placeholder="Ingresa tu DNI" autofocus inputmode="numeric" />
+        <label for="pin" style="margin-top:10px;">PIN</label>
+        <input type="password" id="pin" name="pin" placeholder="Ingresa tu PIN" />
+        <p id="form-help" class="muted" style="margin-top:8px;">Usa tu DNI y PIN configurados en recepción.</p>
+        <div class="actions">
+          <button class="btn" type="submit">Entrar</button>
+        </div>
+      </form>
+      <script>
+        document.addEventListener('DOMContentLoaded', () => {
+          const metaErr = document.querySelector('meta[name="x-error"]');
+          const err = metaErr && metaErr.content ? metaErr.content : null;
+          if (err) { showToast(err, 'error', 4500); }
+          const form = document.querySelector('form[method="post"]');
+          if (form) {
+            form.addEventListener('submit', (e) => {
+              const dni = (form.querySelector('input[name="dni"]') || { value: '' }).value.trim();
+              const pin = (form.querySelector('input[name="pin"]') || { value: '' }).value.trim();
+              if (!dni || !pin) {
+                e.preventDefault();
+                showToast('Por favor ingresa DNI y PIN.', 'warning', 3500);
+              }
+            });
+          }
+        });
+      </script>
+    </section>
+  </main>
+</body>
+</html>

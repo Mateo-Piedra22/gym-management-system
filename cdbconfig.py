@@ -1997,10 +1997,12 @@ class DBConfigDialog(QDialog):
             cur.execute("SELECT 1 FROM usuarios WHERE rol = 'dueño'")
             has_owner = bool(cur.fetchone())
             if not has_owner:
+                # Insertar Dueño con PIN plano
+                _owner_pin = "2203"
                 cur.execute(
                     """INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
                            VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                    ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
+                    ("DUEÑO DEL GIMNASIO", "00000000", "N/A", _owner_pin, "dueño", True, "estandar")
                 )
 
             # 4) Reinstalar RLS y políticas bloqueando filas 'dueño'

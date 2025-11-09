@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Panel Usuario • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    .screen { min-height: 100vh; padding: 24px; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom: 16px; }
+    .brand img { width: 44px; height: 44px; }
+    h1 { margin: 0; font-size: 20px; }
+    .header { display:flex; align-items:center; justify-content:space-between; }
+    .card { background: var(--card); border:1px solid var(--border); border-radius:16px; padding:16px; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    .cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
+    .muted { color: var(--muted); }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding: 4px 8px; border-radius: 10px; border:1px solid var(--border); }
+    .brand-actions .icon-only { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); color: var(--text); }
+    .jwt-box { margin-top:10px; padding:10px; border:1px dashed var(--border); border-radius:10px; word-break: break-all; font-size:12px; }
+    .status { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .chip { display:inline-flex; align-items:center; gap:6px; padding: 6px 10px; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,.06); }
+    .chip.warn { background: rgba(255, 165, 0, .12); border-color: rgba(255,165,0,.5); }
+    .chip.danger { background: rgba(255, 0, 0, .12); border-color: rgba(255,0,0,.5); }
+    .chip.ok { background: rgba(46, 204, 113, .12); border-color: rgba(46,204,113,.5); }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
+    .table th { color: var(--muted); font-weight: 600; }
+    .qr-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .btn { padding: 10px 12px; border-radius: 10px; border:1px solid var(--border); background: var(--card); color: var(--text); text-decoration: none; cursor: pointer; }
+    .btn.primary { background: var(--accent); color: var(--text); border-color: var(--accent); }
+    .reader { border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    #qr-reader { width: 100%; max-width: 480px; min-height: 240px; background: rgba(255,255,255,.04); }
+    .scan-results { margin-top: 12px; }
+    .day { margin-top: 10px; }
+    .exercise { display:flex; align-items:center; justify-content:space-between; padding:8px; border:1px solid var(--border); border-radius:10px; background: rgba(255,255,255,.04); cursor:pointer; }
+    .exercise:hover { background: rgba(255,255,255,.08); }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+    .modal { width: min(720px, 92vw); background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    .modal header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
+    .modal .content { padding: 16px; }
+    .modal .content video, .modal .content img { width: 100%; height: auto; border-radius: 12px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+    @media print {
+      @page { size: A4 landscape; margin: 12mm; }
+      .print-band { display:block; position: fixed; bottom: 0; left: 0; width: 100%; padding: 8mm 12mm; background: white; border-top: 1px solid #999; }
+      .print-band-inner { display:flex; align-items:center; justify-content:space-between; gap: 12mm; }
+      #print-qr { width: 40mm; height: 40mm; }
+      .print-band .muted { color: #555; }
+      .no-print { display:none !important; }
+    }
+    @media screen {
+      .print-band { display:none; }
+    }
+  </style>
+  <script src="/static/js/toast.js"></script>
+  <link rel="icon" href="{{ logo_url }}" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+</head>
+<body>
+  <main class="screen">
+    <div class="container">
+      <div class="header">
+        <div class="brand">
+          <img src="{{ logo_url }}" alt="Logo" />
+          <div>
+            <h1>{{ gym_name }}</h1>
+            <p class="muted">Panel del usuario</p>
+          </div>
+        </div>
+        <div class="brand-actions" style="display:flex; align-items:center; gap:8px;">
+          <a href="/usuario/logout" class="icon-only" title="Cerrar sesión" aria-label="Cerrar sesión">
+            <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+          </a>
+          <a href="/" class="icon-only" title="Inicio" aria-label="Inicio">
+            <i class="bi bi-house" aria-hidden="true"></i>
+          </a>
+        </div>
+      </div>
+
+      <section class="card" aria-labelledby="perfil-title">
+<h2 id="perfil-title" style="margin:0 0 10px 0;">Hola, {{ usuario.nombre if usuario and usuario.nombre else 'Usuario' }}</h2>
+        <p class="muted">Aquí verás tus rutinas activas y detalles.</p>
+        <div style="display:flex; flex-wrap: wrap; gap:8px; margin-top:8px;">
+          {% if activo_usuario is not none %}
+            <span class="badge" aria-label="Estado del usuario">{{ 'Usuario activo' if activo_usuario else 'Usuario inactivo' }}</span>
+          {% endif %}
+          {% if cuotas_vencidas is not none and cuotas_vencidas|int > 0 %}
+            <span class="badge" aria-label="Cuotas vencidas">{{ cuotas_vencidas }} cuotas vencidas</span>
+          {% endif %}
+          {% if dias_restantes is not none %}
+            <span class="badge" aria-label="Días restantes">{{ dias_restantes }} días restantes</span>
+          {% endif %}
+        </div>
+        {% if jwt %}
+          <details style="margin-top:8px;">
+            <summary>Ver token JWT para apps</summary>
+            <div class="jwt-box" aria-live="polite">{{ jwt }}</div>
+          </details>
+        {% endif %}
+      </section>
+
+      <section class="card" aria-labelledby="estado-title" style="margin-top:16px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px;">
+          <h3 id="estado-title" style="margin:0;">Estado de cuenta</h3>
+          <div class="status" aria-live="polite">
+            {% set dias = dias_restantes if dias_restantes is not none else 9999 %}
+            {% set venc_badge_class = 'chip ok' %}
+            {% if dias <= 7 and dias > 0 %}
+              {% set venc_badge_class = 'chip warn' %}
+            {% elif dias <= 0 %}
+              {% set venc_badge_class = 'chip danger' %}
+            {% endif %}
+            <span class="{{ venc_badge_class }}" title="Próximo vencimiento">
+              <i class="bi bi-calendar-event" aria-hidden="true"></i>
+              <span>{% if proximo_vencimiento %}Vence: {{ proximo_vencimiento }}{% else %}Sin fecha de vencimiento{% endif %}</span>
+            </span>
+            {% if dias_restantes is not none %}
+              <span class="chip" title="Días restantes"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ dias_restantes }} días</span>
+            {% endif %}
+            {% if cuotas_vencidas is not none %}
+              <span class="chip" title="Cuotas vencidas"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ cuotas_vencidas }} vencidas</span>
+            {% endif %}
+            {% if activo_usuario is not none %}
+              <span class="chip" title="Estado"><i class="bi bi-person-check" aria-hidden="true"></i>{{ 'Activo' if activo_usuario else 'Inactivo' }}</span>
+            {% endif %}
+          </div>
+        </div>
+        {% if ultimo_pago %}
+          <p class="muted" style="margin-top:8px;">Último pago: {{ ultimo_pago }}</p>
+        {% endif %}
+      </section>
+
+      <section class="card" aria-labelledby="pagos-title" style="margin-top:16px;">
+        <h3 id="pagos-title" style="margin:0 0 8px 0;">Historial de pagos</h3>
+        {% if pagos and pagos|length > 0 %}
+          <div style="overflow-x: auto;">
+            <table class="table" aria-describedby="pagos-title">
+              <thead>
+                <tr>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Monto</th>
+                  <th scope="col">Concepto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for p in pagos %}
+                  <tr>
+                    <td>{{ p.fecha if p.fecha else '-' }}</td>
+                    <td>${{ '%.2f'|format(p.monto if p.monto else 0.0) }}</td>
+                    <td>{% if p.mes and p.anio %}Cuota {{ '%02d'|format(p.mes) }}/{{ p.anio }}{% else %}-{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">No hay pagos registrados aún.</p>
+        {% endif %}
+      </section>
+
+      <section style="margin-top:16px;">
+        <h3 style="margin:0 0 8px 0;">Tus rutinas</h3>
+        {% if rutinas and rutinas|length > 0 %}
+          <div class="cards">
+            {% for r in rutinas %}
+              <article class="card" aria-label="Rutina {{ r.nombre }}"
+                data-activa="{{ 'true' if r.activa else 'false' }}"
+                data-qr-url="{{ r.qr_url if r.qr_url else '' }}"
+                {% if r.activa %}
+                role="button" tabindex="0" title="Tocar para desplegar lector QR" style="cursor:pointer;"
+                onclick="onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true')"
+                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true'); }"
+                {% endif %}
+              >
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <h4 style="margin:0;">{{ r.nombre }}</h4>
+                  <span
+                    class="badge routine-badge"
+                    data-activa="{{ 'true' if r.activa else 'false' }}"
+                    data-qr-url="{{ r.qr_url if r.qr_url else '' }}"
+                    role="{{ 'button' if r.activa else 'status' }}"
+                    tabindex="{{ '0' if r.activa else '-1' }}"
+                    title="{{ 'Tocar para abrir la rutina' if r.activa else 'Rutina inactiva' }}"
+                    onclick="onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true')"
+                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true'); }"
+                  >{{ 'Activa' if r.activa else 'Inactiva' }}</span>
+                </div>
+                <p class="muted" style="margin:8px 0 0 0;">Días: {{ r.dias }}</p>
+                {% if r.ejercicios_por_dia and r.ejercicios_por_dia|length > 0 %}
+                  <ul style="margin:10px 0 0 0; padding-left: 18px;">
+                    {% for d, c in r.ejercicios_por_dia.items() %}
+                      <li>Día {{ d }}: {{ c }} ejercicios</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+                {% if r.qr_url and r.activa %}
+                  <div class="qr-actions" style="margin-top:12px;">
+                    <button class="btn" type="button" data-qr-url="{{ r.qr_url }}" onclick="event.stopPropagation(); mostrarRutinaDesdeQR(this.getAttribute('data-qr-url'))" onkeydown="event.stopPropagation();">Ver rutina con QR</button>
+                  </div>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="card">
+            <p class="muted">No tienes rutinas asignadas actualmente.</p>
+          </div>
+        {% endif %}
+      </section>
+
+      <!-- Modal: Escaneo de QR de rutina -->
+      <div class="modal-backdrop" id="qr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title" style="display:none;">
+        <div class="modal" role="document">
+          <header>
+            <h4 id="qr-modal-title" style="margin:0;">Escanear QR de rutina</h4>
+            <button class="btn" type="button" onclick="cerrarModalQR()" aria-label="Cerrar"><i class="bi bi-x" aria-hidden="true"></i></button>
+          </header>
+          <div class="content">
+            <div id="qr-reader-modal" class="reader" role="region" aria-label="Lector QR" aria-live="polite" style="min-height:260px"></div>
+            <div id="qr-msg" class="muted" style="margin-top:8px;">Apunta la cámara al código QR de tu rutina.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Resultados: Rutina escaneada -->
+      <section id="rutina-scan-result" class="card no-print" aria-labelledby="rutina-scan-title" style="margin-top:16px; display:none;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <h3 id="rutina-scan-title" style="margin:0;">Rutina escaneada</h3>
+          <div class="qr-actions">
+            {% if rutina_activa_qr_url %}
+            <button class="btn" type="button" onclick="mostrarRutinaActiva()">
+              <i class="bi bi-eye" aria-hidden="true"></i> Ver rutina activa
+            </button>
+            {% endif %}
+          </div>
+        </div>
+        <div class="scan-results" id="scan-results" aria-live="polite"></div>
+      </section>
+
+      <div class="modal-backdrop" id="exercise-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="exercise-modal-title">
+        <div class="modal" role="document">
+          <header>
+            <h4 id="exercise-modal-title" style="margin:0;">Ejercicio</h4>
+            <button class="btn" type="button" onclick="cerrarModalEjercicio()" aria-label="Cerrar"><i class="bi bi-x" aria-hidden="true"></i></button>
+          </header>
+          <div class="content">
+            <h5 id="exercise-name" style="margin:0 0 8px 0;"></h5>
+            <p id="exercise-desc" class="muted"></p>
+            <div id="exercise-media" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="print-band" aria-hidden="true">
+    <div class="print-band-inner">
+      <div id="print-qr" title="QR de rutina"></div>
+      <div>
+        <strong>{{ gym_name }}</strong>
+        <div class="muted">Escanea para ver tu rutina completa</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Cargar script externo bajo demanda
+    function cargarScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('No se pudo cargar ' + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    let qrInstance = null;
+    async function activarLectorQR(){
+      const activarBtn = document.getElementById('btn-activar-lector');
+      const detenerBtn = document.getElementById('btn-detener-lector');
+      try {
+        if (!window.Html5Qrcode) {
+          await cargarScript('/static/libs/html5-qrcode.min.js');
+        }
+        const readerElem = document.getElementById('qr-reader');
+        if (!readerElem) return;
+        qrInstance = new Html5Qrcode('qr-reader');
+        activarBtn.disabled = true;
+        detenerBtn.disabled = false;
+        const config = { fps: 10, qrbox: { width: 280, height: 280 }, aspectRatio: 1.0 }; 
+        const cameras = await Html5Qrcode.getCameras();
+        const cameraId = (cameras && cameras.length) ? (cameras.find(c => /back|rear/i.test(c.label))?.id || cameras[0].id) : undefined;
+        await qrInstance.start(
+          cameraId || { facingMode: "environment" },
+          config,
+          (decodedText) => onScanSuccess(decodedText),
+          (err) => { /* Ignorar errores de escaneo continuo */ }
+        );
+      } catch (e) {
+        window.toast && window.toast.error('No se pudo activar el lector QR');
+        console.error(e);
+      }
+    }
+
+    async function detenerLectorQR(){
+      try {
+        const activarBtn = document.getElementById('btn-activar-lector');
+        const detenerBtn = document.getElementById('btn-detener-lector');
+        detenerBtn.disabled = true;
+        if (qrInstance) {
+          await qrInstance.stop();
+          await qrInstance.clear();
+          qrInstance = null;
+        }
+        activarBtn.disabled = false;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Modal QR: abrir/cerrar y activar lector dentro del modal
+    async function activarLectorQRModal(){
+      try {
+        if (!window.Html5Qrcode) {
+          await cargarScript('/static/libs/html5-qrcode.min.js');
+        }
+        const readerElem = document.getElementById('qr-reader-modal');
+        if (!readerElem) return;
+        if (qrInstance) { try { await qrInstance.stop(); await qrInstance.clear(); } catch(_){} }
+        qrInstance = new Html5Qrcode('qr-reader-modal');
+        const config = { fps: 10, qrbox: 260, aspectRatio: 1.0, rememberLastUsedCamera: true };
+        const cameras = await Html5Qrcode.getCameras();
+        const cameraId = (cameras && cameras.length) ? (cameras.find(c => /back|rear/i.test(c.label))?.id || cameras[0].id) : undefined;
+        await qrInstance.start(
+          cameraId || { facingMode: "environment" },
+          config,
+          (decodedText) => onScanSuccess(decodedText),
+          (err) => { /* Ignorar errores de escaneo continuo */ }
+        );
+        const msgEl = document.getElementById('qr-msg');
+        if (msgEl) { msgEl.textContent = 'Escaneando…'; }
+      } catch (e) {
+        const msgEl = document.getElementById('qr-msg');
+        if (msgEl) {
+          msgEl.textContent = 'No se pudo activar la cámara. Revisá permisos.';
+        }
+        window.toast && window.toast.error('No se pudo activar el lector QR');
+        console.error(e);
+      }
+    }
+
+    function abrirModalQR(){
+      const bd = document.getElementById('qr-modal-backdrop');
+      if (!bd) return;
+      bd.style.display = 'flex';
+      const titleEl = document.getElementById('qr-modal-title');
+      if (titleEl){ try { titleEl.setAttribute('tabindex','-1'); titleEl.focus(); } catch(_){ } }
+      bd.addEventListener('click', (ev) => { if (ev.target === bd) cerrarModalQR(); });
+      document.addEventListener('keydown', onEscCloseQR);
+      activarLectorQRModal();
+    }
+    async function cerrarModalQR(){
+      await detenerLectorQR();
+      const bd = document.getElementById('qr-modal-backdrop');
+      if (bd) { bd.style.display = 'none'; }
+      document.removeEventListener('keydown', onEscCloseQR);
+    }
+    function onEscCloseQR(ev){ if (ev.key === 'Escape') cerrarModalQR(); }
+
+    function extraerUuid(desde){
+      try {
+        const m = String(desde).match(/qr_scan\/(\w[\w-]+)/);
+        if (m && m[1]) return m[1];
+      } catch(e){}
+      try {
+        const isUuid = /^[0-9a-fA-F-]{8,}$/.test(String(desde));
+        if (isUuid) return String(desde);
+      } catch(e){}
+      return null;
+    }
+
+    async function onScanSuccess(decodedText){
+      const uuid = extraerUuid(decodedText);
+      if (!uuid){
+        window.toast && window.toast.warning('QR inválido para rutina');
+        return;
+      }
+      try {
+        // Detener y cerrar el modal tras un escaneo válido para evitar duplicados
+        await cerrarModalQR();
+        const res = await fetch(`/api/rutinas/qr_scan/${uuid}`);
+        const data = await res.json();
+        if (!data.ok){
+          window.toast && window.toast.error(data.error || 'No se pudo obtener la rutina');
+          return;
+        }
+        renderRutina(data.rutina);
+      } catch (e){
+        window.toast && window.toast.error('Error cargando rutina');
+        console.error(e);
+      }
+    }
+
+    function mostrarRutinaDesdeQR(qrUrl){
+      const uuid = extraerUuid(qrUrl);
+      if (!uuid){ window.toast && window.toast.warning('QR no válido'); return; }
+      onScanSuccess(uuid);
+    }
+
+    function mostrarRutinaActiva(){
+      const url = "{{ rutina_activa_qr_url if rutina_activa_qr_url else '' }}";
+      if (!url){ window.toast && window.toast.warning('No hay rutina activa con QR'); return; }
+      mostrarRutinaDesdeQR(url);
+    }
+
+    function onRutinaBadgeClick(qrUrl, esActiva){
+      if (!esActiva){ window.toast && window.toast.info('Esta rutina está inactiva'); return; }
+      abrirModalQR();
+    }
+
+    function renderRutina(rutina){
+      const resSec = document.getElementById('rutina-scan-result');
+      if (resSec) { resSec.style.display = ''; }
+      const cont = document.getElementById('scan-results');
+      if (!cont) return;
+      cont.innerHTML = '';
+      const h = document.createElement('h4');
+      h.textContent = String(rutina.nombre_rutina || rutina.nombre || 'Rutina');
+      cont.appendChild(h);
+      const dias = Array.isArray(rutina.dias) ? rutina.dias : [];
+      dias.forEach(d => {
+        const day = document.createElement('div');
+        day.className = 'day';
+        const title = document.createElement('h5');
+        title.textContent = String(d.nombre || `Día ${d.numero}`);
+        day.appendChild(title);
+        const list = document.createElement('div');
+        (d.ejercicios || []).forEach(e => {
+          const item = document.createElement('div');
+          item.className = 'exercise';
+          item.setAttribute('role', 'button');
+          item.setAttribute('tabindex', '0');
+          item.innerHTML = `<span>${String(e.nombre || 'Ejercicio')}</span><span class="muted">${String(e.series || '-')}/${String(e.repeticiones || '-')}</span>`;
+          item.addEventListener('click', () => abrirModalEjercicio(e));
+          item.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirModalEjercicio(e); } });
+          list.appendChild(item);
+        });
+        day.appendChild(list);
+        cont.appendChild(day);
+      });
+    }
+
+    function abrirModalEjercicio(ej){
+      const bd = document.getElementById('exercise-modal-backdrop');
+      const name = document.getElementById('exercise-name');
+      const desc = document.getElementById('exercise-desc');
+      const media = document.getElementById('exercise-media');
+      const titleEl = document.getElementById('exercise-modal-title');
+      name.textContent = String(ej.nombre || 'Ejercicio');
+      desc.textContent = String(ej.descripcion || '');
+      media.innerHTML = '';
+      const url = ej.video_url;
+      if (url && /\.gif(\?.*)?$/.test(url)){
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = 'Animación del ejercicio';
+        img.className = 'responsive-media';
+        img.style.maxHeight = '280px';
+        media.appendChild(img);
+      } else if (url){
+        const v = document.createElement('video');
+        v.src = url;
+        v.controls = true; v.playsInline = true; v.preload = 'metadata';
+        v.setAttribute('controlsList','nodownload noplaybackrate');
+        v.className = 'responsive-media';
+        v.style.maxHeight = '280px';
+        media.appendChild(v);
+      } else {
+        const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Sin video disponible'; media.appendChild(p);
+      }
+      bd.classList.add('active');
+      if (titleEl){ try { titleEl.setAttribute('tabindex','-1'); titleEl.focus(); } catch(_){ } }
+      bd.addEventListener('click', (ev) => { if (ev.target === bd) cerrarModalEjercicio(); });
+      document.addEventListener('keydown', onEscClose);
+    }
+    function cerrarModalEjercicio(){
+      const bd = document.getElementById('exercise-modal-backdrop');
+      const m = bd ? bd.querySelector('.modal') : null;
+      if(m){
+        m.classList.add('closing');
+        setTimeout(() => { bd.classList.remove('active'); m.classList.remove('closing'); }, 160);
+      } else {
+        bd.classList.remove('active');
+      }
+      document.removeEventListener('keydown', onEscClose);
+    }
+    function onEscClose(ev){ if (ev.key === 'Escape') cerrarModalEjercicio(); }
+
+    // Banda de impresión: generar QR de rutina activa
+    (async function(){
+      const data = "{{ rutina_activa_qr_url if rutina_activa_qr_url else '' }}";
+      if (!data) return;
+      try {
+        if (!window.QRCode){ await cargarScript('/static/libs/qrcode.min.js'); }
+        const target = document.getElementById('print-qr');
+        if (target){
+          // ~40mm ≈ 152px @96dpi
+          new QRCode(target, { text: String(data), width: 152, height: 152 });
+        }
+      } catch (e) { console.error(e); }
+    })();
+  </script>
+</body>
+</html>

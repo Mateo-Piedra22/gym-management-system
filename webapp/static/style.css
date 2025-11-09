@@ -204,6 +204,10 @@ input:focus, select:focus, textarea:focus, .control:focus, .input:focus { outlin
 /* Modales: backdrop y contenedor scrollable */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 999; }
 .modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; max-width: 960px; width: 100%; max-height: 85vh; overflow: auto; }
+.modal-backdrop.active { display: flex; }
+.modal.closing { opacity: 0; transform: scale(0.98); transition: opacity .16s ease, transform .16s ease; }
+.responsive-media { width: 100%; height: auto; border-radius: 12px; }
+.hint { font-size: 12px; color: var(--muted); }
 .modal-body { display: flex; flex-direction: column; gap: 12px; }
 .modal-close { background: transparent; border: none; color: var(--muted); font-size: 18px; cursor: pointer; }
 
@@ -231,6 +235,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { border-bottom: 1px solid var(--border); padding: 10px; text-align: left; }
 th { color: var(--muted); font-weight: 600; }
 tr:hover td { background: rgba(255,255,255,0.03); }
+.table-scroll { width: 100%; overflow: auto; }
 
 /* Alineación tabular para números (KPIs y tablas de datos) */
 .value, .card-value,
@@ -420,6 +425,7 @@ body.kiosk-mode .main { padding: 8px; }
   .app-header-inner { padding: 10px 12px; }
   .main { padding: 12px; }
   .side-sheet { width: 96vw; }
+  .modal { max-width: 96vw; }
 }
 
 

@@ -561,6 +561,12 @@
         </div>
       </div>
       <div class="block">
+        <div class="block-header"><h3 style="margin:0; font-size:16px;">Vista previa multimedia</h3></div>
+        <div class="block-body">
+          <div id="ejercicio-side-media"><p class="muted">Sin video</p></div>
+        </div>
+      </div>
+      <div class="block">
         <div class="block-header"><h3 style="margin:0; font-size:16px;">Consejos de ejecución</h3></div>
         <div class="block-body">
           <ul id="ejercicio-side-tips" style="padding-left:18px; margin:0"><li class="muted">Selecciona un ejercicio para ver consejos</li></ul>
@@ -2170,6 +2176,24 @@
           <label for="ejercicio-descripcion">Descripción</label>
           <textarea id="ejercicio-descripcion" placeholder="Instrucciones, técnica y variantes"></textarea>
         </div>
+        <div class="form-row">
+          <label for="ejercicio-video-file">Video/GIF</label>
+          <div class="ej-video-field" style="display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; width:100%">
+            <div class="ej-video-pane" style="flex:1 1 420px; min-width:320px">
+              <div id="ejercicio-video-dropzone" tabindex="0" role="button" aria-label="Arrastra y suelta un video o GIF, o haz clic para seleccionar" aria-describedby="ejercicio-video-hint" style="border:2px dashed #ccc; border-radius:10px; padding:14px; text-align:center; cursor:pointer; user-select:none; min-height:220px; display:flex; flex-direction:column; justify-content:center; gap:10px">
+                <div id="ejercicio-video-preview" class="muted" aria-live="polite">Sin video</div>
+                <div id="ejercicio-video-msg" style="font-size:13px">Arrastra y suelta un video o GIF aquí, o haz clic para seleccionar</div>
+              </div>
+              <input id="ejercicio-video-file" type="file" accept="video/*,image/gif" style="display:none" />
+            </div>
+            <div class="ej-video-actions" style="flex:0 0 240px; display:flex; flex-direction:column; gap:8px">
+              <button class="btn outline neutral" id="ejercicio-video-select" type="button">Seleccionar archivo</button>
+              <button class="btn danger" id="ejercicio-video-remove" type="button">Eliminar video</button>
+              <span id="ejercicio-video-remove-flag" style="display:none">0</span>
+              <div id="ejercicio-video-hint" class="hint muted" style="font-size:12px">Tipos admitidos: Video (MP4/WebM) o GIF. Tamaño máximo recomendado 50MB.</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2658,7 +2682,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, ejercicioVideoFile: null, ejercicioVideoRemove: false, editingEjercicioOriginalVideoUrl: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
 
     function fmtDate(d){
       if(!d) return '';
@@ -7813,13 +7837,85 @@ function attachWheelZoom(containerId, frameId){
 
     function showEjercicioForm(e){
       state.editingEjercicioId = e && e.id ? Number(e.id) : null;
+      state.ejercicioVideoFile = null; state.ejercicioVideoRemove = false; state.editingEjercicioOriginalVideoUrl = (e && e.video_url) ? String(e.video_url) : null;
       openModal('modal-ejercicio-form');
       const nombreEl = document.getElementById('ejercicio-nombre'); if(nombreEl) nombreEl.value = e && e.nombre ? String(e.nombre) : '';
       const grupoEl = document.getElementById('ejercicio-grupo'); if(grupoEl) grupoEl.value = e && e.grupo_muscular ? String(e.grupo_muscular) : '';
       const objEl = document.getElementById('ejercicio-objetivo'); if(objEl) objEl.value = e && e.objetivo ? String(e.objetivo) : 'general';
       const descEl = document.getElementById('ejercicio-descripcion'); if(descEl) descEl.value = e && e.descripcion ? String(e.descripcion) : '';
+      const prev = document.getElementById('ejercicio-video-preview'); if(prev){
+        prev.innerHTML = '';
+        const url = e && e.video_url ? String(e.video_url) : '';
+        if(url){
+          if(/\.gif(\?.*)?$/.test(url)){
+            const img = document.createElement('img'); img.src = url; img.alt = 'Animación del ejercicio'; img.className = 'responsive-media'; img.style.maxHeight = '220px'; prev.appendChild(img);
+          } else {
+            const v = document.createElement('video'); v.src = url; v.controls = true; v.playsInline = true; v.preload = 'metadata'; v.setAttribute('controlsList','nodownload noplaybackrate'); v.className = 'responsive-media'; v.style.maxHeight = '220px'; prev.appendChild(v);
+          }
+        } else {
+          const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Sin video'; prev.appendChild(p);
+        }
+      }
+      const fileEl = document.getElementById('ejercicio-video-file'); if(fileEl){
+        try{ fileEl.value = ''; }catch(_){}
+        const processVideoFile = (f) => {
+          if(f){
+            const type = (f.type || '').toLowerCase();
+            const sizeMB = f.size ? (f.size / (1024*1024)) : 0;
+            const isGif = type === 'image/gif' || /\.gif$/i.test(f.name || '');
+            const isVideo = type.startsWith('video/');
+            if(!(isGif || isVideo)){
+              showToast('Archivo no permitido. Solo video o GIF.', 'warning', 3500);
+              try{ fileEl.value = ''; }catch(_){}
+              return;
+            }
+            if(sizeMB > 50){
+              showToast('Archivo demasiado grande. Máximo 50MB.', 'warning', 4000);
+              try{ fileEl.value = ''; }catch(_){}
+              return;
+            }
+          }
+          state.ejercicioVideoFile = f || null; state.ejercicioVideoRemove = false; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0';
+          const prev2 = document.getElementById('ejercicio-video-preview'); if(prev2){ prev2.innerHTML = ''; if(f){
+            const url2 = URL.createObjectURL(f);
+            if((f.type||'').toLowerCase() === 'image/gif' || /\.gif$/i.test(f.name || '')){
+              const img2 = document.createElement('img'); img2.src = url2; img2.alt = 'GIF seleccionado'; img2.className = 'responsive-media'; img2.style.maxHeight = '220px'; prev2.appendChild(img2);
+            } else {
+              const v2 = document.createElement('video'); v2.src = url2; v2.controls = true; v2.playsInline = true; v2.preload = 'metadata'; v2.setAttribute('controlsList','nodownload noplaybackrate'); v2.className = 'responsive-media'; v2.style.maxHeight = '220px'; prev2.appendChild(v2);
+            }
+          } else { const p2 = document.createElement('p'); p2.className = 'muted'; p2.textContent = 'Sin video'; prev2.appendChild(p2); } }
+        };
+        fileEl.onchange = () => {
+          const f = fileEl.files && fileEl.files[0] ? fileEl.files[0] : null;
+          processVideoFile(f);
+        };
+        // Dropzone bindings
+        const dz = document.getElementById('ejercicio-video-dropzone');
+        if(dz){
+          const dzMsg = document.getElementById('ejercicio-video-msg');
+          const baseMsg = (dzMsg && dzMsg.textContent) || 'Arrastra y suelta un video o GIF aquí, o haz clic para seleccionar';
+          const setActive = (on) => { try{ dz.style.borderColor = on ? '#007bff' : '#ccc'; dz.style.backgroundColor = on ? 'rgba(0,120,255,0.06)' : ''; if(dzMsg) dzMsg.textContent = on ? 'Suelta aquí para cargar' : baseMsg; }catch(_){} };
+          ['dragenter','dragover'].forEach(evName => dz.addEventListener(evName, (ev) => { ev.preventDefault(); ev.stopPropagation(); setActive(true);}));
+          ['dragleave','drop'].forEach(evName => dz.addEventListener(evName, (ev) => { ev.preventDefault(); ev.stopPropagation(); setActive(false);}));
+          dz.addEventListener('drop', (ev) => {
+            const f = (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files[0]) ? ev.dataTransfer.files[0] : null;
+            if(f){ processVideoFile(f); }
+          });
+          dz.addEventListener('click', () => { try{ fileEl.click(); }catch(_){} });
+          dz.addEventListener('keydown', (ev) => { if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); try{ fileEl.click(); }catch(_){} } });
+        }
+        const selectBtn = document.getElementById('ejercicio-video-select');
+        if(selectBtn){ selectBtn.onclick = () => { try{ fileEl.click(); }catch(_){} }; }
+      }
+      const rmBtn = document.getElementById('ejercicio-video-remove'); if(rmBtn){
+        rmBtn.onclick = () => {
+          state.ejercicioVideoFile = null; state.ejercicioVideoRemove = true; try{ (document.getElementById('ejercicio-video-file')||{}).value=''; }catch(_){}
+          const flg2 = document.getElementById('ejercicio-video-remove-flag'); if(flg2) flg2.textContent = '1';
+          const prev3 = document.getElementById('ejercicio-video-preview'); if(prev3){ prev3.innerHTML = ''; const p3 = document.createElement('p'); p3.className = 'muted'; p3.textContent = 'Se eliminará el video actual'; prev3.appendChild(p3); }
+        };
+      }
     }
-    function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); }
+    function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); state.ejercicioVideoFile=null; state.ejercicioVideoRemove=false; state.editingEjercicioOriginalVideoUrl=null; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0'; }
 
     async function saveEjercicio(){
       const nombre = (document.getElementById('ejercicio-nombre') || {}).value || '';
@@ -7835,6 +7931,20 @@ function attachWheelZoom(containerId, frameId){
         if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
         const data = await res.json().catch(() => ({}));
         if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar', 'error', 4500); return; }
+        const eid = Number((data && (data.id || (state.editingEjercicioId||0))) || 0);
+        if(state.ejercicioVideoFile && eid){
+          const fd = new FormData(); fd.append('file', state.ejercicioVideoFile); fd.append('overwrite', 'true');
+          try{
+            const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd });
+            const jd = await up.json().catch(() => ({}));
+            if(!up.ok){ showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500); }
+          }catch(_){ showToast('Error de red al subir el video', 'error', 4500); }
+        } else if(state.ejercicioVideoRemove && state.editingEjercicioOriginalVideoUrl && eid){
+          try{
+            const up2 = await fetch(`/api/ejercicios/${eid}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ video_url: null, video_mime: null }) });
+            const jd2 = await up2.json().catch(() => ({})); if(!up2.ok){ showToast(jd2.detail || jd2.error || 'No se pudo eliminar el video', 'error', 4500); }
+          }catch(_){ showToast('Error de red al eliminar el video', 'error', 4500); }
+        }
         closeModal('modal-ejercicio-form');
         showToast('Ejercicio guardado', 'success', 2500);
         await loadEjercicios();
@@ -7923,6 +8033,7 @@ function attachWheelZoom(containerId, frameId){
       const tipsEl = document.getElementById('ejercicio-side-tips');
       const eqEl = document.getElementById('ejercicio-side-equipos');
       const varEl = document.getElementById('ejercicio-side-variantes');
+      const mediaEl = document.getElementById('ejercicio-side-media');
       const btnEdit = document.getElementById('ejercicio-side-edit');
       const btnDel = document.getElementById('ejercicio-side-delete');
       const none = '—';
@@ -7932,6 +8043,7 @@ function attachWheelZoom(containerId, frameId){
         objEl.textContent = e.objetivo || none;
         grpEl.textContent = e.grupo_muscular || none;
         descEl.textContent = e.descripcion || none;
+      if(mediaEl){ mediaEl.innerHTML = ''; const url = e.video_url; if(url){ if(/\.gif(\?.*)?$/.test(url)){ const img = document.createElement('img'); img.src = url; img.alt = 'Animación del ejercicio'; img.className='responsive-media'; img.style.maxHeight='220px'; mediaEl.appendChild(img);} else { const v = document.createElement('video'); v.src = url; v.controls = true; v.playsInline = true; v.preload='metadata'; v.setAttribute('controlsList','nodownload noplaybackrate'); v.className='responsive-media'; v.style.maxHeight='220px'; mediaEl.appendChild(v);} } else { const p = document.createElement('p'); p.className='muted'; p.textContent='Sin video'; mediaEl.appendChild(p);} }
         tipsEl.innerHTML = renderList(ejercicioTips(e.objetivo, e.grupo_muscular));
         const extras = parseExtrasFromDescripcion(e.descripcion || '');
         const equiposList = (extras.equipamiento && extras.equipamiento.length) ? extras.equipamiento : ejercicioEquipos(e.grupo_muscular);
@@ -7948,6 +8060,7 @@ function attachWheelZoom(containerId, frameId){
         nombreEl.textContent = none;
         objEl.textContent = none;
         grpEl.textContent = none;
+        if(mediaEl){ mediaEl.innerHTML = '<p class="muted">Sin video</p>'; }
         descEl.textContent = none;
         tipsEl.innerHTML = '<li class="muted">Selecciona un ejercicio para ver consejos</li>';
         eqEl.innerHTML = '<li class="muted">—</li>';

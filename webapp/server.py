@@ -3,13 +3,14 @@ import sys
 import csv
 import json
 import base64
+import base64
 import zlib
 import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
 import logging
 from fastapi.responses import JSONResponse, RedirectResponse, Response, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -41,6 +42,12 @@ try:
     import requests  # type: ignore
 except Exception:
     requests = None  # type: ignore
+
+# Cliente de Google Cloud Storage (opcional)
+try:
+    from google.cloud import storage as gcs_storage  # type: ignore
+except Exception:
+    gcs_storage = None  # type: ignore
 
 # Importar gestor de base de datos SIN modificar el programa principal
 try:
@@ -106,9 +113,9 @@ except Exception:
     DEV_PASSWORD = None  # type: ignore
 
 try:
-    from payment_manager import PaymentManager
+    from payment_manager import PaymentManager  # type: ignore
 except Exception:
-    PaymentManager = None
+    PaymentManager = None  # type: ignore
 
 # Base URL pública (Railway/Vercel) sin túneles
 try:
@@ -179,6 +186,75 @@ def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int) -
         base = f"{data}|{weeks}|{filename}|{ts}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
+
+# PINs en texto plano: sin hashing ni migración; usar la verificación del DatabaseManager directamente.
+
+# --- Rate limiting simple para login de usuarios (por IP y DNI) ---
+_login_attempts_lock = threading.Lock()
+_login_attempts_by_ip: Dict[str, list] = {}
+_login_attempts_by_dni: Dict[str, list] = {}
+
+def _get_client_ip(request: Request) -> str:
+    try:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            try:
+                return xff.split(",")[0].strip()
+            except Exception:
+                return xff.strip()
+        xri = request.headers.get("x-real-ip")
+        if xri:
+            return xri.strip()
+        c = getattr(request, "client", None)
+        if c and getattr(c, "host", None):
+            return c.host
+        return "0.0.0.0"
+    except Exception:
+        return "0.0.0.0"
+
+def _prune_attempts(store: Dict[str, list], window_s: int) -> None:
+    try:
+        now = time.time()
+        for k, lst in list(store.items()):
+            try:
+                store[k] = [t for t in lst if (now - float(t)) <= window_s]
+                if not store[k]:
+                    store.pop(k, None)
+            except Exception:
+                store.pop(k, None)
+    except Exception:
+        pass
+
+def _is_rate_limited(key: str, store: Dict[str, list], max_attempts: int, window_s: int) -> bool:
+    with _login_attempts_lock:
+        _prune_attempts(store, window_s)
+        lst = store.get(key, [])
+        try:
+            return len(lst) >= int(max_attempts)
+        except Exception:
+            return len(lst) >= max_attempts
+
+def _register_attempt(key: str, store: Dict[str, list]) -> None:
+    try:
+        now = time.time()
+        with _login_attempts_lock:
+            lst = store.get(key)
+            if lst is None:
+                store[key] = [now]
+            else:
+                lst.append(now)
+                # Limitar memoria: conservar últimas 50
+                if len(lst) > 50:
+                    store[key] = lst[-50:]
+    except Exception:
+        pass
+
+def _clear_attempts(key: str, store: Dict[str, list]) -> None:
+    try:
+        with _login_attempts_lock:
+            store.pop(key, None)
+    except Exception:
+        pass
 
 # Codificación/decodificación del payload efímero para URLs
 def _encode_preview_payload(payload: Dict[str, Any]) -> str:
@@ -875,6 +951,22 @@ app = FastAPI(
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
 
+# Redirección amigable de 401 según la sección
+@app.exception_handler(HTTPException)
+async def _http_exc_redirect_handler(request: Request, exc: HTTPException):
+    try:
+        if exc.status_code == 401:
+            path = (request.url.path or "")
+            if path.startswith("/usuario/"):
+                return RedirectResponse(url="/usuario/login", status_code=303)
+            if path.startswith("/gestion"):
+                return RedirectResponse(url="/gestion/login", status_code=303)
+            if path.startswith("/dashboard"):
+                return RedirectResponse(url="/login", status_code=303)
+    except Exception:
+        pass
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
 # Verificación de LibreOffice en el arranque
 @app.on_event("startup")
 def _check_libreoffice_startup():
@@ -1234,6 +1326,8 @@ except Exception:
 BASE_DIR = _compute_base_dir()
 static_dir = _resolve_existing_dir("webapp", "static")
 static_dir.mkdir(parents=True, exist_ok=True)
+uploads_dir = _resolve_existing_dir("webapp", "uploads")
+uploads_dir.mkdir(parents=True, exist_ok=True)
 templates_dir = _resolve_existing_dir("webapp", "templates")
 templates = Jinja2Templates(directory=str(templates_dir))
 
@@ -1252,6 +1346,10 @@ except Exception:
 # Exponer siempre los assets de webapp bajo una ruta dedicada
 try:
     app.mount("/webapp-assets", StaticFiles(directory=str(_resolve_existing_dir("webapp", "assets"))), name="webapp-assets")
+except Exception:
+    pass
+try:
+    app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
 except Exception:
     pass
 
@@ -1322,6 +1420,61 @@ try:
 except Exception:
     # Fallback silencioso; la UI seguirá mostrando colores por defecto
     pass
+
+
+# Configuración y utilidades para subida de medios a Google Cloud Storage
+def _get_gcs_settings() -> Dict[str, Any]:
+    """Lee configuración de GCS desde variables de entorno.
+    Devuelve un dict con claves: bucket, project_id, prefix, public_base_url, make_public.
+    """
+    try:
+        bucket = (os.getenv("GCS_BUCKET_NAME") or os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
+        project_id = (os.getenv("GCS_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
+        prefix = (os.getenv("GCS_MEDIA_PREFIX") or "ejercicios").strip().strip("/")
+        public_base = (os.getenv("GCS_PUBLIC_BASE_URL") or "https://storage.googleapis.com").strip().rstrip("/")
+        make_public = (os.getenv("GCS_PUBLIC_READ", "1").strip() in ("1", "true", "yes"))
+        return {
+            "bucket": bucket,
+            "project_id": project_id,
+            "prefix": prefix,
+            "public_base_url": public_base,
+            "make_public": make_public,
+        }
+    except Exception:
+        return {"bucket": "", "project_id": "", "prefix": "ejercicios", "public_base_url": "https://storage.googleapis.com", "make_public": True}
+
+
+def _upload_media_to_gcs(dest_name: str, data: bytes, content_type: str) -> Optional[str]:
+    """Sube el contenido a GCS si está configurado y disponible.
+    Devuelve la URL pública resultante o None si GCS no está configurado.
+    """
+    settings = _get_gcs_settings()
+    bucket_name = settings.get("bucket") or ""
+    if not bucket_name:
+        return None
+    if gcs_storage is None:
+        raise HTTPException(status_code=500, detail="Dependencia 'google-cloud-storage' no instalada. Agregue 'google-cloud-storage' al requirements.")
+    try:
+        client = gcs_storage.Client(project=(settings.get("project_id") or None))
+        bucket = client.bucket(bucket_name)
+        prefix = settings.get("prefix") or "ejercicios"
+        blob_path = f"{prefix}/{dest_name}" if prefix else dest_name
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(data, content_type=content_type)
+        if settings.get("make_public", True):
+            try:
+                blob.make_public()
+            except Exception:
+                # Si el bucket usa UBLA, confiar en política pública del bucket
+                pass
+        public_base = settings.get("public_base_url") or "https://storage.googleapis.com"
+        # Estilo path por defecto
+        return f"{public_base}/{bucket_name}/{blob_path}"
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error subiendo a GCS: {e}")
+        raise HTTPException(status_code=500, detail=f"Error subiendo a GCS: {e}")
 
 
 def _get_password() -> str:
@@ -1667,6 +1820,12 @@ def require_gestion_access(request: Request):
     if request.session.get("logged_in") or request.session.get("gestion_profesor_id") or request.session.get("gestion_profesor_user_id"):
         return True
     raise HTTPException(status_code=401, detail="Acceso restringido a Gestión")
+
+def require_usuario(request: Request):
+    uid = request.session.get("usuario_id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Acceso restringido a Usuario")
+    return True
 
 # Helper: agrupa ejercicios de una rutina por día, ordenados
 def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
@@ -2811,6 +2970,297 @@ async def login_page_get(request: Request):
     return templates.TemplateResponse("login.html", ctx)
 
 
+# --- Helpers de autenticación de usuario (DNI) ---
+def _get_usuario_id_by_dni(dni: str) -> Optional[int]:
+    try:
+        d = str(dni or "").strip()
+    except Exception:
+        d = str(dni)
+    if not d:
+        return None
+    db = _get_db()
+    if db is None:
+        return None
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)  # type: ignore
+            cur.execute("SELECT id FROM usuarios WHERE dni = %s LIMIT 1", (d,))
+            row = cur.fetchone()
+            if row and ("id" in row):
+                try:
+                    val = int(row["id"] or 0)
+                    return val if val > 0 else None
+                except Exception:
+                    pass
+    except Exception:
+        try:
+            logging.exception("Error buscando usuario por DNI")
+        except Exception:
+            pass
+    return None
+
+def _issue_usuario_jwt(usuario_id: int) -> Optional[str]:
+    try:
+        hdr = {"alg": "HS256", "typ": "JWT"}
+        now = int(time.time())
+        pl = {"sub": int(usuario_id), "role": "usuario", "iat": now, "exp": now + 86400}
+        hdr_b = json.dumps(hdr, separators=(",", ":")).encode("utf-8")
+        pl_b = json.dumps(pl, separators=(",", ":")).encode("utf-8")
+        h_b64 = base64.urlsafe_b64encode(hdr_b).rstrip(b"=").decode("utf-8")
+        p_b64 = base64.urlsafe_b64encode(pl_b).rstrip(b"=").decode("utf-8")
+        signing_input = f"{h_b64}.{p_b64}".encode("utf-8")
+        secret = _get_session_secret().encode("utf-8")
+        sig = hmac.new(secret, signing_input, hashlib.sha256).digest()
+        s_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode("utf-8")
+        return f"{h_b64}.{p_b64}.{s_b64}"
+    except Exception:
+        return None
+
+
+@app.get("/usuario/login")
+async def usuario_login_get(request: Request):
+    """Formulario de login para usuarios (DNI + PIN)."""
+    theme_vars = read_theme_vars(static_dir / "style.css")
+    ctx = {
+        "request": request,
+        "theme": theme_vars,
+        "error": request.query_params.get("error"),
+        "gym_name": get_gym_name("Gimnasio"),
+        "logo_url": _resolve_logo_url(),
+    }
+    return templates.TemplateResponse("usuario_login.html", ctx)
+
+
+@app.post("/usuario/login")
+async def usuario_login_post(request: Request):
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("application/x-www-form-urlencoded"):
+        data = await request.form()
+    elif content_type.startswith("application/json"):
+        data = await request.json()
+    else:
+        data = {}
+
+    dni = str(data.get("dni", "")).strip()
+    pin = str(data.get("pin", "")).strip()
+    if not dni or not pin:
+        return RedirectResponse(url="/usuario/login?error=Ingrese%20DNI%20y%20PIN", status_code=303)
+
+    ip = _get_client_ip(request)
+    ip_key = f"ip:{ip}"
+    dni_key = f"dni:{dni}"
+    # Limites: IP 10/5min, DNI 5/5min
+    if _is_rate_limited(ip_key, _login_attempts_by_ip, max_attempts=10, window_s=300) or _is_rate_limited(dni_key, _login_attempts_by_dni, max_attempts=5, window_s=300):
+        return RedirectResponse(url="/usuario/login?error=Demasiados%20intentos.%20Intente%20m%C3%A1s%20tarde", status_code=303)
+
+    _register_attempt(ip_key, _login_attempts_by_ip)
+    _register_attempt(dni_key, _login_attempts_by_dni)
+
+    db = _get_db()
+    if db is None:
+        return RedirectResponse(url="/usuario/login?error=Base%20de%20datos%20no%20disponible", status_code=303)
+
+    usuario_id = _get_usuario_id_by_dni(dni)
+    if not usuario_id:
+        return RedirectResponse(url="/usuario/login?error=DNI%20no%20encontrado", status_code=303)
+
+    ok = False
+    try:
+        ok = bool(db.verificar_pin_usuario(int(usuario_id), pin))  # type: ignore
+    except Exception:
+        ok = False
+    if not ok:
+        return RedirectResponse(url="/usuario/login?error=PIN%20inv%C3%A1lido", status_code=303)
+
+    # Éxito: limpiar intentos y establecer sesión
+    _clear_attempts(ip_key, _login_attempts_by_ip)
+    _clear_attempts(dni_key, _login_attempts_by_dni)
+
+    try:
+        request.session.clear()
+    except Exception:
+        pass
+    request.session["usuario_id"] = int(usuario_id)
+    request.session["role"] = "usuario"
+
+    try:
+        u = db.obtener_usuario_por_id(int(usuario_id))  # type: ignore
+        if u is not None:
+            nombre = getattr(u, 'nombre', None) or (u.get('nombre') if isinstance(u, dict) else None) or ""
+            request.session["usuario_nombre"] = nombre
+    except Exception:
+        pass
+
+    try:
+        tok = _issue_usuario_jwt(int(usuario_id))
+        if tok:
+            request.session["usuario_jwt"] = tok
+    except Exception:
+        pass
+
+    return RedirectResponse(url="/usuario/panel", status_code=303)
+
+
+@app.get("/usuario/panel")
+async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
+    theme_vars = read_theme_vars(static_dir / "style.css")
+    db = _get_db()
+    usuario_id = request.session.get("usuario_id")
+    usuario = None
+    rutinas = []
+    try:
+        if db is not None and usuario_id:
+            usuario = db.obtener_usuario_por_id(int(usuario_id))  # type: ignore
+            rutinas = db.obtener_rutinas_por_usuario(int(usuario_id))  # type: ignore
+    except Exception:
+        rutinas = []
+
+    rutinas_data = []
+    web_base = None
+    try:
+        web_base = get_webapp_base_url()
+    except Exception:
+        web_base = None
+    try:
+        for r in (rutinas or []):
+            nombre = (
+                getattr(r, 'nombre_rutina', None)
+                or getattr(r, 'nombre', None)
+                or (r.get('nombre_rutina') if isinstance(r, dict) else None)
+                or (r.get('nombre') if isinstance(r, dict) else None)
+                or "Rutina"
+            )
+            dias = getattr(r, 'dias_semana', None) or (r.get('dias_semana') if isinstance(r, dict) else None) or []
+            activa = getattr(r, 'activa', None) or (r.get('activa') if isinstance(r, dict) else None)
+            ejercicios = getattr(r, 'ejercicios', None) or (r.get('ejercicios') if isinstance(r, dict) else None)
+            uuid_rutina = getattr(r, 'uuid_rutina', None) or (r.get('uuid_rutina') if isinstance(r, dict) else None)
+            por_dia: Dict[int, int] = {}
+            if ejercicios:
+                try:
+                    grupos = _build_exercises_by_day(r)
+                    for d, items in grupos.items():
+                        por_dia[int(d)] = len(items or [])
+                except Exception:
+                    por_dia = {}
+            rutinas_data.append({
+                "nombre": nombre,
+                "dias": dias,
+                "activa": bool(activa),
+                "ejercicios_por_dia": por_dia,
+                "uuid_rutina": uuid_rutina,
+                "qr_url": (f"{web_base}/api/rutinas/qr_scan/{uuid_rutina}" if web_base and uuid_rutina else None)
+            })
+    except Exception:
+        rutinas_data = []
+
+    # Datos de vencimiento y estado
+    proximo_vencimiento = None
+    dias_restantes = None
+    cuotas_vencidas = None
+    ultimo_pago = None
+    activo_usuario = None
+    try:
+        if usuario is not None:
+            # obtener campos según sea dataclass o dict
+            def _get(u, key):
+                try:
+                    return getattr(u, key)
+                except Exception:
+                    try:
+                        return u.get(key)  # type: ignore
+                    except Exception:
+                        return None
+
+            fv_str = _get(usuario, 'fecha_proximo_vencimiento')
+            cuotas_vencidas = _get(usuario, 'cuotas_vencidas')
+            ultimo_pago = _get(usuario, 'ultimo_pago')
+            activo_usuario = bool(_get(usuario, 'activo') if _get(usuario, 'activo') is not None else True)
+            if fv_str:
+                from datetime import datetime
+                fv = None
+                s = str(fv_str)
+                # Intentar varios formatos comunes
+                for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%d/%m/%Y"):
+                    try:
+                        fv = datetime.strptime(s.split('.')[0], fmt)
+                        break
+                    except Exception:
+                        continue
+                if fv:
+                    now = datetime.now()
+                    try:
+                        dias_restantes = (fv.date() - now.date()).days
+                    except Exception:
+                        dias_restantes = None
+                    try:
+                        proximo_vencimiento = fv.strftime("%d/%m/%Y")
+                    except Exception:
+                        proximo_vencimiento = s
+    except Exception:
+        pass
+
+    # Historial de pagos (últimos 12)
+    pagos_list = []
+    try:
+        if db is not None and usuario_id:
+            pm = PaymentManager(db)
+            pagos_hist = pm.obtener_historial_pagos(int(usuario_id), limit=12)
+            for p in (pagos_hist or []):
+                try:
+                    pagos_list.append({
+                        "fecha": getattr(p, 'fecha_pago', None),
+                        "monto": float(getattr(p, 'monto', 0.0)),
+                        "mes": getattr(p, 'mes', None),
+                        "anio": getattr(p, 'año', None),
+                        "metodo_pago_id": getattr(p, 'metodo_pago_id', None),
+                    })
+                except Exception:
+                    continue
+    except Exception:
+        pagos_list = []
+
+    # Seleccionar QR de rutina activa para banda de impresión
+    rutina_activa_qr_url = None
+    try:
+        for r in rutinas_data:
+            if r.get("activa") and r.get("qr_url"):
+                rutina_activa_qr_url = r.get("qr_url")
+                break
+    except Exception:
+        rutina_activa_qr_url = None
+
+    ctx = {
+        "request": request,
+        "theme": theme_vars,
+        "gym_name": get_gym_name("Gimnasio"),
+        "logo_url": _resolve_logo_url(),
+        "usuario": usuario,
+        "rutinas": rutinas_data,
+        "jwt": request.session.get("usuario_jwt"),
+        # Estado y pagos
+        "proximo_vencimiento": proximo_vencimiento,
+        "dias_restantes": dias_restantes,
+        "cuotas_vencidas": cuotas_vencidas,
+        "ultimo_pago": ultimo_pago,
+        "activo_usuario": activo_usuario,
+        "pagos": pagos_list,
+        # QR para impresión
+        "rutina_activa_qr_url": rutina_activa_qr_url,
+    }
+    return templates.TemplateResponse("usuario_panel.html", ctx)
+
+
+@app.get("/usuario/logout")
+async def usuario_logout_get(request: Request):
+    try:
+        request.session.pop("usuario_id", None)
+        request.session.pop("usuario_nombre", None)
+        request.session.pop("usuario_jwt", None)
+    except Exception:
+        pass
+    return RedirectResponse(url="/usuario/login", status_code=303)
+
+
 @app.post("/login")
 async def do_login(request: Request):
     content_type = request.headers.get("content-type", "")
@@ -3091,12 +3541,14 @@ async def api_admin_secure_owner(request: Request, _=Depends(require_owner)):
                 if id1_exists:
                     cur.execute("SELECT COALESCE(MAX(id), 0) + 1 FROM usuarios")
                     target_id = int((cur.fetchone() or [1])[0] or 1)
+                # Establecer PIN plano para el Dueño
+                _owner_pin = "2203"
                 cur.execute(
                     """
                     INSERT INTO usuarios (id, nombre, dni, telefono, pin, rol, activo, tipo_cuota)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (target_id, "DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar"),
+                    (target_id, "DUEÑO DEL GIMNASIO", "00000000", "N/A", _owner_pin, "dueño", True, "estandar"),
                 )
                 owner_id = target_id
                 changes.append({"created_owner_id": target_id})
@@ -3925,6 +4377,8 @@ async def api_ejercicios_get(filtro: str = "", objetivo: str = "", grupo_muscula
                 "grupo_muscular": e.grupo_muscular,
                 "descripcion": e.descripcion,
                 "objetivo": getattr(e, "objetivo", "general"),
+                "video_url": getattr(e, "video_url", None),
+                "video_mime": getattr(e, "video_mime", None),
             }
             for e in ejercicios
         ]
@@ -3949,7 +4403,9 @@ async def api_ejercicios_create(request: Request, _=Depends(require_gestion_acce
         grupo_muscular = payload.get("grupo_muscular")
         descripcion = payload.get("descripcion")
         objetivo = (payload.get("objetivo") or "general").strip() or "general"
-        ejercicio = Ejercicio(nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo)  # type: ignore
+        video_url = payload.get("video_url")
+        video_mime = payload.get("video_mime")
+        ejercicio = Ejercicio(nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         new_id = db.crear_ejercicio(ejercicio)  # type: ignore
         return {"ok": True, "id": int(new_id)}
     except HTTPException:
@@ -3975,7 +4431,7 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(
-                "SELECT id, nombre, grupo_muscular, descripcion, objetivo FROM ejercicios WHERE id = %s",
+                "SELECT id, nombre, grupo_muscular, descripcion, objetivo, video_url, video_mime FROM ejercicios WHERE id = %s",
                 (int(ejercicio_id),),
             )
             existing = cur.fetchone()
@@ -3987,9 +4443,100 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         grupo_muscular = payload.get("grupo_muscular") if ("grupo_muscular" in payload) else existing.get("grupo_muscular")
         descripcion = payload.get("descripcion") if ("descripcion" in payload) else existing.get("descripcion")
         objetivo = (payload.get("objetivo") or existing.get("objetivo") or "general").strip() or (existing.get("objetivo") or "general")
-        ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo)  # type: ignore
+        video_url = payload.get("video_url") if ("video_url" in payload) else existing.get("video_url")
+        video_mime = payload.get("video_mime") if ("video_mime" in payload) else existing.get("video_mime")
+        ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         db.actualizar_ejercicio(ejercicio)  # type: ignore
         return {"ok": True, "id": int(ejercicio_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/ejercicios/{ejercicio_id}/media")
+async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(...), overwrite: bool = Form(True), _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/ejercicios/{ejercicio_id}/media[POST]")
+    if guard:
+        return guard
+    try:
+        # Validar existencia del ejercicio
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+
+        content_type = (file.content_type or "").lower()
+        if not content_type or not any(content_type.startswith(prefix) for prefix in ("video/", "image/")):
+            raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+
+        # Nombre destino seguro
+        orig_name = (file.filename or "media").replace("\r", "").replace("\n", "")
+        # Extraer extensión de filename o deducir por MIME
+        ext = ""
+        if "." in orig_name:
+            ext = orig_name.split(".")[-1].lower()
+        if not ext:
+            # Deducción básica
+            if content_type == "image/gif":
+                ext = "gif"
+            elif content_type.startswith("video/"):
+                ext = content_type.split("/")[-1]
+            else:
+                ext = "bin"
+        ts = int(time.time())
+        dest_name = f"ej_{int(ejercicio_id)}_{ts}.{ext}"
+        dest_path = uploads_dir / dest_name
+
+        # Leer contenido
+        data = await file.read()
+
+        # Intentar subir a GCS si está configurado
+        url: Optional[str] = None
+        try:
+            url = _upload_media_to_gcs(dest_name, data, content_type)
+        except HTTPException:
+            raise
+        except Exception:
+            # Fallback a almacenamiento local si falla GCS
+            url = None
+
+        if not url:
+            # Guardar localmente
+            try:
+                with open(dest_path, "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error guardando archivo: {e}")
+            # URL relativa local
+            url = f"/uploads/{dest_name}"
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s",
+                    (url, content_type, int(ejercicio_id)),
+                )
+                conn.commit()
+                try:
+                    db.cache.invalidate('ejercicios')  # type: ignore
+                except Exception:
+                    pass
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error actualizando ejercicio: {e}")
+
+        return {"ok": True, "url": url, "mime": content_type, "filename": dest_name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
     except HTTPException:
         raise
     except Exception as e:
@@ -4591,6 +5138,106 @@ async def gestion_auth(request: Request):
         except Exception:
             pass
     return RedirectResponse(url="/gestion", status_code=303)
+
+
+# --- API de autenticación basada en JSON ---
+@app.post("/api/auth/login")
+async def api_auth_login(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    usuario_id_raw = data.get("usuario_id")
+    owner_password = str(data.get("owner_password", "")).strip()
+    pin_raw = data.get("pin")
+
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=503)
+
+    # Modo Dueño (owner)
+    if isinstance(usuario_id_raw, str) and usuario_id_raw == "__OWNER__":
+        if not owner_password:
+            return JSONResponse({"ok": False, "error": "Ingrese la contraseña"}, status_code=400)
+        if _verify_owner_password(owner_password):
+            request.session.clear()
+            request.session["logged_in"] = True
+            request.session["role"] = "dueño"
+            return JSONResponse({"ok": True, "role": "dueño"})
+        return JSONResponse({"ok": False, "error": "Credenciales inválidas"}, status_code=401)
+
+    # Modo Profesor: usuario_id + PIN
+    try:
+        usuario_id = int(usuario_id_raw) if usuario_id_raw is not None else None
+    except Exception:
+        usuario_id = None
+    pin = str(pin_raw or "").strip()
+    if not usuario_id or not pin:
+        return JSONResponse({"ok": False, "error": "Parámetros inválidos"}, status_code=400)
+
+    try:
+        ok = bool(db.verificar_pin_usuario(usuario_id, pin))  # type: ignore (usa hash + migración)
+    except Exception:
+        ok = False
+    if not ok:
+        return JSONResponse({"ok": False, "error": "PIN inválido"}, status_code=401)
+
+    # Limpiar sesión previa y setear sesión de profesor
+    try:
+        request.session.clear()
+    except Exception:
+        try:
+            request.session.pop("logged_in", None)
+            request.session.pop("role", None)
+        except Exception:
+            pass
+
+    profesor_id = None
+    try:
+        prof = db.obtener_profesor_por_usuario_id(usuario_id)  # type: ignore
+    except Exception:
+        prof = None
+    user_role = None
+    try:
+        u = db.obtener_usuario_por_id(usuario_id)  # type: ignore
+        if u is not None:
+            user_role = getattr(u, 'rol', None) or (u.get('rol') if isinstance(u, dict) else None)
+    except Exception:
+        user_role = None
+    try:
+        if prof:
+            profesor_id = getattr(prof, 'profesor_id', None)
+            if profesor_id is None and isinstance(prof, dict):
+                profesor_id = prof.get('profesor_id')
+        if (profesor_id is None) and (user_role == 'profesor'):
+            profesor_id = db.crear_profesor(usuario_id)  # type: ignore
+    except Exception:
+        profesor_id = None
+
+    request.session["gestion_profesor_user_id"] = usuario_id
+    request.session["role"] = "profesor"
+    if profesor_id:
+        request.session["gestion_profesor_id"] = int(profesor_id)
+        try:
+            db.iniciar_sesion_trabajo_profesor(int(profesor_id), 'Trabajo')  # type: ignore
+        except Exception:
+            pass
+
+    return JSONResponse({
+        "ok": True,
+        "role": "profesor",
+        "usuario_id": int(usuario_id),
+        "profesor_id": int(profesor_id) if profesor_id is not None else None
+    })
+
+
+@app.post("/api/auth/logout")
+async def api_auth_logout(request: Request):
+    try:
+        request.session.clear()
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/theme")
@@ -9023,3 +9670,79 @@ async def api_usuario_whatsapp_delete_by_mid(usuario_id: int, message_id: str, r
     except Exception as e:
         import traceback; traceback.print_exc()
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+# --- Endpoint público: escaneo de QR de rutina por UUID ---
+@app.get("/api/rutinas/qr_scan/{uuid_rutina}")
+async def api_rutina_qr_scan(uuid_rutina: str, request: Request):
+    """Valida UUID y retorna JSON con la rutina completa y ejercicios.
+
+    Estructura: {
+      "ok": true,
+      "rutina": { id, uuid_rutina, nombre_rutina, descripcion, dias_semana, categoria, activa, ejercicios: [...], dias: [...] }
+    }
+    """
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=500)
+    uid = str(uuid_rutina or "").strip()
+    if not uid or len(uid) < 8:
+        return JSONResponse({"ok": False, "error": "UUID inválido"}, status_code=400)
+    try:
+        rutina = db.obtener_rutina_completa_por_uuid_dict(uid)  # type: ignore
+    except Exception:
+        rutina = None
+    if not rutina:
+        return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+    if not bool(rutina.get("activa", True)):
+        return JSONResponse({"ok": False, "error": "Rutina inactiva"}, status_code=403)
+
+    # Restringir el acceso: si hay usuario logueado, el QR debe corresponder a su rutina activa
+    try:
+        usuario_id = request.session.get("usuario_id")
+    except Exception:
+        usuario_id = None
+    if usuario_id is not None:
+        try:
+            rid_user = int(rutina.get("usuario_id")) if rutina.get("usuario_id") is not None else None
+        except Exception:
+            rid_user = None
+        if rid_user is None or int(usuario_id) != int(rid_user):
+            return JSONResponse({"ok": False, "error": "QR no corresponde a tu rutina"}, status_code=403)
+
+        # Conceder acceso temporal por 1 día a esta rutina en la sesión del usuario
+        try:
+            request.session["qr_access_rutina_id"] = int(rutina.get("id") or 0)
+            request.session["qr_access_until"] = int(time.time()) + 24 * 60 * 60
+        except Exception:
+            pass
+
+    ejercicios = rutina.get("ejercicios") or []
+    dias_map: dict[int, list[dict]] = {}
+    for it in ejercicios:
+        try:
+            d = int(it.get("dia_semana") or 1)
+        except Exception:
+            d = 1
+        dias_map.setdefault(d, []).append(it)
+    dias = []
+    for d in sorted(dias_map.keys()):
+        items = dias_map[d]
+        items_sorted = sorted(items, key=lambda x: int(x.get("orden") or 0))
+        dias.append({
+            "numero": d,
+            "nombre": f"Día {d}",
+            "ejercicios": [
+                {
+                    "nombre": (e.get("ejercicio") or {}).get("nombre"),
+                    "descripcion": (e.get("ejercicio") or {}).get("descripcion"),
+                    "video_url": (e.get("ejercicio") or {}).get("video_url"),
+                    "series": e.get("series") or "",
+                    "repeticiones": e.get("repeticiones") or "",
+                    "ejercicio_id": int(e.get("ejercicio_id") or 0)
+                }
+                for e in items_sorted
+            ]
+        })
+    out = dict(rutina)
+    out["dias"] = dias
+    return JSONResponse({"ok": True, "rutina": out}, status_code=200)

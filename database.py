@@ -19,6 +19,7 @@ import json
 import functools
 import random
 import calendar
+import uuid
 # Importar PyQt6 para workers (con fallback seguro en entornos sin GUI)
 try:
     from PyQt6.QtCore import QThread, pyqtSignal, QObject  # type: ignore
@@ -1007,6 +1008,95 @@ class DatabaseManager:
             except Exception:
                 # Fallback: devolver vacío para evitar romper llamadas; el caller puede usar '*'
                 return []
+
+    def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
+        """Verifica si existe una columna en una tabla (schema público)."""
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = %s AND column_name = %s
+                    ) AS exists
+                    """,
+                    (table_name, column_name)
+                )
+                row = cur.fetchone()
+                return bool(row and row.get('exists'))
+        except Exception:
+            return False
+
+    def ensure_rutina_uuid_ready(self, conn) -> bool:
+        """Asegura que la columna uuid_rutina exista y tenga valores únicos.
+
+        - Crea la columna si no existe (intenta con DEFAULT gen_random_uuid())
+        - Rellena valores faltantes con uuid4() en caso necesario
+        - Crea índice único si falta
+
+        Devuelve True si la columna existe al finalizar (aunque sin default), False si no se pudo asegurar.
+        """
+        try:
+            has_col = self._column_exists(conn, 'rutinas', 'uuid_rutina')
+            if not has_col:
+                with conn.cursor() as cur:
+                    # Intentar crear extensión y columna con default gen_random_uuid()
+                    created = False
+                    try:
+                        cur.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
+                        cur.execute("ALTER TABLE rutinas ADD COLUMN uuid_rutina TEXT DEFAULT gen_random_uuid()::text")
+                        created = True
+                    except Exception:
+                        # Fallback: crear sin default
+                        try:
+                            cur.execute("ALTER TABLE rutinas ADD COLUMN uuid_rutina TEXT")
+                            created = True
+                        except Exception:
+                            created = False
+                    if created:
+                        try:
+                            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid ON rutinas (uuid_rutina)")
+                        except Exception:
+                            pass
+                        conn.commit()
+                    else:
+                        conn.rollback()
+                        return False
+                has_col = True
+
+            # Rellenar valores nulos con UUIDs
+            try:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT id FROM rutinas WHERE uuid_rutina IS NULL OR uuid_rutina = ''")
+                    rows = cur.fetchall() or []
+                    if rows:
+                        # Generar y actualizar en lotes
+                        for r in rows:
+                            rid = r['id'] if isinstance(r, dict) else r[0]
+                            new_uuid = str(uuid.uuid4())
+                            try:
+                                cur.execute("UPDATE rutinas SET uuid_rutina = %s WHERE id = %s", (new_uuid, rid))
+                            except Exception:
+                                # Si falla por duplicado improbable, generar otro
+                                try:
+                                    cur.execute("UPDATE rutinas SET uuid_rutina = %s WHERE id = %s", (str(uuid.uuid4()), rid))
+                                except Exception:
+                                    pass
+                        try:
+                            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid ON rutinas (uuid_rutina)")
+                        except Exception:
+                            pass
+                        conn.commit()
+            except Exception:
+                # No bloquear si algo falla al rellenar
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+            return has_col
+        except Exception:
+            return False
 
     def initialize_prepared_statements(self):
         """Inicializa las declaraciones preparadas para consultas frecuentes"""
@@ -2740,6 +2830,12 @@ class DatabaseManager:
             conn = self._crear_conexion_directa()
             with conn:
                 with conn.cursor() as cursor:
+                    # Extensión para generar UUIDs desde la base de datos
+                    try:
+                        cursor.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+                    except Exception:
+                        # Si no se puede crear, se generarán UUIDs en la aplicación
+                        pass
                     
                     # --- TABLAS BÁSICAS DEL SISTEMA ---
                     
@@ -2808,13 +2904,15 @@ class DatabaseManager:
                     # Usuario dueño por defecto antes de las protecciones
                     cursor.execute("SELECT id FROM usuarios WHERE rol = 'dueño'")
                     if cursor.fetchone() is None:
+                        # Insertar Dueño con PIN plano
+                        _owner_pin = "2203"
                         cursor.execute(
                             """
                             INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (dni) DO NOTHING
                             """,
-                            ("DUEÑO DEL GIMNASIO", "00000000", "N/A", "2203", "dueño", True, "estandar")
+                            ("DUEÑO DEL GIMNASIO", "00000000", "N/A", _owner_pin, "dueño", True, "estandar")
                         )
                     # Determinar ID del dueño para seeds posteriores
                     owner_id = None
@@ -2892,7 +2990,6 @@ class DatabaseManager:
                     """)
 
                     
-                    
                     # Tabla de pagos
                     cursor.execute("""
                     CREATE TABLE IF NOT EXISTS pagos (
@@ -2913,6 +3010,19 @@ class DatabaseManager:
                         ON pagos (usuario_id, mes, año)
                         """
                     )
+                    # Extensiones de pagos solicitadas (concepto, metodo_pago, estado)
+                    try:
+                        cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS concepto VARCHAR(100)")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS metodo_pago VARCHAR(50)")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'pagado'")
+                    except Exception:
+                        pass
                     
                     # Tabla de configuración
                     cursor.execute("""
@@ -3045,6 +3155,15 @@ class DatabaseManager:
                         grupo_muscular VARCHAR(100),
                         objetivo VARCHAR(100) DEFAULT 'general'
                     )""")
+                    # Columnas de medios para ejercicios
+                    try:
+                        cursor.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_mime VARCHAR(50)")
+                    except Exception:
+                        pass
                     
                     # Tabla de rutinas
                     cursor.execute("""
@@ -3059,6 +3178,28 @@ class DatabaseManager:
                         activa BOOLEAN DEFAULT TRUE,
                         FOREIGN KEY (usuario_id) REFERENCES usuarios (id) ON DELETE CASCADE
                     )""")
+                    # uuid_rutina para rutinas (VARCHAR(36) con default si la extensión está disponible)
+                    try:
+                        cursor.execute(
+                            """
+                            ALTER TABLE rutinas
+                            ADD COLUMN IF NOT EXISTS uuid_rutina VARCHAR(36) UNIQUE DEFAULT gen_random_uuid()::text
+                            """
+                        )
+                        cursor.execute(
+                            "CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid_rutina ON rutinas (uuid_rutina)"
+                        )
+                    except Exception:
+                        # Fallback sin default
+                        try:
+                            cursor.execute(
+                                "ALTER TABLE rutinas ADD COLUMN IF NOT EXISTS uuid_rutina VARCHAR(36) UNIQUE"
+                            )
+                            cursor.execute(
+                                "CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid_rutina ON rutinas (uuid_rutina)"
+                            )
+                        except Exception:
+                            pass
                     
                     # Tabla de rutina_ejercicios
                     cursor.execute("""
@@ -3510,6 +3651,8 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_checkin_pending_expires_at ON checkin_pending (expires_at)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_checkin_pending_used ON checkin_pending (used)")
                     
+                    
+
                     # --- CREAR ÍNDICES PARA OPTIMIZACIÓN ---
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_nombre ON usuarios(nombre)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_usuarios_dni ON usuarios(dni)")
@@ -3932,7 +4075,7 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 sql = """INSERT INTO usuarios (nombre, dni, telefono, pin, rol, activo, tipo_cuota, notas) 
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id"""
-                params = (usuario.nombre, usuario.dni, usuario.telefono, usuario.pin, 
+                params = (usuario.nombre, usuario.dni, usuario.telefono, usuario.pin,
                          usuario.rol, usuario.activo, usuario.tipo_cuota, usuario.notas)
                 cursor.execute(sql, params)
                 usuario_id = cursor.fetchone()[0]
@@ -4066,7 +4209,6 @@ class DatabaseManager:
 
                 # Actualización en lote por DNI si se solicita
                 if existentes and not skip_duplicates:
-                    # Usar UPDATE ... FROM (VALUES ...) para actualizar múltiples filas
                     upd_values = [
                         (
                             e.get('dni'), e['nombre'], e.get('telefono'), e.get('pin'), e['rol'], e['activo'], e.get('tipo_cuota'), e.get('notas')
@@ -4075,15 +4217,15 @@ class DatabaseManager:
                     ]
                     sql_update = (
                         "UPDATE usuarios AS u SET "
-                        "  nombre = v.nombre, "
-                        "  telefono = v.telefono, "
-                        "  pin = v.pin, "
-                        "  rol = v.rol, "
-                        "  activo = v.activo, "
-                        "  tipo_cuota = v.tipo_cuota, "
-                        "  notas = v.notas "
-                        "FROM (VALUES %s) AS v(dni, nombre, telefono, pin, rol, activo, tipo_cuota, notas) "
-                        "WHERE u.dni = v.dni"
+                         "  nombre = v.nombre, "
+                         "  telefono = v.telefono, "
+                         "  pin = v.pin, "
+                         "  rol = v.rol, "
+                         "  activo = v.activo, "
+                         "  tipo_cuota = v.tipo_cuota, "
+                         "  notas = v.notas "
+                         "FROM (VALUES %s) AS v(dni, nombre, telefono, pin, rol, activo, tipo_cuota, notas) "
+                         "WHERE u.dni = v.dni"
                     )
                     psycopg2.extras.execute_values(cursor, sql_update, upd_values, page_size=max(100, min(1000, len(upd_values))))
                     # Obtener IDs actualizados
@@ -4858,7 +5000,7 @@ class DatabaseManager:
             with conn.cursor() as cursor:
                 sql = """UPDATE usuarios SET nombre = %s, dni = %s, telefono = %s, pin = %s, 
                         rol = %s, activo = %s, tipo_cuota = %s, notas = %s WHERE id = %s"""
-                params = (usuario.nombre, usuario.dni, usuario.telefono, usuario.pin, 
+                params = (usuario.nombre, usuario.dni, usuario.telefono, usuario.pin,
                          usuario.rol, usuario.activo, usuario.tipo_cuota, usuario.notas, usuario.id)
                 cursor.execute(sql, params)
                 conn.commit()
@@ -7162,13 +7304,12 @@ class DatabaseManager:
                     # Fallback si el CAST falla o la columna no es numérica
                     tmp_dni = f"{str(orig_dni)}__tmp__{old_id}_{new_id}"
 
-                # Insertar nueva fila con los datos actuales, usando DNI temporal
                 cursor.execute(
                     """
                     INSERT INTO usuarios (
                         id, nombre, dni, telefono, pin, rol, activo, tipo_cuota, notas,
                         fecha_registro, fecha_proximo_vencimiento, cuotas_vencidas, ultimo_pago
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         new_id,
@@ -9607,19 +9748,27 @@ class DatabaseManager:
         rutina = None
         with self.get_connection_context() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                cursor.execute(
-                    "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
-                    "FROM rutinas WHERE id = %s",
-                    (rutina_id,)
-                )
+                # Construir SELECT dinámico según columnas disponibles
+                cols = self.get_table_columns('rutinas')
+                base_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa']
+                select_cols = base_cols + (['uuid_rutina'] if 'uuid_rutina' in (cols or []) else [])
+                sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE id = %s"
+                cursor.execute(sql, (rutina_id,))
                 row = cursor.fetchone()
                 
                 if row:
-                    rutina = Rutina(**dict(row))
+                    # Filtrar campos válidos para el modelo Rutina y asignar uuid_rutina como atributo adicional
+                    base_fields = {k: row[k] for k in ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa'] if k in row}
+                    rutina = Rutina(**base_fields)
+                    try:
+                        setattr(rutina, 'uuid_rutina', row.get('uuid_rutina'))
+                    except Exception:
+                        pass
                     
                     # Obtener ejercicios de la rutina
                     sql_ejercicios = """
-                        SELECT re.*, e.nombre, e.grupo_muscular, e.descripcion as ejercicio_descripcion 
+                        SELECT re.*, e.nombre, e.grupo_muscular, e.descripcion as ejercicio_descripcion,
+                               e.video_url as ejercicio_video_url, e.video_mime as ejercicio_video_mime 
                         FROM rutina_ejercicios re 
                         JOIN ejercicios e ON re.ejercicio_id = e.id 
                         WHERE re.rutina_id = %s 
@@ -9632,7 +9781,9 @@ class DatabaseManager:
                             id=ejercicio_row['ejercicio_id'],
                             nombre=ejercicio_row['nombre'],
                             grupo_muscular=ejercicio_row['grupo_muscular'],
-                            descripcion=ejercicio_row['ejercicio_descripcion']
+                            descripcion=ejercicio_row['ejercicio_descripcion'],
+                            video_url=ejercicio_row.get('ejercicio_video_url'),
+                            video_mime=ejercicio_row.get('ejercicio_video_mime')
                         )
                         
                         # Crear RutinaEjercicio con solo los campos válidos del modelo
@@ -9648,6 +9799,58 @@ class DatabaseManager:
                         )
                         rutina.ejercicios.append(rutina_ejercicio)
         
+        return rutina
+
+    def obtener_rutina_completa_por_uuid(self, uuid_rutina: str) -> Optional[Rutina]:
+        """Obtiene una rutina completa por su uuid_rutina, con todos sus ejercicios."""
+        rutina = None
+        if not uuid_rutina:
+            return None
+        with self.get_connection_context() as conn:
+            # Asegurar que la columna exista y tenga valores
+            self.ensure_rutina_uuid_ready(conn)
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                # Si la columna no existe, no se puede buscar por UUID
+                cols = self.get_table_columns('rutinas')
+                if 'uuid_rutina' not in (cols or []):
+                    return None
+                select_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa', 'uuid_rutina']
+                sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE uuid_rutina = %s"
+                cursor.execute(sql, (uuid_rutina,))
+                row = cursor.fetchone()
+                if row:
+                    base_fields = {k: row[k] for k in ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa'] if k in row}
+                    rutina = Rutina(**base_fields)
+                    try:
+                        setattr(rutina, 'uuid_rutina', row.get('uuid_rutina'))
+                    except Exception:
+                        pass
+                    sql_ejercicios = """
+                        SELECT re.*, e.nombre, e.grupo_muscular, e.descripcion as ejercicio_descripcion 
+                        FROM rutina_ejercicios re 
+                        JOIN ejercicios e ON re.ejercicio_id = e.id 
+                        WHERE re.rutina_id = %s 
+                        ORDER BY re.dia_semana, re.orden
+                    """
+                    cursor.execute(sql_ejercicios, (row['id'],))
+                    for ejercicio_row in cursor.fetchall():
+                        ejercicio_data = Ejercicio(
+                            id=ejercicio_row['ejercicio_id'],
+                            nombre=ejercicio_row['nombre'],
+                            grupo_muscular=ejercicio_row['grupo_muscular'],
+                            descripcion=ejercicio_row['ejercicio_descripcion']
+                        )
+                        rutina_ejercicio = RutinaEjercicio(
+                            id=ejercicio_row.get('id'),
+                            rutina_id=ejercicio_row.get('rutina_id'),
+                            ejercicio_id=ejercicio_row.get('ejercicio_id'),
+                            dia_semana=ejercicio_row.get('dia_semana'),
+                            series=ejercicio_row.get('series'),
+                            repeticiones=ejercicio_row.get('repeticiones'),
+                            orden=ejercicio_row.get('orden'),
+                            ejercicio=ejercicio_data
+                        )
+                        rutina.ejercicios.append(rutina_ejercicio)
         return rutina
 
     def guardar_ejercicios_de_rutina(self, rutina_id: int, rutina_ejercicios: List[RutinaEjercicio]) -> bool:
@@ -9677,9 +9880,16 @@ class DatabaseManager:
         """Actualiza un ejercicio existente"""
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
-                sql = "UPDATE ejercicios SET nombre = %s, grupo_muscular = %s, descripcion = %s, objetivo = %s WHERE id = %s"
-                cursor.execute(sql, (ejercicio.nombre, ejercicio.grupo_muscular, ejercicio.descripcion, 
-                                   getattr(ejercicio, 'objetivo', 'general'), ejercicio.id))
+                sql = "UPDATE ejercicios SET nombre = %s, grupo_muscular = %s, descripcion = %s, objetivo = %s, video_url = %s, video_mime = %s WHERE id = %s"
+                cursor.execute(sql, (
+                    ejercicio.nombre,
+                    ejercicio.grupo_muscular,
+                    ejercicio.descripcion,
+                    getattr(ejercicio, 'objetivo', 'general'),
+                    getattr(ejercicio, 'video_url', None),
+                    getattr(ejercicio, 'video_mime', None),
+                    ejercicio.id
+                ))
                 conn.commit()
                 try:
                     self.cache.invalidate('ejercicios')
@@ -11511,11 +11721,11 @@ class DatabaseManager:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
             # Obtener rutina
-            cursor.execute(
-                "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
-                "FROM rutinas WHERE id = %s",
-                (rutina_id,)
-            )
+            cols = self.get_table_columns('rutinas')
+            base_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa']
+            select_cols = base_cols + (['uuid_rutina'] if 'uuid_rutina' in (cols or []) else [])
+            sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE id = %s"
+            cursor.execute(sql, (rutina_id,))
             row = cursor.fetchone()
             
             if row:
@@ -11525,7 +11735,9 @@ class DatabaseManager:
                 # Obtener ejercicios de la rutina
                 sql_ejercicios = """
                 SELECT re.*, e.nombre, e.grupo_muscular, 
-                       e.descripcion as ejercicio_descripcion 
+                       e.descripcion as ejercicio_descripcion,
+                       e.video_url as ejercicio_video_url,
+                       e.video_mime as ejercicio_video_mime
                 FROM rutina_ejercicios re 
                 JOIN ejercicios e ON re.ejercicio_id = e.id 
                 WHERE re.rutina_id = %s 
@@ -11538,7 +11750,9 @@ class DatabaseManager:
                         'id': ejercicio_row['ejercicio_id'],
                         'nombre': ejercicio_row['nombre'],
                         'grupo_muscular': ejercicio_row['grupo_muscular'],
-                        'descripcion': ejercicio_row['ejercicio_descripcion']
+                        'descripcion': ejercicio_row['ejercicio_descripcion'],
+                        'video_url': ejercicio_row.get('ejercicio_video_url'),
+                        'video_mime': ejercicio_row.get('ejercicio_video_mime')
                     }
                     
                     rutina_ejercicio = dict(ejercicio_row)
@@ -11549,6 +11763,50 @@ class DatabaseManager:
             self.cache.set('rutinas', ('completa_dict', int(rutina_id)), rutina)
         except Exception:
             pass
+
+    def obtener_rutina_completa_por_uuid_dict(self, uuid_rutina: str) -> Optional[Dict[str, Any]]:
+        """Obtiene la rutina y sus ejercicios en formato dict por uuid_rutina."""
+        rutina: Optional[Dict[str, Any]] = None
+        if not uuid_rutina:
+            return None
+        with self.get_connection_context() as conn:
+            # Asegurar que la columna exista y tenga valores
+            self.ensure_rutina_uuid_ready(conn)
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cols = self.get_table_columns('rutinas')
+            if 'uuid_rutina' not in (cols or []):
+                return None
+            select_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa', 'uuid_rutina']
+            sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE uuid_rutina = %s"
+            cursor.execute(sql, (uuid_rutina,))
+            row = cursor.fetchone()
+            if row:
+                rutina = dict(row)
+                rutina['ejercicios'] = []
+                sql_ejercicios = """
+                SELECT re.*, e.nombre, e.grupo_muscular,
+                       e.descripcion as ejercicio_descripcion
+                FROM rutina_ejercicios re
+                JOIN ejercicios e ON re.ejercicio_id = e.id
+                WHERE re.rutina_id = %s
+                ORDER BY re.dia_semana, re.orden
+                """
+                cursor.execute(sql_ejercicios, (row['id'],))
+                for ejercicio_row in cursor.fetchall():
+                    ejercicio_data = {
+                        'id': ejercicio_row['ejercicio_id'],
+                        'nombre': ejercicio_row['nombre'],
+                        'grupo_muscular': ejercicio_row['grupo_muscular'],
+                        'descripcion': ejercicio_row['ejercicio_descripcion']
+                    }
+                    rutina_ejercicio = dict(ejercicio_row)
+                    rutina_ejercicio['ejercicio'] = ejercicio_data
+                    rutina['ejercicios'].append(rutina_ejercicio)
+        try:
+            self.cache.set('rutinas', ('completa_dict_uuid', str(uuid_rutina)), rutina)
+        except Exception:
+            pass
+        return rutina
         return rutina
     
     def obtener_ejercicios(self, filtro: str = "", objetivo: str = "", 
@@ -11570,27 +11828,45 @@ class DatabaseManager:
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-            # Construir consulta dinámica
-            sql = "SELECT id, nombre, descripcion, grupo_muscular, objetivo FROM ejercicios WHERE 1=1"
-            params = []
+            # Columnas existentes en ejercicios
+            cols = self.get_table_columns('ejercicios') or []
+            has_objetivo = 'objetivo' in cols
+            has_grupo = 'grupo_muscular' in cols
+            has_video_url = 'video_url' in cols
+            has_video_mime = 'video_mime' in cols
+
+            select_cols = ['id', 'nombre', 'descripcion']
+            if has_grupo:
+                select_cols.append('grupo_muscular')
+            if has_objetivo:
+                select_cols.append('objetivo')
+            if has_video_url:
+                select_cols.append('video_url')
+            if has_video_mime:
+                select_cols.append('video_mime')
+
+            # Construir consulta dinámica segura
+            sql = f"SELECT {', '.join(select_cols)} FROM ejercicios WHERE 1=1"
+            params: List[Any] = []
 
             # Filtro por nombre
             if filtro:
                 sql += " AND (nombre ILIKE %s OR descripcion ILIKE %s)"
                 params.extend([f"%{filtro}%", f"%{filtro}%"])
 
-            # Filtro por objetivo
-            if objetivo and objetivo != "Todos":
+            # Filtro por objetivo (solo si la columna existe)
+            if has_objetivo and objetivo and objetivo != "Todos":
                 sql += " AND objetivo = %s"
                 params.append(objetivo)
 
-            # Filtro por grupo muscular
-            if grupo_muscular and grupo_muscular != "Todos":
+            # Filtro por grupo muscular (solo si la columna existe)
+            if has_grupo and grupo_muscular and grupo_muscular != "Todos":
                 sql += " AND grupo_muscular = %s"
                 params.append(grupo_muscular)
 
             sql += " ORDER BY nombre"
             cursor.execute(sql, params)
+            # Mapear filas a modelo, tolerando columnas faltantes
             result = [Ejercicio(**dict(r)) for r in cursor.fetchall()]
             try:
                 self.cache.set('ejercicios', cache_key, result)
@@ -11604,12 +11880,13 @@ class DatabaseManager:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
                 sql = """
-                INSERT INTO ejercicios (nombre, grupo_muscular, descripcion, objetivo) 
-                VALUES (%s, %s, %s, %s) RETURNING id
+                INSERT INTO ejercicios (nombre, grupo_muscular, descripcion, objetivo, video_url, video_mime) 
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
                 """
                 objetivo = getattr(ejercicio, 'objetivo', 'general')
                 cursor.execute(sql, (ejercicio.nombre, ejercicio.grupo_muscular, 
-                                   ejercicio.descripcion, objetivo))
+                                   ejercicio.descripcion, objetivo,
+                                   getattr(ejercicio, 'video_url', None), getattr(ejercicio, 'video_mime', None)))
                 result = cursor.fetchone()
                 if result is None:
                     logging.error(f"Failed to create exercise: {ejercicio.nombre} - fetchone returned None")
@@ -13262,7 +13539,7 @@ class DatabaseManager:
             return results
     
     def obtener_rutina_completa(self, rutina_id: int) -> Optional[Rutina]:
-        """Obtiene una rutina completa con todos sus ejercicios PostgreSQL"""
+        """Obtiene una rutina completa con todos sus ejercicios (robusta ante columnas opcionales)."""
         # Cache por rutina completa (versión objeto)
         try:
             cached = self.cache.get('rutinas', ('completa_obj', int(rutina_id)))
@@ -13273,19 +13550,34 @@ class DatabaseManager:
         rutina = None
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute(
-                "SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa "
-                "FROM rutinas WHERE id = %s",
-                (rutina_id,)
-            )
+            # Selección dinámica de columnas para evitar errores si falta uuid_rutina
+            cols = self.get_table_columns('rutinas')
+            base_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa']
+            select_cols = base_cols + (['uuid_rutina'] if 'uuid_rutina' in (cols or []) else [])
+            sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE id = %s"
+            cursor.execute(sql, (rutina_id,))
             row = cursor.fetchone()
             
             if row:
-                rutina = Rutina(**dict(row))
+                base_fields = {k: row[k] for k in ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa'] if k in row}
+                rutina = Rutina(**base_fields)
+                try:
+                    setattr(rutina, 'uuid_rutina', row.get('uuid_rutina'))
+                except Exception:
+                    pass
                 rutina.ejercicios = []
                 
-                sql_ejercicios = """
-                    SELECT re.*, e.nombre, e.grupo_muscular, e.descripcion as ejercicio_descripcion 
+                # Selección dinámica de columnas en ejercicios para evitar fallos si faltan video_url/video_mime
+                e_cols = self.get_table_columns('ejercicios') or []
+                nombre_sel = 'e.nombre'
+                gm_sel = 'e.grupo_muscular' if 'grupo_muscular' in e_cols else "NULL AS grupo_muscular"
+                desc_sel = 'e.descripcion as ejercicio_descripcion' if 'descripcion' in e_cols else "NULL AS ejercicio_descripcion"
+                vurl_sel = 'e.video_url as ejercicio_video_url' if 'video_url' in e_cols else "NULL AS ejercicio_video_url"
+                vmime_sel = 'e.video_mime as ejercicio_video_mime' if 'video_mime' in e_cols else "NULL AS ejercicio_video_mime"
+
+                sql_ejercicios = f"""
+                    SELECT re.*, {nombre_sel}, {gm_sel}, {desc_sel},
+                           {vurl_sel}, {vmime_sel}
                     FROM rutina_ejercicios re 
                     JOIN ejercicios e ON re.ejercicio_id = e.id 
                     WHERE re.rutina_id = %s 
@@ -13298,14 +13590,22 @@ class DatabaseManager:
                         id=ejercicio_row['ejercicio_id'], 
                         nombre=ejercicio_row['nombre'], 
                         grupo_muscular=ejercicio_row['grupo_muscular'], 
-                        descripcion=ejercicio_row['ejercicio_descripcion']
+                        descripcion=ejercicio_row['ejercicio_descripcion'],
+                        video_url=ejercicio_row.get('ejercicio_video_url'),
+                        video_mime=ejercicio_row.get('ejercicio_video_mime')
                     )
                     
-                    rutina_ejercicio = RutinaEjercicio(**{
-                        k: v for k, v in dict(ejercicio_row).items() 
-                        if k not in ['nombre', 'grupo_muscular', 'ejercicio_descripcion']
-                    })
-                    rutina_ejercicio.ejercicio = ejercicio_data
+                    # Construir RutinaEjercicio con campos válidos solamente
+                    rutina_ejercicio = RutinaEjercicio(
+                        id=ejercicio_row.get('id'),
+                        rutina_id=ejercicio_row.get('rutina_id'),
+                        ejercicio_id=ejercicio_row.get('ejercicio_id'),
+                        dia_semana=ejercicio_row.get('dia_semana'),
+                        series=ejercicio_row.get('series'),
+                        repeticiones=ejercicio_row.get('repeticiones'),
+                        orden=ejercicio_row.get('orden'),
+                        ejercicio=ejercicio_data
+                    )
                     rutina.ejercicios.append(rutina_ejercicio)
         
         try:
