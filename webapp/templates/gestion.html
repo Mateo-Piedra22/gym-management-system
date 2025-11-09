@@ -7634,11 +7634,13 @@ async function updateRutinaPDFPreview(){
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
     frame.style.display='block';
-    try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
-    frame.src = viewerSrc;
-    // Adjuntar zoom con rueda
-    try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
-  }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
+  try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
+  frame.src = viewerSrc;
+  // Adjuntar zoom con rueda
+  try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
+  // Asegurar controles flotantes de zoom
+  try{ ensurePdfZoomControls('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
+}catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
 }
 // Zoom con rueda para iframes PDF (aplica escala CSS al iframe)
 function attachWheelZoom(containerId, frameId){
@@ -7671,6 +7673,150 @@ function attachWheelZoom(containerId, frameId){
     state._wheelZoomBound.add(frameId);
   } catch(_){ }
 }
+// Controles flotantes para zoom del visor de Excel (iframe)
+function ensurePdfZoomControls(containerId, frameId){
+  try{
+    const cont = document.getElementById(containerId);
+    const frame = document.getElementById(frameId);
+    if(!cont || !frame) return;
+    try{ const pos = window.getComputedStyle(cont).position; if(!pos || pos === 'static'){ cont.style.position = 'relative'; } }catch(_){ cont.style.position = 'relative'; }
+    // Inyectar estilos profesionales y responsivos una sola vez
+    let styleTag = document.getElementById('rutina-preview-zoom-css');
+    if(!styleTag){
+      styleTag = document.createElement('style');
+      styleTag.id = 'rutina-preview-zoom-css';
+      styleTag.textContent = `
+        #rutina-preview-zoom-controls{ position:absolute; top:12px; left:50%; transform: translateX(-50%); display:flex; align-items:center; gap:8px; padding:6px; border-radius:999px; border:1px solid var(--info); background: rgba(139,120,185,0.12); backdrop-filter: blur(6px); box-shadow: var(--shadow-md); z-index: var(--z-header); }
+        #rutina-preview-zoom-controls .btn{ padding:8px 12px; border-radius:999px; }
+        #rutina-preview-zoom-controls .btn .icon{ font-weight:700; }
+        #rutina-preview-zoom-controls .btn .label{ font-weight:600; }
+        #rutina-preview-zoom-controls .menu-panel{ position:absolute; top:calc(100% + 8px); left:50%; transform: translateX(-50%); min-width:220px; display:none; padding:8px; border-radius:12px; border:1px solid var(--info); background: rgba(139,120,185,0.18); backdrop-filter: blur(8px); box-shadow: var(--shadow-md); }
+        #rutina-preview-zoom-controls .menu-panel[data-open="true"]{ display:flex; flex-direction:column; gap:8px; }
+        #rutina-preview-zoom-controls .menu-panel .btn{ width:100%; border-radius:8px; }
+        #rutina-preview-zoom-controls .menu-panel .btn .label{ display:inline; }
+        @media (max-width: 720px){
+          #rutina-preview-zoom-controls{ top:8px; left:50%; transform: translateX(-50%); padding:4px; gap:6px; }
+          #rutina-preview-zoom-controls .btn{ width:36px; height:36px; padding:0; }
+          #rutina-preview-zoom-controls .btn .label{ display:none; }
+          #rutina-preview-zoom-controls .menu-panel{ min-width:180px; }
+          #rutina-preview-zoom-controls .menu-panel .btn{ width:100%; height:auto; padding:6px 10px; }
+          #rutina-preview-zoom-controls .menu-panel .btn .label{ display:inline; }
+        }
+      `;
+      document.head.appendChild(styleTag);
+    }
+    let fab = document.getElementById('rutina-preview-zoom-controls');
+    if(!fab){
+      fab = document.createElement('div');
+      fab.id = 'rutina-preview-zoom-controls';
+      fab.setAttribute('role','toolbar');
+      fab.setAttribute('aria-label','Controles de zoom');
+      const mkBtn = (iconText, labelText, aria, onClick) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn info sm';
+        b.setAttribute('aria-label', aria);
+        b.title = aria;
+        const icon = document.createElement('span'); icon.className = 'icon'; icon.textContent = iconText;
+        const label = document.createElement('span'); label.className = 'label'; label.textContent = labelText;
+        b.appendChild(icon); b.appendChild(label);
+        b.onclick = onClick;
+        return b;
+      };
+      const getZoom = () => {
+        if(!state._wheelZoom) state._wheelZoom = {};
+        if(!state._wheelZoom[frameId]) state._wheelZoom[frameId] = { scale: 1.0 };
+        return state._wheelZoom[frameId];
+      };
+      const applyScale = (scale) => {
+        const z = getZoom();
+        z.scale = Math.max(0.5, Math.min(3.0, scale));
+        frame.style.transform = `scale(${z.scale})`;
+        frame.style.transformOrigin = 'center top';
+      };
+      const btnMinus = mkBtn('−', 'Zoom', 'Disminuir zoom', () => { const z = getZoom(); applyScale((z.scale||1.0) - 0.1); });
+      const btnPlus  = mkBtn('+', 'Zoom', 'Aumentar zoom', () => { const z = getZoom(); applyScale((z.scale||1.0) + 0.1); });
+      const btnReset = mkBtn('⟲', 'Reset', 'Restablecer zoom', () => { applyScale(1.0); });
+      btnMinus.dataset.role = 'base'; btnPlus.dataset.role = 'base'; btnReset.dataset.role = 'base';
+      fab.appendChild(btnMinus);
+      fab.appendChild(btnPlus);
+      fab.appendChild(btnReset);
+      // Menú "Más" para acciones extra
+      const menuBtn = mkBtn('⋯', 'Más', 'Más opciones', () => {});
+      menuBtn.classList.add('menu-toggle');
+      menuBtn.id = 'rutina-preview-zoom-more';
+      menuBtn.setAttribute('aria-haspopup','true');
+      menuBtn.setAttribute('aria-expanded','false');
+      fab.appendChild(menuBtn);
+      let menu = document.getElementById('rutina-preview-zoom-menu');
+      if(!menu){
+        menu = document.createElement('div');
+        menu.id = 'rutina-preview-zoom-menu';
+        menu.className = 'menu-panel';
+        menu.setAttribute('role','menu');
+        menu.setAttribute('aria-labelledby','rutina-preview-zoom-more');
+        const mkMenuItem = (iconText, labelText, aria, onClick) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'btn info sm menu-item';
+          item.setAttribute('role','menuitem');
+          item.setAttribute('aria-label', aria);
+          const icon = document.createElement('span'); icon.className = 'icon'; icon.textContent = iconText;
+          const label = document.createElement('span'); label.className = 'label'; label.textContent = labelText;
+          item.appendChild(icon); item.appendChild(label);
+          item.onclick = onClick;
+          return item;
+        };
+        const itemFit = mkMenuItem('⤢', 'Fit', 'Ajustar a ancho', () => { applyScale(1.0); closeMenu(); });
+        const itemFull = mkMenuItem('⬌', 'Ancho', 'Alternar ancho completo', () => {
+          try{
+            const cols = document.getElementById('rutina-preview-columns');
+            const grid = document.getElementById('rutina-preview-grid');
+            state.viewerFullWidth = !state.viewerFullWidth;
+            if(cols){ cols.style.gridTemplateColumns = state.viewerFullWidth ? '1fr' : '1.5fr 1fr'; }
+            if(grid && grid.parentElement){ grid.parentElement.style.display = state.viewerFullWidth ? 'none' : ''; }
+          }catch(_){ }
+          closeMenu();
+        });
+        const itemOpen = mkMenuItem('↗', 'Abrir', 'Abrir vista en nueva pestaña', () => {
+          try{ const url = frame.src || ''; if(url){ window.open(url, '_blank', 'noopener'); } }
+          catch(_){ }
+          closeMenu();
+        });
+        menu.appendChild(itemFit);
+        menu.appendChild(itemFull);
+        menu.appendChild(itemOpen);
+        fab.appendChild(menu);
+      }
+      const openMenu = () => { menu.dataset.open = 'true'; menuBtn.setAttribute('aria-expanded','true'); try{ const first = menu.querySelector('.menu-item'); if(first) first.focus(); }catch(_){ } };
+      const closeMenu = () => { menu.dataset.open = 'false'; menuBtn.setAttribute('aria-expanded','false'); };
+      const toggleMenu = () => { if(menu.dataset.open === 'true'){ closeMenu(); } else { openMenu(); } };
+      menuBtn.onclick = toggleMenu;
+      document.addEventListener('click', (ev) => {
+        try{
+          if(menu.dataset.open !== 'true') return;
+          const t = ev.target;
+          if(!menu.contains(t) && !menuBtn.contains(t)){ closeMenu(); }
+        }catch(_){ }
+      }, { capture:true });
+      document.addEventListener('keydown', (ev) => {
+        try{
+          if(ev.key === 'Escape'){ closeMenu(); return; }
+          if(menu.dataset.open === 'true' && (ev.key === 'ArrowDown' || ev.key === 'ArrowUp')){
+            ev.preventDefault();
+            const items = Array.from(menu.querySelectorAll('.menu-item'));
+            if(!items.length) return;
+            const idx = Math.max(0, items.indexOf(document.activeElement));
+            const next = ev.key === 'ArrowDown' ? Math.min(items.length-1, idx+1) : Math.max(0, idx-1);
+            items[next].focus();
+          }
+        }catch(_){ }
+      }, { passive:false });
+      cont.appendChild(fab);
+      // No ocultamos controles principales; el menú alberga acciones extra
+    }
+  }catch(_){ }
+}
     async function openRutinaPreview(id){
       try{
         // Asegurar ejercicios cargados para los selects de agregar
@@ -7694,10 +7840,10 @@ function attachWheelZoom(containerId, frameId){
           const descEl = document.getElementById('rutina-preview-descripcion'); if(descEl) descEl.value = data.descripcion || '';
   const diasEl = document.getElementById('rutina-preview-dias'); if(diasEl) diasEl.value = String(Math.max(2, Math.min(5, Number(data.dias_semana||3))));
           const catEl = document.getElementById('rutina-preview-categoria'); if(catEl){
-            const isPlantilla = (data.usuario_id == null) || (state.activeRutinaTab === 'plantillas');
+            const isPlantilla = (data.usuario_id == null);
             catEl.value = String(data.categoria || 'general');
             catEl.disabled = false;
-            // Ocultar la tabla de ejercicios en rutinas de usuario (solo mostrar en plantillas)
+            // Mostrar tabla de ejercicios solo en plantillas
             try{
               const excelTable = document.getElementById('rutina-preview-excel');
               if(excelTable){ excelTable.style.display = isPlantilla ? '' : 'none'; }
@@ -7743,7 +7889,7 @@ function attachWheelZoom(containerId, frameId){
           const titleEl = document.getElementById('modal-rutina-preview-title');
           if(titleEl){
             const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
-            const isTemplate = (state.activeRutinaTab === 'plantillas') || (d.usuario_id == null);
+            const isTemplate = (d.usuario_id == null);
             titleEl.textContent = isTemplate ? 'Vista previa de plantilla' : 'Vista previa de rutina';
           }
         }catch(_){ }
@@ -8338,6 +8484,14 @@ function attachWheelZoom(containerId, frameId){
               try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser) } })); }catch(_){}
               let _opened = false;
               try{ await openRutinaPreview(Number(data.id)); _opened = true; }catch(_){ _opened = false; }
+              // Asegurar encabezados visibles con el nombre y usuario
+              try{
+                const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl){ nameEl.value = nombreAuto; }
+                const userEl = document.getElementById('rutina-preview-usuario-nombre'); if(userEl){ userEl.value = userLabel; }
+                const dInner = state.rutinaPreviewDraft || state.rutinaPreview || {};
+                dInner.nombre_rutina = nombreAuto; dInner.usuario_nombre_override = userLabel;
+                state.rutinaPreviewDraft = dInner;
+              }catch(_){ }
               try{
                 const modal = document.getElementById('modal-rutina-preview');
                 const cs = modal ? window.getComputedStyle(modal) : null;
@@ -8409,6 +8563,14 @@ function attachWheelZoom(containerId, frameId){
             try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser2) } })); }catch(_){}
             let _opened2 = false;
             try{ await openRutinaPreview(Number(data.id)); _opened2 = true; }catch(_){ _opened2 = false; }
+            // Asegurar encabezados visibles con el nombre y usuario
+            try{
+              const nameEl = document.getElementById('rutina-preview-nombre'); if(nameEl){ nameEl.value = nombreAuto; }
+              const userEl = document.getElementById('rutina-preview-usuario-nombre'); if(userEl){ userEl.value = chosenLabel; }
+              const dInner = state.rutinaPreviewDraft || state.rutinaPreview || {};
+              dInner.nombre_rutina = nombreAuto; dInner.usuario_nombre_override = chosenLabel;
+              state.rutinaPreviewDraft = dInner;
+            }catch(_){ }
             try{
               const modal = document.getElementById('modal-rutina-preview');
               const cs = modal ? window.getComputedStyle(modal) : null;
