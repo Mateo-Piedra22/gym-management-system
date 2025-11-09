@@ -432,6 +432,52 @@ def _get_excel_preview_draft(pid: str) -> Optional[Dict[str, Any]]:
     except Exception:
         return None
 
+# Almacenamiento efímero de rutinas por UUID para QR en previsualización
+_excel_preview_routines_lock = threading.RLock()
+_excel_preview_routines: Dict[str, Dict[str, Any]] = {}
+
+def _clean_preview_routines() -> None:
+    try:
+        now = int(time.time())
+        to_del = []
+        with _excel_preview_routines_lock:
+            for k, v in list(_excel_preview_routines.items()):
+                exp = int(v.get("expires_at", 0) or 0)
+                if exp and now > exp:
+                    to_del.append(k)
+            for k in to_del:
+                _excel_preview_routines.pop(k, None)
+    except Exception:
+        pass
+
+def _save_excel_preview_routine(uuid_str: str, rutina_dict: Dict[str, Any]) -> None:
+    if not uuid_str:
+        return
+    now = int(time.time())
+    entry = {
+        "rutina": rutina_dict,
+        "created_at": now,
+        "expires_at": now + 600,  # 10 minutos
+    }
+    with _excel_preview_routines_lock:
+        _excel_preview_routines[str(uuid_str)] = entry
+        _clean_preview_routines()
+
+def _get_excel_preview_routine(uuid_str: str) -> Optional[Dict[str, Any]]:
+    try:
+        with _excel_preview_routines_lock:
+            entry = _excel_preview_routines.get(str(uuid_str))
+            if not entry:
+                return None
+            exp = int(entry.get("expires_at", 0) or 0)
+            now = int(time.time())
+            if exp and now > exp:
+                _excel_preview_routines.pop(str(uuid_str), None)
+                return None
+            return entry.get("rutina")
+    except Exception:
+        return None
+
 def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
     """Construye Rutina, Usuario y ejercicios_por_dia desde un payload efímero."""
     # Usuario
@@ -560,6 +606,26 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
         semana_val = 1
     try:
         setattr(rutina, "semana", semana_val)
+    except Exception:
+        pass
+    # Asegurar un uuid efímero para previsualización (habilita qr_link en Excel)
+    try:
+        ruuid = (
+            (r_raw.get("uuid_rutina") or r_raw.get("uuid"))
+            or (payload.get("uuid_rutina") or payload.get("uuid"))
+        )
+        ruuid = str(ruuid).strip() if ruuid else ""
+    except Exception:
+        ruuid = ""
+    if not ruuid:
+        try:
+            ruuid = str(uuid.uuid4())
+        except Exception:
+            ruuid = ""
+    try:
+        if ruuid:
+            setattr(rutina, "uuid_rutina", ruuid)
+            setattr(rutina, "uuid", ruuid)
     except Exception:
         pass
     ejercicios: list = []
@@ -2502,7 +2568,7 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
 
 # Endpoint público para servir XLSX firmado desde borrador efímero
 @app.get("/api/rutinas/preview/excel_view")
-async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
     if not sig:
         raise HTTPException(status_code=403, detail="Firma requerida")
     if not (pid or data):
@@ -2550,6 +2616,92 @@ async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optiona
             if not draft:
                 raise HTTPException(status_code=404, detail="Borrador no encontrado o expirado")
             rutina, usuario, ejercicios_por_dia = _build_rutina_from_draft(draft)
+        # Decidir si usar QR real (rutina existente en DB) o QR efímero de preview
+        use_preview_qr = True
+        try:
+            uuid_actual = (getattr(rutina, "uuid_rutina", "") or getattr(rutina, "uuid", "") or "")
+        except Exception:
+            uuid_actual = ""
+        try:
+            db = _get_db()
+        except Exception:
+            db = None
+        if isinstance(uuid_actual, str) and uuid_actual and db is not None:
+            try:
+                rutina_db = db.obtener_rutina_completa_por_uuid_dict(uuid_actual)  # type: ignore
+                if rutina_db:
+                    use_preview_qr = False
+            except Exception:
+                use_preview_qr = True
+
+        if not use_preview_qr:
+            # Mantener UUID real y apuntar al endpoint de QR real
+            try:
+                setattr(rutina, "qr_is_preview", False)
+            except Exception:
+                pass
+        else:
+            # Estabilizar UUID efímero en sesión para que el QR no cambie aunque se modifique el contenido
+            try:
+                sess_uuid = request.session.get("preview_rutina_uuid")
+            except Exception:
+                sess_uuid = None
+            if not (isinstance(sess_uuid, str) and sess_uuid):
+                try:
+                    sess_uuid = str(uuid.uuid4())
+                    request.session["preview_rutina_uuid"] = sess_uuid
+                except Exception:
+                    sess_uuid = (getattr(rutina, "uuid_rutina", "") or getattr(rutina, "uuid", "") or "")
+            try:
+                if isinstance(sess_uuid, str) and sess_uuid:
+                    setattr(rutina, "uuid_rutina", sess_uuid)
+                    setattr(rutina, "uuid", sess_uuid)
+            except Exception:
+                pass
+            # Marcar rutina en modo previsualización para que el QR apunte al endpoint de preview
+            try:
+                setattr(rutina, "qr_is_preview", True)
+            except Exception:
+                pass
+            # Guardar representación efímera por UUID para habilitar el escaneo del QR en preview
+            try:
+                uuid_val = (getattr(rutina, "uuid_rutina", "") or getattr(rutina, "uuid", "") or "")
+            except Exception:
+                uuid_val = ""
+            if isinstance(uuid_val, str) and uuid_val:
+                try:
+                    ejercicios_list = []
+                    for d, items in (ejercicios_por_dia or {}).items():
+                        for re in items or []:
+                            try:
+                                ejercicios_list.append({
+                                    "dia_semana": int(getattr(re, "dia_semana", d) or d),
+                                    "series": getattr(re, "series", "") or "",
+                                    "repeticiones": getattr(re, "repeticiones", "") or "",
+                                    "orden": int(getattr(re, "orden", 0) or 0),
+                                    "ejercicio_id": int(getattr(re, "ejercicio_id", 0) or 0),
+                                    "ejercicio": {
+                                        "nombre": (getattr(re, "nombre_ejercicio", None) or (getattr(getattr(re, "ejercicio", None), "nombre", None))),
+                                        "descripcion": None,
+                                        "video_url": None,
+                                    }
+                                })
+                            except Exception:
+                                continue
+                    rutina_dict = {
+                        "id": None,
+                        "usuario_id": None,
+                        "uuid_rutina": uuid_val,
+                        "nombre_rutina": getattr(rutina, "nombre_rutina", "") or "",
+                        "descripcion": getattr(rutina, "descripcion", None),
+                        "dias_semana": getattr(rutina, "dias_semana", 1) or 1,
+                        "categoria": getattr(rutina, "categoria", "general") or "general",
+                        "activa": True,
+                        "ejercicios": ejercicios_list,
+                    }
+                    _save_excel_preview_routine(uuid_val, rutina_dict)
+                except Exception:
+                    pass
         out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
         resp = FileResponse(
             out_path,
@@ -2573,8 +2725,8 @@ async def api_rutina_preview_excel_view(pid: Optional[str] = None, data: Optiona
 
 # Variante con extensión .xlsx para compatibilidad con Office Viewer
 @app.get("/api/rutinas/preview/excel_view.xlsx")
-async def api_rutina_preview_excel_view_ext(pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
-    return await api_rutina_preview_excel_view(pid=pid, data=data, weeks=weeks, filename=filename, ts=ts, sig=sig)
+async def api_rutina_preview_excel_view_ext(request: Request, pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+    return await api_rutina_preview_excel_view(request=request, pid=pid, data=data, weeks=weeks, filename=filename, ts=ts, sig=sig)
 
 # --- API Rutinas ---
 @app.get("/api/rutinas")
@@ -10008,6 +10160,50 @@ async def api_rutina_qr_scan(uuid_rutina: str, request: Request):
         except Exception:
             pass
 
+    ejercicios = rutina.get("ejercicios") or []
+    dias_map: dict[int, list[dict]] = {}
+    for it in ejercicios:
+        try:
+            d = int(it.get("dia_semana") or 1)
+        except Exception:
+            d = 1
+        dias_map.setdefault(d, []).append(it)
+    dias = []
+    for d in sorted(dias_map.keys()):
+        items = dias_map[d]
+        items_sorted = sorted(items, key=lambda x: int(x.get("orden") or 0))
+        dias.append({
+            "numero": d,
+            "nombre": f"Día {d}",
+            "ejercicios": [
+                {
+                    "nombre": (e.get("ejercicio") or {}).get("nombre"),
+                    "descripcion": (e.get("ejercicio") or {}).get("descripcion"),
+                    "video_url": (e.get("ejercicio") or {}).get("video_url"),
+                    "series": e.get("series") or "",
+                    "repeticiones": e.get("repeticiones") or "",
+                    "ejercicio_id": int(e.get("ejercicio_id") or 0)
+                }
+                for e in items_sorted
+            ]
+        })
+    out = dict(rutina)
+    out["dias"] = dias
+    return JSONResponse({"ok": True, "rutina": out}, status_code=200)
+
+# --- Endpoint público de previsualización: escaneo de QR efímero por UUID ---
+@app.get("/api/rutinas/preview/qr_scan/{uuid_rutina}")
+async def api_rutina_preview_qr_scan(uuid_rutina: str):
+    """Retorna JSON con la rutina efímera construida para previsualización.
+
+    No requiere autenticación y expira automáticamente a los 10 minutos.
+    """
+    uid = str(uuid_rutina or "").strip()
+    if not uid or len(uid) < 8:
+        return JSONResponse({"ok": False, "error": "UUID inválido"}, status_code=400)
+    rutina = _get_excel_preview_routine(uid)
+    if not rutina:
+        return JSONResponse({"ok": False, "error": "Rutina no encontrada o expirada"}, status_code=404)
     ejercicios = rutina.get("ejercicios") or []
     dias_map: dict[int, list[dict]] = {}
     for it in ejercicios:

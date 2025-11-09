@@ -541,8 +541,14 @@ class RoutineTemplateManager:
         uuid_val = (getattr(rutina, 'uuid_rutina', '') or getattr(rutina, 'uuid', '') or '')
         qr_link = ''
         if isinstance(uuid_val, str) and uuid_val:
-            # Enlace al endpoint público JSON de la rutina
-            qr_link = f"{base_url.rstrip('/')}/api/rutinas/qr_scan/{uuid_val}"
+            try:
+                is_preview = bool(getattr(rutina, 'qr_is_preview', False))
+            except Exception:
+                is_preview = False
+            if is_preview:
+                qr_link = f"{base_url.rstrip('/')}/api/rutinas/preview/qr_scan/{uuid_val}"
+            else:
+                qr_link = f"{base_url.rstrip('/')}/api/rutinas/qr_scan/{uuid_val}"
         template_data['uuid_rutina'] = uuid_val
         # Refuerzo: si el objeto tiene uuid pero no uuid_rutina, propagar para consistencia
         try:
@@ -1679,7 +1685,8 @@ class RoutineTemplateManager:
                     except Exception:
                         pass
 
-                # Insertar imagen QR a la derecha (columna K)
+                # Insertar imagen QR a la derecha (columna K) con fallback a hipervínculo
+                image_inserted = False
                 if qr_png_path and os.path.exists(qr_png_path):
                     try:
                         img = XLImage(qr_png_path)
@@ -1687,12 +1694,12 @@ class RoutineTemplateManager:
                         img.height = 120
                         anchor_cell = f"K{band_row}"
                         ws.add_image(img, anchor_cell)
+                        image_inserted = True
                     except Exception:
-                        pass
-                else:
+                        image_inserted = False
+                if not image_inserted:
                     try:
                         link_cell = ws.cell(row=band_row, column=11, value=f"QR: {qr_link}")
-                        # añadir hipervínculo y estilo
                         try:
                             link_cell.hyperlink = qr_link
                             link_cell.font = Font(color="0000EE", underline="single")
