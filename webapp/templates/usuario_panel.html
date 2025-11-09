@@ -513,18 +513,39 @@
         const title = document.createElement('h5');
         title.textContent = String(d.nombre || `Día ${d.numero}`);
         day.appendChild(title);
-        const list = document.createElement('div');
-        (d.ejercicios || []).forEach(e => {
-          const item = document.createElement('div');
-          item.className = 'exercise';
-          item.setAttribute('role', 'button');
-          item.setAttribute('tabindex', '0');
-          item.innerHTML = `<span>${String(e.nombre || 'Ejercicio')}</span><span class="muted">${String(e.series || '-')}/${String(e.repeticiones || '-')}</span>`;
-          item.addEventListener('click', () => abrirModalEjercicio(e));
-          item.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirModalEjercicio(e); } });
-          list.appendChild(item);
-        });
-        day.appendChild(list);
+        const table = document.createElement('table');
+        table.className = 'table';
+        const thead = document.createElement('thead');
+        thead.innerHTML = '<tr><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr>';
+        table.appendChild(thead);
+        const tbody = document.createElement('tbody');
+        const ejercicios = Array.isArray(d.ejercicios) ? d.ejercicios : [];
+        if (ejercicios.length === 0){
+          const empty = document.createElement('tr');
+          empty.innerHTML = '<td colspan="3" class="muted">Sin ejercicios en este día</td>';
+          tbody.appendChild(empty);
+        } else {
+          ejercicios.forEach(e => {
+            const row = document.createElement('tr');
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('aria-label', `Ver ejercicio ${String(e.nombre || 'Ejercicio')}`);
+            const nombreTd = document.createElement('td');
+            nombreTd.textContent = String(e.nombre || 'Ejercicio');
+            const seriesTd = document.createElement('td');
+            seriesTd.textContent = String(e.series || '-');
+            const repsTd = document.createElement('td');
+            repsTd.textContent = String(e.repeticiones || '-');
+            row.appendChild(nombreTd);
+            row.appendChild(seriesTd);
+            row.appendChild(repsTd);
+            row.addEventListener('click', () => abrirModalEjercicio(e));
+            row.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); abrirModalEjercicio(e); } });
+            tbody.appendChild(row);
+          });
+        }
+        table.appendChild(tbody);
+        day.appendChild(table);
         cont.appendChild(day);
       });
     }
