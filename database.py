@@ -3155,13 +3155,22 @@ class DatabaseManager:
                         grupo_muscular VARCHAR(100),
                         objetivo VARCHAR(100) DEFAULT 'general'
                     )""")
+                    # Asegurar columna 'objetivo' para tablas existentes
+                    try:
+                        if not self._column_exists(conn, 'ejercicios', 'objetivo'):
+                            cursor.execute("ALTER TABLE ejercicios ADD COLUMN objetivo VARCHAR(100) DEFAULT 'general'")
+                    except Exception:
+                        pass
                     # Columnas de medios para ejercicios
                     try:
-                        cursor.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)")
+                        # Compatibilidad con PostgreSQL antiguos: sin IF NOT EXISTS
+                        if not self._column_exists(conn, 'ejercicios', 'video_url'):
+                            cursor.execute("ALTER TABLE ejercicios ADD COLUMN video_url VARCHAR(512)")
                     except Exception:
                         pass
                     try:
-                        cursor.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_mime VARCHAR(50)")
+                        if not self._column_exists(conn, 'ejercicios', 'video_mime'):
+                            cursor.execute("ALTER TABLE ejercicios ADD COLUMN video_mime VARCHAR(50)")
                     except Exception:
                         pass
                     
@@ -9880,16 +9889,31 @@ class DatabaseManager:
         """Actualiza un ejercicio existente"""
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
-                sql = "UPDATE ejercicios SET nombre = %s, grupo_muscular = %s, descripcion = %s, objetivo = %s, video_url = %s, video_mime = %s WHERE id = %s"
-                cursor.execute(sql, (
-                    ejercicio.nombre,
-                    ejercicio.grupo_muscular,
-                    ejercicio.descripcion,
-                    getattr(ejercicio, 'objetivo', 'general'),
-                    getattr(ejercicio, 'video_url', None),
-                    getattr(ejercicio, 'video_mime', None),
-                    ejercicio.id
-                ))
+                # Descubrir columnas existentes para construir UPDATE dinámico
+                try:
+                    cols = self.get_table_columns('ejercicios') or []
+                except Exception:
+                    cols = []
+                set_parts = ["nombre = %s"]
+                params = [ejercicio.nombre]
+                if 'grupo_muscular' in cols:
+                    set_parts.append("grupo_muscular = %s")
+                    params.append(ejercicio.grupo_muscular)
+                if 'descripcion' in cols:
+                    set_parts.append("descripcion = %s")
+                    params.append(ejercicio.descripcion)
+                if 'objetivo' in cols:
+                    set_parts.append("objetivo = %s")
+                    params.append(getattr(ejercicio, 'objetivo', 'general'))
+                if 'video_url' in cols:
+                    set_parts.append("video_url = %s")
+                    params.append(getattr(ejercicio, 'video_url', None))
+                if 'video_mime' in cols:
+                    set_parts.append("video_mime = %s")
+                    params.append(getattr(ejercicio, 'video_mime', None))
+                sql = f"UPDATE ejercicios SET {', '.join(set_parts)} WHERE id = %s"
+                params.append(ejercicio.id)
+                cursor.execute(sql, tuple(params))
                 conn.commit()
                 try:
                     self.cache.invalidate('ejercicios')
@@ -11879,14 +11903,31 @@ class DatabaseManager:
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                sql = """
-                INSERT INTO ejercicios (nombre, grupo_muscular, descripcion, objetivo, video_url, video_mime) 
-                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-                """
-                objetivo = getattr(ejercicio, 'objetivo', 'general')
-                cursor.execute(sql, (ejercicio.nombre, ejercicio.grupo_muscular, 
-                                   ejercicio.descripcion, objetivo,
-                                   getattr(ejercicio, 'video_url', None), getattr(ejercicio, 'video_mime', None)))
+                # Descubrir columnas existentes para construir INSERT dinámico
+                try:
+                    cols = self.get_table_columns('ejercicios') or []
+                except Exception:
+                    cols = []
+                insert_cols = ['nombre']
+                insert_vals = [ejercicio.nombre]
+                if 'grupo_muscular' in cols:
+                    insert_cols.append('grupo_muscular')
+                    insert_vals.append(ejercicio.grupo_muscular)
+                if 'descripcion' in cols:
+                    insert_cols.append('descripcion')
+                    insert_vals.append(ejercicio.descripcion)
+                if 'objetivo' in cols:
+                    insert_cols.append('objetivo')
+                    insert_vals.append(getattr(ejercicio, 'objetivo', 'general'))
+                if 'video_url' in cols:
+                    insert_cols.append('video_url')
+                    insert_vals.append(getattr(ejercicio, 'video_url', None))
+                if 'video_mime' in cols:
+                    insert_cols.append('video_mime')
+                    insert_vals.append(getattr(ejercicio, 'video_mime', None))
+                placeholders = ', '.join(['%s'] * len(insert_vals))
+                sql = f"INSERT INTO ejercicios ({', '.join(insert_cols)}) VALUES ({placeholders}) RETURNING id"
+                cursor.execute(sql, tuple(insert_vals))
                 result = cursor.fetchone()
                 if result is None:
                     logging.error(f"Failed to create exercise: {ejercicio.nombre} - fetchone returned None")

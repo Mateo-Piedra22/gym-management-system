@@ -4560,11 +4560,24 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         raise HTTPException(status_code=503, detail="Modelo Ejercicio no disponible")
     payload = await request.json()
     try:
-        # Obtener existente para soportar actualización parcial
+        # Obtener columnas disponibles y seleccionar dinámicamente
+        try:
+            cols = db.get_table_columns('ejercicios')  # type: ignore
+        except Exception:
+            cols = []
+        base_cols = ["id", "nombre", "grupo_muscular", "descripcion"]
+        opt_cols = []
+        if "objetivo" in cols:
+            opt_cols.append("objetivo")
+        if "video_url" in cols:
+            opt_cols.append("video_url")
+        if "video_mime" in cols:
+            opt_cols.append("video_mime")
+        select_cols = base_cols + opt_cols
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute(
-                "SELECT id, nombre, grupo_muscular, descripcion, objetivo, video_url, video_mime FROM ejercicios WHERE id = %s",
+                f"SELECT {', '.join(select_cols)} FROM ejercicios WHERE id = %s",
                 (int(ejercicio_id),),
             )
             existing = cur.fetchone()
@@ -4576,8 +4589,8 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         grupo_muscular = payload.get("grupo_muscular") if ("grupo_muscular" in payload) else existing.get("grupo_muscular")
         descripcion = payload.get("descripcion") if ("descripcion" in payload) else existing.get("descripcion")
         objetivo = (payload.get("objetivo") or existing.get("objetivo") or "general").strip() or (existing.get("objetivo") or "general")
-        video_url = payload.get("video_url") if ("video_url" in payload) else existing.get("video_url")
-        video_mime = payload.get("video_mime") if ("video_mime" in payload) else existing.get("video_mime")
+        video_url = payload.get("video_url") if ("video_url" in payload) else (existing.get("video_url") if existing and ("video_url" in select_cols) else None)
+        video_mime = payload.get("video_mime") if ("video_mime" in payload) else (existing.get("video_mime") if existing and ("video_mime" in select_cols) else None)
         ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         db.actualizar_ejercicio(ejercicio)  # type: ignore
         return {"ok": True, "id": int(ejercicio_id)}
@@ -4657,12 +4670,46 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
             # URL relativa local
             url = f"/uploads/{dest_name}"
         try:
+            # Intentar garantizar columnas de medios (rápido y seguro)
+            try:
+                cols0 = []
+                try:
+                    cols0 = db.get_table_columns('ejercicios')  # type: ignore
+                except Exception:
+                    cols0 = []
+                if ('video_url' not in cols0) or ('video_mime' not in cols0):
+                    with db.get_connection_context() as conn:  # type: ignore
+                        cur0 = conn.cursor()
+                        try:
+                            if 'video_url' not in cols0:
+                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN video_url VARCHAR(512)")
+                        except Exception:
+                            pass
+                        try:
+                            if 'video_mime' not in cols0:
+                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN video_mime VARCHAR(50)")
+                        except Exception:
+                            pass
+                        conn.commit()
+            except Exception:
+                pass
+
+            # Actualizar usando solo columnas existentes
+            try:
+                cols = db.get_table_columns('ejercicios')  # type: ignore
+            except Exception:
+                cols = []
             with db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
-                cur.execute(
-                    "UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s",
-                    (url, content_type, int(ejercicio_id)),
-                )
+                if ('video_url' in cols) and ('video_mime' in cols):
+                    cur.execute("UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s", (url, content_type, int(ejercicio_id)))
+                elif ('video_url' in cols):
+                    cur.execute("UPDATE ejercicios SET video_url = %s WHERE id = %s", (url, int(ejercicio_id)))
+                elif ('video_mime' in cols):
+                    cur.execute("UPDATE ejercicios SET video_mime = %s WHERE id = %s", (content_type, int(ejercicio_id)))
+                else:
+                    # Si no existen columnas de medios, no fallar; el archivo ya está subido
+                    pass
                 conn.commit()
                 try:
                     db.cache.invalidate('ejercicios')  # type: ignore
