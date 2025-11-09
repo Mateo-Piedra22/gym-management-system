@@ -1634,9 +1634,14 @@ class RoutineTemplateManager:
 
         for ws in wb.worksheets:
             try:
-                max_row = (getattr(ws, 'max_row', 0) or 0)
-                band_row = max_row + 2 if max_row else 48
+                max_row = int(getattr(ws, 'max_row', 0) or 0)
+                blank_row = (max_row if max_row > 0 else 47) + 1
+                band_row = blank_row + 1
+
+                # Crear fila en blanco y fila de banda
+                ws.cell(row=blank_row, column=1, value="")
                 ws.cell(row=band_row, column=1, value="")
+
                 start_col = 1
                 end_col = 9
                 try:
@@ -1659,13 +1664,17 @@ class RoutineTemplateManager:
                 except Exception:
                     pass
 
-                # Insertar icono de smartphone al lado izquierdo si disponible
+                # Asegurar celdas de anclaje existen
+                ws.cell(row=band_row, column=10, value="")  # Columna J
+                ws.cell(row=band_row, column=11, value="")  # Columna K
+
+                # Insertar icono de smartphone al lado izquierdo si disponible (columna J)
                 if has_phone_icon:
                     try:
                         icon = XLImage(phone_icon_path)
                         icon.width = 24
                         icon.height = 24
-                        anchor_icon = f"J{band_row-1 if band_row>1 else band_row}"
+                        anchor_icon = f"J{band_row}"
                         ws.add_image(icon, anchor_icon)
                     except Exception:
                         pass
@@ -1676,7 +1685,7 @@ class RoutineTemplateManager:
                         img = XLImage(qr_png_path)
                         img.width = 120
                         img.height = 120
-                        anchor_cell = f"K{band_row-1 if band_row>1 else band_row}"
+                        anchor_cell = f"K{band_row}"
                         ws.add_image(img, anchor_cell)
                     except Exception:
                         pass
@@ -1691,6 +1700,10 @@ class RoutineTemplateManager:
                             pass
                     except Exception:
                         pass
+                try:
+                    self.logger.info(f"QR footer insertado en hoja '{getattr(ws, 'title', '?')}' en fila {band_row}. QR imagen: {'sí' if (qr_png_path and os.path.exists(qr_png_path)) else 'no'}")
+                except Exception:
+                    pass
             except Exception:
                 continue
 
