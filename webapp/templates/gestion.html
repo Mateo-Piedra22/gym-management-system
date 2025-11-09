@@ -8280,7 +8280,34 @@ function attachWheelZoom(containerId, frameId){
               closeModal('modal-rutina-new-choice');
               state.rutinaQuickAssignFlow = false;
               showToast('Plantilla clonada para el usuario', 'success', 2500);
-              await openRutinaPreview(Number(data.id));
+              try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser) } })); }catch(_){}
+              let _opened = false;
+              try{ await openRutinaPreview(Number(data.id)); _opened = true; }catch(_){ _opened = false; }
+              try{
+                const modal = document.getElementById('modal-rutina-preview');
+                const cs = modal ? window.getComputedStyle(modal) : null;
+                const visible = !!(modal && cs && cs.display !== 'none' && modal.getClientRects && modal.getClientRects().length > 0);
+                if(!_opened || !visible){
+                  let cause = 'unknown';
+                  try{
+                    const rEj = await fetch('/api/ejercicios', { headers:{ 'Accept':'application/json' } });
+                    if(rEj.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+                    await rEj.json().catch(()=>[]);
+                    if(!rEj.ok){ cause = 'ejercicios'; }
+                  }catch(_){ cause = 'ejercicios'; }
+                  if(cause === 'unknown'){
+                    try{
+                      const rDet = await fetch(`/api/rutinas/${Number(data.id)}`, { headers:{ 'Accept':'application/json' } });
+                      if(rDet.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+                      await rDet.json().catch(()=>({}));
+                      if(!rDet.ok){ cause = 'rutina'; }
+                    }catch(_){ cause = 'rutina'; }
+                  }
+                  if(cause === 'ejercicios'){ showToast('Rutina creada, pero falló cargar ejercicios para la previsualización', 'warning', 4000); }
+                  else if(cause === 'rutina'){ showToast('Rutina creada, pero no se pudo cargar su detalle', 'warning', 4000); }
+                  else { showToast('Rutina creada, pero no se pudo abrir la previsualización', 'warning', 3500); }
+                }
+              }catch(_){ }
             }catch(e){ showToast('Error de red al clonar plantilla', 'error', 4500); }
           } else {
             showToast('Selecciona un usuario para continuar', 'info', 2500);
@@ -8311,7 +8338,34 @@ function attachWheelZoom(containerId, frameId){
             closeModal('modal-rutina-new-choice');
             state.rutinaQuickAssignFlow = false;
             showToast('Rutina creada y guardada automáticamente', 'success', 2500);
-            await openRutinaPreview(Number(data.id));
+            try{ document.dispatchEvent(new CustomEvent('rutinas:updated', { detail:{ action:'create', usuarioId: Number(targetUser2) } })); }catch(_){}
+            let _opened2 = false;
+            try{ await openRutinaPreview(Number(data.id)); _opened2 = true; }catch(_){ _opened2 = false; }
+            try{
+              const modal = document.getElementById('modal-rutina-preview');
+              const cs = modal ? window.getComputedStyle(modal) : null;
+              const visible = !!(modal && cs && cs.display !== 'none' && modal.getClientRects && modal.getClientRects().length > 0);
+              if(!_opened2 || !visible){
+                let cause = 'unknown';
+                try{
+                  const rEj = await fetch('/api/ejercicios', { headers:{ 'Accept':'application/json' } });
+                  if(rEj.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+                  await rEj.json().catch(()=>[]);
+                  if(!rEj.ok){ cause = 'ejercicios'; }
+                }catch(_){ cause = 'ejercicios'; }
+                if(cause === 'unknown'){
+                  try{
+                    const rDet = await fetch(`/api/rutinas/${Number(data.id)}`, { headers:{ 'Accept':'application/json' } });
+                    if(rDet.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
+                    await rDet.json().catch(()=>({}));
+                    if(!rDet.ok){ cause = 'rutina'; }
+                  }catch(_){ cause = 'rutina'; }
+                }
+                if(cause === 'ejercicios'){ showToast('Rutina creada, pero falló cargar ejercicios para la previsualización', 'warning', 4000); }
+                else if(cause === 'rutina'){ showToast('Rutina creada, pero no se pudo cargar su detalle', 'warning', 4000); }
+                else { showToast('Rutina creada, pero no se pudo abrir la previsualización', 'warning', 3500); }
+              }
+            }catch(_){ }
           }catch(e){ showToast('Error de red al crear rutina', 'error', 4500); }
         };
         openModal('modal-rutina-new-choice');
