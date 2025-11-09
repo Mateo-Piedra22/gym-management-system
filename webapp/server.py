@@ -3145,7 +3145,14 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
         dias_semana = int(payload.get("dias_semana") or 1)
         categoria = (payload.get("categoria") or "general").strip() or "general"
         # Coerción robusta de usuario_id (evitar nulls no deseados)
+        # Aceptar varias claves potenciales del front: usuario_id, usuarioId, user_id, uid
         raw_uid = payload.get("usuario_id")
+        if raw_uid is None:
+            raw_uid = payload.get("usuarioId")
+        if raw_uid is None:
+            raw_uid = payload.get("user_id")
+        if raw_uid is None:
+            raw_uid = payload.get("uid")
         usuario_id = None
         try:
             if raw_uid is not None:
@@ -3207,6 +3214,25 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
                     conn.commit()
         except Exception:
             # Si falla esta operación defensiva, no bloquear la creación
+            pass
+        # Verificación post-inserción: si usuario_id quedó NULL y disponemos de destino, corregir
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT usuario_id FROM rutinas WHERE id = %s", (int(new_id),))
+                row = cur.fetchone()
+                current_uid = None
+                if isinstance(row, dict):
+                    current_uid = row.get("usuario_id")
+                elif row:
+                    current_uid = row[0]
+                if (current_uid is None) and (usuario_id is not None):
+                    cur.execute(
+                        "UPDATE rutinas SET usuario_id = %s WHERE id = %s",
+                        (int(usuario_id), int(new_id))
+                    )
+                    conn.commit()
+        except Exception:
             pass
         # Registrar auditoría de creación de rutina
         try:
