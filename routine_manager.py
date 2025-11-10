@@ -846,7 +846,7 @@ class RoutineTemplateManager:
             # Si la plantilla repite placeholders por fila, usar fallback para distribuir por filas
             if self._template_has_repeated_day_placeholders(template_path):
                 self.logger.info("Detectadas variables por día repetidas en plantilla; usando método fallback de distribución por filas")
-                return self._generate_excel_fallback(template_path, template_data, Path(output_path))
+                return self._generate_excel_fallback(template_path, template_data, Path(output_path), qr_mode=qr_mode, sheet=sheet)
         
             # Usar xlsxtpl para procesar la plantilla
             try:
