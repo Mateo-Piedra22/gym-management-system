@@ -994,6 +994,11 @@ class RoutineTemplateManager:
                 try:
                     mode = (qr_mode or "").strip().lower()
                     qr_link_val = template_data.get('qr_link')
+                    if mode in ("sheet", "none"):
+                        try:
+                            self._remove_qr_footer_band(str(output_path))
+                        except Exception:
+                            pass
                     if qr_link_val and mode in ("inline", "sheet"):
                         if mode == "inline":
                             try:
@@ -1238,6 +1243,11 @@ class RoutineTemplateManager:
             try:
                 mode = (qr_mode or "").strip().lower()
                 qr_link_val = template_data.get('qr_link')
+                if mode in ("sheet", "none"):
+                    try:
+                        self._remove_qr_footer_band(str(output_path))
+                    except Exception:
+                        pass
                 if qr_link_val and mode in ("inline", "sheet"):
                     if mode == "inline":
                         try:
@@ -2022,6 +2032,116 @@ class RoutineTemplateManager:
         try:
             if qr_png_path and os.path.exists(qr_png_path):
                 os.remove(qr_png_path)
+        except Exception:
+            pass
+
+    def _remove_qr_footer_band(self, xlsx_path: str) -> None:
+        """
+        Elimina la banda de pie con QR previamente insertada en todas las hojas.
+        Detecta el texto "Escaneá para ver rutina" y/o celdas de enlace "QR: ...",
+        borra la fila de la banda y la fila anterior en blanco si corresponde, y
+        retira imágenes ancladas a esa fila.
+        """
+        try:
+            wb = openpyxl.load_workbook(str(xlsx_path))
+        except Exception:
+            return
+
+        try:
+            for ws in wb.worksheets:
+                rows_to_delete = []
+                # Detectar fila de banda por texto sentinel
+                try:
+                    for row in ws.iter_rows():
+                        for cell in row:
+                            try:
+                                if isinstance(cell, MergedCellClass):
+                                    continue
+                            except Exception:
+                                pass
+                            val = getattr(cell, 'value', None)
+                            if isinstance(val, str) and val.strip() == "Escaneá para ver rutina":
+                                rows_to_delete.append(cell.row)
+                                # Limpiar posible celda de link en columna K (11)
+                                try:
+                                    link_cell = ws.cell(row=cell.row, column=11)
+                                    link_cell.value = None
+                                    link_cell.hyperlink = None
+                                except Exception:
+                                    pass
+                                break
+                except Exception:
+                    pass
+
+                # Retirar imágenes ancladas a las filas detectadas
+                try:
+                    imgs = list(getattr(ws, '_images', []) or [])
+                    keep = []
+                    for img in imgs:
+                        remove = False
+                        try:
+                            anc = getattr(img, 'anchor', None)
+                            # OneCellAnchor con _from.row (base 0)
+                            if hasattr(anc, '_from') and hasattr(anc._from, 'row'):
+                                r0 = int(anc._from.row) + 1
+                                if r0 in rows_to_delete:
+                                    remove = True
+                            # AnchorMarker-like con row (base 0)
+                            elif hasattr(anc, 'row'):
+                                r0 = int(anc.row) + 1
+                                if r0 in rows_to_delete:
+                                    remove = True
+                            # Anclaje por referencia de celda "K{row}"
+                            elif isinstance(anc, str):
+                                import re as _re
+                                m = _re.match(r"^[A-Z]+(\d+)$", anc)
+                                if m:
+                                    r = int(m.group(1))
+                                    if r in rows_to_delete:
+                                        remove = True
+                        except Exception:
+                            remove = False
+                        if not remove:
+                            keep.append(img)
+                    ws._images = keep
+                except Exception:
+                    pass
+
+                # Borrar filas (y fila en blanco anterior si está vacía)
+                try:
+                    for r in sorted(set(rows_to_delete), reverse=True):
+                        try:
+                            if r > 1:
+                                prev_blank = True
+                                try:
+                                    for cell in ws[r-1]:
+                                        try:
+                                            if isinstance(cell, MergedCellClass):
+                                                continue
+                                        except Exception:
+                                            pass
+                                        if getattr(cell, 'value', None) not in (None, ''):
+                                            prev_blank = False
+                                            break
+                                except Exception:
+                                    prev_blank = False
+                                if prev_blank:
+                                    ws.delete_rows(r-1, 2)
+                                    continue
+                        except Exception:
+                            pass
+                        try:
+                            ws.delete_rows(r, 1)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            wb.save(str(xlsx_path))
+        except Exception:
+            pass
+        try:
+            wb.close()
         except Exception:
             pass
 
