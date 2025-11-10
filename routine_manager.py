@@ -1115,13 +1115,14 @@ class RoutineTemplateManager:
         try:
             # Cargar plantilla
             workbook = openpyxl.load_workbook(str(template_path))
-            sheet = workbook.active
-            
+            # Evitar ocultar el parámetro 'sheet' usando un nombre distinto para la hoja activa
+            ws_active = workbook.active
+
             # Reemplazar variables básicas
-            self._replace_basic_variables(sheet, template_data)
-            
+            self._replace_basic_variables(ws_active, template_data)
+
             # Cargar ejercicios de forma secuencial
-            self._load_exercises_sequential(sheet, template_data['dias'], template_data.get('current_week'))
+            self._load_exercises_sequential(ws_active, template_data['dias'], template_data.get('current_week'))
             
             # Aplicar anchos de columna A..K = 4.57 y L..AA = 3.71 en todas las hojas antes de guardar
             try:
@@ -1245,10 +1246,12 @@ class RoutineTemplateManager:
                             pass
                     else:
                         try:
+                            # Usar el parámetro 'sheet' (nombre de hoja), no la variable local
                             target_title = (sheet or "QR") if isinstance(sheet, str) and sheet.strip() else "QR"
                             self._add_qr_sheet(str(output_path), qr_link_val, target_title, template_data.get('uuid_rutina'))
                         except Exception:
                             pass
+                # Ajustar hoja activa solo si se pasó un nombre de hoja válido por parámetro
                 if isinstance(sheet, str) and sheet.strip():
                     try:
                         wbset = openpyxl.load_workbook(str(output_path))
