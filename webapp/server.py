@@ -2424,7 +2424,14 @@ async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Option
     raise HTTPException(status_code=410, detail="Exportación PDF desactivada en la webapp; use la previsualización de Excel.")
 
 @app.get("/api/rutinas/{rutina_id}/export/excel")
-async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
+async def api_rutina_export_excel(
+    rutina_id: int,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    _=Depends(require_gestion_access),
+):
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -2508,7 +2515,30 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
             weeks = max(1, min(int(weeks), 4))
         except Exception:
             weeks = 1
-        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        # Normalizar ubicación del QR y hoja activa para mantener consistencia con endpoints de previsualización
+        try:
+            qr_mode = str(qr_mode or "inline").strip().lower()
+            if qr_mode in ("auto", "real", "preview"):
+                qr_mode = "inline"
+            if qr_mode not in ("inline", "sheet", "none"):
+                qr_mode = "inline"
+        except Exception:
+            qr_mode = "inline"
+        try:
+            sheet_norm = None
+            if sheet is not None:
+                sheet_str = str(sheet).strip()
+                sheet_norm = sheet_str[:64] if sheet_str else None
+        except Exception:
+            sheet_norm = None
+        out_path = rm.generate_routine_excel(
+            rutina,
+            usuario,
+            ejercicios_por_dia,
+            weeks=weeks,
+            qr_mode=qr_mode,
+            sheet=sheet_norm,
+        )
         # Determinar nombre de archivo final (permite override por query param)
         try:
             final_name = os.path.basename(filename) if filename else os.path.basename(out_path)
@@ -2653,7 +2683,7 @@ async def api_rutina_excel_view_url(
         "sig": sig,
     }
     qs = urllib.parse.urlencode(params, safe="")
-    full = f"{base_url}/api/rutinas/{rutina_id}/export/excel_view?{qs}"
+    full = f"{base_url}/api/rutinas/{rutina_id}/export/excel_view.xlsx?{qs}"
     return JSONResponse({"url": full})
 
 # Endpoint público (sin sesión) que sirve el XLSX firmado en modo inline para el visor
@@ -2673,6 +2703,27 @@ async def api_rutina_excel_view(
         weeks = max(1, min(int(weeks), 4))
     except Exception:
         weeks = 1
+
+# Variante con extensión .xlsx para compatibilidad con Office/Google Viewer
+@app.get("/api/rutinas/{rutina_id}/export/excel_view.xlsx")
+async def api_rutina_excel_view_ext(
+    rutina_id: int,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    ts: int = 0,
+    sig: Optional[str] = None,
+):
+    return await api_rutina_excel_view(
+        rutina_id=rutina_id,
+        weeks=weeks,
+        filename=filename,
+        qr_mode=qr_mode,
+        sheet=sheet,
+        ts=ts,
+        sig=sig,
+    )
     # Normalizar qr_mode y sheet (ubicación del QR)
     try:
         qr_mode = str(qr_mode or "inline").strip().lower()
