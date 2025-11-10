@@ -655,6 +655,7 @@
                   <th>Rutina</th>
                   <th>Días</th>
                   <th>Categoría</th>
+                  <th>Fecha de creación</th>
                   <th>Activa</th>
                   <th>Acciones</th>
                 </tr>
@@ -7656,12 +7657,13 @@ function attachWheelZoom(containerId, frameId){
     if(!state._wheelZoom[frameId]) state._wheelZoom[frameId] = { scale: 1.0 };
     if(state._wheelZoomBound.has(frameId)) return;
     const zoom = state._wheelZoom[frameId];
+    const minScale = (containerId === 'rutina-preview-pdf' ? 1.0 : 0.5);
     cont.addEventListener('wheel', (ev) => {
       try {
         if(ev.ctrlKey) return; // Mantener zoom nativo del navegador con Ctrl
         ev.preventDefault();
         const delta = ev.deltaY < 0 ? 0.1 : -0.1;
-        const next = Math.max(0.5, Math.min(3.0, (zoom.scale || 1.0) + delta));
+        const next = Math.max(minScale, Math.min(3.0, (zoom.scale || 1.0) + delta));
         zoom.scale = next;
         const rect = cont.getBoundingClientRect();
         const ox = (ev.clientX - rect.left);
@@ -7730,7 +7732,7 @@ function ensurePdfZoomControls(containerId, frameId){
       };
       const applyScale = (scale) => {
         const z = getZoom();
-        z.scale = Math.max(0.5, Math.min(3.0, scale));
+        z.scale = Math.max(1.0, Math.min(3.0, scale));
         frame.style.transform = `scale(${z.scale})`;
         frame.style.transformOrigin = 'center top';
       };
@@ -8636,16 +8638,62 @@ function ensurePdfZoomControls(containerId, frameId){
         tbody.innerHTML = '';
         (Array.isArray(arr)? arr: []).forEach(r => {
           const tr = document.createElement('tr'); tr.setAttribute('data-id', String(r.id));
+          tr.setAttribute('data-uuid-rutina', String(r.uuid_rutina || ''));
+          // Normalizar fecha a YYYY-MM-DD si es ISO, o mostrar '—' si no disponible
+          const fcRaw = r.fecha_creacion;
+          const fc = fcRaw ? String(fcRaw).split('T')[0] : '—';
           const acciones = `
             <button class="btn info" data-action="preview" data-id="${r.id}">Abrir</button>
+            <button class="btn neutral" data-action="toggle" data-id="${r.id}" data-uuid="${r.uuid_rutina || ''}" data-activa="${r.activa ? '1' : '0'}">${r.activa ? 'Desactivar' : 'Activar'}</button>
             <button class="btn danger" data-action="delete" data-id="${r.id}">Eliminar</button>`;
-          tr.innerHTML = `<td data-col="nombre">${r.nombre_rutina || r.nombre || ''}</td><td data-col="dias">${r.dias_semana || ''}</td><td data-col="categoria">${r.categoria || ''}</td><td data-col="activa">${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
+          tr.innerHTML = `<td data-col="nombre">${r.nombre_rutina || r.nombre || ''}</td><td data-col="dias">${r.dias_semana || ''}</td><td data-col="categoria">${r.categoria || ''}</td><td data-col="fecha">${fc}</td><td data-col="activa">${r.activa ? 'Sí' : 'No'}</td><td>${acciones}</td>`;
           tr.addEventListener('click', (ev) => {
             const btn = ev.target.closest('button');
             if(btn){
               const action = btn.getAttribute('data-action'); const id = btn.getAttribute('data-id');
               if(action==='preview'){ if(id) openRutinaPreview(Number(id)); }
               else if(action==='delete'){ if(id) deleteRutina(Number(id)); }
+              else if(action==='toggle'){
+                const uuid = btn.getAttribute('data-uuid') || tr.getAttribute('data-uuid-rutina') || '';
+                const isActive = btn.getAttribute('data-activa') === '1';
+                const target = !isActive;
+                btn.disabled = true;
+                const doUpdate = async () => {
+                  const path = uuid ? `/api/gestion/rutinas/activar/${encodeURIComponent(String(uuid))}` : `/api/gestion/rutinas/activar_id/${encodeURIComponent(String(id))}`;
+                  try{
+                    const rsp = await fetch(path, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                      body: JSON.stringify({ activa: target })
+                    });
+                    const data = await rsp.json().catch(()=>({}));
+                    if(rsp.ok && data && data.ok && data.rutina){
+                      const nowActive = !!data.rutina.activa;
+                      r.activa = nowActive;
+                      btn.textContent = nowActive ? 'Desactivar' : 'Activar';
+                      btn.setAttribute('data-activa', nowActive ? '1' : '0');
+                      const activaCell = tr.querySelector('[data-col="activa"]');
+                      if(activaCell) activaCell.textContent = nowActive ? 'Sí' : 'No';
+                      // Feedback
+                      try{ showToast(nowActive ? 'Rutina activada' : 'Rutina desactivada', 'success', 2500); }catch(_){}
+                      // Sincronizar panel lateral y refrescar lista para reflejar unicidad
+                      if(state.selectedRutina && Number(state.selectedRutina.id) === Number(r.id)){
+                        state.selectedRutina.activa = nowActive;
+                        updateRutinaSidePanel(state.selectedRutina);
+                      }
+                      const u = state.selectedUsuario; if(u && u.id){ try{ await loadRutinasPorUsuario(Number(u.id)); }catch(_){} }
+                    } else {
+                      const msg = (data && (data.detail || data.error || data.message)) ? String(data.detail || data.error || data.message) : 'No se pudo actualizar el estado de la rutina';
+                      try{ showToast(msg, 'error', 4500); }catch(_){}
+                    }
+                  }catch(e){
+                    try{ showToast('Error de red al actualizar el estado de la rutina', 'error', 4500); }catch(_){}
+                  }finally{
+                    btn.disabled = false;
+                  }
+                };
+                doUpdate();
+              }
             } else {
               // Seleccionar fila para actualizar panel lateral
               state.selectedRutina = r; updateRutinaSidePanel(r);

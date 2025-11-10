@@ -11683,6 +11683,13 @@ class DatabaseManager:
                 self.cache.invalidate('rutinas')
             except Exception:
                 pass
+            # Enforce única rutina activa para el usuario recién actualizado
+            try:
+                uid = getattr(rutina, 'usuario_id', None)
+                if uid is not None:
+                    self.enforce_single_active_rutina_usuario(int(uid))
+            except Exception:
+                pass
             return rutina_id
     
     def actualizar_rutina(self, rutina) -> bool:
@@ -11707,6 +11714,50 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error updating routine: {e}")
             return False
+
+    def enforce_single_active_rutina_usuario(self, usuario_id: int) -> int:
+        """Fuerza que solo la rutina más reciente del usuario quede activa.
+
+        Desactiva todas las rutinas del usuario y activa únicamente la más reciente
+        según `fecha_creacion` (con `NULLS LAST`) y desempate por `id`.
+
+        Returns: id de la rutina marcada activa (o 0 si no hay rutinas).
+        """
+        try:
+            with self.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                # Encontrar la rutina más reciente
+                cur.execute(
+                    """
+                    SELECT id FROM rutinas
+                    WHERE usuario_id = %s
+                    ORDER BY fecha_creacion DESC NULLS LAST, id DESC
+                    LIMIT 1
+                    """,
+                    (usuario_id,),
+                )
+                row = cur.fetchone()
+                latest_id = int(row.get('id')) if row and row.get('id') is not None else None
+                # Desactivar todas
+                cur.execute("UPDATE rutinas SET activa = FALSE WHERE usuario_id = %s", (usuario_id,))
+                # Activar la más reciente
+                if latest_id is not None:
+                    cur.execute("UPDATE rutinas SET activa = TRUE WHERE id = %s", (latest_id,))
+                    conn.commit()
+                    try:
+                        self.cache.invalidate('rutinas')
+                    except Exception:
+                        pass
+                    return latest_id or 0
+                conn.commit()
+                try:
+                    self.cache.invalidate('rutinas')
+                except Exception:
+                    pass
+                return 0
+        except Exception as e:
+            logging.error(f"Error enforcing single active rutina for usuario {usuario_id}: {e}")
+            return 0
     
     def obtener_rutinas_por_usuario(self, usuario_id: int) -> List:
         """Obtiene todas las rutinas de un usuario."""
@@ -11718,12 +11769,20 @@ class DatabaseManager:
         except Exception:
             pass
         with self.get_connection_context() as conn:
+            # Asegurar columna y valores de uuid_rutina listos si existe
+            try:
+                self.ensure_rutina_uuid_ready(conn)
+            except Exception:
+                pass
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cursor.execute("""
-                SELECT id, usuario_id, nombre_rutina, descripcion, dias_semana, categoria, fecha_creacion, activa FROM rutinas 
-                WHERE usuario_id = %s 
-                ORDER BY fecha_creacion DESC
-            """, (usuario_id,))
+            try:
+                cols = self.get_table_columns('rutinas') or []
+            except Exception:
+                cols = []
+            base_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa']
+            select_cols = base_cols + (['uuid_rutina'] if 'uuid_rutina' in cols else [])
+            sql = f"SELECT {', '.join(select_cols)} FROM rutinas WHERE usuario_id = %s ORDER BY fecha_creacion DESC"
+            cursor.execute(sql, (usuario_id,))
             result = [dict(r) for r in cursor.fetchall()]
             try:
                 self.cache.set('rutinas', ('usuario', int(usuario_id)), result)
@@ -11844,6 +11903,175 @@ class DatabaseManager:
             pass
         return rutina
         return rutina
+
+    def set_rutina_activa_por_uuid(self, usuario_id: int, uuid_rutina: str, activa: bool) -> Optional[Dict[str, Any]]:
+        """Activa o desactiva una rutina por su UUID para un usuario.
+
+        - Si `activa` es True: desactiva todas las rutinas del usuario y activa la indicada (forzada).
+        - Si `activa` es False: desactiva la indicada. Si tras la operación el usuario queda con 0 rutinas activas, re-activa por comodidad la más reciente.
+
+        Retorna la rutina actualizada o None si no se encuentra/autorizada.
+        """
+        try:
+            with self.get_connection_context() as conn:
+                # Preparar columna uuid y valores
+                try:
+                    self.ensure_rutina_uuid_ready(conn)
+                except Exception:
+                    pass
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa FROM rutinas WHERE uuid_rutina = %s", (uuid_rutina,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                try:
+                    rid = int(row.get('id'))
+                    owner_uid = int(row.get('usuario_id')) if row.get('usuario_id') is not None else None
+                except Exception:
+                    rid = None
+                    owner_uid = None
+                if rid is None or owner_uid is None:
+                    return None
+                if int(owner_uid) != int(usuario_id):
+                    raise PermissionError("No autorizado para modificar esta rutina")
+
+                if bool(activa):
+                    # Activación forzada: desactiva todas las rutinas del usuario y activa la indicada
+                    cur.execute("UPDATE rutinas SET activa = FALSE WHERE usuario_id = %s", (int(usuario_id),))
+                    cur.execute("UPDATE rutinas SET activa = TRUE WHERE id = %s", (int(rid),))
+                    conn.commit()
+                else:
+                    # Desactivar solo la seleccionada
+                    cur.execute("UPDATE rutinas SET activa = FALSE WHERE id = %s", (int(rid),))
+                    conn.commit()
+
+                    # Conveniencia: si quedan 0 activas, activar la más reciente del usuario
+                    try:
+                        cur.execute(
+                            "SELECT COUNT(*) AS c FROM rutinas WHERE usuario_id = %s AND activa = TRUE",
+                            (int(usuario_id),),
+                        )
+                        row_c = cur.fetchone() or {}
+                        count_active = int(row_c.get("c") if isinstance(row_c, dict) else (row_c[0] if row_c else 0))
+                        if count_active == 0:
+                            cur.execute(
+                                """
+                                SELECT id FROM rutinas
+                                WHERE usuario_id = %s
+                                ORDER BY fecha_creacion DESC NULLS LAST, id DESC
+                                LIMIT 1
+                                """,
+                                (int(usuario_id),),
+                            )
+                            row_latest = cur.fetchone()
+                            latest_id = int(row_latest.get("id")) if row_latest and row_latest.get("id") is not None else None
+                            if latest_id is not None:
+                                cur.execute("UPDATE rutinas SET activa = TRUE WHERE id = %s", (int(latest_id),))
+                                conn.commit()
+                    except Exception:
+                        pass
+
+                try:
+                    self.cache.invalidate('rutinas')
+                except Exception:
+                    pass
+
+                # Devolver la rutina actualizada
+                try:
+                    cols = self.get_table_columns('rutinas') or []
+                except Exception:
+                    cols = []
+                select_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa'] + (['uuid_rutina'] if 'uuid_rutina' in cols else [])
+                cur.execute(f"SELECT {', '.join(select_cols)} FROM rutinas WHERE id = %s", (int(rid),))
+                updated = cur.fetchone()
+                return dict(updated) if updated else None
+        except PermissionError:
+            raise
+        except Exception as e:
+            logging.error(f"Error al cambiar estado activa de rutina uuid={uuid_rutina} usuario={usuario_id}: {e}")
+            return None
+
+    def set_rutina_activa_por_id(self, usuario_id: int, rutina_id: int, activa: bool) -> Optional[Dict[str, Any]]:
+        """Activa o desactiva una rutina por su ID para un usuario.
+
+        - Si `activa` es True: desactiva todas las rutinas del usuario y activa la indicada (forzada).
+        - Si `activa` es False: desactiva la indicada. Si tras la operación el usuario queda con 0 rutinas activas, re-activa por comodidad la más reciente.
+
+        Retorna la rutina actualizada o None si no se encuentra/autorizada.
+        """
+        try:
+            with self.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa FROM rutinas WHERE id = %s", (int(rutina_id),))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                try:
+                    rid = int(row.get('id'))
+                    owner_uid = int(row.get('usuario_id')) if row.get('usuario_id') is not None else None
+                except Exception:
+                    rid = None
+                    owner_uid = None
+                if rid is None or owner_uid is None:
+                    return None
+                if int(owner_uid) != int(usuario_id):
+                    raise PermissionError("No autorizado para modificar esta rutina")
+
+                if bool(activa):
+                    # Activación forzada por ID
+                    cur.execute("UPDATE rutinas SET activa = FALSE WHERE usuario_id = %s", (int(usuario_id),))
+                    cur.execute("UPDATE rutinas SET activa = TRUE WHERE id = %s", (int(rid),))
+                    conn.commit()
+                else:
+                    # Desactivar solo la seleccionada
+                    cur.execute("UPDATE rutinas SET activa = FALSE WHERE id = %s", (int(rid),))
+                    conn.commit()
+
+                    # Conveniencia: si quedan 0 activas, activar la más reciente del usuario
+                    try:
+                        cur.execute(
+                            "SELECT COUNT(*) AS c FROM rutinas WHERE usuario_id = %s AND activa = TRUE",
+                            (int(usuario_id),),
+                        )
+                        row_c = cur.fetchone() or {}
+                        count_active = int(row_c.get("c") if isinstance(row_c, dict) else (row_c[0] if row_c else 0))
+                        if count_active == 0:
+                            cur.execute(
+                                """
+                                SELECT id FROM rutinas
+                                WHERE usuario_id = %s
+                                ORDER BY fecha_creacion DESC NULLS LAST, id DESC
+                                LIMIT 1
+                                """,
+                                (int(usuario_id),),
+                            )
+                            row_latest = cur.fetchone()
+                            latest_id = int(row_latest.get("id")) if row_latest and row_latest.get("id") is not None else None
+                            if latest_id is not None:
+                                cur.execute("UPDATE rutinas SET activa = TRUE WHERE id = %s", (int(latest_id),))
+                                conn.commit()
+                    except Exception:
+                        pass
+
+                try:
+                    self.cache.invalidate('rutinas')
+                except Exception:
+                    pass
+
+                # Devolver la rutina actualizada
+                try:
+                    cols = self.get_table_columns('rutinas') or []
+                except Exception:
+                    cols = []
+                select_cols = ['id', 'usuario_id', 'nombre_rutina', 'descripcion', 'dias_semana', 'categoria', 'fecha_creacion', 'activa'] + (['uuid_rutina'] if 'uuid_rutina' in cols else [])
+                cur.execute(f"SELECT {', '.join(select_cols)} FROM rutinas WHERE id = %s", (int(rid),))
+                updated = cur.fetchone()
+                return dict(updated) if updated else None
+        except PermissionError:
+            raise
+        except Exception as e:
+            logging.error(f"Error al cambiar estado activa de rutina id={rutina_id} usuario={usuario_id}: {e}")
+            return None
     
     def obtener_ejercicios(self, filtro: str = "", objetivo: str = "", 
                           grupo_muscular: str = "") -> List[Ejercicio]:
@@ -13687,6 +13915,13 @@ class DatabaseManager:
             conn.commit()
             try:
                 self.cache.invalidate('rutinas')
+            except Exception:
+                pass
+            # Enforce única rutina activa para el usuario recién actualizado
+            try:
+                uid = getattr(rutina, 'usuario_id', None)
+                if uid is not None:
+                    self.enforce_single_active_rutina_usuario(int(uid))
             except Exception:
                 pass
             return rutina_id

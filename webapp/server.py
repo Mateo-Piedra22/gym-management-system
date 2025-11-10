@@ -2992,6 +2992,11 @@ async def api_rutinas_get(usuario_id: Optional[int] = None, _=Depends(require_ge
                 categoria = (r.get("categoria") if is_dict else getattr(r, "categoria", "general"))
                 fecha_creacion = (r.get("fecha_creacion") if is_dict else getattr(r, "fecha_creacion", None))
                 activa = (r.get("activa") if is_dict else getattr(r, "activa", True))
+                # Incluir UUID de rutina si está disponible para acciones en UI
+                uuid_val = (
+                    (r.get("uuid_rutina") if is_dict else getattr(r, "uuid_rutina", None))
+                    or (r.get("uuid") if is_dict else getattr(r, "uuid", None))
+                )
                 items.append({
                     "id": int(rid) if rid is not None else None,
                     "usuario_id": usuario,
@@ -3001,6 +3006,7 @@ async def api_rutinas_get(usuario_id: Optional[int] = None, _=Depends(require_ge
                     "categoria": categoria,
                     "fecha_creacion": fecha_creacion,
                     "activa": bool(activa),
+                    "uuid_rutina": uuid_val,
                 })
             return items
         else:
@@ -3361,6 +3367,283 @@ async def api_rutinas_create(request: Request, _=Depends(require_gestion_access)
         import traceback
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# Activación/desactivación de rutina por UUID (rol usuario)
+@app.post("/api/rutinas/activar/{uuid_rutina}")
+async def api_rutina_toggle_activa(uuid_rutina: str, request: Request, _=Depends(require_usuario)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, f"/api/rutinas/activar/{uuid_rutina}")
+    if guard:
+        return guard
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        uid = request.session.get("usuario_id")
+        if not uid:
+            return JSONResponse({"ok": False, "error": "Sesión de usuario no disponible"}, status_code=401)
+        activa = bool(payload.get("activa", True))
+        # Verificar existencia y pertenencia por SQL directo
+        r0 = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa FROM rutinas WHERE uuid_rutina = %s", (uuid_rutina,))
+                r0 = cur.fetchone()
+        except Exception:
+            r0 = None
+        if not r0:
+            return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+        try:
+            owner_uid = int(r0.get("usuario_id")) if r0.get("usuario_id") is not None else None
+        except Exception:
+            owner_uid = None
+        if owner_uid is None or int(owner_uid) != int(uid):
+            return JSONResponse({"ok": False, "error": "No autorizado"}, status_code=403)
+
+        # Activación/desactivación forzada: permite activar cualquier rutina del usuario,
+        # garantizando unicidad de activa al desactivar otras
+        updated = db.set_rutina_activa_por_uuid(int(uid), uuid_rutina, activa)  # type: ignore
+        if updated is None:
+            return JSONResponse({"ok": False, "error": "No se pudo actualizar el estado"}, status_code=400)
+
+        # Responder con rutina normalizada
+        return JSONResponse({
+            "ok": True,
+            "rutina": {
+                "id": int(updated.get("id")) if updated.get("id") is not None else None,
+                "usuario_id": updated.get("usuario_id"),
+                "nombre_rutina": updated.get("nombre_rutina"),
+                "descripcion": updated.get("descripcion"),
+                "dias_semana": updated.get("dias_semana"),
+                "categoria": updated.get("categoria"),
+                "fecha_creacion": (
+                    updated.get("fecha_creacion").isoformat()
+                    if isinstance(updated.get("fecha_creacion"), datetime)
+                    else updated.get("fecha_creacion")
+                ),
+                "activa": bool(updated.get("activa")),
+                "uuid_rutina": updated.get("uuid_rutina"),
+            }
+        })
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=403)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# Activación/desactivación de rutina por ID (rol gestión)
+@app.post("/api/gestion/rutinas/activar_id/{rutina_id}")
+async def api_gestion_rutina_toggle_activa_por_id(rutina_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, f"/api/gestion/rutinas/activar_id/{rutina_id}")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        activa = bool(payload.get("activa", True))
+        # Verificar existencia y obtener propietario
+        r0 = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa, uuid_rutina FROM rutinas WHERE id = %s", (int(rutina_id),))
+                r0 = cur.fetchone()
+        except Exception:
+            r0 = None
+        if not r0:
+            return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+        try:
+            owner_uid = int(r0.get("usuario_id")) if r0.get("usuario_id") is not None else None
+        except Exception:
+            owner_uid = None
+        if owner_uid is None:
+            return JSONResponse({"ok": False, "error": "Propietario de rutina inválido"}, status_code=400)
+
+        updated = None
+        uuid_rutina = r0.get("uuid_rutina")
+        if uuid_rutina:
+            updated = db.set_rutina_activa_por_uuid(int(owner_uid), str(uuid_rutina), activa)  # type: ignore
+        else:
+            updated = db.set_rutina_activa_por_id(int(owner_uid), int(rutina_id), activa)  # type: ignore
+        if updated is None:
+            return JSONResponse({"ok": False, "error": "No se pudo actualizar el estado"}, status_code=400)
+
+        return JSONResponse({
+            "ok": True,
+            "rutina": {
+                "id": int(updated.get("id")) if updated.get("id") is not None else None,
+                "usuario_id": updated.get("usuario_id"),
+                "nombre_rutina": updated.get("nombre_rutina"),
+                "descripcion": updated.get("descripcion"),
+                "dias_semana": updated.get("dias_semana"),
+                "categoria": updated.get("categoria"),
+                "fecha_creacion": (
+                    updated.get("fecha_creacion").isoformat()
+                    if isinstance(updated.get("fecha_creacion"), datetime)
+                    else updated.get("fecha_creacion")
+                ),
+                "activa": bool(updated.get("activa")),
+                "uuid_rutina": updated.get("uuid_rutina"),
+            }
+        })
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=403)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+# Activación/desactivación de rutina por UUID (rol gestión)
+@app.post("/api/gestion/rutinas/activar/{uuid_rutina}")
+async def api_gestion_rutina_toggle_activa(uuid_rutina: str, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, f"/api/gestion/rutinas/activar/{uuid_rutina}")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        activa = bool(payload.get("activa", True))
+        # Verificar existencia y obtener propietario
+        r0 = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa FROM rutinas WHERE uuid_rutina = %s", (uuid_rutina,))
+                r0 = cur.fetchone()
+        except Exception:
+            r0 = None
+        if not r0:
+            return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+        try:
+            owner_uid = int(r0.get("usuario_id")) if r0.get("usuario_id") is not None else None
+        except Exception:
+            owner_uid = None
+        if owner_uid is None:
+            return JSONResponse({"ok": False, "error": "Propietario de rutina inválido"}, status_code=400)
+
+        # Activación/desactivación forzada para el propietario
+        updated = db.set_rutina_activa_por_uuid(int(owner_uid), uuid_rutina, activa)  # type: ignore
+        if updated is None:
+            return JSONResponse({"ok": False, "error": "No se pudo actualizar el estado"}, status_code=400)
+
+        return JSONResponse({
+            "ok": True,
+            "rutina": {
+                "id": int(updated.get("id")) if updated.get("id") is not None else None,
+                "usuario_id": updated.get("usuario_id"),
+                "nombre_rutina": updated.get("nombre_rutina"),
+                "descripcion": updated.get("descripcion"),
+                "dias_semana": updated.get("dias_semana"),
+                "categoria": updated.get("categoria"),
+                "fecha_creacion": (
+                    updated.get("fecha_creacion").isoformat()
+                    if isinstance(updated.get("fecha_creacion"), datetime)
+                    else updated.get("fecha_creacion")
+                ),
+                "activa": bool(updated.get("activa")),
+                "uuid_rutina": updated.get("uuid_rutina"),
+            }
+        })
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=403)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# Activación/desactivación de rutina por ID (fallback si no hay UUID)
+@app.post("/api/rutinas/activar_id/{rutina_id}")
+async def api_rutina_toggle_activa_por_id(rutina_id: int, request: Request, _=Depends(require_usuario)):
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "DB no disponible"}, status_code=503)
+    guard = _circuit_guard_json(db, f"/api/rutinas/activar_id/{rutina_id}")
+    if guard:
+        return guard
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        uid = request.session.get("usuario_id")
+        if not uid:
+            return JSONResponse({"ok": False, "error": "Sesión de usuario no disponible"}, status_code=401)
+        activa = bool(payload.get("activa", True))
+        # Verificar existencia y pertenencia
+        r0 = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, usuario_id, activa, uuid_rutina FROM rutinas WHERE id = %s", (int(rutina_id),))
+                r0 = cur.fetchone()
+        except Exception:
+            r0 = None
+        if not r0:
+            return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+        try:
+            owner_uid = int(r0.get("usuario_id")) if r0.get("usuario_id") is not None else None
+        except Exception:
+            owner_uid = None
+        if owner_uid is None or int(owner_uid) != int(uid):
+            return JSONResponse({"ok": False, "error": "No autorizado"}, status_code=403)
+
+        updated = None
+        # Si existe uuid, usar el método por UUID; si no, usar por ID
+        uuid_rutina = r0.get("uuid_rutina")
+        if uuid_rutina:
+            updated = db.set_rutina_activa_por_uuid(int(uid), str(uuid_rutina), activa)  # type: ignore
+        else:
+            updated = db.set_rutina_activa_por_id(int(uid), int(rutina_id), activa)  # type: ignore
+        if updated is None:
+            return JSONResponse({"ok": False, "error": "No se pudo actualizar el estado"}, status_code=400)
+
+        return JSONResponse({
+            "ok": True,
+            "rutina": {
+                "id": int(updated.get("id")) if updated.get("id") is not None else None,
+                "usuario_id": updated.get("usuario_id"),
+                "nombre_rutina": updated.get("nombre_rutina"),
+                "descripcion": updated.get("descripcion"),
+                "dias_semana": updated.get("dias_semana"),
+                "categoria": updated.get("categoria"),
+                "fecha_creacion": updated.get("fecha_creacion"),
+                "activa": bool(updated.get("activa")),
+                "uuid_rutina": updated.get("uuid_rutina"),
+            }
+        })
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=403)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 @app.put("/api/rutinas/{rutina_id}")
@@ -3963,6 +4246,30 @@ async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
             activa = getattr(r, 'activa', None) or (r.get('activa') if isinstance(r, dict) else None)
             ejercicios = getattr(r, 'ejercicios', None) or (r.get('ejercicios') if isinstance(r, dict) else None)
             uuid_rutina = getattr(r, 'uuid_rutina', None) or (r.get('uuid_rutina') if isinstance(r, dict) else None)
+            # Normalizar fecha de creación para el front (preferir formato YYYY-MM-DD)
+            try:
+                fc_val = getattr(r, 'fecha_creacion', None) or (r.get('fecha_creacion') if isinstance(r, dict) else None)
+            except Exception:
+                fc_val = None
+            fecha_creacion_str = None
+            try:
+                if fc_val is not None:
+                    # Si viene como datetime, formatear a YYYY-MM-DD
+                    from datetime import datetime as _dt
+                    if isinstance(fc_val, _dt):
+                        fecha_creacion_str = fc_val.strftime("%Y-%m-%d")
+                    else:
+                        s = str(fc_val)
+                        # Si es estilo 'YYYY-MM-DD HH:MM:SS', recortar a la fecha
+                        if s and s[:10].count('-') == 2:
+                            fecha_creacion_str = s[:10]
+                        else:
+                            fecha_creacion_str = s
+            except Exception:
+                try:
+                    fecha_creacion_str = str(fc_val) if fc_val is not None else None
+                except Exception:
+                    fecha_creacion_str = None
             por_dia: Dict[int, int] = {}
             if ejercicios:
                 try:
@@ -3977,6 +4284,7 @@ async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
                 "activa": bool(activa),
                 "ejercicios_por_dia": por_dia,
                 "uuid_rutina": uuid_rutina,
+                "fecha_creacion": fecha_creacion_str,
                 "qr_url": (f"{web_base}/api/rutinas/qr_scan/{uuid_rutina}" if web_base and uuid_rutina else None)
             })
     except Exception:
@@ -4045,6 +4353,36 @@ async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
                     })
                 except Exception:
                     continue
+            # Mapear IDs de método de pago a nombres para mostrar en el panel
+            try:
+                metodos = pm.obtener_metodos_pago(solo_activos=False) or []
+                metodos_map = {}
+                for m in metodos:
+                    try:
+                        mid = getattr(m, 'id', None)
+                        nombre = getattr(m, 'nombre', None) or "-"
+                        color = getattr(m, 'color', None)
+                        icono = getattr(m, 'icono', None)
+                        if mid is not None:
+                            metodos_map[int(mid)] = {"nombre": nombre, "color": color, "icono": icono}
+                    except Exception:
+                        continue
+                # Enriquecer cada pago con el nombre del método para facilitar render en plantilla
+                for item in pagos_list:
+                    try:
+                        mid = item.get('metodo_pago_id')
+                        info = metodos_map.get(int(mid)) if mid is not None else None
+                        item["metodo"] = (info["nombre"] if isinstance(info, dict) and info.get("nombre") else "-")
+                        item["metodo_color"] = (info.get("color") if isinstance(info, dict) else None)
+                        item["metodo_icono"] = (info.get("icono") if isinstance(info, dict) else None)
+                    except Exception:
+                        # Si falla, mantener valores por defecto
+                        item.setdefault("metodo", "-")
+                        item.setdefault("metodo_color", None)
+                        item.setdefault("metodo_icono", None)
+            except Exception:
+                # Si por alguna razón falla el mapeo, continuar sin él
+                pass
     except Exception:
         pagos_list = []
 
@@ -4073,6 +4411,13 @@ async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
         "ultimo_pago": ultimo_pago,
         "activo_usuario": activo_usuario,
         "pagos": pagos_list,
+        # Mapa de métodos de pago para usos futuros en la plantilla
+        # Formato: { id: { nombre, color, icono } }
+        # Nota: Solo se usa si la plantilla necesita mostrar más detalles del método
+        # que no estén ya enriquecidos en cada pago.
+        # Evita múltiples consultas desde JS en el cliente.
+        # Se mantiene opcional.
+        "metodos_pago_map": { (p.get('metodo_pago_id')): {"nombre": p.get('metodo'), "color": p.get('metodo_color'), "icono": p.get('metodo_icono')} for p in pagos_list if p.get('metodo_pago_id') is not None },
         # QR para impresión
         "rutina_activa_qr_url": rutina_activa_qr_url,
     }
@@ -6420,6 +6765,7 @@ async def checkin_page(request: Request):
                                fecha_proximo_vencimiento,
                                COALESCE(cuotas_vencidas, 0) AS cuotas_vencidas,
                                ultimo_pago,
+                               activo,
                                LOWER(COALESCE(rol, 'socio')) AS rol
                         FROM usuarios WHERE id = %s LIMIT 1
                         """,
@@ -6436,7 +6782,8 @@ async def checkin_page(request: Request):
                         fpv = row[5]
                         cuotas_vencidas = int(row[6] or 0)
                         ultimo_pago = row[7]
-                        rol = (row[8] or "socio").lower()
+                        activo_flag = bool(row[8]) if row[8] is not None else True
+                        rol = (row[9] or "socio").lower()
                         exento = rol in ("profesor","owner","dueño","dueno")
                         digits = _re.sub(r"\D+", "", telefono)
                         masked = ("*" * max(len(digits) - 4, 4)) + (digits[-4:] if len(digits) >= 4 else digits)
@@ -6456,6 +6803,7 @@ async def checkin_page(request: Request):
                             "cuotas_vencidas": cuotas_vencidas,
                             "ultimo_pago": (ultimo_pago.date().isoformat() if hasattr(ultimo_pago, 'date') else (ultimo_pago.isoformat() if ultimo_pago else None)),
                             "dias_restantes": dias_restantes,
+                            "activo": activo_flag,
                             "exento": exento,
                         }
         except Exception:
@@ -6653,6 +7001,32 @@ async def api_checkin_validate(request: Request):
             pass
         if not socio_id:
             return JSONResponse({"success": False, "message": "Sesión de socio no encontrada"}, status_code=401)
+        # Verificar estado activo del usuario en cada validación para evitar registros de inactivos
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    SELECT activo, LOWER(COALESCE(rol,'socio')) AS rol, COALESCE(cuotas_vencidas,0) AS cuotas_vencidas
+                    FROM usuarios WHERE id = %s LIMIT 1
+                    """,
+                    (int(socio_id),)
+                )
+                r = cur.fetchone()
+                if r:
+                    activo_flag = bool(r[0]) if r[0] is not None else True
+                    rol = (r[1] or 'socio').lower()
+                    exento = rol in ('profesor','owner','dueño','dueno')
+                    cuotas_vencidas = int(r[2] or 0)
+                    if (not activo_flag) and (not exento):
+                        motivo = 'Desactivado por falta de pagos' if cuotas_vencidas >= 3 else 'Desactivado por administración'
+                        return JSONResponse({"success": False, "message": motivo}, status_code=403)
+        except Exception:
+            # Ante error en verificación, continuar pero loguear
+            try:
+                logging.warning("/api/checkin/validate: fallo al verificar activo; continuando")
+            except Exception:
+                pass
         # Orden de parámetros: (token, socio_id)
         ok, msg = db.validar_token_y_registrar_asistencia(token, int(socio_id))  # type: ignore
         status = 200 if ok else 400
@@ -10705,8 +11079,36 @@ async def api_rutina_qr_scan(uuid_rutina: str, request: Request):
             rutina = None
     if not rutina:
         return JSONResponse({"ok": False, "error": "Rutina no encontrada"}, status_code=404)
+    # Bloquear si la rutina no está activa o no corresponde a la única activa del usuario
     if not bool(rutina.get("activa", True)):
         return JSONResponse({"ok": False, "error": "Rutina inactiva"}, status_code=403)
+    try:
+        db = _get_db()
+        rid = int(rutina.get("id") or 0)
+        uid_rut = rutina.get("usuario_id")
+        usuario_id_rut = int(uid_rut) if uid_rut is not None else None
+        if db is not None and usuario_id_rut is not None and rid:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    """
+                    SELECT id FROM rutinas 
+                    WHERE usuario_id = %s AND activa = TRUE
+                    """,
+                    (usuario_id_rut,),
+                )
+                rows = cur.fetchall() or []
+                active_ids = []
+                try:
+                    active_ids = [int((r.get("id") if isinstance(r, dict) else (r[0] if r else 0)) or 0) for r in rows]
+                except Exception:
+                    active_ids = [int(r.get("id")) for r in rows if isinstance(r, dict) and r.get("id") is not None]
+                if len(active_ids) != 1 or active_ids[0] != rid:
+                    # Si no hay una única rutina activa o el QR no corresponde a ella, denegar
+                    return JSONResponse({"ok": False, "error": "QR no corresponde a la rutina activa"}, status_code=403)
+    except Exception:
+        # Si ocurre un error, ser conservadores y denegar
+        return JSONResponse({"ok": False, "error": "Validación de rutina falló"}, status_code=403)
 
     # Conceder acceso temporal por 1 día a esta rutina en la sesión (logged o guest)
     try:

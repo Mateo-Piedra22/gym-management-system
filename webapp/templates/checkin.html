@@ -44,9 +44,26 @@
     @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
   </style>
   <script src="/static/js/toast.js"></script>
+  <style>
+    /* Modal incerrable para usuarios inactivos */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; z-index: 9998; }
+    .modal { width: 100%; max-width: 500px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 24px rgba(0,0,0,.45); padding: 20px; }
+    .modal h2 { margin: 0 0 8px 0; font-size: 18px; }
+    .modal p { margin: 8px 0 16px 0; color: var(--muted); }
+  </style>
 </head>
-<body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}"{% endif %}>
+<body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}" data-activo="{{ 'true' if socio.activo else 'false' }}"{% endif %}>
   <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
+  <!-- Modal incerrable de inactividad -->
+  <div id="inactive-backdrop" class="modal-backdrop" style="display:none" aria-hidden="true">
+    <div id="inactive-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="inactive-title">
+      <h2 id="inactive-title">Cuenta desactivada</h2>
+      <p id="inactive-reason">Desactivado por falta de pagos</p>
+      <div class="actions">
+        <a class="btn danger" href="/checkin/logout">Cerrar sesión</a>
+      </div>
+    </div>
+  </div>
   <main class="screen">
     <section class="login-card">
       <div class="brand">
@@ -245,6 +262,10 @@
       const readerEl = document.getElementById('reader');
       const msg = document.getElementById('scan-msg');
       const restartBtn = document.getElementById('restart-btn');
+      const bodyEl = document.body;
+      const exento = bodyEl.getAttribute('data-exento') === 'true';
+      const activo = bodyEl.getAttribute('data-activo') === 'true';
+      const cv = parseInt(bodyEl.getAttribute('data-cuotas-vencidas') || '0', 10);
 
       let html5QrCode = null;
       let statusInterval = null;
@@ -357,6 +378,13 @@
       const manualInput = document.getElementById('manual-token');
       const manualBtn = document.getElementById('manual-validate-btn');
       manualBtn && manualBtn.addEventListener('click', async () => {
+        // Bloquear validación manual si inactivo (no exento)
+        if (!exento && !activo) {
+          msg.textContent = 'Cuenta desactivada. No podés registrar asistencia.';
+          msg.className = 'msg err';
+          msg.style.display = 'block';
+          return;
+        }
         const token = (manualInput && manualInput.value ? manualInput.value : '').trim();
         if (!token) {
           msg.textContent = 'Ingrese un token válido';
@@ -370,8 +398,26 @@
         msg.style.display = 'block';
         if (data && data.success) startStatusPolling(token); else stopStatusPolling();
       });
+      // Mostrar modal y bloquear escaneo si inactivo (no exento)
+      function showInactiveModal(reasonText) {
+        try {
+          const backdrop = document.getElementById('inactive-backdrop');
+          const reason = document.getElementById('inactive-reason');
+          if (reason && reasonText) reason.textContent = reasonText;
+          if (backdrop) {
+            backdrop.style.display = 'grid';
+            backdrop.setAttribute('aria-hidden', 'false');
+          }
+        } catch {}
+      }
 
-      startScanner();
+      if (!exento && !activo) {
+        const motivo = (cv >= 3) ? 'Desactivado por falta de pagos' : 'Desactivado por administración';
+        showInactiveModal(motivo);
+        // No iniciar el escáner
+      } else {
+        startScanner();
+      }
       // Toast de estado de cuota al cargar
       try {
         // Primero, si venimos de login y se guardó en sessionStorage

@@ -19,13 +19,17 @@
     .cards { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 16px; }
     .muted { color: var(--muted); }
     .badge { display:inline-flex; align-items:center; gap:6px; padding: 4px 8px; border-radius: 10px; border:1px solid var(--border); }
+.routine-name { margin:0; font-size:16px; line-height:1.2; max-width: 75%; overflow:hidden; text-overflow: ellipsis; display:-webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; word-break: break-word; }
     .brand-actions .icon-only { display:inline-flex; align-items:center; justify-content:center; width:36px; height:36px; border-radius:10px; border:1px solid var(--border); color: var(--text); }
     .jwt-box { margin-top:10px; padding:10px; border:1px dashed var(--border); border-radius:10px; word-break: break-all; font-size:12px; }
     .status { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .chip { display:inline-flex; align-items:center; gap:6px; padding: 6px 10px; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,.06); }
-    .chip.warn { background: rgba(255, 165, 0, .12); border-color: rgba(255,165,0,.5); }
-    .chip.danger { background: rgba(255, 0, 0, .12); border-color: rgba(255,0,0,.5); }
-    .chip.ok { background: rgba(46, 204, 113, .12); border-color: rgba(46,204,113,.5); }
+    .chip.warn { background: rgba(199, 134, 60, .14); border-color: rgba(199,134,60,.55); }
+    .chip.danger { background: rgba(255, 0, 0, .14); border-color: rgba(255,0,0,.6); }
+    .chip.ok { background: rgba(166, 107, 190, .14); border-color: rgba(166,107,190,.55); }
+    .chip.info { background: rgba(184, 115, 51, .14); border-color: rgba(184,115,51,.55); }
+    .progress { width: 100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,.08); border:1px solid var(--border); overflow: hidden; }
+    .progress .bar { height: 100%; background: linear-gradient(90deg, #8e44ad, #a66bbe, #b87333); }
     .table { width: 100%; border-collapse: collapse; }
     .table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
     .table th { color: var(--muted); font-weight: 600; }
@@ -40,6 +44,14 @@
     .exercise:hover { background: rgba(255,255,255,.08); }
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 50; }
     .modal { width: min(720px, 92vw); background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 24px rgba(0,0,0,.25); }
+    @media (max-width: 480px) {
+      .brand { gap:10px; }
+      h1 { font-size: 18px; }
+      .badge { padding: 4px 8px; }
+      .routine-name { max-width: 70%; }
+      .table th, .table td { padding: 6px; }
+      #qr-reader { max-width: 100%; min-height: 200px; }
+    }
     .modal header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
     .modal .content { padding: 16px; }
     .modal .content video, .modal .content img { width: 100%; height: auto; border-radius: 12px; }
@@ -101,12 +113,7 @@
             <span class="badge" aria-label="Días restantes">{{ dias_restantes }} días restantes</span>
           {% endif %}
         </div>
-        {% if jwt %}
-          <details style="margin-top:8px;">
-            <summary>Ver token JWT para apps</summary>
-            <div class="jwt-box" aria-live="polite">{{ jwt }}</div>
-          </details>
-        {% endif %}
+        {# JWT ocultado a pedido #}
       </section>
 
       <section class="card" aria-labelledby="estado-title" style="margin-top:16px;">
@@ -115,10 +122,12 @@
           <div class="status" aria-live="polite">
             {% set dias = dias_restantes if dias_restantes is not none else 9999 %}
             {% set venc_badge_class = 'chip ok' %}
-            {% if dias <= 7 and dias > 0 %}
-              {% set venc_badge_class = 'chip warn' %}
-            {% elif dias <= 0 %}
+            {% if dias <= 0 %}
               {% set venc_badge_class = 'chip danger' %}
+            {% elif dias <= 3 %}
+              {% set venc_badge_class = 'chip danger' %}
+            {% elif dias <= 7 %}
+              {% set venc_badge_class = 'chip warn' %}
             {% endif %}
             <span class="{{ venc_badge_class }}" title="Próximo vencimiento">
               <i class="bi bi-calendar-event" aria-hidden="true"></i>
@@ -128,13 +137,25 @@
               <span class="chip" title="Días restantes"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ dias_restantes }} días</span>
             {% endif %}
             {% if cuotas_vencidas is not none %}
-              <span class="chip" title="Cuotas vencidas"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ cuotas_vencidas }} vencidas</span>
+              <span class="chip {{ 'danger' if cuotas_vencidas|int > 0 else '' }}" title="Cuotas vencidas"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ cuotas_vencidas }} vencidas</span>
             {% endif %}
             {% if activo_usuario is not none %}
-              <span class="chip" title="Estado"><i class="bi bi-person-check" aria-hidden="true"></i>{{ 'Activo' if activo_usuario else 'Inactivo' }}</span>
+              <span class="chip {{ 'ok' if activo_usuario else 'danger' }}" title="Estado"><i class="bi bi-person-check" aria-hidden="true"></i>{{ 'Activo' if activo_usuario else 'Inactivo' }}</span>
             {% endif %}
           </div>
         </div>
+        {% set ciclo = 30 %}
+        {% if dias_restantes is not none %}
+          {% set pct = (dias_restantes * 100 // ciclo) %}
+          <div class="progress" style="margin-top:8px;" aria-hidden="true" title="Progreso del ciclo de cuota">
+            <div class="bar" data-width="{{ 0 if pct < 0 else (100 if pct > 100 else pct) }}%"></div>
+          </div>
+        {% endif %}
+        {% if dias_restantes is not none and dias_restantes|int <= 0 %}
+          <p style="margin-top:8px;" class="muted"><span class="chip danger" title="Cuota vencida"><i class="bi bi-x-circle" aria-hidden="true"></i> Cuota vencida hace {{ (0 - dias_restantes)|int }} día(s)</span></p>
+        {% elif dias_restantes is not none and dias_restantes|int <= 3 %}
+          <p style="margin-top:8px;" class="muted"><span class="chip warn" title="Vencimiento cercano"><i class="bi bi-clock" aria-hidden="true"></i> Tu cuota vence en {{ dias_restantes }} día(s)</span></p>
+        {% endif %}
         {% if ultimo_pago %}
           <p class="muted" style="margin-top:8px;">Último pago: {{ ultimo_pago }}</p>
         {% endif %}
@@ -143,6 +164,15 @@
       <section class="card" aria-labelledby="pagos-title" style="margin-top:16px;">
         <h3 id="pagos-title" style="margin:0 0 8px 0;">Historial de pagos</h3>
         {% if pagos and pagos|length > 0 %}
+          {% set total_pagos = (pagos|sum(attribute='monto')) %}
+          {% set count_pagos = pagos|length %}
+          {% set avg_pagos = (total_pagos / count_pagos) if count_pagos > 0 else 0.0 %}
+          <div class="status" style="margin-bottom:8px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+            <span class="chip ok" id="chip-total" title="Total pagado"><i class="bi bi-cash-coin" aria-hidden="true"></i> Total: ${{ '%.2f'|format(total_pagos) }}</span>
+            <span class="chip info" id="chip-promedio" title="Promedio por pago"><i class="bi bi-graph-up" aria-hidden="true"></i> Promedio: ${{ '%.2f'|format(avg_pagos) }}</span>
+            <span class="chip" id="chip-cantidad" title="Cantidad de pagos"><i class="bi bi-list-ol" aria-hidden="true"></i> Pagos: {{ count_pagos }}</span>
+            <div id="metodos-summary" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;"></div>
+          </div>
           <div style="overflow-x: auto;">
             <table class="table" aria-describedby="pagos-title">
               <thead>
@@ -150,18 +180,24 @@
                   <th scope="col">Fecha</th>
                   <th scope="col">Monto</th>
                   <th scope="col">Concepto</th>
+                  <th scope="col">Método</th>
                 </tr>
               </thead>
               <tbody>
                 {% for p in pagos %}
+                  {% set metodo_val = (p.metodo if p.metodo is defined and p.metodo else (p.metodo_pago if p.metodo_pago is defined and p.metodo_pago else (p.medio if p.medio is defined and p.medio else (p.forma if p.forma is defined and p.forma else (p.forma_pago if p.forma_pago is defined and p.forma_pago else '-'))))) %}
                   <tr>
                     <td>{{ p.fecha if p.fecha else '-' }}</td>
                     <td>${{ '%.2f'|format(p.monto if p.monto else 0.0) }}</td>
                     <td>{% if p.mes and p.anio %}Cuota {{ '%02d'|format(p.mes) }}/{{ p.anio }}{% else %}-{% endif %}</td>
+                    <td>{{ metodo_val }}</td>
                   </tr>
                 {% endfor %}
               </tbody>
             </table>
+          </div>
+          <div style="margin-top:12px;">
+            <canvas id="pagosChart" height="80" aria-label="Gráfico de pagos" role="img"></canvas>
           </div>
         {% else %}
           <p class="muted">No hay pagos registrados aún.</p>
@@ -175,24 +211,24 @@
             {% for r in rutinas %}
               <article class="card" aria-label="Rutina {{ r.nombre }}"
                 data-activa="{{ 'true' if r.activa else 'false' }}"
-                data-qr-url="{{ r.qr_url if r.qr_url else '' }}"
+                data-fecha-creacion="{{ r.fecha_creacion if r.fecha_creacion else '' }}"
+                data-uuid-rutina="{{ r.uuid_rutina if r.uuid_rutina else '' }}"
                 {% if r.activa %}
                 role="button" tabindex="0" title="Tocar para desplegar lector QR" style="cursor:pointer;"
-                onclick="onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true')"
-                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true'); }"
+                onclick="onRutinaBadgeClick(this.getAttribute('data-activa') === 'true')"
+                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-activa') === 'true'); }"
                 {% endif %}
               >
-                <div style="display:flex; align-items:center; justify-content:space-between;">
-                  <h4 style="margin:0;">{{ r.nombre }}</h4>
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+                  <h4 class="routine-name">{{ r.nombre }}</h4>
                   <span
                     class="badge routine-badge"
                     data-activa="{{ 'true' if r.activa else 'false' }}"
-                    data-qr-url="{{ r.qr_url if r.qr_url else '' }}"
                     role="{{ 'button' if r.activa else 'status' }}"
                     tabindex="{{ '0' if r.activa else '-1' }}"
                     title="{{ 'Tocar para abrir la rutina' if r.activa else 'Rutina inactiva' }}"
-                    onclick="onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true')"
-                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-qr-url'), this.getAttribute('data-activa') === 'true'); }"
+                    onclick="onRutinaBadgeClick(this.getAttribute('data-activa') === 'true')"
+                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-activa') === 'true'); }"
                   >{{ 'Activa' if r.activa else 'Inactiva' }}</span>
                 </div>
                 <p class="muted" style="margin:8px 0 0 0;">Días: {{ r.dias }}</p>
@@ -203,11 +239,8 @@
                     {% endfor %}
                   </ul>
                 {% endif %}
-                {% if r.qr_url and r.activa %}
-                  <div class="qr-actions" style="margin-top:12px;">
-                    <button class="btn" type="button" data-qr-url="{{ r.qr_url }}" onclick="event.stopPropagation(); mostrarRutinaDesdeQR(this.getAttribute('data-qr-url'))" onkeydown="event.stopPropagation();">Ver rutina con QR</button>
-                  </div>
-                {% endif %}
+                <p class="muted" style="margin:10px 0 0 0;">Creada: {{ r.fecha_creacion if r.fecha_creacion else '-' }}</p>
+                {# Se elimina acción directa; el acceso se realiza solo tras escanear el QR #}
               </article>
             {% endfor %}
           </div>
@@ -236,13 +269,7 @@
       <section id="rutina-scan-result" class="card no-print" aria-labelledby="rutina-scan-title" style="margin-top:16px; display:none;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
           <h3 id="rutina-scan-title" style="margin:0;">Rutina escaneada</h3>
-          <div class="qr-actions">
-            {% if rutina_activa_qr_url %}
-            <button class="btn" type="button" onclick="mostrarRutinaActiva()">
-              <i class="bi bi-eye" aria-hidden="true"></i> Ver rutina activa
-            </button>
-            {% endif %}
-          </div>
+          {# Se elimina la acción directa; la rutina se muestra tras el escaneo exitoso #}
         </div>
         <div class="scan-results" id="scan-results" aria-live="polite"></div>
         <div id="scan-loading" class="muted" style="margin-top:8px; display:none;" aria-live="assertive" aria-busy="true">⏳ Cargando rutina…</div>
@@ -258,6 +285,27 @@
             <h5 id="exercise-name" style="margin:0 0 8px 0;"></h5>
             <p id="exercise-desc" class="muted"></p>
             <div id="exercise-media" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Usuario inactivo (incerrable) -->
+      <div class="modal-backdrop" id="inactive-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="inactive-modal-title" style="display:none;">
+        <div class="modal" role="document">
+          <header>
+            <h4 id="inactive-modal-title" style="margin:0;">Estado de cuenta</h4>
+          </header>
+          <div class="content">
+            <p style="font-size:16px;">
+              <span class="chip danger" style="font-weight:600;">
+                <i class="bi bi-slash-circle" aria-hidden="true"></i>
+                <span id="inactive-reason">Desactivado</span>
+              </span>
+            </p>
+            <p class="muted">No puedes usar el panel mientras tu cuenta esté desactivada. Por favor, regulariza tu situación o contacta a administración.</p>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+              <a href="/usuario/logout" class="btn primary" aria-label="Cerrar sesión">Cerrar sesión</a>
+            </div>
           </div>
         </div>
       </div>
@@ -285,6 +333,42 @@
         document.head.appendChild(s);
       });
     }
+
+    // Cargador resiliente de html5-qrcode con fallback a CDNs
+    async function loadHtml5QrCode(){
+      try {
+        if (window.Html5Qrcode) return true;
+        const sources = [
+          '/static/libs/html5-qrcode.min.js',
+          'https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/dist/html5-qrcode.min.js',
+          'https://unpkg.com/html5-qrcode@2.3.8/dist/html5-qrcode.min.js'
+        ];
+        for (let i = 0; i < sources.length; i++){
+          try { await cargarScript(sources[i]); if (window.Html5Qrcode) return true; } catch(_){ /* seguir con el próximo */ }
+        }
+        return !!window.Html5Qrcode;
+      } catch(_) { return !!window.Html5Qrcode; }
+    }
+
+    // Precalentar permisos de cámara para asegurar el prompt del navegador
+    async function prewarmCameraPermission(){
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        try { (stream.getTracks() || []).forEach(t => t.stop()); } catch(_){ }
+      } catch(_){ /* si falla, igual intentaremos con Html5Qrcode */ }
+    }
+
+    // Ajustar anchos de barras de progreso desde data-attributes para evitar inline-Jinja en CSS
+    (function(){
+      try {
+        const bars = Array.from(document.querySelectorAll('.progress .bar[data-width]'));
+        bars.forEach(function(bar){
+          const w = bar.getAttribute('data-width');
+          if (w) { bar.style.width = String(w); }
+        });
+      } catch(_) { /* silencioso */ }
+    })();
 
     let qrInstance = null;
     // Guardas para evitar múltiples disparos del mismo escaneo
@@ -326,17 +410,20 @@
       const activarBtn = document.getElementById('btn-activar-lector');
       const detenerBtn = document.getElementById('btn-detener-lector');
       try {
-        if (!window.Html5Qrcode) {
-          await cargarScript('/static/libs/html5-qrcode.min.js');
-        }
+        if (!window.Html5Qrcode) { await loadHtml5QrCode(); }
         const readerElem = document.getElementById('qr-reader');
         if (!readerElem) return;
+        await prewarmCameraPermission();
         qrInstance = new Html5Qrcode('qr-reader');
         activarBtn.disabled = true;
         detenerBtn.disabled = false;
         const config = { fps: 10, qrbox: { width: 280, height: 280 }, aspectRatio: 1.0 }; 
         const cameras = await Html5Qrcode.getCameras();
-        const cameraId = (cameras && cameras.length) ? (cameras.find(c => /back|rear/i.test(c.label))?.id || cameras[0].id) : undefined;
+        let cameraId;
+        if (cameras && cameras.length) {
+          const rear = cameras.find(function(c){ return /back|rear/i.test(c.label); });
+          cameraId = rear ? rear.id : cameras[0].id;
+        }
         await qrInstance.start(
           cameraId || { facingMode: "environment" },
           config,
@@ -368,16 +455,19 @@
     // Modal QR: abrir/cerrar y activar lector dentro del modal
     async function activarLectorQRModal(){
       try {
-        if (!window.Html5Qrcode) {
-          await cargarScript('/static/libs/html5-qrcode.min.js');
-        }
+        if (!window.Html5Qrcode) { await loadHtml5QrCode(); }
         const readerElem = document.getElementById('qr-reader-modal');
         if (!readerElem) return;
         if (qrInstance) { try { await qrInstance.stop(); await qrInstance.clear(); } catch(_){} }
+        await prewarmCameraPermission();
         qrInstance = new Html5Qrcode('qr-reader-modal');
         const config = { fps: 10, qrbox: 260, aspectRatio: 1.0, rememberLastUsedCamera: true };
         const cameras = await Html5Qrcode.getCameras();
-        const cameraId = (cameras && cameras.length) ? (cameras.find(c => /back|rear/i.test(c.label))?.id || cameras[0].id) : undefined;
+        let cameraId;
+        if (cameras && cameras.length) {
+          const rear = cameras.find(function(c){ return /back|rear/i.test(c.label); });
+          cameraId = rear ? rear.id : cameras[0].id;
+        }
         await qrInstance.start(
           cameraId || { facingMode: "environment" },
           config,
@@ -494,20 +584,7 @@
       }
     }
 
-    function mostrarRutinaDesdeQR(qrUrl){
-      const { uuid } = extraerUuidYTipo(qrUrl);
-      if (!uuid){ if (typeof window.showToast === 'function') { showToast('QR no válido', 'warning', 3500); } return; }
-      // Pasar la URL completa para conservar si es preview o real
-      onScanSuccess(qrUrl);
-    }
-
-    function mostrarRutinaActiva(){
-      const url = "{{ rutina_activa_qr_url if rutina_activa_qr_url else '' }}";
-      if (!url){ if (typeof window.showToast === 'function') { showToast('No hay rutina activa con QR', 'warning', 3500); } return; }
-      mostrarRutinaDesdeQR(url);
-    }
-
-    function onRutinaBadgeClick(qrUrl, esActiva){
+    function onRutinaBadgeClick(esActiva){
       if (!esActiva){ if (typeof window.showToast === 'function') { showToast('Esta rutina está inactiva', 'info', 3000); } return; }
       abrirModalQR();
     }
@@ -656,18 +733,252 @@
     }
     function onEscClose(ev){ if (ev.key === 'Escape') cerrarModalEjercicio(); }
 
-    // Banda de impresión: generar QR de rutina activa
-    (async function(){
+    // Banda de impresión: generar QR de rutina activa SOLO al imprimir para evitar intentos de carga innecesarios
+    (function(){
       const data = "{{ rutina_activa_qr_url if rutina_activa_qr_url else '' }}";
       if (!data) return;
-      try {
-        if (!window.QRCode){ await cargarScript('/static/libs/qrcode.min.js'); }
-        const target = document.getElementById('print-qr');
-        if (target){
-          // ~40mm ≈ 152px @96dpi
-          new QRCode(target, { text: String(data), width: 152, height: 152 });
+      async function ensureQrLib(){
+        try { if (!window.QRCode) { await cargarScript('/static/libs/qrcode.min.js'); } } catch(_){ /* silencioso */ }
+      }
+      function renderQR(){
+        try {
+          const target = document.getElementById('print-qr');
+          if (target && window.QRCode){ new QRCode(target, { text: String(data), width: 152, height: 152 }); }
+        } catch(_){ /* silencioso */ }
+      }
+      // Cargar y renderizar al comenzar la impresión
+      window.addEventListener('beforeprint', async function(){ try { await ensureQrLib(); renderQR(); } catch(_){} });
+    })();
+  </script>
+  <script>
+    // Clasificar rutinas por fecha relativa: la(s) más reciente(s) se quedan "Activa" si el flag lo indica;
+    // el resto pasa a "Antigua" (si originalmente activa) o "Inactiva" (si originalmente inactiva).
+    (function(){
+      try{
+        const cards = Array.from(document.querySelectorAll('article.card[data-activa]'));
+        const times = cards.map(card => {
+          const d = parseFecha(card.getAttribute('data-fecha-creacion') || '');
+          return d ? d.getTime() : null;
+        }).filter(t => typeof t === 'number');
+        if (times.length === 0) return;
+        const latest = Math.max.apply(null, times);
+        cards.forEach(card => {
+          const origActive = (card.getAttribute('data-activa') === 'true');
+          const fc = card.getAttribute('data-fecha-creacion') || '';
+          const d = parseFecha(fc);
+          const isLatest = d ? (d.getTime() === latest) : false;
+          const activeNow = origActive && isLatest;
+          card.setAttribute('data-activa', activeNow ? 'true' : 'false');
+          const badge = card.querySelector('.routine-badge');
+          if(badge){
+            badge.setAttribute('data-activa', activeNow ? 'true' : 'false');
+            const label = activeNow ? 'Activa' : 'Inactiva';
+            badge.textContent = label;
+            badge.setAttribute('title', activeNow ? 'Tocar para abrir la rutina' : 'Rutina inactiva');
+            badge.setAttribute('role', activeNow ? 'button' : 'status');
+            badge.setAttribute('tabindex', activeNow ? '0' : '-1');
+          }
+          if(activeNow){
+            card.setAttribute('role','button');
+            card.setAttribute('tabindex','0');
+            card.style.cursor = 'pointer';
+          } else {
+            card.removeAttribute('role');
+            card.removeAttribute('tabindex');
+            card.style.cursor = '';
+          }
+        });
+
+        // Ordenar visualmente por fecha de creación (más nuevas primero)
+        const wrap = document.querySelector('.cards');
+        if (wrap) {
+          const items = Array.from(wrap.children).filter(el => el.matches('article.card'));
+          items.sort((a, b) => {
+            const da = parseFecha(a.getAttribute('data-fecha-creacion') || '');
+            const db = parseFecha(b.getAttribute('data-fecha-creacion') || '');
+            const ta = da ? da.getTime() : 0;
+            const tb = db ? db.getTime() : 0;
+            return tb - ta; // más nuevas primero
+          });
+          items.forEach(el => wrap.appendChild(el));
         }
-      } catch (e) { console.error(e); }
+      }catch(e){ console.error(e); }
+      function parseFecha(s){
+        try{
+          const str = String(s).trim();
+          if(!str) return null;
+          // Aceptar formatos comunes: 'YYYY-MM-DD', 'YYYY-MM-DDTHH:mm:ss', 'DD/MM/YYYY'
+          const m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+          if(m){
+            const d = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+            return isNaN(d.getTime()) ? null : d;
+          }
+          const d = new Date(str);
+          return isNaN(d.getTime()) ? null : d;
+        }catch(_){ return null; }
+      }
+    })();
+    // (sin controles de activación en panel de usuario)
+  </script>
+  <script>
+    // Mostrar modal incerrable si el usuario está inactivo
+    (function(){
+      try {
+        var activo = "{{ 'true' if activo_usuario else 'false' }}" === "true";
+        var cuotasVencidas = parseInt("{{ (cuotas_vencidas|int) if cuotas_vencidas is not none else 0 }}", 10) || 0;
+        if (!activo) {
+          var reason = (cuotasVencidas >= 3) ? "Desactivado por falta de pagos (3 o más cuotas vencidas)" : "Desactivado por administración";
+          var txtEl = document.getElementById('inactive-reason');
+          if (txtEl) txtEl.textContent = reason;
+          var mb = document.getElementById('inactive-modal-backdrop');
+          if (mb) {
+            mb.style.display = 'flex';
+            // Bloquear cierre por Escape o clic de fondo
+            mb.addEventListener('click', function(e){
+              if (e.target === mb) { e.preventDefault(); e.stopPropagation(); }
+            }, {capture:true});
+            document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); } }, true);
+          }
+        }
+      } catch (e) {}
+    })();
+    // Gráfico de pagos: sparkline de área/linea con paleta lila/copper
+    (function(){
+      try {
+        var pagosSection = document.getElementById('pagos-title');
+        var tbl = pagosSection ? pagosSection.closest('section').querySelector('table') : null;
+        var rows = tbl ? Array.from(tbl.querySelectorAll('tbody tr')) : [];
+        var data = rows.map(function(r){
+          var cell = (r && r.children && r.children.length > 1) ? r.children[1] : null;
+          var montoTxt = (cell && cell.textContent) ? cell.textContent : '';
+          var monto = parseFloat(String(montoTxt).replace('$','').trim());
+          return isNaN(monto) ? 0 : monto;
+        });
+        var canvas = document.getElementById('pagosChart');
+        if (canvas && data.length > 0) {
+          var ctx = canvas.getContext('2d');
+          var W = canvas.width = Math.max(300, canvas.offsetWidth);
+          var H = canvas.height;
+          var pad = 12;
+          var maxV = Math.max.apply(null, data);
+          var minV = Math.min.apply(null, data);
+          var range = maxV - minV;
+          var hasRange = range > 0;
+          var stepX = (W - pad*2) / Math.max(1, data.length - 1);
+          ctx.clearRect(0,0,W,H);
+
+          // Fondo suave
+          ctx.fillStyle = 'rgba(255,255,255,0.04)';
+          ctx.fillRect(0,0,W,H);
+
+          // Línea base
+          ctx.strokeStyle = 'rgba(255,255,255,.2)';
+          ctx.beginPath();
+          ctx.moveTo(pad, H - pad);
+          ctx.lineTo(W - pad, H - pad);
+          ctx.stroke();
+
+          // Gradiente área
+          var grad = ctx.createLinearGradient(0, pad, 0, H - pad);
+          grad.addColorStop(0, 'rgba(142, 68, 173, 0.35)');
+          grad.addColorStop(1, 'rgba(184, 115, 51, 0.15)');
+
+          // Trazo línea
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#8e44ad';
+          ctx.beginPath();
+          for (var i = 0; i < data.length; i++) {
+            var v = data[i];
+            var x = pad + i * stepX;
+            var pct = hasRange ? (v - minV) / range : 0.5; // si todos iguales, dibujar a mitad de altura
+            var y = pad + (H - pad*2) * (1 - pct);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+
+          // Puntos en cada pago para mejorar legibilidad
+          for (var k = 0; k < data.length; k++) {
+            var vv_pt = data[k];
+            var xx_pt = pad + k * stepX;
+            var pct_pt = hasRange ? (vv_pt - minV) / range : 0.5;
+            var yy_pt = pad + (H - pad*2) * (1 - pct_pt);
+            ctx.beginPath();
+            ctx.fillStyle = '#b87333'; // copper
+            ctx.arc(xx_pt, yy_pt, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // Área bajo la línea
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          for (var j = 0; j < data.length; j++) {
+            var vv = data[j];
+            var xx = pad + j * stepX;
+            var pctA = hasRange ? (vv - minV) / range : 0.5;
+            var yy = pad + (H - pad*2) * (1 - pctA);
+            if (j === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+          }
+          ctx.lineTo(pad + (data.length - 1) * stepX, H - pad);
+          ctx.lineTo(pad, H - pad);
+          ctx.closePath();
+          ctx.fill();
+        }
+      } catch (e) {}
+    })();
+    // Fallback: recalcular y actualizar chips de Total/Promedio/Cantidad desde la tabla para evitar 0.00
+    (function(){
+      try {
+        var pagosSection = document.getElementById('pagos-title');
+        var tbl = pagosSection ? pagosSection.closest('section').querySelector('table') : null;
+        var rows = tbl ? Array.from(tbl.querySelectorAll('tbody tr')) : [];
+        if (!rows.length) return;
+        var sum = 0, count = 0;
+        rows.forEach(function(r){
+          var amtCell = (r && r.children && r.children.length > 1) ? r.children[1] : null;
+          var txt = amtCell ? String(amtCell.textContent || '').replace('$','').trim() : '0';
+          var v = parseFloat(txt);
+          if (!isNaN(v)) { sum += v; count += 1; }
+        });
+        var avg = count > 0 ? (sum / count) : 0;
+        var chipT = document.getElementById('chip-total');
+        var chipP = document.getElementById('chip-promedio');
+        var chipC = document.getElementById('chip-cantidad');
+        if (chipT) chipT.innerHTML = '<i class="bi bi-cash-coin" aria-hidden="true"></i> Total: $' + sum.toFixed(2);
+        if (chipP) chipP.innerHTML = '<i class="bi bi-graph-up" aria-hidden="true"></i> Promedio: $' + avg.toFixed(2);
+        if (chipC) chipC.innerHTML = '<i class="bi bi-list-ol" aria-hidden="true"></i> Pagos: ' + String(count);
+      } catch(e) {}
+    })();
+  </script>
+  <script>
+    // Resumen por método de pago (dinámico basado en tabla)
+    (function(){
+      try {
+        var pagosSection = document.getElementById('pagos-title');
+        var tbl = pagosSection ? pagosSection.closest('section').querySelector('table') : null;
+        var rows = tbl ? Array.from(tbl.querySelectorAll('tbody tr')) : [];
+        var totalsByMethod = {};
+        rows.forEach(function(r){
+          var methodCell = (r && r.children && r.children.length > 3) ? r.children[3] : null;
+          var amountCell = (r && r.children && r.children.length > 1) ? r.children[1] : null;
+          var m = methodCell ? String(methodCell.textContent || '').trim() : '';
+          var amtTxt = amountCell ? String(amountCell.textContent || '').replace('$','').trim() : '0';
+          var amt = parseFloat(amtTxt);
+          if (isNaN(amt)) amt = 0;
+          var key = m || 'Sin método';
+          totalsByMethod[key] = (totalsByMethod[key] || 0) + amt;
+        });
+        var container = document.getElementById('metodos-summary');
+        if (container) {
+          container.innerHTML = '';
+          Object.keys(totalsByMethod).sort().forEach(function(k){
+            var chip = document.createElement('span');
+            chip.className = 'chip info';
+            chip.title = 'Total por método';
+            chip.innerHTML = '<i class="bi bi-wallet2" aria-hidden="true"></i> ' + k + ': $' + totalsByMethod[k].toFixed(2);
+            container.appendChild(chip);
+          });
+        }
+      } catch(e) {}
     })();
   </script>
 </body>
