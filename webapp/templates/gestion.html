@@ -2457,7 +2457,7 @@
       <div id="rutina-preview-status" class="muted" aria-live="polite" style="margin-left:auto; margin-right:8px"></div>
       <button class="modal-close" id="rutina-preview-close" aria-label="Cerrar">×</button>
     </div>
-    <div class="modal-body" style="max-height: 82vh; overflow:hidden">
+    <div class="modal-body" style="max-height: 82vh; overflow:auto; overscroll-behavior: contain">
     <div class="form-grid" id="rutina-preview-form" style="margin-bottom:12px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; gap:12px">
         <div class="form-row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end">
           <div>
@@ -2561,7 +2561,7 @@
           </div>
           <div>
             <!-- Vista previa PDF integrada -->
-            <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:visible; position:relative">
+            <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
               <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
               <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel en el visor automáticamente.</div>
               <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
@@ -7684,7 +7684,7 @@ function ensureFloatingPreviewControls(){
   const prevBtn = document.getElementById('preview-sheet-prev');
   const nextBtn = document.getElementById('preview-sheet-next');
   const cycle = ['Día 1','Día 2','Día 3','Día 4','Día 5','QR'];
-  if(sheetInput){ sheetInput.oninput = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
+  if(sheetInput){ sheetInput.oninput = () => { try{ const v = String(sheetInput.value||'').trim().toLowerCase(); if(v === 'qr' && qrSel){ qrSel.value = 'sheet'; } updateRutinaPDFPreview(); }catch(_){ } }; }
   if(qrSel){ qrSel.onchange = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
   function step(dir){
     try{
@@ -7692,7 +7692,9 @@ function ensureFloatingPreviewControls(){
       let idx = cycle.findIndex(n => n.toLowerCase() === curr.toLowerCase());
       if(idx < 0){ idx = 0; }
       idx = (idx + (dir<0 ? -1 : 1) + cycle.length) % cycle.length;
-      if(sheetInput){ sheetInput.value = cycle[idx]; }
+      const nextVal = cycle[idx];
+      if(sheetInput){ sheetInput.value = nextVal; }
+      if(nextVal.toLowerCase() === 'qr' && qrSel){ qrSel.value = 'sheet'; }
       updateRutinaPDFPreview();
     }catch(_){ }
   }
@@ -7845,15 +7847,18 @@ function ensurePdfZoomControls(containerId, frameId){
           try{
             const qrSel = document.getElementById('preview-qr-placement');
             const qrMode = (qrSel && qrSel.value) ? String(qrSel.value) : 'inline';
+            const inp = document.getElementById('preview-sheet-name');
             if(qrMode === 'sheet'){
-              const inp = document.getElementById('preview-sheet-name');
               const cur = ((inp && inp.value) ? String(inp.value).trim() : '').toLowerCase();
               const next = (cur === 'qr') ? '' : 'QR';
               if(inp){ inp.value = next; }
-              // Actualizar siempre la vista previa al alternar
               try{ updateRutinaPDFPreview(); }catch(__){ }
-              // Fallback: si hay botón de previsualización, dispararlo
               try{ const btn = document.getElementById('rutina-export-preview-btn'); if(btn) btn.click(); }catch(__){ }
+            } else {
+              // Activar modo hoja QR y enfocarse en la hoja QR
+              if(qrSel){ qrSel.value = 'sheet'; }
+              if(inp){ inp.value = 'QR'; }
+              try{ updateRutinaPDFPreview(); }catch(__){ }
             }
           }catch(__){ }
           closeMenu();
