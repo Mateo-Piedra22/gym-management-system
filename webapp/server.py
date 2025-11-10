@@ -113,6 +113,13 @@ try:
 except Exception:
     DEV_PASSWORD = None  # type: ignore
 
+# Modelos opcionales (para clases)
+try:
+    from models import Clase, ClaseHorario  # type: ignore
+except Exception:
+    Clase = None  # type: ignore
+    ClaseHorario = None  # type: ignore
+
 try:
     from payment_manager import PaymentManager  # type: ignore
 except Exception:
@@ -2035,6 +2042,118 @@ async def api_gym_data(request: Request):
             "logo_url": _resolve_logo_url(),
         })
 
+@app.post("/api/gym/update")
+async def api_gym_update(request: Request):
+    """Actualiza nombre y dirección del gimnasio en gym_data.txt.
+    Requiere dueño. Preserva comentarios y otras claves del archivo.
+    """
+    try:
+        # Verificar acceso de dueño sin depender del orden de definición
+        require_owner(request)
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        name = str(data.get("gym_name", "")).strip()
+        address_raw = data.get("gym_address")
+        if not name:
+            return JSONResponse({"ok": False, "error": "Nombre inválido"}, status_code=400)
+
+        updates: dict = {"gym_name": name}
+        if address_raw is not None:
+            try:
+                addr = str(address_raw)
+            except Exception:
+                addr = ""
+            # Persistir saltos de línea como \n
+            updates["gym_address"] = addr.replace("\n", "\\n").strip()
+
+        path = Path("gym_data.txt")
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        except Exception:
+            lines = []
+
+        found: dict = {k: False for k in updates}
+        out_lines = []
+        for line in lines:
+            s = line.strip()
+            if not s or s.startswith('#') or '=' not in s:
+                out_lines.append(line)
+                continue
+            k, _ = s.split('=', 1)
+            k = k.strip()
+            if k in updates:
+                out_lines.append(f"{k}={updates[k]}")
+                found[k] = True
+            else:
+                out_lines.append(line)
+        for k, done in found.items():
+            if not done:
+                out_lines.append(f"{k}={updates[k]}")
+
+        try:
+            path.write_text("\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8")
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+        # Refrescar caché de utils si existe
+        try:
+            from utils import read_gym_data as _read_gym_data  # type: ignore
+            _read_gym_data(force_reload=True)
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "ok": True,
+            "gym_name": get_gym_name(),
+            "gym_address": get_gym_address(),
+        }, status_code=200)
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            logging.exception("Error en /api/gym/update")
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@app.post("/api/gym/logo")
+async def api_gym_logo(request: Request, file: UploadFile = File(...)):
+    """Sube y guarda el logo del gimnasio en assets/ como PNG o SVG."""
+    try:
+        # Verificar acceso de dueño sin depender del orden de definición
+        require_owner(request)  # type: ignore[name-defined]
+        ctype = str(getattr(file, 'content_type', '') or '').lower()
+        if ctype not in ("image/png", "image/svg+xml"):
+            return JSONResponse({"ok": False, "error": "Formato no soportado. Use PNG o SVG"}, status_code=400)
+        assets_dir = _resolve_existing_dir("assets")
+        try:
+            assets_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        target_name = "gym_logo.png" if ctype == "image/png" else "logo.svg"
+        dest = assets_dir / target_name
+        try:
+            data = await file.read()
+        except Exception:
+            data = b""
+        if not data:
+            return JSONResponse({"ok": False, "error": "Archivo vacío"}, status_code=400)
+        try:
+            with open(dest, "wb") as f:
+                f.write(data)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        return JSONResponse({"ok": True, "logo_url": _resolve_logo_url()}, status_code=200)
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            logging.exception("Error en /api/gym/logo")
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 def _get_db() -> Optional[DatabaseManager]:
     global _db, _db_initializing
@@ -4419,6 +4538,70 @@ async def usuario_login_post(request: Request):
     return RedirectResponse(url="/usuario/panel", status_code=303)
 
 
+@app.post("/api/usuario/change_pin")
+async def api_usuario_change_pin(request: Request):
+    """Cambia el PIN del usuario validando por DNI y PIN antiguo.
+    Endpoint público y sencillo, con rate limit por IP y DNI.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    dni = str(data.get("dni", "")).strip()
+    old_pin = str(data.get("old_pin", "")).strip()
+    new_pin = str(data.get("new_pin", "")).strip()
+    if not dni or not old_pin or not new_pin:
+        return JSONResponse({"ok": False, "error": "Parámetros inválidos"}, status_code=400)
+    if len(new_pin) < 4:
+        return JSONResponse({"ok": False, "error": "El PIN nuevo debe tener al menos 4 caracteres"}, status_code=400)
+
+    ip = _get_client_ip(request)
+    ip_key = f"pinchg:ip:{ip}"
+    dni_key = f"pinchg:dni:{dni}"
+    # Limites modestos: IP 10/5min, DNI 5/5min
+    if _is_rate_limited(ip_key, _login_attempts_by_ip, max_attempts=10, window_s=300) or _is_rate_limited(dni_key, _login_attempts_by_dni, max_attempts=5, window_s=300):
+        return JSONResponse({"ok": False, "error": "Demasiados intentos. Intente más tarde"}, status_code=429)
+    _register_attempt(ip_key, _login_attempts_by_ip)
+    _register_attempt(dni_key, _login_attempts_by_dni)
+
+    db = _get_db()
+    if db is None:
+        return JSONResponse({"ok": False, "error": "Base de datos no disponible"}, status_code=503)
+
+    usuario_id = _get_usuario_id_by_dni(dni)
+    if not usuario_id:
+        return JSONResponse({"ok": False, "error": "DNI no encontrado"}, status_code=400)
+
+    ok = False
+    try:
+        ok = bool(db.verificar_pin_usuario(int(usuario_id), old_pin))  # type: ignore
+    except Exception:
+        ok = False
+    if not ok:
+        return JSONResponse({"ok": False, "error": "PIN antiguo inválido"}, status_code=400)
+    # Reforzar regla: el PIN nuevo debe ser distinto al PIN antiguo
+    if new_pin == old_pin:
+        return JSONResponse({"ok": False, "error": "El PIN nuevo debe ser distinto al actual"}, status_code=400)
+
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET pin = %s WHERE id = %s", (new_pin, int(usuario_id)))
+            try:
+                conn.commit()
+            except Exception:
+                pass
+        _clear_attempts(ip_key, _login_attempts_by_ip)
+        _clear_attempts(dni_key, _login_attempts_by_dni)
+        return JSONResponse({"ok": True}, status_code=200)
+    except Exception as e:
+        try:
+            logging.exception("Error al cambiar PIN de usuario")
+        except Exception:
+            pass
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @app.get("/usuario/panel")
 async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
     theme_vars = read_theme_vars(static_dir / "style.css")
@@ -6502,7 +6685,624 @@ async def api_profesores_basico():
             logging.exception("Error en /api/profesores_basico")
         except Exception:
             pass
+
+# --- API de Clases y Horarios ---
+
+@app.get("/api/clases")
+async def api_clases(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/clases")
+    if guard:
+        return guard
+    try:
+        clases = db.obtener_clases()  # type: ignore[attr-defined]
+        res = []
+        for c in clases:
+            try:
+                res.append({
+                    "id": int(getattr(c, "id", 0) or 0),
+                    "nombre": getattr(c, "nombre", "") or "",
+                    "descripcion": getattr(c, "descripcion", "") or "",
+                    "activa": bool(getattr(c, "activa", True)),
+                    "tipo_clase_id": getattr(c, "tipo_clase_id", None),
+                    "tipo_clase_nombre": getattr(c, "tipo_clase_nombre", None),
+                })
+            except Exception:
+                # Fallback por si cambia el modelo
+                res.append({
+                    "id": int(getattr(c, "id", 0) or 0),
+                    "nombre": getattr(c, "nombre", "") or "",
+                    "descripcion": getattr(c, "descripcion", "") or "",
+                    "activa": True,
+                    "tipo_clase_id": None,
+                    "tipo_clase_nombre": None,
+                })
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/clases")
+async def api_clases_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/clases[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        nombre = (payload.get("nombre") or "").strip()
+        descripcion = (payload.get("descripcion") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="Nombre requerido")
+        # crear_clase acepta solo nombre y descripcion
+        if Clase is not None:
+            obj = Clase(id=None, nombre=nombre, descripcion=descripcion, activa=True, ejercicios=None, tipo_clase_id=None, tipo_clase_nombre=None)  # type: ignore
+            new_id = db.crear_clase(obj)  # type: ignore[attr-defined]
+        else:
+            # Fallback usando SQL directo
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute("INSERT INTO clases (nombre, descripcion) VALUES (%s, %s) RETURNING id", (nombre, descripcion))
+                new_id = int(cur.fetchone()[0] or 0)
+                conn.commit()
+        return {"ok": True, "id": int(new_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.put("/api/clases/{clase_id}")
+async def api_clases_update(clase_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}[PUT]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        nombre = (payload.get("nombre") or "").strip()
+        descripcion = (payload.get("descripcion") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="Nombre requerido")
+        if Clase is not None:
+            obj = Clase(id=int(clase_id), nombre=nombre, descripcion=descripcion, activa=True, ejercicios=None, tipo_clase_id=None, tipo_clase_nombre=None)  # type: ignore
+            db.actualizar_clase(obj)  # type: ignore[attr-defined]
+        else:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute("UPDATE clases SET nombre = %s, descripcion = %s WHERE id = %s", (nombre, descripcion, int(clase_id)))
+                conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/clases/{clase_id}")
+async def api_clases_delete(clase_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        db.eliminar_clase(int(clase_id))  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/clases/{clase_id}/horarios")
+async def api_clase_horarios(clase_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}/horarios")
+    if guard:
+        return guard
+    try:
+        hs = db.obtener_horarios_de_clase(int(clase_id))  # type: ignore[attr-defined]
+        res = []
+        for h in hs:
+            res.append({
+                "id": int(getattr(h, "id", 0) or 0),
+                "clase_id": int(getattr(h, "clase_id", clase_id) or clase_id),
+                "dia_semana": getattr(h, "dia_semana", "") or "",
+                "hora_inicio": getattr(h, "hora_inicio", "") or "",
+                "hora_fin": getattr(h, "hora_fin", "") or "",
+                "cupo_maximo": int(getattr(h, "cupo_maximo", 0) or 0),
+                "profesor_id": getattr(h, "profesor_id", None),
+                "nombre_profesor": getattr(h, "nombre_profesor", None),
+                "inscriptos": int(getattr(h, "inscriptos", 0) or 0),
+            })
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/clases/{clase_id}/horarios")
+async def api_clase_horarios_create(clase_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}/horarios[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        dia = (payload.get("dia_semana") or "").strip()
+        hIni = (payload.get("hora_inicio") or "").strip()
+        hFin = (payload.get("hora_fin") or "").strip()
+        cupo = int(payload.get("cupo_maximo") or 0)
+        profesor_id = payload.get("profesor_id")
+        if not dia or not hIni or not hFin or cupo <= 0:
+            raise HTTPException(status_code=400, detail="Datos de horario incompletos")
+        if ClaseHorario is not None:
+            obj = ClaseHorario(id=None, clase_id=int(clase_id), dia_semana=dia, hora_inicio=hIni, hora_fin=hFin, cupo_maximo=int(cupo))  # type: ignore
+            if profesor_id:
+                setattr(obj, "profesor_id", int(profesor_id))
+            new_id = db.crear_horario_clase(obj)  # type: ignore[attr-defined]
+        else:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO clases_horarios (clase_id, dia_semana, hora_inicio, hora_fin, cupo_maximo) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                    (int(clase_id), dia, hIni, hFin, int(cupo))
+                )
+                new_id = int(cur.fetchone()[0] or 0)
+                if profesor_id:
+                    cur.execute(
+                        "INSERT INTO profesor_clase_asignaciones (clase_horario_id, profesor_id) VALUES (%s, %s)",
+                        (int(new_id), int(profesor_id))
+                    )
+                conn.commit()
+        return {"ok": True, "id": int(new_id)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/clases/horarios/{horario_id}")
+async def api_clase_horarios_delete(horario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/horarios/{horario_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        db.eliminar_horario_clase(int(horario_id))  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/clases/horarios/{horario_id}/asignar_profesor")
+async def api_clase_horario_asignar(horario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/horarios/{horario_id}/asignar_profesor[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        profesor_id = int(payload.get("profesor_id") or 0)
+        if profesor_id <= 0:
+            raise HTTPException(status_code=400, detail="profesor_id requerido")
+        db.asignar_profesor_a_clase(int(horario_id), int(profesor_id))  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/clases/horarios/{horario_id}/desasignar_profesor")
+async def api_clase_horario_desasignar(horario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/horarios/{horario_id}/desasignar_profesor[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        profesor_id = int(payload.get("profesor_id") or 0)
+        if profesor_id <= 0:
+            raise HTTPException(status_code=400, detail="profesor_id requerido")
+        db.desasignar_profesor_de_clase(int(horario_id), int(profesor_id))  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/horarios/{horario_id}/usuarios")
+async def api_horario_usuarios(horario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/usuarios")
+    if guard:
+        return guard
+    try:
+        rows = db.obtener_usuarios_en_clase(int(horario_id))  # type: ignore[attr-defined]
+        # Mapear respuesta mínima para UI
+        result = []
+        for r in rows or []:
+            try:
+                result.append({
+                    "usuario_id": int(r.get("usuario_id") or r.get("usuario") or 0),
+                    "nombre_usuario": r.get("nombre_usuario") or r.get("nombre") or "",
+                })
+            except Exception:
+                result.append({
+                    "usuario_id": int(r.get("usuario_id") or 0),
+                    "nombre_usuario": str(r.get("nombre_usuario") or "")
+                })
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/horarios/{horario_id}/lista_espera")
+async def api_horario_waitlist(horario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/lista_espera")
+    if guard:
+        return guard
+    try:
+        rows = db.obtener_lista_espera(int(horario_id))  # type: ignore[attr-defined]
+        result = []
+        for r in rows or []:
+            try:
+                result.append({
+                    "usuario_id": int(r.get("usuario_id") or 0),
+                    "nombre_usuario": r.get("nombre_usuario") or "",
+                    "posicion": int(r.get("posicion") or 0),
+                })
+            except Exception:
+                result.append({
+                    "usuario_id": int(r.get("usuario_id") or 0),
+                    "nombre_usuario": str(r.get("nombre_usuario") or ""),
+                    "posicion": int(r.get("posicion") or 0),
+                })
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/horarios/{horario_id}/usuarios")
+async def api_horario_usuario_add(horario_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/usuarios[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        usuario_id = payload.get("usuario_id")
+        if usuario_id is None:
+            raise HTTPException(status_code=400, detail="'usuario_id' es obligatorio")
+        # Inscribir o agregar a lista de espera
+        enrolled = bool(db.inscribir_usuario_en_clase(int(horario_id), int(usuario_id)))  # type: ignore[attr-defined]
+        return {"ok": True, "enrolled": enrolled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/horarios/{horario_id}/usuarios/{usuario_id}")
+async def api_horario_usuario_remove(horario_id: int, usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/usuarios/{usuario_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        db.quitar_usuario_de_clase(int(horario_id), int(usuario_id))  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.delete("/api/horarios/{horario_id}/lista_espera/{usuario_id}")
+async def api_horario_waitlist_remove(horario_id: int, usuario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/lista_espera/{usuario_id}[DELETE]")
+    if guard:
+        return guard
+    try:
+        ok = bool(db.quitar_de_lista_espera(int(horario_id), int(usuario_id)))  # type: ignore[attr-defined]
+        return {"ok": True, "removed": ok}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/horarios/{horario_id}/whatsapp/notify_waitlist_first")
+async def api_horario_waitlist_notify(horario_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/horarios/{horario_id}/whatsapp/notify_waitlist_first[POST]")
+    if guard:
+        return guard
+    try:
+        # Obtener siguiente en lista y componer clase_info mínima
+        siguiente = db.obtener_siguiente_en_lista_espera_completo(int(horario_id))  # type: ignore[attr-defined]
+        if not siguiente:
+            raise HTTPException(status_code=404, detail="No hay usuarios en lista de espera")
+        # Obtener datos del horario para mensaje
+        clase_info = None
+        try:
+            clase_info = db.obtener_horario_por_id(int(horario_id))  # type: ignore[attr-defined]
+        except Exception:
+            clase_info = None
+        usuario_id = int(siguiente.get("usuario_id"))
+        # Enviar WhatsApp usando WhatsAppManager si disponible
+        try:
+            from whatsapp_manager import WhatsAppManager  # type: ignore
+            wa = getattr(db, "wa_manager", None)
+            if wa is None:
+                # Crear manager con dependencias mínimas si no existe en db
+                try:
+                    wa = WhatsAppManager(db)
+                except Exception:
+                    wa = None
+            if wa is None:
+                raise HTTPException(status_code=503, detail="WhatsApp no disponible")
+            ok = bool(wa.enviar_promocion_lista_espera(usuario_id, clase_info or {}))
+            if not ok:
+                return JSONResponse({"ok": False, "error": "Envio bloqueado o no exitoso"}, status_code=400)
+            return {"ok": True}
+        except HTTPException:
+            raise
+        except Exception as e:
+            try:
+                import traceback; traceback.print_exc()
+            except Exception:
+                pass
+            return JSONResponse({"error": str(e)}, status_code=500)
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/clases/{clase_id}/ejercicios")
+async def api_clase_ejercicios_get(clase_id: int, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}/ejercicios")
+    if guard:
+        return guard
+    try:
+        # Preferir detalle con metadatos y orden si está disponible
+        res = []
+        try:
+            detalle = getattr(db, "obtener_ejercicios_de_clase_detalle", None)
+            if callable(detalle):
+                rows = detalle(int(clase_id))  # type: ignore[attr-defined]
+                for r in rows or []:
+                    try:
+                        res.append({
+                            "id": int(r.get("id") or r.get("ejercicio_id") or 0),
+                            "nombre": str(r.get("nombre", "") or ""),
+                            "descripcion": str(r.get("descripcion", "") or ""),
+                            "orden": int(r.get("orden") or 0),
+                            "series": int(r.get("series") or 0),
+                            "repeticiones": str(r.get("repeticiones", "") or ""),
+                            "descanso_segundos": int(r.get("descanso_segundos") or 0),
+                            "notas": r.get("notas") if r.get("notas") is not None else None,
+                        })
+                    except Exception:
+                        pass
+                return res
+        except Exception:
+            # Fallback a método anterior sin metadatos
+            pass
+        ejercicios = db.obtener_ejercicios_de_clase(int(clase_id))  # type: ignore[attr-defined]
+        for e in ejercicios or []:
+            try:
+                res.append({
+                    "id": int(getattr(e, "id", 0) or 0),
+                    "nombre": getattr(e, "nombre", "") or "",
+                    "descripcion": getattr(e, "descripcion", "") or "",
+                })
+            except Exception:
+                pass
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/clases/{clase_id}/ejercicios")
+async def api_clase_ejercicios_save(clase_id: int, request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/clases/{clase_id}/ejercicios[POST]")
+    if guard:
+        return guard
+    try:
+        payload = await request.json()
+        # Soportar nuevo formato con metadatos/orden y formato antiguo de ids
+        items = None
+        if isinstance(payload, dict):
+            items = payload.get("items") or payload.get("ejercicios") or payload.get("ejercicio_ids")
+        if not isinstance(items, list):
+            raise HTTPException(status_code=400, detail="Cuerpo inválido: provea 'items' o 'ejercicio_ids' como lista")
+        # Pasar lista tal cual; la capa DB maneja dicts o enteros
+        db.guardar_ejercicios_para_clase(int(clase_id), items)  # type: ignore[attr-defined]
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
+@app.get("/api/tipos_clases")
+async def api_tipos_clases(_=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/tipos_clases")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            # La columna 'activa' no existe en 'tipos_clases' en algunos esquemas
+            # Seleccionamos únicamente id y nombre para evitar errores de compatibilidad
+            cur.execute("SELECT id, nombre FROM tipos_clases ORDER BY nombre")
+            res = []
+            for r in cur.fetchall():
+                res.append({
+                    "id": int(r[0] or 0),
+                    "nombre": r[1] or "",
+                })
+            return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
         return []
+
+@app.post("/api/tipos_clases")
+async def api_tipos_clases_create(request: Request, _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/tipos_clases[POST]")
+    if guard:
+        return guard
+    payload = await request.json()
+    try:
+        nombre = (payload.get("nombre") or "").strip()
+        if not nombre:
+            raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
+        descripcion = payload.get("descripcion")
+        activo = bool(payload.get("activo", True))
+        from psycopg2 import sql as _sql
+        with db.get_connection_context() as conn:  # type: ignore
+            data = {
+                "nombre": nombre,
+                "descripcion": descripcion,
+                "activo": activo,
+            }
+            filtered = _filter_existing_columns(conn, "public", "tipos_clases", data)
+            if not filtered:
+                raise HTTPException(status_code=400, detail="No hay columnas válidas para insertar")
+            cols = list(filtered.keys())
+            stmt = _sql.SQL("INSERT INTO {}.{} ({}) VALUES ({}) RETURNING id").format(
+                _sql.Identifier("public"), _sql.Identifier("tipos_clases"),
+                _sql.SQL(", ").join(map(_sql.Identifier, cols)),
+                _sql.SQL(", ").join(_sql.Placeholder() * len(cols))
+            )
+            cur = conn.cursor()
+            cur.execute(stmt, [filtered[c] for c in cols])
+            new_id_row = cur.fetchone()
+            new_id = int(new_id_row[0]) if new_id_row else None
+            return {"ok": True, "id": new_id, "nombre": nombre}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            import traceback; traceback.print_exc()
+        except Exception:
+            pass
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/gestion/auth")
 async def gestion_auth(request: Request):

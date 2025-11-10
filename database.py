@@ -932,6 +932,7 @@ class DatabaseManager:
             'ejercicios': {'duration': 900, 'max_size': 1000},   # 15 minutos, 1000 ejercicios
             'rutinas': {'duration': 600, 'max_size': 600},       # 10 minutos, 600 rutinas y vistas asociadas
             'clase_ejercicios': {'duration': 600, 'max_size': 600}, # 10 minutos, ejercicios por clase
+            'clase_ejercicios_detalle': {'duration': 600, 'max_size': 600}, # 10 minutos, ejercicios por clase con metadatos
             'config': {'duration': 3600, 'max_size': 200},      # 1 hora, 200 configs
             'metodos_pago': {'duration': 1800, 'max_size': 200},  # 30 minutos, 200 métodos
             'conceptos_pago': {'duration': 1800, 'max_size': 300} # 30 minutos, 300 conceptos
@@ -3245,6 +3246,27 @@ class DatabaseManager:
                         FOREIGN KEY (ejercicio_id) REFERENCES ejercicios (id) ON DELETE CASCADE,
                         PRIMARY KEY (clase_id, ejercicio_id)
                     )""")
+                    # Extender esquema con columnas de orden y metadatos (si no existen)
+                    try:
+                        cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS orden INTEGER DEFAULT 0")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS series INTEGER DEFAULT 0")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS repeticiones VARCHAR(50) DEFAULT ''")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS descanso_segundos INTEGER DEFAULT 0")
+                    except Exception:
+                        pass
+                    try:
+                        cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS notas TEXT")
+                    except Exception:
+                        pass
                     
                     # --- TABLAS PARA GRUPOS DE EJERCICIOS ---
                     cursor.execute("""
@@ -3695,6 +3717,7 @@ class DatabaseManager:
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_usuarios_clase_horario_id ON clase_usuarios(clase_horario_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_usuarios_usuario_id ON clase_usuarios(usuario_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_ejercicios_ejercicio_id ON clase_ejercicios(ejercicio_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_ejercicios_clase_orden ON clase_ejercicios(clase_id, orden)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_horarios_profesores_profesor_id ON horarios_profesores(profesor_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_profesores_horarios_disponibilidad_profesor_id ON profesores_horarios_disponibilidad(profesor_id)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_profesor_evaluaciones_profesor_id ON profesor_evaluaciones(profesor_id)")
@@ -10295,6 +10318,48 @@ class DatabaseManager:
         """Inscribe un usuario en una clase. Retorna True si se inscribió, False si se agregó a lista de espera"""
         with self.get_connection_context() as conn:
             with conn.cursor() as cursor:
+                # Validación de ventana de inscripción relativa a la próxima sesión
+                try:
+                    cursor.execute("SELECT dia_semana, hora_inicio FROM clases_horarios WHERE id = %s", (clase_horario_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        dia_semana, hora_inicio = row
+                        from datetime import datetime, timedelta, time
+                        now = datetime.now()
+                        # Normalizar hora_inicio
+                        try:
+                            if isinstance(hora_inicio, str):
+                                parts = [int(x) for x in str(hora_inicio).split(":")[:2]]
+                                start_t = time(parts[0], parts[1] if len(parts) > 1 else 0)
+                            else:
+                                start_t = hora_inicio
+                        except Exception:
+                            start_t = time(0,0)
+                        ds = str(dia_semana or '').strip().lower()
+                        dmap = {'lunes':0,'martes':1,'miercoles':2,'miércoles':2,'jueves':3,'viernes':4,'sabado':5,'sábado':5,'domingo':6}
+                        target = dmap.get(ds, None)
+                        if target is not None:
+                            current = now.weekday()
+                            days_ahead = (target - current) % 7
+                            next_date = (now.date() + timedelta(days=days_ahead))
+                            next_dt = datetime.combine(next_date, start_t)
+                            if days_ahead == 0 and now >= next_dt:
+                                next_dt = next_dt + timedelta(days=7)
+                            try:
+                                ventana_horas = int(self.obtener_configuracion('ventana_inscripcion_horas') or '72')
+                            except Exception:
+                                ventana_horas = 72
+                            diff_hours = (next_dt - now).total_seconds() / 3600.0
+                            if diff_hours > ventana_horas:
+                                # Fuera de ventana: agregar a lista de espera
+                                try:
+                                    self.agregar_a_lista_espera_completo(clase_horario_id, usuario_id)
+                                except Exception:
+                                    pass
+                                return False
+                except Exception:
+                    # Si falla la validación, continuar con la lógica estándar
+                    pass
                 # Evitar duplicados: si ya está inscripto, no generar error
                 try:
                     cursor.execute(
@@ -12210,23 +12275,60 @@ class DatabaseManager:
             # Procesar liberación de cupo (mover siguiente de lista de espera)
             self.procesar_liberacion_cupo_completo(clase_horario_id)
     
-    def guardar_ejercicios_para_clase(self, clase_id: int, ejercicio_ids: List[int]):
-        """Guarda ejercicios asociados a una clase."""
+    def guardar_ejercicios_para_clase(self, clase_id: int, items: List[Any]):
+        """Guarda ejercicios asociados a una clase.
+        Soporta dos formatos de entrada:
+        - Lista de enteros: [ejercicio_id, ...]
+        - Lista de dicts: [{ ejercicio_id, orden, series, repeticiones, descanso_segundos, notas }, ...]
+        """
         with self.get_connection_context() as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            
             # Eliminar ejercicios existentes
             cursor.execute("DELETE FROM clase_ejercicios WHERE clase_id = %s", (clase_id,))
-            
-            # Insertar nuevos ejercicios
-            if ejercicio_ids:
-                sql = "INSERT INTO clase_ejercicios (clase_id, ejercicio_id) VALUES (%s, %s)"
-                data_to_insert = [(clase_id, ej_id) for ej_id in ejercicio_ids]
-                cursor.executemany(sql, data_to_insert)
-            
+
+            # Insertar nuevos ejercicios con soporte de metadatos y orden
+            if isinstance(items, list) and items:
+                # Si son dicts con detalle
+                if isinstance(items[0], dict):
+                    data_to_insert = []
+                    for idx, obj in enumerate(items):
+                        try:
+                            ej_id = int(obj.get('ejercicio_id') or obj.get('id'))
+                        except Exception:
+                            continue
+                        orden = int(obj.get('orden')) if str(obj.get('orden','')).isdigit() else idx
+                        series = int(obj.get('series')) if str(obj.get('series','')).isdigit() else 0
+                        repeticiones = str(obj.get('repeticiones', '') or '')
+                        descanso = int(obj.get('descanso_segundos')) if str(obj.get('descanso_segundos','')).isdigit() else 0
+                        notas = obj.get('notas') if obj.get('notas') is not None else None
+                        data_to_insert.append((clase_id, ej_id, orden, series, repeticiones, descanso, notas))
+                    if data_to_insert:
+                        sql = """
+                        INSERT INTO clase_ejercicios (clase_id, ejercicio_id, orden, series, repeticiones, descanso_segundos, notas)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.executemany(sql, data_to_insert)
+                else:
+                    # Lista de ids simples
+                    ids = []
+                    for x in items:
+                        try:
+                            ids.append(int(x))
+                        except Exception:
+                            pass
+                    if ids:
+                        sql = "INSERT INTO clase_ejercicios (clase_id, ejercicio_id, orden) VALUES (%s, %s, %s)"
+                        data_to_insert = [(clase_id, ej_id, idx) for idx, ej_id in enumerate(ids)]
+                        cursor.executemany(sql, data_to_insert)
+
             conn.commit()
+            # Invalidar caches relacionadas
             try:
                 self.cache.invalidate('clase_ejercicios', (int(clase_id),))
+            except Exception:
+                pass
+            try:
+                self.cache.invalidate('clase_ejercicios_detalle', (int(clase_id),))
             except Exception:
                 pass
     
@@ -12251,6 +12353,40 @@ class DatabaseManager:
             result = [Ejercicio(**dict(r)) for r in cursor.fetchall()]
             try:
                 self.cache.set('clase_ejercicios', (int(clase_id),), result)
+            except Exception:
+                pass
+            return result
+
+    def obtener_ejercicios_de_clase_detalle(self, clase_id: int) -> List[Dict]:
+        """Obtiene ejercicios de una clase con metadatos y orden."""
+        try:
+            cached = self.cache.get('clase_ejercicios_detalle', (int(clase_id),))
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
+        with self.get_connection_context() as conn:
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            sql = """
+            SELECT 
+                e.id,
+                e.nombre,
+                e.descripcion,
+                ce.orden,
+                ce.series,
+                ce.repeticiones,
+                ce.descanso_segundos,
+                ce.notas
+            FROM clase_ejercicios ce
+            JOIN ejercicios e ON e.id = ce.ejercicio_id
+            WHERE ce.clase_id = %s
+            ORDER BY ce.orden ASC, e.nombre ASC
+            """
+            cursor.execute(sql, (clase_id,))
+            rows = cursor.fetchall() or []
+            result = [dict(r) for r in rows]
+            try:
+                self.cache.set('clase_ejercicios_detalle', (int(clase_id),), result)
             except Exception:
                 pass
             return result
@@ -16586,6 +16722,43 @@ class DatabaseManager:
             if not self.verificar_cupo_disponible(clase_horario_id):
                 return False
             
+            # Validar ventana de inscripción: si está fuera, no autopromover
+            dentro_ventana = True
+            try:
+                cursor.execute("SELECT dia_semana, hora_inicio FROM clases_horarios WHERE id = %s", (clase_horario_id,))
+                row = cursor.fetchone()
+                if row:
+                    from datetime import datetime, timedelta, time
+                    dia_semana = row.get('dia_semana') if isinstance(row, dict) else row[0]
+                    hora_inicio = row.get('hora_inicio') if isinstance(row, dict) else row[1]
+                    now = datetime.now()
+                    try:
+                        if isinstance(hora_inicio, str):
+                            parts = [int(x) for x in str(hora_inicio).split(":")[:2]]
+                            start_t = time(parts[0], parts[1] if len(parts)>1 else 0)
+                        else:
+                            start_t = hora_inicio
+                    except Exception:
+                        start_t = time(0,0)
+                    ds = str(dia_semana or '').strip().lower()
+                    dmap = {'lunes':0,'martes':1,'miercoles':2,'miércoles':2,'jueves':3,'viernes':4,'sabado':5,'sábado':5,'domingo':6}
+                    target = dmap.get(ds, None)
+                    if target is not None:
+                        current = now.weekday()
+                        days_ahead = (target - current) % 7
+                        next_date = now.date() + timedelta(days=days_ahead)
+                        next_dt = datetime.combine(next_date, start_t)
+                        if days_ahead == 0 and now >= next_dt:
+                            next_dt = next_dt + timedelta(days=7)
+                        try:
+                            ventana_horas = int(self.obtener_configuracion('ventana_inscripcion_horas') or '72')
+                        except Exception:
+                            ventana_horas = 72
+                        diff_hours = (next_dt - now).total_seconds() / 3600.0
+                        dentro_ventana = diff_hours <= ventana_horas
+            except Exception:
+                dentro_ventana = True
+
             # Obtener el siguiente en la lista de espera
             siguiente = self.obtener_siguiente_en_lista_espera_completo(clase_horario_id)
             if not siguiente:
@@ -16600,7 +16773,8 @@ class DatabaseManager:
                 except Exception:
                     use_prompt = True
 
-                if use_prompt:
+                # Si está fuera de ventana, forzar modo prompt aunque la autopromoción esté habilitada
+                if use_prompt or (not dentro_ventana):
                     # Solo notificar; la UI decidirá si promover y/o enviar WhatsApp
                     self.crear_notificacion_cupo_completa(
                         siguiente['usuario_id'],

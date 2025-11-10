@@ -364,6 +364,7 @@
         {% if request.session.get('logged_in') %}
         <button class="tab" data-tab="profesores" id="tab-btn-profesores">Profesores</button>
         {% endif %}
+        <button class="tab" data-tab="clases">Clases</button>
         <button class="tab" data-tab="pagos">Pagos</button>
         <button class="tab" data-tab="ejercicios">Ejercicios</button>
         <button class="tab" data-tab="rutinas">Rutinas</button>
@@ -382,6 +383,7 @@
           {% if request.session.get('logged_in') %}
           <a href="#" class="nav-item" data-tab="profesores"><i class="bi bi-person-badge" aria-hidden="true"></i><span>Profesores</span></a>
           {% endif %}
+          <a href="#" class="nav-item" data-tab="clases"><i class="bi bi-calendar-event" aria-hidden="true"></i><span>Clases</span></a>
           <a href="#" class="nav-item" data-tab="pagos"><i class="bi bi-cash-coin" aria-hidden="true"></i><span>Pagos</span></a>
           <a href="#" class="nav-item" data-tab="ejercicios"><i class="bi bi-bar-chart" aria-hidden="true"></i><span>Ejercicios</span></a>
           <a href="#" class="nav-item" data-tab="rutinas"><i class="bi bi-list-check" aria-hidden="true"></i><span>Rutinas</span></a>
@@ -1024,6 +1026,276 @@
   </div>
   </section>
   
+  <section id="panel-clases" class="panel">
+    <div class="split" style="grid-template-columns: 1fr">
+      <div class="split-main">
+        <div class="panel-controls">
+          <label>Búsqueda</label>
+          <input type="text" id="clases-q" placeholder="Nombre de clase" aria-label="Buscar clase" />
+          <select id="clases-tipo-filter" title="Tipo de clase" aria-label="Tipo de clase" style="min-width:200px"></select>
+          <button class="btn" id="clases-refresh">Actualizar</button>
+          <button class="btn" id="clases-new">Nueva clase</button>
+          <button class="btn outline neutral" id="clases-edit">Editar clase</button>
+          <button class="btn secondary" id="clases-ejercicios">Ver ejercicios</button>
+          <span id="clases-count" class="muted" style="margin-left:auto"></span>
+        </div>
+        <div class="table-scroll row-selectable">
+          <table id="clases-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Descripción</th>
+                <th>Tipo</th>
+                <th>Activa</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="block" style="margin-top:16px">
+          <div class="block-header">
+            <h3 style="margin:0; font-size:16px;">Horarios de la clase seleccionada</h3>
+            <div class="panel-controls" style="margin-left:auto; gap:8px">
+              <select id="clase-horario-select" title="Ver horarios" aria-label="Ver horarios guardados" style="min-width:240px"><option value="">Ver horarios guardados…</option></select>
+              <select id="clase-horario-dia" title="Día" aria-label="Día">
+                <option value="Lunes">Lunes</option>
+                <option value="Martes">Martes</option>
+                <option value="Miércoles">Miércoles</option>
+                <option value="Jueves">Jueves</option>
+                <option value="Viernes">Viernes</option>
+                <option value="Sábado">Sábado</option>
+                <option value="Domingo">Domingo</option>
+              </select>
+              <input type="time" id="clase-horario-inicio" aria-label="Inicio" />
+              <input type="time" id="clase-horario-fin" aria-label="Fin" />
+              <input type="number" id="clase-horario-cupo" placeholder="Cupo máximo" aria-label="Cupo máximo" min="1" step="1" style="max-width:160px" />
+              <select id="clase-horario-profesor" title="Profesor" aria-label="Profesor" style="min-width:200px"></select>
+              <button class="btn" id="clase-horario-add">Añadir horario</button>
+            </div>
+          </div>
+          <div class="block-body">
+            <div class="table-scroll table-compact">
+              <table id="clase-horarios-table">
+                <thead>
+                  <tr>
+                    <th>Día</th>
+                    <th>Inicio</th>
+                    <th>Fin</th>
+                    <th>Profesor</th>
+                    <th>Cupo</th>
+                    <th>Inscriptos</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="clase-horarios-empty" class="empty-hint" role="status" aria-live="polite" style="display:none; margin-top:8px">Sin horarios</div>
+            <div class="block" style="margin-top:16px">
+              <div class="block-header" style="gap:8px">
+                <h3 style="margin:0; font-size:16px;">Inscriptos (horario seleccionado)</h3>
+                <div class="panel-controls" style="margin-left:auto; gap:8px; flex-wrap:wrap">
+                  <input type="text" id="horario-usuario-search" placeholder="Buscar usuario por nombre, DNI o teléfono" aria-label="Buscar usuario" style="min-width:240px" />
+                  <select id="horario-usuario-select" title="Usuario" aria-label="Usuario" style="min-width:240px"><option value="">Selecciona usuario…</option></select>
+                  <button class="btn" id="horario-inscribir-btn">Inscribir usuario</button>
+                  <button class="btn outline neutral" id="horario-notify-btn">Notificar primer en espera (WhatsApp)</button>
+                </div>
+              </div>
+              <div class="block-body" style="display:grid; grid-template-columns: 1fr; gap:16px">
+                <div class="table-scroll table-compact">
+                  <table id="horario-usuarios-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Usuario</th>
+                        <th>WhatsApp</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div id="horario-usuarios-empty" class="empty-hint" role="status" aria-live="polite" style="display:none;">Sin inscriptos para este horario</div>
+              </div>
+            </div>
+            <div class="block" style="margin-top:16px">
+              <div class="block-header" style="gap:8px">
+                <h3 style="margin:0; font-size:16px;">Lista de espera (horario seleccionado)</h3>
+              </div>
+              <div class="block-body" style="display:grid; grid-template-columns: 1fr; gap:16px">
+                <div class="table-scroll table-compact">
+                  <table id="horario-waitlist-table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>Usuario</th>
+                        <th>Posición</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody></tbody>
+                  </table>
+                </div>
+                <div id="horario-waitlist-empty" class="empty-hint" role="status" aria-live="polite" style="display:none;">Sin lista de espera</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Panel lateral de clase eliminado: edición se realiza exclusivamente con modal-clase -->
+    </div>
+  </section>
+
+  <!-- Modal: Clase (Crear/Editar con ejercicios) -->
+  <div class="modal-backdrop" id="modal-clase" style="display:none" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-clase-title" style="width: 70vw; max-width: 900px">
+      <div class="modal-header">
+        <h3 id="modal-clase-title" style="margin:0; font-size:16px;">Clase</h3>
+        <button class="modal-close" id="modal-clase-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid" style="display:grid; grid-template-columns: 1fr 1fr; gap:12px">
+          <div class="form-row" style="grid-column: 1 / 3">
+            <label for="modal-clase-nombre">Nombre</label>
+            <input id="modal-clase-nombre" type="text" placeholder="Nombre de la clase" aria-label="Nombre de la clase" />
+          </div>
+          <div class="form-row" style="display:flex; gap:8px; align-items:flex-end">
+            <div style="flex:1">
+              <label for="modal-clase-tipo">Tipo</label>
+              <select id="modal-clase-tipo" aria-label="Tipo de clase" style="width:100%"></select>
+            </div>
+            <div>
+              <label class="muted" style="visibility:hidden">Nuevo tipo</label>
+              <button class="btn secondary sm" id="modal-clase-tipo-new" title="Crear nuevo tipo">Nuevo</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <label style="display:flex; align-items:center; gap:8px"><input id="modal-clase-activa" type="checkbox" /> Activa</label>
+          </div>
+          <div class="form-row" style="grid-column: 1 / 3">
+            <label for="modal-clase-descripcion">Descripción</label>
+            <textarea id="modal-clase-descripcion" rows="3" placeholder="Descripción" aria-label="Descripción de la clase"></textarea>
+          </div>
+          <div class="form-row" style="grid-column: 1 / 3">
+            <div style="display:flex; align-items:center; gap:8px; justify-content:space-between">
+              <label for="modal-clase-ejercicios">Ejercicios asociados</label>
+              <button class="btn sm" id="modal-clase-open-ejercicios" title="Gestionar ejercicios de la clase">Gestionar ejercicios…</button>
+            </div>
+            <div>
+              <input type="text" id="modal-clase-ejercicios-search" placeholder="Buscar ejercicio" aria-label="Buscar ejercicio" style="margin-bottom:8px; width:100%" />
+              <select id="modal-clase-ejercicios" multiple size="8" aria-label="Seleccionar ejercicios" style="width:100%; display:none"></select>
+              <div id="modal-clase-ejercicios-chips" aria-live="polite" style="display:flex; flex-wrap:wrap; gap:6px"></div>
+            </div>
+            <div class="hint muted" style="font-size:12px">Usa el buscador para ver, y el botón "Gestionar ejercicios…" para editar el bloque con más detalles.</div>
+          </div>
+          <!-- Horarios integrados en el modal -->
+          <div class="form-row" style="grid-column: 1 / 3">
+            <label>Horarios</label>
+            <div class="input-row" style="gap:8px">
+              <select id="modal-clase-horarios-select" aria-label="Horarios guardados"><option value="">Selecciona un horario…</option></select>
+              <select id="modal-clase-horario-dia" title="Día" aria-label="Día">
+                <option value="Lunes">Lunes</option>
+                <option value="Martes">Martes</option>
+                <option value="Miércoles">Miércoles</option>
+                <option value="Jueves">Jueves</option>
+                <option value="Viernes">Viernes</option>
+                <option value="Sábado">Sábado</option>
+                <option value="Domingo">Domingo</option>
+              </select>
+              <input type="time" id="modal-clase-horario-inicio" aria-label="Inicio" />
+              <input type="time" id="modal-clase-horario-fin" aria-label="Fin" />
+              <input type="number" id="modal-clase-horario-cupo" placeholder="Cupo máximo" aria-label="Cupo máximo" min="1" step="1" style="max-width:160px" />
+              <select id="modal-clase-horario-profesor" title="Profesor" aria-label="Profesor" style="min-width:200px"></select>
+              <button class="btn" id="modal-clase-horario-add">Añadir</button>
+              <button class="btn outline neutral" id="modal-clase-horario-refresh">Actualizar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn success" id="modal-clase-save">Guardar</button>
+        <button class="btn outline neutral" id="modal-clase-cancel">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Ejercicios asignados a la clase -->
+  <div class="modal-backdrop" id="modal-ejercicios-clase" style="display:none" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicios-title" style="width: 92vw; max-width: 1200px; max-height: 90vh; overflow:hidden">
+      <div class="modal-header">
+        <h3 id="modal-ejercicios-title" style="margin:0; font-size:16px;">Ejercicios de la clase</h3>
+        <button class="modal-close" id="modal-ejercicios-close" aria-label="Cerrar">×</button>
+      </div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:12px; overflow:auto">
+        <div class="form-row" style="display:flex; flex-direction:column; gap:8px">
+          <label for="clase-ej-q">Agregar y gestionar ejercicios</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <input id="clase-ej-q" type="text" placeholder="Buscar ejercicio..." aria-label="Buscar ejercicio" style="flex:2; min-width:240px" />
+            <select id="clase-ej-group" title="Filtrar por grupo" aria-label="Filtrar por grupo" style="min-width:180px">
+              <option value="">Grupo: Todos</option>
+            </select>
+            <select id="clase-ej-objetivo" title="Filtrar por objetivo" aria-label="Filtrar por objetivo" style="min-width:180px">
+              <option value="">Objetivo: Todos</option>
+            </select>
+            <label style="display:flex; gap:6px; align-items:center"><input id="clase-ej-multi" type="checkbox" /> <span>Selección múltiple</span></label>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button class="btn" id="clase-ej-add">Agregar a la clase</button>
+            <button class="btn danger" id="clase-ej-remove-selected">Quitar del bloque</button>
+            <span class="muted" id="clase-ej-status" style="margin-left:auto">—</span>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <button class="btn secondary sm" id="clase-ej-new" title="Crear nuevo ejercicio">Nuevo</button>
+            <button class="btn secondary sm" id="clase-ej-edit" title="Editar ejercicio seleccionado">Editar</button>
+            <button class="btn secondary sm" id="clase-ej-delete" title="Eliminar ejercicio seleccionado">Eliminar</button>
+          </div>
+        </div>
+
+        <div id="clase-ej-columns" style="display:grid; grid-template-columns: 1.6fr 1fr; gap:16px; align-items:start">
+          <div>
+            <div class="table-scroll row-selectable" style="border:1px solid var(--border); border-radius:8px; overflow:auto">
+              <table id="clase-ej-list-table">
+                <thead>
+                  <tr>
+                    <th>Ejercicio</th>
+                    <th>Grupo</th>
+                    <th>Objetivo</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="clase-ej-list-empty" class="empty-hint" role="status" aria-live="polite" style="display:none; padding:8px">Sin ejercicios disponibles</div>
+          </div>
+          <div>
+            <div class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto">
+              <table id="clase-ej-bloque-table">
+                <thead>
+                  <tr>
+                    <th>Orden</th>
+                    <th>Ejercicio</th>
+                    <th>Series</th>
+                    <th>Repeticiones</th>
+                    <th>Descanso (seg)</th>
+                    <th>Notas</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div id="clase-ej-bloque-empty" class="empty-hint" role="status" aria-live="polite" style="display:none; padding:8px">Sin ejercicios asociados</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; gap:8px; align-items:center">
+        <button class="btn success" id="clase-ej-save">Guardar cambios</button>
+        <button class="btn outline neutral" id="modal-ejercicios-cerrar">Cerrar</button>
+      </div>
+    </div>
+  </div>
   <!-- Modal: Recordatorio de clase por WhatsApp -->
   <div id="modal-wa-clase" class="modal-overlay" style="display:none" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wa-clase-title">
@@ -1127,6 +1399,36 @@
                     </thead>
                     <tbody></tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="block" style="margin-top:16px" id="branding-block">
+              <div class="block-header">
+                <h3 style="margin:0; font-size:16px;">Datos del gimnasio</h3>
+                <div class="panel-controls" style="margin-left:auto; gap:8px">
+                  <button class="btn" id="gym-branding-save">Guardar</button>
+                </div>
+              </div>
+              <div class="block-body">
+                <div class="input-row" style="gap:12px; flex-wrap:wrap">
+                  <div style="flex:1 1 280px">
+                    <label class="muted" for="gym-name-input">Nombre del gimnasio</label>
+                    <input id="gym-name-input" type="text" placeholder="Ej: \"Gimnasio Central\"" style="width:100%" aria-label="Nombre del gimnasio" />
+                  </div>
+                  <div style="flex:1 1 280px">
+                    <label class="muted" for="gym-logo-input">Logo (PNG o SVG)</label>
+                    <input id="gym-logo-input" type="file" accept=".png,.svg,image/png,image/svg+xml" style="width:100%" aria-label="Logo del gimnasio" />
+                  </div>
+                </div>
+                <div class="input-row" style="gap:12px; flex-wrap:wrap; margin-top:8px">
+                  <div style="flex:1 1 280px">
+                    <label class="muted">Logo actual</label>
+                    <img id="gym-logo-preview" src="{{ logo_url }}" alt="Logo del gimnasio" style="height:64px; width:auto; border-radius:8px; background:rgba(255,255,255,0.04); border:1px solid var(--border); padding:8px" />
+                  </div>
+                </div>
+                <div class="input-row" style="align-items:center; margin-top:12px">
+                  <span id="gym-branding-status" class="muted" role="status" aria-live="polite">—</span>
                 </div>
               </div>
             </div>
@@ -6032,6 +6334,56 @@
       await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin(), loadWAPendings(), loadWAState()]).catch(()=>{});
       try{ await loadUsuarioWAUsersOptions((state.selectedUsuario && state.selectedUsuario.id) || null); }catch(_){}
     }
+    // ===== Branding del gimnasio =====
+    async function refreshBranding(){
+      try{
+        const r = await fetch('/api/gym/data');
+        const j = await r.json();
+        const nameInput = document.getElementById('gym-name-input');
+        const preview = document.getElementById('gym-logo-preview');
+        if (nameInput && typeof j.gym_name === 'string') nameInput.value = j.gym_name;
+        if (preview && typeof j.logo_url === 'string') preview.src = j.logo_url;
+      }catch(_){ /* silencioso */ }
+    }
+    async function saveBranding(){
+      const statusEl = document.getElementById('gym-branding-status');
+      const nameInput = document.getElementById('gym-name-input');
+      const logoInput = document.getElementById('gym-logo-input');
+      if (statusEl) statusEl.textContent = 'Guardando...';
+      try{
+        const name = (nameInput && nameInput.value ? nameInput.value : '').trim();
+        if (name){
+          const r = await fetch('/api/gym/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gym_name: name }) });
+          if (!r.ok){
+            const e = await r.json().catch(() => ({ error: r.statusText }));
+            throw new Error(e.error || 'Error guardando nombre');
+          }
+        }
+        const file = logoInput && logoInput.files ? logoInput.files[0] : undefined;
+        if (file){
+          const fd = new FormData();
+          fd.append('file', file);
+          const r2 = await fetch('/api/gym/logo', { method: 'POST', body: fd });
+          if (!r2.ok){
+            const e = await r2.json().catch(() => ({ error: r2.statusText }));
+            throw new Error(e.error || 'Error subiendo logo');
+          }
+        }
+        await refreshBranding();
+        if (statusEl) statusEl.textContent = 'Guardado correctamente';
+        if (logoInput) logoInput.value = '';
+      }catch(err){
+        if (statusEl) statusEl.textContent = 'Error: ' + (err && err.message ? err.message : 'operación fallida');
+      }
+    }
+    function bindBrandingEvents(){
+      const saveBtn = document.getElementById('gym-branding-save');
+      if (saveBtn){ saveBtn.addEventListener('click', saveBranding); }
+    }
+    function initBrandingAdmin(){
+      refreshBranding();
+      bindBrandingEvents();
+    }
     function bindConfiguracionEvents(){
       const roleEl = document.getElementById('login-current');
       const role = roleEl ? (roleEl.getAttribute('data-role') || '').trim() : '';
@@ -6205,6 +6557,8 @@
           }catch(e){ showToast('Error de red al cargar usuario', 'error', 4500); }
         });
       }
+      // Inicializar branding
+      initBrandingAdmin();
     }
 
     // ===== Ejercicios: funciones =====
@@ -7847,19 +8201,35 @@ function ensurePdfZoomControls(containerId, frameId){
           try{
             const qrSel = document.getElementById('preview-qr-placement');
             const qrMode = (qrSel && qrSel.value) ? String(qrSel.value) : 'inline';
-            const inp = document.getElementById('preview-sheet-name');
-            if(qrMode === 'sheet'){
-              const cur = ((inp && inp.value) ? String(inp.value).trim() : '').toLowerCase();
-              const next = (cur === 'qr') ? '' : 'QR';
-              if(inp){ inp.value = next; }
-              try{ updateRutinaPDFPreview(); }catch(__){ }
-              try{ const btn = document.getElementById('rutina-export-preview-btn'); if(btn) btn.click(); }catch(__){ }
-            } else {
-              // Activar modo hoja QR y enfocarse en la hoja QR
-              if(qrSel){ qrSel.value = 'sheet'; }
-              if(inp){ inp.value = 'QR'; }
-              try{ updateRutinaPDFPreview(); }catch(__){ }
+            // Solo alternar cuando el QR no está en pie de página
+            if(qrMode === 'inline'){ closeMenu(); return; }
+            const frame = document.getElementById('rutina-preview-frame');
+            if(!frame || !frame.src){ closeMenu(); return; }
+            const src = String(frame.src);
+            // Detectar hoja actual desde el parámetro activeCell (acepta ActiveCell/activeCell)
+            const m = src.match(/[?&](?:activeCell|ActiveCell)=([^&]+)/);
+            let nextSheet = 'Día 2';
+            try{
+              const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || 3)));
+              nextSheet = diasCount >= 2 ? 'Día 2' : 'Día 1';
+            }catch(_){ }
+            if(m){
+              const curr = decodeURIComponent(m[1]||'');
+              if(curr.includes("'Día 2'")){
+                nextSheet = 'Día 1';
+              } else if(curr.includes("'Día 1'")){
+                nextSheet = 'Día 2';
+              }
             }
+            const encoded = encodeURIComponent(`'${nextSheet}'!A1`);
+            let newSrc = src;
+            // Reemplazar o anexar parámetro activeCell para alternar hoja sin regenerar el Excel
+            if(/[?&](?:activeCell|ActiveCell)=/.test(src)){
+              newSrc = src.replace(/([?&])(activeCell|ActiveCell)=([^&]*)/, `$1activeCell=${encoded}`);
+            } else {
+              newSrc = src + (src.includes('?') ? `&activeCell=${encoded}` : `?activeCell=${encoded}`);
+            }
+            frame.src = newSrc;
           }catch(__){ }
           closeMenu();
         });
@@ -9265,12 +9635,812 @@ function ensurePdfZoomControls(containerId, frameId){
     }
   }
 
+  // ===== Clases (Gestión) =====
+  const clasesState = { list: [], selectedId: null, selectedHorarioId: null, tipos: [], profesores: [], horarios: [] };
+  async function ensureClasesState(){
+    try {
+      if(!Array.isArray(clasesState.tipos) || clasesState.tipos.length === 0){
+        const r = await fetch('/api/tipos_clases', { headers: { 'Accept': 'application/json' } });
+        clasesState.tipos = r.ok ? (await r.json()) : [];
+      }
+    } catch(_){ clasesState.tipos = []; }
+    try {
+      if(!Array.isArray(clasesState.profesores) || clasesState.profesores.length === 0){
+        const r = await fetch('/api/profesores_basico', { headers: { 'Accept': 'application/json' } });
+        clasesState.profesores = r.ok ? (await r.json()) : [];
+      }
+    } catch(_){ clasesState.profesores = []; }
+    // Pintar selects de tipo y profesor
+    try {
+      const tipoSel = document.getElementById('clases-tipo-filter');
+      const tipoSide = document.getElementById('clase-side-tipo');
+      if(tipoSel){ tipoSel.innerHTML = '<option value="">Todos los tipos</option>' + (clasesState.tipos||[]).map(t => `<option value="${String(t.id||t.tipo_clase_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(t.nombre||t.tipo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); }
+      if(tipoSide){ tipoSide.innerHTML = (clasesState.tipos||[]).map(t => `<option value="${String(t.id||t.tipo_clase_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(t.nombre||t.tipo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); }
+    } catch(_){}
+    try {
+      const profSel = document.getElementById('clase-horario-profesor');
+      const mProfSel = document.getElementById('modal-clase-horario-profesor');
+      if(profSel){
+        profSel.innerHTML = '<option value="">Sin profesor</option>' + (clasesState.profesores||[]).map(p => `<option value="${String(p.profesor_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(p.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join('');
+      }
+      if(mProfSel){
+        mProfSel.innerHTML = '<option value="">Sin profesor</option>' + (clasesState.profesores||[]).map(p => `<option value="${String(p.profesor_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(p.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join('');
+      }
+    } catch(_){}
+  }
+
+  async function loadClases(){
+    const q = (document.getElementById('clases-q')?.value || '').trim().toLowerCase();
+    const tipoFilter = document.getElementById('clases-tipo-filter')?.value || '';
+    try {
+      const r = await fetch('/api/clases', { headers: { 'Accept': 'application/json' } });
+      const arr = r.ok ? (await r.json()) : [];
+      clasesState.list = Array.isArray(arr) ? arr : [];
+      let filtered = clasesState.list;
+      if(q){ filtered = filtered.filter(x => String(x.nombre||'').toLowerCase().includes(q) || String(x.descripcion||'').toLowerCase().includes(q)); }
+      if(tipoFilter){ filtered = filtered.filter(x => String(x.tipo_clase_id||'') === String(tipoFilter)); }
+      renderClasesTable(filtered);
+      const countEl = document.getElementById('clases-count');
+      if(countEl) countEl.textContent = `${filtered.length} clases`;
+    } catch(e){ showToast('Error al cargar clases', 'error'); }
+  }
+
+  function renderClasesTable(list){
+    const tbody = document.querySelector('#clases-table tbody');
+    if(!tbody) return;
+    tbody.innerHTML = '';
+    const rows = (Array.isArray(list) ? list : []).map(c => {
+      const nombre = String(c.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const desc = String(c.descripcion||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const tipo = String(c.tipo_clase_nombre||c.tipo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const activa = (c.activa===true || String(c.activa)=='1') ? 'Sí' : 'No';
+      return `<tr data-id="${String(c.id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">
+        <td>${nombre}</td>
+        <td>${desc||'—'}</td>
+        <td>${tipo||'—'}</td>
+        <td>${activa}</td>
+        <td>
+          <button class="btn outline neutral sm" data-action="edit">Editar</button>
+          <button class="btn danger sm" data-action="delete">Eliminar</button>
+        </td>
+      </tr>`;
+    }).join('');
+    tbody.innerHTML = rows || '';
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.addEventListener('click', (e) => { if(!(e.target instanceof HTMLElement) || e.target.closest('button')) return; const id = tr.getAttribute('data-id'); selectClase(id); });
+      tr.addEventListener('dblclick', (e) => { const id = tr.getAttribute('data-id'); selectClase(id); openClaseModal(id); });
+      const edit = tr.querySelector('button[data-action="edit"]');
+      const del = tr.querySelector('button[data-action="delete"]');
+      if(edit) edit.addEventListener('click', (e) => { e.stopPropagation(); const id = tr.getAttribute('data-id'); selectClase(id); openClaseModal(id); });
+      if(del) del.addEventListener('click', async (e) => { e.stopPropagation(); await deleteClase(tr.getAttribute('data-id')); });
+    });
+  }
+
+  function setClaseSideVisible(has){
+    const emptyEl = document.getElementById('clase-side-empty');
+    const cont = document.getElementById('clase-side-content');
+    if(emptyEl && cont){ emptyEl.style.display = has ? 'none' : ''; cont.style.display = has ? '' : 'none'; }
+  }
+
+  async function selectClase(id){
+    const clase = (clasesState.list||[]).find(x => String(x.id||'') === String(id));
+    clasesState.selectedId = clase ? clase.id : null;
+    const idEl = document.getElementById('clase-side-id'); if(idEl) idEl.textContent = clase ? `#${clase.id}` : '';
+    const nombreEl = document.getElementById('clase-side-nombre'); if(nombreEl) nombreEl.value = String(clase?.nombre||'');
+    const descEl = document.getElementById('clase-side-descripcion'); if(descEl) descEl.value = String(clase?.descripcion||'');
+    const tipoEl = document.getElementById('clase-side-tipo'); if(tipoEl) tipoEl.value = String(clase?.tipo_clase_id||'');
+    const actEl = document.getElementById('clase-side-activa'); if(actEl) actEl.checked = (clase?.activa===true || String(clase?.activa)=='1');
+    setClaseSideVisible(!!clase);
+    if(clase && clase.id){ await loadClaseHorarios(clase.id); }
+  }
+
+  async function saveClase(){
+    const id = clasesState.selectedId;
+    const body = {
+      nombre: document.getElementById('clase-side-nombre')?.value || '',
+      descripcion: document.getElementById('clase-side-descripcion')?.value || '',
+      activa: !!document.getElementById('clase-side-activa')?.checked,
+      tipo_clase_id: document.getElementById('clase-side-tipo')?.value || null
+    };
+    try {
+      let r;
+      if(id){ r = await fetch(`/api/clases/${id}`,{ method:'PUT', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)}); }
+      else { r = await fetch('/api/clases',{ method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body: JSON.stringify(body)}); }
+      if(!r.ok){ showToast('No se pudo guardar la clase', 'error'); return; }
+      showToast('Clase guardada', 'success');
+      await loadClases();
+      if(!id){ // si era nueva, seleccionar la última creada por nombre
+        const created = (clasesState.list||[]).find(x => String(x.nombre||'') === String(body.nombre));
+        if(created){ await selectClase(created.id); }
+      }
+    } catch(e){ showToast('Error de red al guardar clase', 'error'); }
+  }
+
+  async function deleteClase(id){
+    if(!id){ showToast('Selecciona una clase', 'warning'); return; }
+    try {
+      const ok = confirm('¿Eliminar la clase seleccionada?');
+      if(!ok) return;
+    } catch(_){ /* sin modal, continuar */ }
+    try {
+      const r = await fetch(`/api/clases/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+      if(!r.ok){ showToast('No se pudo eliminar la clase', 'error'); return; }
+      showToast('Clase eliminada', 'success');
+      clasesState.selectedId = null; setClaseSideVisible(false);
+      await loadClases();
+      // limpiar horarios
+      const tb = document.querySelector('#clase-horarios-table tbody'); if(tb) tb.innerHTML='';
+      const emp = document.getElementById('clase-horarios-empty'); if(emp) emp.style.display='';
+    } catch(e){ showToast('Error de red al eliminar clase', 'error'); }
+  }
+
+  async function loadClaseHorarios(claseId){
+    try {
+      const r = await fetch(`/api/clases/${claseId}/horarios`, { headers:{ 'Accept':'application/json' } });
+      const arr = r.ok ? (await r.json()) : [];
+      clasesState.horarios = Array.isArray(arr) ? arr : [];
+      renderHorariosTable(clasesState.horarios);
+    } catch(e){ showToast('Error al cargar horarios de clase', 'error'); }
+  }
+
+  function renderHorariosTable(list){
+    const tbody = document.querySelector('#clase-horarios-table tbody');
+    const empty = document.getElementById('clase-horarios-empty');
+    if(!tbody) return;
+    const rows = (Array.isArray(list)?list:[]).map(h => {
+      const dia = String(h.dia_semana||h.dia||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ini = String(h.hora_inicio||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const fin = String(h.hora_fin||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const prof = String(h.nombre_profesor||h.profesor_nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const cupo = String(h.cupo_maximo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const ins = String(h.inscriptos||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<tr data-id="${String(h.id||h.horario_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">
+        <td>${dia||'—'}</td>
+        <td>${ini||'—'}</td>
+        <td>${fin||'—'}</td>
+        <td>${prof||'—'}</td>
+        <td>${cupo||'—'}</td>
+        <td>${ins||'0'}</td>
+        <td>
+          <button class="btn outline neutral sm" data-action="assign">Asignar profesor</button>
+          <button class="btn outline neutral sm" data-action="unassign">Desasignar</button>
+          <button class="btn danger sm" data-action="delete">Eliminar</button>
+        </td>
+      </tr>`;
+    }).join('');
+    tbody.innerHTML = rows || '';
+    if(empty) empty.style.display = (tbody.children.length === 0) ? '' : 'none';
+    tbody.querySelectorAll('tr').forEach(tr => {
+      const id = tr.getAttribute('data-id');
+      tr.addEventListener('click', async () => {
+        try { clasesState.selectedHorarioId = id ? Number(id) : null; } catch(_) { clasesState.selectedHorarioId = null; }
+        await loadHorarioUsuarios(clasesState.selectedHorarioId);
+      });
+      const assign = tr.querySelector('button[data-action="assign"]');
+      const unassign = tr.querySelector('button[data-action="unassign"]');
+      const del = tr.querySelector('button[data-action="delete"]');
+      if(assign) assign.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const profId = document.getElementById('clase-horario-profesor')?.value || '';
+        if(!profId){ showToast('Selecciona un profesor', 'warning'); return; }
+        try {
+          const r = await fetch(`/api/clases/horarios/${id}/asignar_profesor`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ profesor_id: profId }) });
+          if(!r.ok){ showToast('No se pudo asignar profesor', 'error'); return; }
+          showToast('Profesor asignado', 'success');
+          if(clasesState.selectedId){ await loadClaseHorarios(clasesState.selectedId); }
+        } catch(e){ showToast('Error de red al asignar', 'error'); }
+      });
+      if(unassign) unassign.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const profId = document.getElementById('clase-horario-profesor')?.value || '';
+        if(!profId){ showToast('Selecciona un profesor', 'warning'); return; }
+        try {
+          const r = await fetch(`/api/clases/horarios/${id}/desasignar_profesor`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ profesor_id: profId }) });
+          if(!r.ok){ showToast('No se pudo desasignar profesor', 'error'); return; }
+          showToast('Profesor desasignado', 'success');
+          if(clasesState.selectedId){ await loadClaseHorarios(clasesState.selectedId); }
+        } catch(e){ showToast('Error de red al desasignar', 'error'); }
+      });
+      if(del) del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try { const ok = confirm('¿Eliminar horario?'); if(!ok) return; } catch(_){}
+        try {
+          const r = await fetch(`/api/clases/horarios/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+          if(!r.ok){ showToast('No se pudo eliminar horario', 'error'); return; }
+          showToast('Horario eliminado', 'success');
+          if(clasesState.selectedId){ await loadClaseHorarios(clasesState.selectedId); }
+        } catch(e){ showToast('Error de red al eliminar horario', 'error'); }
+      });
+    });
+    // Actualizar selectores de horarios (panel principal y modal)
+    updateHorariosSelectors(list);
+  }
+
+  async function addHorario(){
+    const cid = clasesState.selectedId;
+    if(!cid){ showToast('Selecciona una clase', 'warning'); return; }
+    const dia = document.getElementById('clase-horario-dia')?.value || '';
+    const hIni = document.getElementById('clase-horario-inicio')?.value || '';
+    const hFin = document.getElementById('clase-horario-fin')?.value || '';
+    const cupoRaw = document.getElementById('clase-horario-cupo')?.value || '';
+    const profId = document.getElementById('clase-horario-profesor')?.value || '';
+    const cupo = Number(cupoRaw || 0);
+    if(!dia || !hIni || !hFin || !cupo || cupo <= 0){ showToast('Completa día, inicio, fin y un cupo válido (>0)', 'warning'); return; }
+    const body = { dia_semana: dia, hora_inicio: hIni, hora_fin: hFin, cupo_maximo: cupo };
+    if(profId){ body.profesor_id = profId; }
+    try {
+      const r = await fetch(`/api/clases/${cid}/horarios`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(body) });
+      if(!r.ok){ showToast('No se pudo crear horario', 'error'); return; }
+      await r.json().catch(()=>({}));
+      showToast('Horario creado', 'success');
+      await loadClaseHorarios(cid);
+    } catch(e){ showToast('Error de red al crear horario', 'error'); }
+  }
+
+  function updateHorariosSelectors(list){
+    try {
+      const opts = (Array.isArray(list)?list:[]).map(h => {
+        const id = String(h.id||h.horario_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const dia = String(h.dia_semana||h.dia||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const ini = String(h.hora_inicio||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const fin = String(h.hora_fin||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const prof = String(h.nombre_profesor||h.profesor_nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const cupo = String(h.cupo_maximo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const lbl = `${dia||'—'} ${ini||'—'}-${fin||'—'}${prof?` · ${prof}`:''}${cupo?` · cupo ${cupo}`:''}`;
+        return `<option value="${id}">${lbl}</option>`;
+      }).join('');
+      const selMain = document.getElementById('clase-horario-select');
+      if(selMain){ selMain.innerHTML = '<option value="">Ver horarios guardados…</option>' + (opts||''); }
+      const selModal = document.getElementById('modal-clase-horarios-select');
+      if(selModal){ selModal.innerHTML = '<option value="">Selecciona un horario…</option>' + (opts||''); }
+    } catch(_){}
+  }
+
+  async function loadModalClaseHorarios(claseId){
+    if(!claseId) return;
+    try {
+      const r = await fetch(`/api/clases/${claseId}/horarios`, { headers:{ 'Accept':'application/json' } });
+      const arr = r.ok ? (await r.json()) : [];
+      clasesState.horarios = Array.isArray(arr) ? arr : [];
+      updateHorariosSelectors(clasesState.horarios);
+    } catch(_){ /* silencio en modal */ }
+  }
+
+  async function addModalHorario(){
+    const modal = document.getElementById('modal-clase');
+    const idRaw = modal?.getAttribute('data-id') || '';
+    const cid = idRaw ? Number(idRaw) : null;
+    if(!cid){ showToast('Primero guarda la clase para añadir horarios', 'warning'); return; }
+    const dia = document.getElementById('modal-clase-horario-dia')?.value || '';
+    const hIni = document.getElementById('modal-clase-horario-inicio')?.value || '';
+    const hFin = document.getElementById('modal-clase-horario-fin')?.value || '';
+    const cupoRaw = document.getElementById('modal-clase-horario-cupo')?.value || '';
+    const profId = document.getElementById('modal-clase-horario-profesor')?.value || '';
+    const cupo = Number(cupoRaw || 0);
+    if(!dia || !hIni || !hFin || !cupo || cupo <= 0){ showToast('Completa día, inicio, fin y un cupo válido (>0)', 'warning'); return; }
+    const body = { dia_semana: dia, hora_inicio: hIni, hora_fin: hFin, cupo_maximo: cupo };
+    if(profId){ body.profesor_id = profId; }
+    try {
+      const r = await fetch(`/api/clases/${cid}/horarios`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(body) });
+      if(!r.ok){ showToast('No se pudo crear horario', 'error'); return; }
+      await r.json().catch(()=>({}));
+      showToast('Horario creado', 'success');
+      await Promise.all([
+        loadClaseHorarios(cid),
+        loadModalClaseHorarios(cid)
+      ]);
+    } catch(e){ showToast('Error de red al crear horario', 'error'); }
+  }
+
+  function clearClaseSelection(){
+    clasesState.selectedId = null;
+    // limpiar panel lateral
+    const idEl = document.getElementById('clase-side-id'); if(idEl) idEl.textContent = '';
+    const nombreEl = document.getElementById('clase-side-nombre'); if(nombreEl) nombreEl.value = '';
+    const descEl = document.getElementById('clase-side-descripcion'); if(descEl) descEl.value = '';
+    const tipoEl = document.getElementById('clase-side-tipo'); if(tipoEl) tipoEl.value = '';
+    const actEl = document.getElementById('clase-side-activa'); if(actEl) actEl.checked = true;
+    setClaseSideVisible(false);
+    // limpiar horarios
+    const tb = document.querySelector('#clase-horarios-table tbody'); if(tb) tb.innerHTML='';
+    const emp = document.getElementById('clase-horarios-empty'); if(emp) emp.style.display='';
+  }
+
+  function bindClasesEvents(){
+    const qEl = document.getElementById('clases-q'); if(qEl){ qEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter') loadClases(); }); }
+    const tipoEl = document.getElementById('clases-tipo-filter'); if(tipoEl){ tipoEl.addEventListener('change', loadClases); }
+    const refEl = document.getElementById('clases-refresh'); if(refEl){ refEl.addEventListener('click', loadClases); }
+    const newEl = document.getElementById('clases-new'); if(newEl){ newEl.addEventListener('click', () => { openClaseModal(null); }); }
+    const saveEl = document.getElementById('clase-side-save'); if(saveEl){ saveEl.addEventListener('click', saveClase); }
+  const editModalEl = document.getElementById('clases-edit'); if(editModalEl){ editModalEl.addEventListener('click', () => { if(!clasesState.selectedId){ showToast('Selecciona una clase', 'warning'); return; } openClaseModal(clasesState.selectedId); }); }
+    const delEl = document.getElementById('clase-side-delete'); if(delEl){ delEl.addEventListener('click', async ()=>{ if(!clasesState.selectedId){ showToast('Selecciona una clase', 'warning'); return; } await deleteClase(clasesState.selectedId); }); }
+    const clrEl = document.getElementById('clases-clear-selection'); if(clrEl){ clrEl.addEventListener('click', clearClaseSelection); }
+    const addHorEl = document.getElementById('clase-horario-add'); if(addHorEl){ addHorEl.addEventListener('click', addHorario); }
+    const selHorEl = document.getElementById('clase-horario-select'); if(selHorEl){ selHorEl.addEventListener('change', () => { const id = Number(selHorEl.value||0); clasesState.selectedHorarioId = id || null; loadHorarioUsuarios(clasesState.selectedHorarioId); }); }
+    const insBtn = document.getElementById('horario-inscribir-btn'); if(insBtn){ insBtn.addEventListener('click', inscribirUsuarioEnHorario); }
+    const notifyBtn = document.getElementById('horario-notify-btn'); if(notifyBtn){ notifyBtn.addEventListener('click', notifyWaitlistFirst); }
+    const mClose = document.getElementById('modal-clase-close'); if(mClose){ mClose.addEventListener('click', closeClaseModal); }
+    const mCancel = document.getElementById('modal-clase-cancel'); if(mCancel){ mCancel.addEventListener('click', closeClaseModal); }
+    const mSave = document.getElementById('modal-clase-save'); if(mSave){ mSave.addEventListener('click', saveClaseModal); }
+    const mHorAdd = document.getElementById('modal-clase-horario-add'); if(mHorAdd){ mHorAdd.addEventListener('click', addModalHorario); }
+    const mHorRef = document.getElementById('modal-clase-horario-refresh'); if(mHorRef){ mHorRef.addEventListener('click', () => { const idRaw = document.getElementById('modal-clase')?.getAttribute('data-id')||''; const cid = idRaw ? Number(idRaw) : null; if(cid) loadModalClaseHorarios(cid); }); }
+    const mHorSel = document.getElementById('modal-clase-horarios-select'); if(mHorSel){ mHorSel.addEventListener('change', () => { const id = Number(mHorSel.value||0); clasesState.selectedHorarioId = id || null; loadHorarioUsuarios(clasesState.selectedHorarioId); }); }
+    const ejSearch = document.getElementById('modal-clase-ejercicios-search'); if(ejSearch){ ejSearch.addEventListener('input', filterModalEjercicios); }
+    const ejOpenBtn = document.getElementById('modal-clase-open-ejercicios'); if(ejOpenBtn){ ejOpenBtn.addEventListener('click', () => { const idRaw = document.getElementById('modal-clase')?.getAttribute('data-id')||''; const cid = idRaw ? Number(idRaw) : null; if(!cid){ showToast('Primero guarda la clase', 'warning'); return; } openClaseEjerciciosModal(cid); }); }
+    const tipoNewBtn = document.getElementById('modal-clase-tipo-new'); if(tipoNewBtn){ tipoNewBtn.addEventListener('click', async ()=>{ const nombre = prompt('Nombre del nuevo tipo de clase'); if(!nombre || !nombre.trim()) return; try{ const r = await fetch('/api/tipos_clases', { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ nombre: nombre.trim() }) }); if(!r.ok){ showToast('No se pudo crear el tipo', 'error'); return; } const data = await r.json(); await ensureClasesState(); const tipoEl = document.getElementById('modal-clase-tipo'); if(tipoEl){ tipoEl.innerHTML = (clasesState.tipos||[]).map(t => `<option value="${String(t.id||t.tipo_clase_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(t.nombre||t.tipo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); tipoEl.value = String(data?.id||''); } showToast('Tipo creado', 'success'); }catch(e){ showToast('Error de red al crear tipo', 'error'); } }); }
+    const uSearch = document.getElementById('horario-usuario-search'); const uSelect = document.getElementById('horario-usuario-select');
+    if(uSearch && uSelect){
+      uSearch.addEventListener('input', debounce(async ()=>{
+        const q = (uSearch.value||'').trim();
+        if(!q){ uSelect.innerHTML = '<option value="">Selecciona usuario…</option>'; return; }
+        try{
+          const r = await fetch(`/api/usuarios?q=${encodeURIComponent(q)}&limit=20`, { headers:{ 'Accept':'application/json' } });
+          const list = r.ok ? (await r.json()) : [];
+          const opts = '<option value="">Selecciona usuario…</option>' + (Array.isArray(list)?list:[]).map(u => {
+            const nombre = String(u.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const dni = u.dni ? `, DNI: ${String(u.dni).replace(/</g,'&lt;').replace(/>/g,'&gt;')}` : '';
+            const tel = u.telefono ? `, ${String(u.telefono).replace(/</g,'&lt;').replace(/>/g,'&gt;')}` : '';
+            return `<option value="${String(u.id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${nombre} (ID: ${String(u.id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}${dni}${tel})</option>`;
+          }).join('');
+          uSelect.innerHTML = opts;
+        }catch(_){ uSelect.innerHTML = '<option value="">Selecciona usuario…</option>'; }
+      }, 300));
+    }
+    const ejerciciosViewEl = document.getElementById('clases-ejercicios'); if(ejerciciosViewEl){ ejerciciosViewEl.addEventListener('click', () => { if(!clasesState.selectedId){ showToast('Selecciona una clase', 'warning'); return; } openClaseEjerciciosModal(clasesState.selectedId); }); }
+    const ejClose = document.getElementById('modal-ejercicios-close'); if(ejClose){ ejClose.addEventListener('click', closeClaseEjerciciosModal); }
+    const ejCancel = document.getElementById('modal-ejercicios-cerrar'); if(ejCancel){ ejCancel.addEventListener('click', closeClaseEjerciciosModal); }
+    const waClose = document.getElementById('wa-clase-close'); if(waClose){ waClose.addEventListener('click', closeWaClaseModal); }
+    const waCancel = document.getElementById('wa-clase-cancel'); if(waCancel){ waCancel.addEventListener('click', closeWaClaseModal); }
+    const waSend = document.getElementById('wa-clase-send'); if(waSend){ waSend.addEventListener('click', sendWaClaseReminder); }
+  }
+
+  async function loadClasesPanel(){
+    await ensureClasesState();
+    bindClasesEvents();
+    await loadClases();
+  }
+
+  async function loadHorarioUsuarios(horarioId){
+    const uTbody = document.querySelector('#horario-usuarios-table tbody');
+    const uEmpty = document.getElementById('horario-usuarios-empty');
+    const wTbody = document.querySelector('#horario-waitlist-table tbody');
+    const wEmpty = document.getElementById('horario-waitlist-empty');
+    if(!horarioId){ if(uTbody) uTbody.innerHTML=''; if(uEmpty) uEmpty.style.display=''; if(wTbody) wTbody.innerHTML=''; if(wEmpty) wEmpty.style.display=''; return; }
+    try {
+      const [rU, rW] = await Promise.all([
+        fetch(`/api/horarios/${horarioId}/usuarios`, { headers:{ 'Accept':'application/json' } }),
+        fetch(`/api/horarios/${horarioId}/lista_espera`, { headers:{ 'Accept':'application/json' } })
+      ]);
+      const usuarios = rU.ok ? (await rU.json()) : [];
+      const espera = rW.ok ? (await rW.json()) : [];
+      const uRows = (Array.isArray(usuarios)?usuarios:[]).map(u => {
+        const nombre = String(u.nombre_usuario||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const uid = String(u.usuario_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<tr data-uid="${uid}" data-nombre="${nombre}">
+          <td>${uid||'—'}</td>
+          <td>${nombre||'—'}</td>
+          <td><button class="btn info sm" data-action="wa-reminder">Recordatorio</button></td>
+          <td><button class="btn danger sm" data-action="remove-u">Quitar</button></td>
+        </tr>`;
+      }).join('');
+      const wRows = (Array.isArray(espera)?espera:[]).map(w => {
+        const nombre = String(w.nombre_usuario||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const pos = String(w.posicion||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const uid = String(w.usuario_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<tr data-uid="${uid}">
+          <td>${uid||'—'}</td>
+          <td>${nombre||'—'}</td>
+          <td>${pos||'—'}</td>
+          <td><button class="btn danger sm" data-action="remove-w">Quitar</button></td>
+        </tr>`;
+      }).join('');
+      if(uTbody) uTbody.innerHTML = uRows || '';
+      if(wTbody) wTbody.innerHTML = wRows || '';
+      if(uEmpty) uEmpty.style.display = (uTbody && uTbody.children.length===0) ? '' : 'none';
+      if(wEmpty) wEmpty.style.display = (wTbody && wTbody.children.length===0) ? '' : 'none';
+      if(uTbody){ uTbody.querySelectorAll('tr').forEach(tr => {
+        const uid = tr.getAttribute('data-uid');
+        const nombre = tr.getAttribute('data-nombre')||'';
+        const btnRemove = tr.querySelector('button[data-action="remove-u"]');
+        const btnWa = tr.querySelector('button[data-action="wa-reminder"]');
+        if(btnRemove) btnRemove.addEventListener('click', async (e) => { e.stopPropagation(); await quitarUsuarioDeHorario(Number(uid)); });
+        if(btnWa) btnWa.addEventListener('click', (e) => { e.stopPropagation(); openWaClaseModal(Number(uid), nombre); });
+      }); }
+      if(wTbody){ wTbody.querySelectorAll('tr').forEach(tr => {
+        const uid = tr.getAttribute('data-uid');
+        const btn = tr.querySelector('button[data-action="remove-w"]');
+        if(btn) btn.addEventListener('click', async (e) => { e.stopPropagation(); await quitarUsuarioDeListaEspera(Number(uid)); });
+      }); }
+    } catch(e){ showToast('Error al cargar inscriptos/lista de espera', 'error'); }
+  }
+
+  async function inscribirUsuarioEnHorario(){
+    const hid = clasesState.selectedHorarioId;
+    if(!hid){ showToast('Selecciona un horario', 'warning'); return; }
+    const uid = Number(document.getElementById('horario-usuario-select')?.value || 0) || Number(document.getElementById('horario-usuario-id')?.value || 0);
+    if(!uid){ showToast('Selecciona un usuario', 'warning'); return; }
+    try {
+      const r = await fetch(`/api/horarios/${hid}/usuarios`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ usuario_id: uid }) });
+      if(!r.ok){ showToast('No se pudo inscribir usuario', 'error'); return; }
+      const data = await r.json();
+      showToast(data?.enrolled ? 'Usuario inscripto' : 'Sin cupo: añadido a espera', data?.enrolled ? 'success' : 'warning');
+      await loadHorarioUsuarios(hid);
+    } catch(e){ showToast('Error de red al inscribir', 'error'); }
+  }
+
+  async function quitarUsuarioDeHorario(uid){
+    const hid = clasesState.selectedHorarioId;
+    if(!hid || !uid){ showToast('Selecciona horario y usuario', 'warning'); return; }
+    try {
+      const ok = confirm('¿Quitar usuario del horario?'); if(!ok) return;
+    } catch(_){ }
+    try {
+      const r = await fetch(`/api/horarios/${hid}/usuarios/${uid}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+      if(!r.ok){ showToast('No se pudo quitar usuario', 'error'); return; }
+      showToast('Usuario quitado', 'success');
+      await loadHorarioUsuarios(hid);
+    } catch(e){ showToast('Error de red al quitar usuario', 'error'); }
+  }
+
+  async function quitarUsuarioDeListaEspera(uid){
+    const hid = clasesState.selectedHorarioId;
+    if(!hid || !uid){ showToast('Selecciona horario y usuario', 'warning'); return; }
+    try {
+      const ok = confirm('¿Quitar de lista de espera?'); if(!ok) return;
+    } catch(_){ }
+    try {
+      const r = await fetch(`/api/horarios/${hid}/lista_espera/${uid}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+      if(!r.ok){ showToast('No se pudo quitar de espera', 'error'); return; }
+      showToast('Eliminado de espera', 'success');
+      await loadHorarioUsuarios(hid);
+    } catch(e){ showToast('Error de red al quitar de espera', 'error'); }
+  }
+
+  async function notifyWaitlistFirst(){
+    const hid = clasesState.selectedHorarioId;
+    if(!hid){ showToast('Selecciona un horario', 'warning'); return; }
+    try {
+      const r = await fetch(`/api/horarios/${hid}/whatsapp/notify_waitlist_first`, { method:'POST', headers:{ 'Accept':'application/json' } });
+      if(!r.ok){ showToast('No se pudo notificar a espera', 'error'); return; }
+      showToast('Notificación enviada', 'success');
+    } catch(e){ showToast('Error de red al notificar espera', 'error'); }
+  }
+
+  function openClaseModal(id){
+    try { openModal('modal-clase'); } catch(_){
+      const m = document.getElementById('modal-clase');
+      if(m){ m.classList.add('active'); m.style.display='flex'; m.setAttribute('aria-hidden','false'); }
+    }
+    const nombreEl = document.getElementById('modal-clase-nombre');
+    const descEl = document.getElementById('modal-clase-descripcion');
+    const tipoEl = document.getElementById('modal-clase-tipo');
+    const activaEl = document.getElementById('modal-clase-activa');
+    const ejSel = document.getElementById('modal-clase-ejercicios');
+    const ejSearch = document.getElementById('modal-clase-ejercicios-search');
+    const ejChips = document.getElementById('modal-clase-ejercicios-chips');
+    const clase = id ? (clasesState.list||[]).find(x => String(x.id||'') === String(id)) : null;
+    if(nombreEl) nombreEl.value = String(clase?.nombre||'');
+    if(descEl) descEl.value = String(clase?.descripcion||'');
+    if(activaEl) activaEl.checked = (clase?.activa===true || String(clase?.activa)=='1');
+    if(tipoEl){ tipoEl.innerHTML = (clasesState.tipos||[]).map(t => `<option value="${String(t.id||t.tipo_clase_id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(t.nombre||t.tipo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); tipoEl.value = String(clase?.tipo_clase_id||''); }
+    // Cargar ejercicios y seleccionar los actuales
+    (async ()=>{
+      try {
+        const r = await fetch('/api/ejercicios', { headers:{ 'Accept':'application/json' } });
+        const arr = r.ok ? (await r.json()) : [];
+        if(ejSel){ ejSel.innerHTML = (Array.isArray(arr)?arr:[]).map(e => `<option value="${String(e.id||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(e.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); }
+        if(id){
+          const r2 = await fetch(`/api/clases/${id}/ejercicios`, { headers:{ 'Accept':'application/json' } });
+          const selected = r2.ok ? (await r2.json()) : [];
+          const ids = (Array.isArray(selected)?selected:[]).map(x => { if(typeof x === 'number') return String(x); return String(x?.ejercicio_id ?? x?.id ?? ''); });
+          if(ejSel){ Array.from(ejSel.options).forEach(opt => { opt.selected = ids.includes(String(opt.value||'')); }); }
+          if(ejChips){
+            const chips = ids.map(id => {
+              const ex = (Array.isArray(arr)?arr:[]).find(e => String(e.id||'')===String(id));
+              const name = ex ? String(ex.nombre||'') : `Ejercicio ${id}`;
+              return `<span class="chip" data-eid="${String(id).replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${name.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</span>`;
+            }).join('');
+            ejChips.innerHTML = chips || '<span class="muted">Sin ejercicios asociados</span>';
+          }
+        }
+        if(ejSearch) ejSearch.value = '';
+      } catch(_){}
+    })();
+    // Cargar horarios para el selector del modal (si clase existente)
+    try { if(id) loadModalClaseHorarios(Number(id)); } catch(_){}
+    // Guardar el id seleccionado en estado temporal
+    try { document.getElementById('modal-clase').setAttribute('data-id', id ? String(id) : ''); } catch(_){}
+  }
+
+  function closeClaseModal(){
+    try { closeModal('modal-clase'); } catch(_){
+      const m = document.getElementById('modal-clase');
+      if(m){ m.classList.remove('active'); m.style.display='none'; m.setAttribute('aria-hidden','true'); }
+    }
+  }
+
+  function filterModalEjercicios(){
+    const q = (document.getElementById('modal-clase-ejercicios-search')?.value || '').toLowerCase();
+    const sel = document.getElementById('modal-clase-ejercicios');
+    if(!sel) return;
+    Array.from(sel.options).forEach(opt => {
+      const show = (String(opt.text||'').toLowerCase().includes(q));
+      opt.style.display = show ? '' : 'none';
+    });
+  }
+
+  async function saveClaseModal(){
+    const modal = document.getElementById('modal-clase');
+    const idRaw = modal?.getAttribute('data-id') || '';
+    const id = idRaw ? Number(idRaw) : null;
+    const nombre = document.getElementById('modal-clase-nombre')?.value || '';
+    const tipo = document.getElementById('modal-clase-tipo')?.value || '';
+    const activa = !!document.getElementById('modal-clase-activa')?.checked;
+    const descripcion = document.getElementById('modal-clase-descripcion')?.value || '';
+    const ejSel = document.getElementById('modal-clase-ejercicios');
+    const ejercicio_ids = ejSel ? Array.from(ejSel.selectedOptions).map(o => Number(o.value)) : [];
+    if(!nombre.trim()){ showToast('El nombre es obligatorio', 'warning'); return; }
+    const body = { nombre, descripcion, activa, tipo_clase_id: tipo };
+    try {
+      let r;
+      if(id){ r = await fetch(`/api/clases/${id}`, { method:'PUT', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(body) }); }
+      else { r = await fetch('/api/clases', { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(body) }); }
+      if(!r.ok){ showToast('No se pudo guardar la clase', 'error'); return; }
+      const saved = id ? { id } : (await r.json());
+      const claseId = Number(saved?.id || saved?.clase_id || id || 0);
+      // Guardar ejercicios asociados
+      if(claseId){
+        const r2 = await fetch(`/api/clases/${claseId}/ejercicios`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ ejercicio_ids }) });
+        if(!r2.ok){ showToast('Clase guardada, pero ejercicios no se actualizaron', 'warning'); }
+      }
+      showToast('Clase guardada correctamente', 'success');
+      closeClaseModal();
+      await loadClases();
+      if(claseId){ await selectClase(claseId); }
+    } catch(e){ showToast('Error de red al guardar clase', 'error'); }
+  }
+
+  async function openClaseEjerciciosModal(id){
+    if(!id){ showToast('Selecciona una clase', 'warning'); return; }
+    const cls = (clasesState.list||[]).find(x => String(x.id||'')===String(id));
+    const statusEl = document.getElementById('clase-ej-status'); if(statusEl){ statusEl.textContent = cls ? `Clase: ${String(cls.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}` : '—'; }
+    // Cargar catálogo completo de ejercicios
+    let catalog = [];
+    try {
+      const rAll = await fetch('/api/ejercicios', { headers:{ 'Accept':'application/json' } });
+      catalog = rAll.ok ? (await rAll.json()) : [];
+      catalog = Array.isArray(catalog) ? catalog : [];
+    } catch(_){ catalog = []; }
+    // Cargar bloque actual de la clase
+    let selected = [];
+    try {
+      const rSel = await fetch(`/api/clases/${id}/ejercicios`, { headers:{ 'Accept':'application/json' } });
+      selected = rSel.ok ? (await rSel.json()) : [];
+      selected = Array.isArray(selected) ? selected : [];
+    } catch(_){ selected = []; }
+    // Persistir en estado temporal: normalizar al nuevo formato con metadatos
+    clasesState._ej_catalog = catalog;
+    try{
+      const norm = selected.map((e, idx) => {
+        if (typeof e === 'number') {
+          return { ejercicio_id: Number(e), series: 3, repeticiones: '', descanso_segundos: 60, notas: '', orden: idx };
+        }
+        const id = Number(e?.ejercicio_id ?? e?.id ?? 0);
+        const ord = Number(e?.orden ?? idx);
+        return {
+          ejercicio_id: id,
+          series: Number(e?.series ?? 3) || 0,
+          repeticiones: String(e?.repeticiones ?? ''),
+          descanso_segundos: Number(e?.descanso_segundos ?? e?.descanso ?? 60) || 0,
+          notas: String(e?.notas ?? ''),
+          orden: ord
+        };
+      }).filter(x => Number(x.ejercicio_id));
+      // Ordenar por 'orden' si viene del backend
+      norm.sort((a,b) => (Number(a.orden)||0) - (Number(b.orden)||0));
+      clasesState._ej_selected = norm;
+    }catch(__){ clasesState._ej_selected = []; }
+    // Popular filtros
+    try{
+      const groups = Array.from(new Set(catalog.map(e => String(e.grupo_muscular||'')).filter(Boolean))).sort();
+      const objetivos = Array.from(new Set(catalog.map(e => String(e.objetivo||'')).filter(Boolean))).sort();
+      const selG = document.getElementById('clase-ej-group'); if(selG){ selG.innerHTML = `<option value="">Grupo: Todos</option>` + groups.map(g => `<option value="${g.replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${g.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); }
+      const selO = document.getElementById('clase-ej-objetivo'); if(selO){ selO.innerHTML = `<option value="">Objetivo: Todos</option>` + objetivos.map(o => `<option value="${o.replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${o.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`).join(''); }
+    }catch(_){}
+    // Render listas
+    renderClaseEjerciciosUI();
+    // Enlazar controles
+    const qEl = document.getElementById('clase-ej-q'); if(qEl){ qEl.value=''; qEl.addEventListener('input', debounce(renderClaseEjerciciosUI, 200)); }
+    const gEl = document.getElementById('clase-ej-group'); if(gEl){ gEl.addEventListener('change', renderClaseEjerciciosUI); }
+    const oEl = document.getElementById('clase-ej-objetivo'); if(oEl){ oEl.addEventListener('change', renderClaseEjerciciosUI); }
+    const addEl = document.getElementById('clase-ej-add'); if(addEl){ addEl.onclick = addSelectedEjerciciosToClase; }
+    const rmEl = document.getElementById('clase-ej-remove-selected'); if(rmEl){ rmEl.onclick = removeSelectedFromBloque; }
+    const saveEl = document.getElementById('clase-ej-save'); if(saveEl){ saveEl.onclick = async ()=>{ await saveClaseEjercicios(id); }; }
+    const multiEl = document.getElementById('clase-ej-multi'); if(multiEl){ multiEl.checked=false; multiEl.addEventListener('change', () => { const t = document.getElementById('clase-ej-list-table'); if(!t) return; t.classList.toggle('multi', !!multiEl.checked); }); }
+    const btnNew = document.getElementById('clase-ej-new'); if(btnNew){ btnNew.onclick = ()=> showEjercicioForm(null); }
+    const btnEdit = document.getElementById('clase-ej-edit'); if(btnEdit){ btnEdit.onclick = editSelectedEjercicioFromCatalog; }
+    const btnDel = document.getElementById('clase-ej-delete'); if(btnDel){ btnDel.onclick = deleteSelectedEjercicioFromCatalog; }
+    try { openModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.add('active'); el.style.display = 'flex'; el.setAttribute('aria-hidden','false'); }}
+  }
+  function closeClaseEjerciciosModal(){ try { closeModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.remove('active'); el.style.display = 'none'; el.setAttribute('aria-hidden','true'); } } }
+
+  function renderClaseEjerciciosUI(){
+    const q = (document.getElementById('clase-ej-q')?.value||'').toLowerCase();
+    const g = document.getElementById('clase-ej-group')?.value||'';
+    const o = document.getElementById('clase-ej-objetivo')?.value||'';
+    const tbodyL = document.querySelector('#clase-ej-list-table tbody');
+    const emptyL = document.getElementById('clase-ej-list-empty');
+    const tbodyB = document.querySelector('#clase-ej-bloque-table tbody');
+    const emptyB = document.getElementById('clase-ej-bloque-empty');
+    if(tbodyL) tbodyL.innerHTML=''; if(tbodyB) tbodyB.innerHTML='';
+    const catalog = Array.isArray(clasesState._ej_catalog)?clasesState._ej_catalog:[];
+    const selected = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+    const filtered = catalog.filter(e => {
+      const name = String(e.nombre||'').toLowerCase();
+      const grp = String(e.grupo_muscular||'');
+      const obj = String(e.objetivo||'');
+      return (!q || name.includes(q)) && (!g || grp===g) && (!o || obj===o);
+    });
+    if(tbodyL){ filtered.forEach(e => {
+      const tr = document.createElement('tr'); tr.setAttribute('data-id', String(e.id||'')); tr.setAttribute('data-name', String(e.nombre||''));
+      tr.innerHTML = `<td>${String(e.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td><td>${String(e.grupo_muscular||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td><td>${String(e.objetivo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>`;
+      tr.addEventListener('click', () => { tr.classList.toggle('selected'); });
+      tbodyL.appendChild(tr);
+    }); }
+    if(emptyL) emptyL.style.display = (tbodyL && tbodyL.children.length===0) ? '' : 'none';
+    if(tbodyB){
+      tbodyB.innerHTML = '';
+      selected.forEach((item, idx) => {
+        const ej = catalog.find(x => Number(x.id)===Number(item.ejercicio_id));
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-id', String(item.ejercicio_id));
+        tr.setAttribute('data-index', String(idx));
+        tr.draggable = true;
+        tr.addEventListener('click', () => { tr.classList.toggle('selected'); });
+        tr.addEventListener('dragstart', (ev) => {
+          try{ ev.dataTransfer.setData('text/plain', String(idx)); }catch(_){ }
+        });
+        tr.addEventListener('dragover', (ev) => { ev.preventDefault(); tr.classList.add('drag-over'); });
+        tr.addEventListener('dragleave', () => { tr.classList.remove('drag-over'); });
+        tr.addEventListener('drop', (ev) => {
+          ev.preventDefault(); tr.classList.remove('drag-over');
+          let from = -1; try{ from = Number(ev.dataTransfer.getData('text/plain')||'-1'); }catch(_){ from = -1; }
+          const to = idx;
+          if(from>=0 && to>=0 && from!==to){
+            const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+            const [m] = arr.splice(from, 1);
+            arr.splice(to, 0, m);
+            // Recalcular orden
+            clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+            renderClaseEjerciciosUI();
+          }
+        });
+        const tdOrden = document.createElement('td'); tdOrden.textContent = String(idx+1);
+        const tdNombre = document.createElement('td'); tdNombre.textContent = String(ej?.nombre||'—');
+        const tdSeries = document.createElement('td');
+        const inpSeries = document.createElement('input'); inpSeries.type='number'; inpSeries.min='0'; inpSeries.step='1'; inpSeries.value=String(Number(item.series||0)); inpSeries.setAttribute('aria-label','Series'); inpSeries.style.width='80px';
+        inpSeries.addEventListener('input', () => { const v = Number(inpSeries.value||0)||0; clasesState._ej_selected[idx].series = v; });
+        tdSeries.appendChild(inpSeries);
+        const tdReps = document.createElement('td');
+        const inpReps = document.createElement('input'); inpReps.type='text'; inpReps.value=String(item.repeticiones||''); inpReps.setAttribute('aria-label','Repeticiones'); inpReps.placeholder='Ej: 10-12'; inpReps.style.width='120px';
+        inpReps.addEventListener('input', () => { clasesState._ej_selected[idx].repeticiones = String(inpReps.value||''); });
+        tdReps.appendChild(inpReps);
+        const tdDesc = document.createElement('td');
+        const inpDesc = document.createElement('input'); inpDesc.type='number'; inpDesc.min='0'; inpDesc.step='1'; inpDesc.value=String(Number(item.descanso_segundos||0)); inpDesc.setAttribute('aria-label','Descanso en segundos'); inpDesc.style.width='120px';
+        inpDesc.addEventListener('input', () => { const v = Number(inpDesc.value||0)||0; clasesState._ej_selected[idx].descanso_segundos = v; });
+        tdDesc.appendChild(inpDesc);
+        const tdNotas = document.createElement('td');
+        const inpNotas = document.createElement('input'); inpNotas.type='text'; inpNotas.value=String(item.notas||''); inpNotas.setAttribute('aria-label','Notas'); inpNotas.placeholder='Opcional'; inpNotas.style.width='180px';
+        inpNotas.addEventListener('input', () => { clasesState._ej_selected[idx].notas = String(inpNotas.value||''); });
+        tdNotas.appendChild(inpNotas);
+        const tdAcc = document.createElement('td');
+        const btnRm = document.createElement('button'); btnRm.className='btn danger sm'; btnRm.textContent='Quitar'; btnRm.addEventListener('click', () => {
+          const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+          clasesState._ej_selected = arr.filter((_,i) => i!==idx).map((it,i) => ({...it, orden:i}));
+          renderClaseEjerciciosUI();
+        });
+        tdAcc.appendChild(btnRm);
+        tr.appendChild(tdOrden);
+        tr.appendChild(tdNombre);
+        tr.appendChild(tdSeries);
+        tr.appendChild(tdReps);
+        tr.appendChild(tdDesc);
+        tr.appendChild(tdNotas);
+        tr.appendChild(tdAcc);
+        tbodyB.appendChild(tr);
+      });
+    }
+    if(emptyB) emptyB.style.display = (tbodyB && tbodyB.children.length===0) ? '' : 'none';
+  }
+
+  function addSelectedEjerciciosToClase(){
+    const tbodyL = document.querySelector('#clase-ej-list-table tbody');
+    const selectedRows = Array.from(tbodyL?.querySelectorAll('tr.selected')||[]).map(tr => Number(tr.getAttribute('data-id')||0)).filter(Boolean);
+    const current = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+    const existingIds = new Set(current.map(it => Number(it.ejercicio_id)));
+    selectedRows.forEach(eid => {
+      if(!existingIds.has(Number(eid))){
+        current.push({ ejercicio_id: Number(eid), series: 3, repeticiones: '', descanso_segundos: 60, notas: '', orden: current.length });
+      }
+    });
+    clasesState._ej_selected = current.map((it,i) => ({...it, orden:i}));
+    renderClaseEjerciciosUI();
+  }
+
+  function removeSelectedFromBloque(){
+    const tbodyB = document.querySelector('#clase-ej-bloque-table tbody');
+    const toRemoveIdx = Array.from(tbodyB?.querySelectorAll('tr.selected')||[]).map(tr => Number(tr.getAttribute('data-index')||-1)).filter(i => i>=0);
+    const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+    clasesState._ej_selected = arr.filter((_,i) => !toRemoveIdx.includes(i)).map((it,i) => ({...it, orden:i}));
+    renderClaseEjerciciosUI();
+  }
+
+  async function saveClaseEjercicios(claseId){
+    const items = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+    try{
+      const payload = { ejercicios: items.map((it, idx) => ({ ejercicio_id: Number(it.ejercicio_id), orden: idx, series: Number(it.series||0), repeticiones: String(it.repeticiones||''), descanso_segundos: Number(it.descanso_segundos||0), notas: String(it.notas||'') })) };
+      const r = await fetch(`/api/clases/${claseId}/ejercicios`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(payload) });
+      if(!r.ok){ showToast('No se pudo guardar ejercicios de clase', 'error'); return; }
+      showToast('Ejercicios de la clase actualizados', 'success');
+      closeClaseEjerciciosModal();
+    }catch(e){ showToast('Error de red al guardar', 'error'); }
+  }
+
+  function editSelectedEjercicioFromCatalog(){
+    const tbodyL = document.querySelector('#clase-ej-list-table tbody');
+    const selectedRows = Array.from(tbodyL?.querySelectorAll('tr.selected')||[]);
+    if(selectedRows.length!==1){ showToast('Selecciona un único ejercicio para editar', 'warning'); return; }
+    const id = Number(selectedRows[0].getAttribute('data-id')||0);
+    const ej = (Array.isArray(clasesState._ej_catalog)?clasesState._ej_catalog:[]).find(x => Number(x.id)===id);
+    if(!ej){ showToast('Ejercicio no encontrado', 'error'); return; }
+    showEjercicioForm(ej);
+  }
+
+  function deleteSelectedEjercicioFromCatalog(){
+    const tbodyL = document.querySelector('#clase-ej-list-table tbody');
+    const selectedRows = Array.from(tbodyL?.querySelectorAll('tr.selected')||[]);
+    if(selectedRows.length!==1){ showToast('Selecciona un único ejercicio para eliminar', 'warning'); return; }
+    const id = Number(selectedRows[0].getAttribute('data-id')||0);
+    try{ deleteEjercicio(id); }catch(_){ showToast('No se pudo iniciar eliminación', 'error'); }
+  }
+
+  function openWaClaseModal(uid, nombre){
+    const userEl = document.getElementById('wa-clase-user-name'); if(userEl){ userEl.textContent = String(nombre||'—'); }
+    const tipoEl = document.getElementById('wa-clase-tipo');
+    const horaEl = document.getElementById('wa-clase-hora');
+    const fechaEl = document.getElementById('wa-clase-fecha');
+    const cls = (clasesState.list||[]).find(x => Number(x.id)===Number(clasesState.selectedId));
+    const hid = Number(clasesState.selectedHorarioId||0);
+    const hor = (clasesState.horarios||[]).find(h => Number(h.id||h.horario_id||0)===hid) || {};
+    if(tipoEl){ tipoEl.value = String(cls?.nombre||''); }
+    if(horaEl){ horaEl.value = String(hor?.hora_inicio||''); }
+    try{ const today = new Date(); const yyyy = today.getFullYear(); const mm = String(today.getMonth()+1).padStart(2,'0'); const dd = String(today.getDate()).padStart(2,'0'); if(fechaEl){ fechaEl.value = `${yyyy}-${mm}-${dd}`; } }catch(_){}
+    const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }
+    modal?.setAttribute('data-uid', String(uid||''));
+  }
+  function closeWaClaseModal(){ const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.style.display='none'; modal.setAttribute('aria-hidden','true'); modal.removeAttribute('data-uid'); } }
+  async function sendWaClaseReminder(){
+    const modal = document.getElementById('modal-wa-clase'); const uidRaw = modal?.getAttribute('data-uid')||''; const uid = Number(uidRaw||0);
+    if(!uid){ showToast('Usuario inválido', 'error'); return; }
+    const tipo = document.getElementById('wa-clase-tipo')?.value||'';
+    const fecha = document.getElementById('wa-clase-fecha')?.value||'';
+    const hora = document.getElementById('wa-clase-hora')?.value||'';
+    try{
+      const r = await fetch(`/api/usuarios/${uid}/whatsapp/recordatorio_clase`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify({ tipo_clase: tipo, fecha, hora }) });
+      if(!r.ok){ showToast('No se pudo enviar WhatsApp', 'error'); return; }
+      showToast('Recordatorio enviado por WhatsApp', 'success');
+      closeWaClaseModal();
+    }catch(_){ showToast('Error de red al enviar WhatsApp', 'error'); }
+  }
+
+
     function init(){
       // Enlazar pestañas y sidebar; si algún módulo falla, no bloquear el resto
       document.querySelectorAll('.tab').forEach(btn => {
         btn.addEventListener('click', () => {
           const tab = btn.dataset.tab;
           try { switchTab(tab); } catch(_){}
+          try { if(tab === 'clases') loadClasesPanel(); } catch(_){}
           try { if(tab === 'pagos') loadPayments(); } catch(_){}
           try { if(tab === 'usuarios') loadUsers(); } catch(_){}
           try { if(tab === 'profesores') loadProfesoresPanel(); } catch(_){}
@@ -9293,7 +10463,7 @@ function ensurePdfZoomControls(containerId, frameId){
       // Aplicar pestaña persistida si existe
       try {
         const persisted = localStorage.getItem('gestion-active-tab') || '';
-        const validTabs = ['pagos','usuarios','profesores','ejercicios','rutinas','configuracion'];
+        const validTabs = ['pagos','usuarios','profesores','clases','ejercicios','rutinas','configuracion'];
         const initial = validTabs.includes(persisted) ? persisted : '';
         if(initial){
           const btn = document.querySelector('.tab[data-tab="'+initial+'"]');

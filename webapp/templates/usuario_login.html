@@ -65,8 +65,26 @@
         <p id="form-help" class="muted" style="margin-top:8px;">Usa tu DNI y PIN configurados en recepción.</p>
         <div class="actions">
           <button class="btn" type="submit">Entrar</button>
+          <button id="toggle-change-pin" class="btn outline" type="button" aria-expanded="false" aria-controls="change-pin-area">Cambiar PIN</button>
         </div>
       </form>
+      <div id="change-pin-area" style="display:none; margin-top:12px" aria-hidden="true">
+        <label for="dni-change">DNI</label>
+        <input type="text" id="dni-change" placeholder="Ingresa tu DNI" inputmode="numeric" />
+        <div class="row" style="margin-top:10px; display:flex; gap:8px">
+          <div style="flex:1">
+            <label for="old-pin">PIN antiguo</label>
+            <input type="password" id="old-pin" placeholder="Ingresa tu PIN actual" />
+          </div>
+          <div style="flex:1">
+            <label for="new-pin">PIN nuevo</label>
+            <input type="password" id="new-pin" placeholder="Ingresa tu PIN nuevo" />
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px">
+          <button id="submit-change-pin" class="btn" type="button">Actualizar PIN</button>
+        </div>
+      </div>
       <script>
         document.addEventListener('DOMContentLoaded', () => {
           const metaErr = document.querySelector('meta[name="x-error"]');
@@ -80,6 +98,67 @@
               if (!dni || !pin) {
                 e.preventDefault();
                 showToast('Por favor ingresa DNI y PIN.', 'warning', 3500);
+              }
+            });
+          }
+
+          // Toggle del área de cambio de PIN
+          const toggleBtn = document.getElementById('toggle-change-pin');
+          const area = document.getElementById('change-pin-area');
+          const dniLogin = document.getElementById('dni');
+          const dniChange = document.getElementById('dni-change');
+          const submitChange = document.getElementById('submit-change-pin');
+
+          if (toggleBtn && area) {
+            toggleBtn.addEventListener('click', () => {
+              const isHidden = area.style.display === 'none';
+              area.style.display = isHidden ? 'block' : 'none';
+              area.setAttribute('aria-hidden', String(!isHidden));
+              toggleBtn.setAttribute('aria-expanded', String(isHidden));
+              // Prefill DNI si está cargado en el login
+              if (isHidden && dniLogin && dniChange && !dniChange.value) {
+                dniChange.value = (dniLogin.value || '').trim();
+              }
+            });
+          }
+
+          if (submitChange) {
+            submitChange.addEventListener('click', async () => {
+              const dni = (dniChange && dniChange.value || '').trim();
+              const oldPin = (document.getElementById('old-pin') || { value: '' }).value.trim();
+              const newPin = (document.getElementById('new-pin') || { value: '' }).value.trim();
+              if (!dni || !oldPin || !newPin) {
+                showToast('Completa DNI, PIN antiguo y PIN nuevo.', 'warning', 3500);
+                return;
+              }
+              if (newPin.length < 4) {
+                showToast('El PIN nuevo debe tener al menos 4 caracteres.', 'warning', 3500);
+                return;
+              }
+              try {
+                const res = await fetch('/api/usuario/change_pin', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ dni, old_pin: oldPin, new_pin: newPin })
+                });
+                const data = await res.json().catch(() => ({ ok: false, error: 'Error inesperado' }));
+                if (res.ok && data && data.ok) {
+                  showToast('PIN actualizado correctamente.', 'success', 3500);
+                  // Sincronizar con el campo de login
+                  const pinLogin = document.getElementById('pin');
+                  if (pinLogin) pinLogin.value = newPin;
+                  // Ocultar área
+                  if (area && toggleBtn) {
+                    area.style.display = 'none';
+                    area.setAttribute('aria-hidden', 'true');
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                  }
+                } else {
+                  const msg = (data && data.error) ? data.error : 'No se pudo actualizar el PIN';
+                  showToast(msg, 'error', 4500);
+                }
+              } catch (e) {
+                showToast('Error de red al actualizar PIN.', 'error', 4500);
               }
             });
           }

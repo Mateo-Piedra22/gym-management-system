@@ -3,7 +3,7 @@
 # Formato: clave=valor
 
 # Información Básica
-gym_name=Gimnasio Zurka
+gym_name=Testeo NOMBRE
 gym_slogan=
 gym_address=Saavedra 2343
 
