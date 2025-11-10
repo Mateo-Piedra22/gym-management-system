@@ -738,7 +738,8 @@ class RoutineTemplateManager:
 
     def generate_routine_excel(self, rutina: Rutina, usuario: Usuario,
                              exercises_by_day: Dict[int, List[RutinaEjercicio]], 
-                             output_path: str = None, weeks: int = 1) -> str:
+                             output_path: str = None, weeks: int = 1,
+                             qr_mode: str = "inline", sheet: Optional[str] = None) -> str:
         """
         Genera un archivo Excel de rutina usando xlsxtpl.
         
@@ -989,10 +990,43 @@ class RoutineTemplateManager:
                 except Exception:
                     pass
 
-                # Insertar banda de pie con QR tras ajustes finales
+                # Insertar QR según modo seleccionado y ajustar hoja activa si corresponde
                 try:
-                    if template_data.get('qr_link'):
-                        self._add_qr_footer_band(str(output_path), template_data.get('qr_link'), template_data.get('uuid_rutina'))
+                    mode = (qr_mode or "").strip().lower()
+                    qr_link_val = template_data.get('qr_link')
+                    if qr_link_val and mode in ("inline", "sheet"):
+                        if mode == "inline":
+                            try:
+                                self._add_qr_footer_band(str(output_path), qr_link_val, template_data.get('uuid_rutina'))
+                            except Exception:
+                                pass
+                        else:
+                            try:
+                                target_title = (sheet or "QR") if isinstance(sheet, str) and sheet.strip() else "QR"
+                                self._add_qr_sheet(str(output_path), qr_link_val, target_title, template_data.get('uuid_rutina'))
+                            except Exception:
+                                pass
+                    if isinstance(sheet, str) and sheet.strip():
+                        try:
+                            wbset = openpyxl.load_workbook(str(output_path))
+                            title_norm = sheet.strip()
+                            idx_to_set = None
+                            for i, ws in enumerate(wbset.worksheets):
+                                if (getattr(ws, 'title', '') or '') == title_norm:
+                                    idx_to_set = i
+                                    break
+                            if idx_to_set is not None:
+                                try:
+                                    wbset.active = idx_to_set
+                                except Exception:
+                                    pass
+                            wbset.save(str(output_path))
+                            try:
+                                wbset.close()
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 
@@ -1011,7 +1045,7 @@ class RoutineTemplateManager:
                 
                 # Fallback: usar método tradicional con openpyxl
                 self.logger.info("Usando método fallback con openpyxl")
-                return self._generate_excel_fallback(template_path, template_data, output_path)
+                return self._generate_excel_fallback(template_path, template_data, output_path, qr_mode=qr_mode, sheet=sheet)
             
         except Exception as e:
             self.logger.error(f"Error al generar Excel de rutina: {e}")
@@ -1066,7 +1100,7 @@ class RoutineTemplateManager:
             return False
 
     def _generate_excel_fallback(self, template_path: Path, template_data: Dict[str, Any], 
-                               output_path: Path) -> str:
+                               output_path: Path, qr_mode: str = "inline", sheet: Optional[str] = None) -> str:
         """
         Método fallback para generar Excel usando openpyxl directamente.
         
@@ -1199,10 +1233,43 @@ class RoutineTemplateManager:
             except Exception:
                 pass
 
-            # Insertar banda de pie con QR tras ajustes finales en fallback
+            # Insertar QR según modo seleccionado y ajustar hoja activa en fallback
             try:
-                if template_data.get('qr_link'):
-                    self._add_qr_footer_band(str(output_path), template_data.get('qr_link'), template_data.get('uuid_rutina'))
+                mode = (qr_mode or "").strip().lower()
+                qr_link_val = template_data.get('qr_link')
+                if qr_link_val and mode in ("inline", "sheet"):
+                    if mode == "inline":
+                        try:
+                            self._add_qr_footer_band(str(output_path), qr_link_val, template_data.get('uuid_rutina'))
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            target_title = (sheet or "QR") if isinstance(sheet, str) and sheet.strip() else "QR"
+                            self._add_qr_sheet(str(output_path), qr_link_val, target_title, template_data.get('uuid_rutina'))
+                        except Exception:
+                            pass
+                if isinstance(sheet, str) and sheet.strip():
+                    try:
+                        wbset = openpyxl.load_workbook(str(output_path))
+                        title_norm = sheet.strip()
+                        idx_to_set = None
+                        for i, ws in enumerate(wbset.worksheets):
+                            if (getattr(ws, 'title', '') or '') == title_norm:
+                                idx_to_set = i
+                                break
+                        if idx_to_set is not None:
+                            try:
+                                wbset.active = idx_to_set
+                            except Exception:
+                                pass
+                        wbset.save(str(output_path))
+                        try:
+                            wbset.close()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
             except Exception:
                 pass
             
@@ -1628,6 +1695,114 @@ class RoutineTemplateManager:
                 self.logger.warning(f"No se pudo insertar el logo en {cell.coordinate}: {e}")
             except Exception:
                 pass
+
+    def _add_qr_sheet(self, xlsx_path: str, qr_link: str, sheet_title: str = "QR", uuid_text: Optional[str] = None) -> None:
+        try:
+            wb = openpyxl.load_workbook(xlsx_path)
+        except Exception:
+            return
+        qr_png_path = None
+        try:
+            import segno  # type: ignore
+            qrcode = segno.make(qr_link, error='h')
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            tmp.close()
+            qrcode.save(tmp.name, kind='png', scale=12, border=2)
+            qr_png_path = tmp.name
+        except Exception:
+            try:
+                import qrcode  # type: ignore
+                from qrcode.constants import ERROR_CORRECT_H  # type: ignore
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                tmp.close()
+                qr = qrcode.QRCode(version=None, error_correction=ERROR_CORRECT_H, box_size=10, border=2)
+                qr.add_data(qr_link)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="black", back_color="white")
+                img.save(tmp.name)
+                qr_png_path = tmp.name
+            except Exception:
+                qr_png_path = None
+        try:
+            if qr_png_path and os.path.exists(qr_png_path):
+                from PIL import Image  # type: ignore
+                qr_img = Image.open(qr_png_path).convert('RGBA')
+                logo_path = resource_path(os.path.join('assets', 'gym_logo.png'))
+                if not os.path.exists(logo_path):
+                    alt_logo = resource_path(os.path.join('assets', 'gym_logo.ico'))
+                    logo_path = alt_logo if os.path.exists(alt_logo) else logo_path
+                if os.path.exists(logo_path):
+                    logo_img = Image.open(logo_path).convert('RGBA')
+                    qr_w, qr_h = qr_img.size
+                    target_w = int(min(max(qr_w * 0.22, 48), 96))
+                    logo_img.thumbnail((target_w, target_w), Image.LANCZOS)
+                    lw, lh = logo_img.size
+                    pad = max(4, int(target_w * 0.08))
+                    bg = Image.new('RGBA', (lw + pad * 2, lh + pad * 2), (255, 255, 255, 255))
+                    bg.paste(logo_img, (pad, pad), logo_img)
+                    pos = (int((qr_w - bg.size[0]) / 2), int((qr_h - bg.size[1]) / 2))
+                    qr_img.alpha_composite(bg, dest=pos)
+                    qr_img = qr_img.convert('RGB')
+                    qr_img.save(qr_png_path)
+        except Exception:
+            pass
+        try:
+            title_norm = (sheet_title or "QR").strip() or "QR"
+            ws = None
+            for _ws in wb.worksheets:
+                if (getattr(_ws, 'title', '') or '') == title_norm:
+                    ws = _ws
+                    break
+            if ws is None:
+                try:
+                    ws = wb.create_sheet(title_norm)
+                except Exception:
+                    ws = wb.create_sheet("QR")
+            try:
+                ws.cell(row=1, column=1, value="Escaneá para ver rutina")
+                ws.cell(row=3, column=1, value=str(uuid_text or ""))
+            except Exception:
+                pass
+            inserted = False
+            if qr_png_path and os.path.exists(qr_png_path):
+                try:
+                    img = XLImage(qr_png_path)
+                    img.width = 192
+                    img.height = 192
+                    if AnchorMarker and OneCellAnchor and XDRPositiveSize2D:
+                        def _px_to_emu(px: float) -> int:
+                            return int(round(px * 9525))
+                        marker = AnchorMarker(col=4 - 1, colOff=_px_to_emu(0), row=4 - 1, rowOff=_px_to_emu(0))
+                        ext = XDRPositiveSize2D(cx=_px_to_emu(img.width), cy=_px_to_emu(img.height))
+                        img.anchor = OneCellAnchor(_from=marker, ext=ext)
+                        ws.add_image(img)
+                    else:
+                        ws.add_image(img, "D4")
+                    inserted = True
+                except Exception:
+                    inserted = False
+            if not inserted:
+                try:
+                    link_cell = ws.cell(row=5, column=5, value=f"QR: {qr_link}")
+                    link_cell.hyperlink = qr_link
+                    link_cell.font = Font(color="0000EE", underline="single")
+                except Exception:
+                    pass
+            wb.save(xlsx_path)
+            try:
+                wb.close()
+            except Exception:
+                pass
+        except Exception:
+            try:
+                wb.close()
+            except Exception:
+                pass
+        try:
+            if qr_png_path and os.path.exists(qr_png_path):
+                os.remove(qr_png_path)
+        except Exception:
+            pass
 
     def _add_qr_footer_band(self, xlsx_path: str, qr_link: str, uuid_text: Optional[str] = None) -> None:
         """Añade una banda de pie con QR y texto informativo en todas las hojas del XLSX.

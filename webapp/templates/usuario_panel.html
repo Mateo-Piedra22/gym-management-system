@@ -215,8 +215,8 @@
                 data-uuid-rutina="{{ r.uuid_rutina if r.uuid_rutina else '' }}"
                 {% if r.activa %}
                 role="button" tabindex="0" title="Tocar para desplegar lector QR" style="cursor:pointer;"
-                onclick="onRutinaBadgeClick(this.getAttribute('data-activa') === 'true')"
-                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-activa') === 'true'); }"
+                onclick="onRutinaBadgeClick(this, this.getAttribute('data-activa') === 'true')"
+                onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this, this.getAttribute('data-activa') === 'true'); }"
                 {% endif %}
               >
                 <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
@@ -227,8 +227,8 @@
                     role="{{ 'button' if r.activa else 'status' }}"
                     tabindex="{{ '0' if r.activa else '-1' }}"
                     title="{{ 'Tocar para abrir la rutina' if r.activa else 'Rutina inactiva' }}"
-                    onclick="onRutinaBadgeClick(this.getAttribute('data-activa') === 'true')"
-                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this.getAttribute('data-activa') === 'true'); }"
+                    onclick="onRutinaBadgeClick(this, this.getAttribute('data-activa') === 'true')"
+                    onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onRutinaBadgeClick(this, this.getAttribute('data-activa') === 'true'); }"
                   >{{ 'Activa' if r.activa else 'Inactiva' }}</span>
                 </div>
                 <p class="muted" style="margin:8px 0 0 0;">Días: {{ r.dias }}</p>
@@ -377,6 +377,8 @@
     let lastScanTime = 0;
     // Cache de rutina para evitar recargas constantes
     let currentRoutineUuid = null;
+    // UUID esperado según la rutina tocada (para validar el escaneo)
+    let expectedRoutineUuid = null;
     let currentRoutineData = null;
     let fetchInFlight = false;
 
@@ -530,6 +532,15 @@
       const { uuid, preview } = extraerUuidYTipo(s);
       if (!uuid){
         if (typeof window.showToast === 'function') { showToast('QR inválido para rutina', 'warning', 3500); }
+        // Detener lector tras escaneo inválido para evitar múltiples peticiones
+        try { await detenerLectorQR(); } catch(_){ }
+        qrScanBusy = false;
+        return;
+      }
+      // Validar que el QR pertenezca a la rutina seleccionada
+      if (expectedRoutineUuid && uuid !== expectedRoutineUuid){
+        if (typeof window.showToast === 'function') { showToast('Este QR no corresponde a la rutina seleccionada', 'warning', 3500); }
+        try { await detenerLectorQR(); } catch(_){ }
         qrScanBusy = false;
         return;
       }
@@ -584,8 +595,9 @@
       }
     }
 
-    function onRutinaBadgeClick(esActiva){
+    function onRutinaBadgeClick(el, esActiva){
       if (!esActiva){ if (typeof window.showToast === 'function') { showToast('Esta rutina está inactiva', 'info', 3000); } return; }
+      try { expectedRoutineUuid = el ? (el.getAttribute('data-uuid-rutina') || null) : null; } catch(_){ expectedRoutineUuid = null; }
       abrirModalQR();
     }
 

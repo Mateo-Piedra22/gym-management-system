@@ -160,31 +160,68 @@ def _get_preview_secret() -> str:
         pass
     return "preview-secret"
 
-def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int) -> str:
+def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
     try:
-        base = f"{int(rutina_id)}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
+        qr = str(qr_mode or "inline").strip().lower()
+        # Mapear valores antiguos a nuevas ubicaciones
+        if qr in ("auto", "real", "preview"):
+            qr = "inline"
     except Exception:
-        base = f"{rutina_id}|{weeks}|{filename}|{ts}".encode("utf-8")
+        qr = "inline"
+    try:
+        sh = int(sheet) if sheet is not None else 0
+    except Exception:
+        sh = 0
+    try:
+        base = f"{int(rutina_id)}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+    except Exception:
+        base = f"{rutina_id}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
 # Firma para previsualización efímera (borrador) basada en un payload ID
-def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int) -> str:
+def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
     try:
         pid = str(payload_id)
-        base = f"{pid}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
     except Exception:
-        base = f"{payload_id}|{weeks}|{filename}|{ts}".encode("utf-8")
+        pid = payload_id
+    try:
+        qr = str(qr_mode or "inline").strip().lower()
+        if qr in ("auto", "real", "preview"):
+            qr = "inline"
+    except Exception:
+        qr = "inline"
+    try:
+        sh = int(sheet) if sheet is not None else 0
+    except Exception:
+        sh = 0
+    try:
+        base = f"{pid}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+    except Exception:
+        base = f"{pid}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
 # Firma stateless basada en payload codificado
-def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int) -> str:
+def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
     try:
         d = str(data)
-        base = f"{d}|{int(weeks)}|{filename}|{int(ts)}".encode("utf-8")
     except Exception:
-        base = f"{data}|{weeks}|{filename}|{ts}".encode("utf-8")
+        d = data
+    try:
+        qr = str(qr_mode or "inline").strip().lower()
+        if qr in ("auto", "real", "preview"):
+            qr = "inline"
+    except Exception:
+        qr = "inline"
+    try:
+        sh = int(sheet) if sheet is not None else 0
+    except Exception:
+        sh = 0
+    try:
+        base = f"{d}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+    except Exception:
+        base = f"{d}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
@@ -2493,7 +2530,15 @@ async def api_rutina_export_excel(rutina_id: int, weeks: int = 1, filename: Opti
 
 # URL firmada para incrustar Excel en Google Viewer (requiere sesión para generar la URL)
 @app.get("/api/rutinas/{rutina_id}/export/excel_view_url")
-async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
+async def api_rutina_excel_view_url(
+    rutina_id: int,
+    request: Request,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    _=Depends(require_gestion_access),
+):
     # Normalizar nombre
     try:
         if filename:
@@ -2573,8 +2618,24 @@ async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int
         weeks = max(1, min(int(weeks), 4))
     except Exception:
         weeks = 1
+    # Normalizar qr_mode y sheet (ubicación del QR)
+    try:
+        qr_mode = str(qr_mode or "inline").strip().lower()
+        if qr_mode in ("auto", "real", "preview"):
+            qr_mode = "inline"
+        if qr_mode not in ("inline", "sheet", "none"):
+            qr_mode = "inline"
+    except Exception:
+        qr_mode = "inline"
+    try:
+        sheet_norm = None
+        if sheet is not None:
+            sheet_str = str(sheet).strip()
+            sheet_norm = sheet_str[:64] if sheet_str else None
+    except Exception:
+        sheet_norm = None
     ts = int(time.time())
-    sig = _sign_excel_view(rutina_id, weeks, base_name, ts)
+    sig = _sign_excel_view(rutina_id, weeks, base_name, ts, qr_mode=qr_mode, sheet=sheet_norm)
     base_url = get_webapp_base_url("")
     # Construir URL absoluta requerida por Google Viewer
     if not base_url:
@@ -2586,6 +2647,8 @@ async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int
     params = {
         "weeks": str(weeks),
         "filename": base_name,
+        "qr_mode": qr_mode,
+        "sheet": sheet_norm or "",
         "ts": str(ts),
         "sig": sig,
     }
@@ -2595,13 +2658,37 @@ async def api_rutina_excel_view_url(rutina_id: int, request: Request, weeks: int
 
 # Endpoint público (sin sesión) que sirve el XLSX firmado en modo inline para el visor
 @app.get("/api/rutinas/{rutina_id}/export/excel_view")
-async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+async def api_rutina_excel_view(
+    rutina_id: int,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    ts: int = 0,
+    sig: Optional[str] = None,
+):
     if not sig:
         raise HTTPException(status_code=403, detail="Firma requerida")
     try:
         weeks = max(1, min(int(weeks), 4))
     except Exception:
         weeks = 1
+    # Normalizar qr_mode y sheet (ubicación del QR)
+    try:
+        qr_mode = str(qr_mode or "inline").strip().lower()
+        if qr_mode in ("auto", "real", "preview"):
+            qr_mode = "inline"
+        if qr_mode not in ("inline", "sheet", "none"):
+            qr_mode = "inline"
+    except Exception:
+        qr_mode = "inline"
+    try:
+        sheet_norm = None
+        if sheet is not None:
+            sheet_str = str(sheet).strip()
+            sheet_norm = sheet_str[:64] if sheet_str else None
+    except Exception:
+        sheet_norm = None
     # Normalizar nombre de archivo
     try:
         base_name = os.path.basename(filename) if filename else f"rutina_{rutina_id}.xlsx"
@@ -2619,7 +2706,7 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
     except Exception:
         raise HTTPException(status_code=403, detail="Timestamp inválido")
     # Verificar firma
-    expected = _sign_excel_view(rutina_id, weeks, base_name, int(ts))
+    expected = _sign_excel_view(rutina_id, weeks, base_name, int(ts), qr_mode=qr_mode, sheet=sheet_norm)
     if not hmac.compare_digest(expected, str(sig)):
         raise HTTPException(status_code=403, detail="Firma inválida")
     # Generar Excel como en el endpoint autenticado
@@ -2698,7 +2785,7 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
                         self.nombre = nombre
                 usuario = _Usr("" if u_id is not None else "Plantilla")
         ejercicios_por_dia = _build_exercises_by_day(rutina)
-        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks, qr_mode=qr_mode, sheet=sheet_norm)
         # Servir inline para permitir incrustación en Google Viewer
         resp = FileResponse(
             out_path,
@@ -2721,7 +2808,14 @@ async def api_rutina_excel_view(rutina_id: int, weeks: int = 1, filename: Option
 
 # URL firmada para previsualización con datos efímeros (borrador en memoria)
 @app.post("/api/rutinas/preview/excel_view_url")
-async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
+async def api_rutina_preview_excel_view_url(
+    request: Request,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    _=Depends(require_gestion_access),
+):
     # Leer payload efímero desde el cuerpo
     try:
         data = await request.json()
@@ -2741,6 +2835,22 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             weeks = max(1, min(int(weeks), 4))
         except Exception:
             weeks = 1
+        # Normalizar qr_mode y sheet (ubicación del QR)
+        try:
+            qr_mode = str(qr_mode or "inline").strip().lower()
+            if qr_mode in ("auto", "real", "preview"):
+                qr_mode = "inline"
+            if qr_mode not in ("inline", "sheet", "none"):
+                qr_mode = "inline"
+        except Exception:
+            qr_mode = "inline"
+        try:
+            sheet_norm = None
+            if sheet is not None:
+                sheet_str = str(sheet).strip()
+                sheet_norm = sheet_str[:64] if sheet_str else None
+        except Exception:
+            sheet_norm = None
         # Normalizar nombre (construir por defecto usando payload)
         try:
             if filename:
@@ -2778,7 +2888,7 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
         except Exception:
             pass
         ts = int(time.time())
-        sig = _sign_excel_view_draft_data(data, weeks, base_name, ts)
+        sig = _sign_excel_view_draft_data(data, weeks, base_name, ts, qr_mode=qr_mode, sheet=sheet_norm)
         try:
             base_url = get_webapp_base_url("")
         except Exception:
@@ -2794,6 +2904,8 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
             "data": data,
             "weeks": str(weeks),
             "filename": base_name,
+            "qr_mode": qr_mode,
+            "sheet": sheet_norm or "",
             "ts": str(ts),
             "sig": sig,
         }
@@ -2809,7 +2921,17 @@ async def api_rutina_preview_excel_view_url(request: Request, weeks: int = 1, fi
 
 # Endpoint público para servir XLSX firmado desde borrador efímero
 @app.get("/api/rutinas/preview/excel_view")
-async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
+async def api_rutina_preview_excel_view(
+    request: Request,
+    pid: Optional[str] = None,
+    data: Optional[str] = None,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    ts: int = 0,
+    sig: Optional[str] = None,
+):
     if not sig:
         raise HTTPException(status_code=403, detail="Firma requerida")
     if not (pid or data):
@@ -2818,6 +2940,22 @@ async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = N
         weeks = max(1, min(int(weeks), 4))
     except Exception:
         weeks = 1
+    # Normalizar qr_mode y sheet (ubicación del QR)
+    try:
+        qr_mode = str(qr_mode or "inline").strip().lower()
+        if qr_mode in ("auto", "real", "preview"):
+            qr_mode = "inline"
+        if qr_mode not in ("inline", "sheet", "none"):
+            qr_mode = "inline"
+    except Exception:
+        qr_mode = "inline"
+    try:
+        sheet_norm = None
+        if sheet is not None:
+            sheet_str = str(sheet).strip()
+            sheet_norm = sheet_str[:64] if sheet_str else None
+    except Exception:
+        sheet_norm = None
     # Normalizar nombre de archivo
     try:
         base_name = os.path.basename(filename) if filename else "rutina_preview.xlsx"
@@ -2836,11 +2974,11 @@ async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = N
         raise HTTPException(status_code=403, detail="Timestamp inválido")
     # Verificar firma
     if data:
-        expected = _sign_excel_view_draft_data(str(data), weeks, base_name, int(ts))
+        expected = _sign_excel_view_draft_data(str(data), weeks, base_name, int(ts), qr_mode=qr_mode, sheet=sheet_norm)
         if not hmac.compare_digest(expected, str(sig)):
             raise HTTPException(status_code=403, detail="Firma inválida")
     else:
-        expected = _sign_excel_view_draft(str(pid), weeks, base_name, int(ts))
+        expected = _sign_excel_view_draft(str(pid), weeks, base_name, int(ts), qr_mode=qr_mode, sheet=sheet_norm)
         if not hmac.compare_digest(expected, str(sig)):
             raise HTTPException(status_code=403, detail="Firma inválida")
     rm = _get_rm()
@@ -2943,7 +3081,7 @@ async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = N
                     _save_excel_preview_routine(uuid_val, rutina_dict)
                 except Exception:
                     pass
-        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks)
+        out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks, qr_mode=qr_mode, sheet=sheet_norm)
         resp = FileResponse(
             out_path,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2966,8 +3104,28 @@ async def api_rutina_preview_excel_view(request: Request, pid: Optional[str] = N
 
 # Variante con extensión .xlsx para compatibilidad con Office Viewer
 @app.get("/api/rutinas/preview/excel_view.xlsx")
-async def api_rutina_preview_excel_view_ext(request: Request, pid: Optional[str] = None, data: Optional[str] = None, weeks: int = 1, filename: Optional[str] = None, ts: int = 0, sig: Optional[str] = None):
-    return await api_rutina_preview_excel_view(request=request, pid=pid, data=data, weeks=weeks, filename=filename, ts=ts, sig=sig)
+async def api_rutina_preview_excel_view_ext(
+    request: Request,
+    pid: Optional[str] = None,
+    data: Optional[str] = None,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    ts: int = 0,
+    sig: Optional[str] = None,
+):
+    return await api_rutina_preview_excel_view(
+        request=request,
+        pid=pid,
+        data=data,
+        weeks=weeks,
+        filename=filename,
+        qr_mode=qr_mode,
+        sheet=sheet,
+        ts=ts,
+        sig=sig,
+    )
 
 # --- API Rutinas ---
 @app.get("/api/rutinas")
@@ -4022,10 +4180,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
                     pass
                 # Si el proceso terminó muy rápido y estábamos en 22, probar 443 como siguiente intento (solo serveo)
                 # Sin alternancia de puertos ni fallback: centrado en LocalTunnel
-                try:
-                    pass
-                except Exception:
-                    pass
+                # (Reservado para futuras estrategias de reconexión)
                 # Dormir y aumentar backoff antes de reintentar
                 try:
                     time.sleep(backoff)

@@ -2450,15 +2450,15 @@
 </div>
 
 <!-- Modal: Previsualización y edición avanzada de Rutina -->
-<div class="modal-backdrop" id="modal-rutina-preview" style="display:none" aria-hidden="true">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-preview-title" style="width: 99vw; max-width: 1600px">
+  <div class="modal-backdrop" id="modal-rutina-preview" style="display:none" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-preview-title" style="width: 99vw; max-width: 1600px; max-height: 95vh; overflow: auto; overscroll-behavior: contain">
     <div class="modal-header">
       <h3 id="modal-rutina-preview-title" style="margin:0; font-size:16px;">Vista previa de rutina</h3>
       <div id="rutina-preview-status" class="muted" aria-live="polite" style="margin-left:auto; margin-right:8px"></div>
       <button class="modal-close" id="rutina-preview-close" aria-label="Cerrar">×</button>
     </div>
-    <div class="modal-body" style="max-height: 82vh; overflow:auto">
-      <div class="form-grid" id="rutina-preview-form" style="margin-bottom:12px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; gap:12px">
+    <div class="modal-body" style="max-height: 82vh; overflow:hidden">
+    <div class="form-grid" id="rutina-preview-form" style="margin-bottom:12px; padding:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; gap:12px">
         <div class="form-row" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:12px; align-items:end">
           <div>
             <label for="rutina-preview-nombre">Nombre</label>
@@ -2481,7 +2481,7 @@
           </div>
           <div>
           <label for="rutina-preview-semanas">Semanas</label>
-          <select id="rutina-preview-semanas" style="min-width:100px; width:auto">
+      <select id="rutina-preview-semanas" style="min-width:100px; width:auto">
               <option value="1">1</option>
               <option value="2">2</option>
               <option value="3">3</option>
@@ -2506,6 +2506,18 @@
               </select>
             </div>
           </div>
+        </div>
+        <!-- Control de ubicación del QR dentro del modal (no en controles flotantes) -->
+        <div class="form-row" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
+          <label for="preview-qr-placement" style="display:flex; gap:6px; align-items:center"><span class="muted">QR</span>
+            <select id="preview-qr-placement" aria-label="Ubicación del QR" style="min-width:160px">
+              <option value="inline" selected>Debajo de la rutina</option>
+              <option value="sheet">Segunda hoja (QR)</option>
+              <option value="none">Sin QR</option>
+            </select>
+          </label>
+          <!-- Input oculto para gestionar la hoja activa cuando QR=sheet -->
+          <input id="preview-sheet-name" type="text" value="" style="display:none" aria-hidden="true" />
         </div>
         <div class="form-row" style="display:flex; flex-direction:column; gap:8px; align-items:flex-start">
           <label for="rutina-preview-add-ej">Agregar ejercicio</label>
@@ -2549,9 +2561,9 @@
           </div>
           <div>
             <!-- Vista previa PDF integrada -->
-            <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:auto; position:relative">
+            <div id="rutina-preview-pdf" class="table-scroll" style="border:1px solid var(--border); border-radius:8px; overflow:visible; position:relative">
               <div id="rutina-preview-pdf-status" class="muted" role="status" aria-live="polite" style="display:none; padding:8px; border-bottom:1px solid var(--border)">Actualizando vista previa…</div>
-<div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel en el visor automáticamente.</div>
+              <div id="rutina-preview-pdf-empty" class="muted" style="padding:12px">Genera la vista previa guardando la rutina; se mostrará el Excel en el visor automáticamente.</div>
               <iframe id="rutina-preview-frame" title="Vista previa de la rutina" style="display:none; width:100%; height:80vh; min-height:480px; border:0; transform-origin: center top" src=""></iframe>
             </div>
           </div>
@@ -2612,7 +2624,7 @@
           </div>
         </div>
       </div>
-      <div class="table-scroll" id="rutina-preview-excel" style="margin-top:12px; border:1px solid var(--border); border-radius:12px; background:var(--card); padding:8px">
+      <div class="table-scroll" id="rutina-preview-excel" style="margin-top:12px; border:1px solid var(--border); border-radius:12px; background:var(--card); padding:8px; overscroll-behavior: contain;"
           <table id="rutina-preview-excel-table">
           <thead>
             <tr>
@@ -2657,6 +2669,20 @@
         <div class="form-row">
           <label for="rutina-export-usuario-nombre">Usuario (encabezado)</label>
           <input id="rutina-export-usuario-nombre" type="text" placeholder="Dejar vacío para usar asignado/Plantilla" />
+        </div>
+        <div class="form-row">
+          <label for="rutina-export-qr-mode">Ubicación del QR</label>
+          <select id="rutina-export-qr-mode" aria-describedby="rutina-export-qr-help">
+            <option value="inline" selected>Debajo de la rutina</option>
+            <option value="sheet">Segunda hoja (QR)</option>
+            <option value="none">Sin QR</option>
+          </select>
+          <small id="rutina-export-qr-help" class="muted">Elige dónde colocar el QR en el Excel.</small>
+        </div>
+        <div class="form-row">
+          <label for="rutina-export-sheet-name">Hoja activa (opcional)</label>
+          <input id="rutina-export-sheet-name" type="text" placeholder="Ej: Día 1 o QR" aria-describedby="rutina-export-sheet-help" />
+          <small id="rutina-export-sheet-help" class="muted">Deja vacío para usar la hoja predeterminada.</small>
         </div>
       </div>
       <div class="form-grid" style="margin:8px 0;">
@@ -7567,11 +7593,13 @@ async function directExportExcelFromPreview(){
     let xlsxName = segs.join('_') + '.xlsx';
     try { xlsxName = String(xlsxName).replace(/\s+/g,'_').replace(/[\\/:*?"<>|]+/g, '_').slice(0,150); } catch(_) {}
     let urlSignedRes;
+    const qrModeDefault = ((document.getElementById('preview-qr-placement')||{}).value || 'inline');
+    const sheetDefault = (((document.getElementById('preview-sheet-name')||{}).value || '').trim() || '');
     if (d && d.id) {
-      const qs = new URLSearchParams({ weeks: String(weeks), filename: xlsxName });
+      const qs = new URLSearchParams({ weeks: String(weeks), filename: xlsxName, qr_mode: qrModeDefault, sheet: sheetDefault });
       urlSignedRes = await fetch(`/api/rutinas/${encodeURIComponent(String(d.id))}/export/excel_view_url?` + qs.toString(), { method:'GET', headers:{ 'Accept':'application/json' } });
     } else {
-      urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+      urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}&qr_mode=${encodeURIComponent(String(qrModeDefault))}&sheet=${encodeURIComponent(String(sheetDefault))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
     }
     const urlSignedData = await urlSignedRes.json().catch(()=>({}));
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
@@ -7624,7 +7652,10 @@ async function updateRutinaPDFPreview(){
     segs.push(dateStr);
     let xlsxName = segs.join('_') + '.xlsx';
     try { xlsxName = String(xlsxName).replace(/\s+/g,'_').replace(/[\\/:*?"<>|]+/g, '_').slice(0,150); } catch(_) {}
-    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+    // Leer controles flotantes (si existen)
+    const qrPlacement = ((document.getElementById('preview-qr-placement')||{}).value || 'inline');
+    const sheetName = (((document.getElementById('preview-sheet-name')||{}).value || '').trim() || '');
+    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}&qr_mode=${encodeURIComponent(String(qrPlacement))}&sheet=${encodeURIComponent(String(sheetName))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
     const urlSignedData = await urlSignedRes.json().catch(()=>({}));
     if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
     if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return; }
@@ -7641,7 +7672,32 @@ async function updateRutinaPDFPreview(){
   try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
   // Asegurar controles flotantes de zoom
   try{ ensurePdfZoomControls('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
+  // Enganchar eventos de controles flotantes
+  try{ ensureFloatingPreviewControls(); }catch(_){ }
 }catch(_){ const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } }
+}
+
+// Controles flotantes: wiring de eventos y navegación de hojas rápidas
+function ensureFloatingPreviewControls(){
+  const sheetInput = document.getElementById('preview-sheet-name');
+  const qrSel = document.getElementById('preview-qr-placement');
+  const prevBtn = document.getElementById('preview-sheet-prev');
+  const nextBtn = document.getElementById('preview-sheet-next');
+  const cycle = ['Día 1','Día 2','Día 3','Día 4','Día 5','QR'];
+  if(sheetInput){ sheetInput.oninput = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
+  if(qrSel){ qrSel.onchange = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
+  function step(dir){
+    try{
+      const curr = (sheetInput && sheetInput.value ? String(sheetInput.value).trim() : '');
+      let idx = cycle.findIndex(n => n.toLowerCase() === curr.toLowerCase());
+      if(idx < 0){ idx = 0; }
+      idx = (idx + (dir<0 ? -1 : 1) + cycle.length) % cycle.length;
+      if(sheetInput){ sheetInput.value = cycle[idx]; }
+      updateRutinaPDFPreview();
+    }catch(_){ }
+  }
+  if(prevBtn){ prevBtn.onclick = () => step(-1); }
+  if(nextBtn){ nextBtn.onclick = () => step(1); }
 }
 // Zoom con rueda para iframes PDF (aplica escala CSS al iframe)
 function attachWheelZoom(containerId, frameId){
@@ -7785,9 +7841,27 @@ function ensurePdfZoomControls(containerId, frameId){
           catch(_){ }
           closeMenu();
         });
+        const itemToggleSheet = mkMenuItem('⇆', 'Hoja 1/2', 'Alternar hoja 1/2', () => {
+          try{
+            const qrSel = document.getElementById('preview-qr-placement');
+            const qrMode = (qrSel && qrSel.value) ? String(qrSel.value) : 'inline';
+            if(qrMode === 'sheet'){
+              const inp = document.getElementById('preview-sheet-name');
+              const cur = ((inp && inp.value) ? String(inp.value).trim() : '').toLowerCase();
+              const next = (cur === 'qr') ? '' : 'QR';
+              if(inp){ inp.value = next; }
+              // Actualizar siempre la vista previa al alternar
+              try{ updateRutinaPDFPreview(); }catch(__){ }
+              // Fallback: si hay botón de previsualización, dispararlo
+              try{ const btn = document.getElementById('rutina-export-preview-btn'); if(btn) btn.click(); }catch(__){ }
+            }
+          }catch(__){ }
+          closeMenu();
+        });
         menu.appendChild(itemFit);
         menu.appendChild(itemFull);
         menu.appendChild(itemOpen);
+        menu.appendChild(itemToggleSheet);
         fab.appendChild(menu);
       }
       const openMenu = () => { menu.dataset.open = 'true'; menuBtn.setAttribute('aria-expanded','true'); try{ const first = menu.querySelector('.menu-item'); if(first) first.focus(); }catch(_){ } };
@@ -8285,7 +8359,9 @@ function ensurePdfZoomControls(containerId, frameId){
           const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
           const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
           const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
-          const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+          const qrMode = (document.getElementById('rutina-export-qr-mode')||{}).value || 'auto';
+          const sheetName = ((document.getElementById('rutina-export-sheet-name')||{}).value || '').trim();
+          const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}&qr_mode=${encodeURIComponent(String(qrMode))}&sheet=${encodeURIComponent(String(sheetName||''))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
           const urlSignedData = await urlSignedRes.json().catch(()=>({}));
           if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
           if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); return; }
@@ -8341,12 +8417,14 @@ function ensurePdfZoomControls(containerId, frameId){
             const weeks = Math.max(1, Math.min(4, Number((document.getElementById('rutina-export-weeks')||{}).value || 1)));
             const fnameEl = (document.getElementById('rutina-export-filename')||{}).value || '';
             const fnameSafe = (fnameEl || ((dInner.nombre_rutina || dInner.nombre || 'rutina') + '.xlsx')).replace(/[\\/:*?"<>|]+/g, '_');
+            const qrMode = (document.getElementById('rutina-export-qr-mode')||{}).value || 'auto';
+            const sheetName = ((document.getElementById('rutina-export-sheet-name')||{}).value || '').trim();
             let urlSignedRes;
             if (dInner && dInner.id) {
-              const qs = new URLSearchParams({ weeks: String(weeks), filename: fnameSafe });
+              const qs = new URLSearchParams({ weeks: String(weeks), filename: fnameSafe, qr_mode: String(qrMode), sheet: String(sheetName||'') });
               urlSignedRes = await fetch(`/api/rutinas/${encodeURIComponent(String(dInner.id))}/export/excel_view_url?` + qs.toString(), { method:'GET', headers:{ 'Accept':'application/json' } });
             } else {
-              urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+              urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(fnameSafe)}&qr_mode=${encodeURIComponent(String(qrMode))}&sheet=${encodeURIComponent(String(sheetName||''))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
             }
             const urlSignedData = await urlSignedRes.json().catch(()=>({}));
             if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
