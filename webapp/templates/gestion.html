@@ -8401,7 +8401,8 @@ function ensurePdfZoomControls(containerId, frameId){
       styleTag = document.createElement('style');
       styleTag.id = 'rutina-preview-zoom-css';
       styleTag.textContent = `
-        #rutina-preview-zoom-controls{ position:sticky; top:12px; left:50%; transform: translateX(-50%); display:flex; align-items:center; gap:8px; padding:6px; border-radius:999px; border:1px solid var(--info); background: rgba(139,120,185,0.12); backdrop-filter: blur(6px); box-shadow: var(--shadow-md); z-index: var(--z-header); }
+        #rutina-preview-pdf{ position:relative; }
+        #rutina-preview-zoom-controls{ position:absolute; top:12px; left:50%; transform: translateX(-50%); display:flex; align-items:center; gap:8px; padding:6px; border-radius:999px; border:1px solid var(--info); background: rgba(139,120,185,0.12); backdrop-filter: blur(6px); box-shadow: var(--shadow-md); z-index: 9999; }
         #rutina-preview-zoom-controls .btn{ padding:8px 12px; border-radius:999px; }
         #rutina-preview-zoom-controls .btn .icon{ font-weight:700; }
         #rutina-preview-zoom-controls .btn .label{ font-weight:600; }
@@ -8546,7 +8547,7 @@ function ensurePdfZoomControls(containerId, frameId){
           }
         }catch(_){ }
       }, { passive:false });
-      cont.appendChild(fab);
+      try{ cont.insertBefore(fab, cont.firstChild || null); }catch(_){ cont.appendChild(fab); }
       // No ocultamos controles principales; el menú alberga acciones extra
     }
   }catch(_){ }
