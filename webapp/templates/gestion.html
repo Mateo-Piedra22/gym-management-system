@@ -8445,7 +8445,7 @@ function ensurePdfZoomControls(containerId, frameId){
       };
       const applyScale = (scale) => {
         const z = getZoom();
-        z.scale = Math.max(0.5, Math.min(3.0, scale));
+        z.scale = Math.max(0.25, Math.min(3.0, scale));
         frame.style.transform = `scale(${z.scale})`;
         frame.style.transformOrigin = 'center top';
       };
@@ -8546,8 +8546,23 @@ function ensurePdfZoomControls(containerId, frameId){
           }
         }catch(_){ }
       }, { passive:false });
-      try{ fab.style.position = ''; fab.style.bottom = ''; fab.style.right = ''; fab.style.zIndex = ''; }catch(_){ }
-      cont.appendChild(fab);
+      document.body.appendChild(fab);
+      const positionToolbar = () => {
+        try{
+          const rect = cont.getBoundingClientRect();
+          const pad = 12;
+          const top = Math.max(pad, Math.min(window.innerHeight - (fab.offsetHeight||48) - pad, rect.top + pad));
+          const left = rect.left + rect.width/2;
+          fab.style.position = 'fixed';
+          fab.style.top = `${top}px`;
+          fab.style.left = `${left}px`;
+          fab.style.transform = 'translateX(-50%)';
+          fab.style.zIndex = '9999';
+        }catch(_){ }
+      };
+      positionToolbar();
+      window.addEventListener('scroll', positionToolbar, { passive:true });
+      window.addEventListener('resize', positionToolbar, { passive:true });
       // No ocultamos controles principales; el menú alberga acciones extra
     }
   }catch(_){ }
