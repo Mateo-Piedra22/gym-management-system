@@ -167,27 +167,30 @@ def _get_preview_secret() -> str:
         pass
     return "preview-secret"
 
-def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
+def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: str | None = None) -> str:
     try:
         qr = str(qr_mode or "inline").strip().lower()
         # Mapear valores antiguos a nuevas ubicaciones
         if qr in ("auto", "real", "preview"):
             qr = "inline"
+        if qr not in ("inline", "sheet", "none"):
+            qr = "inline"
     except Exception:
         qr = "inline"
+    # Incorporar el nombre de hoja como string en la firma (protegido y truncado)
     try:
-        sh = int(sheet) if sheet is not None else 0
+        sh = (str(sheet).strip()[:64]) if (sheet is not None and str(sheet).strip()) else ""
     except Exception:
-        sh = 0
+        sh = ""
     try:
-        base = f"{int(rutina_id)}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+        base = f"{int(rutina_id)}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{sh}".encode("utf-8")
     except Exception:
         base = f"{rutina_id}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
 # Firma para previsualización efímera (borrador) basada en un payload ID
-def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
+def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: str | None = None) -> str:
     try:
         pid = str(payload_id)
     except Exception:
@@ -196,21 +199,23 @@ def _sign_excel_view_draft(payload_id: str, weeks: int, filename: str, ts: int, 
         qr = str(qr_mode or "inline").strip().lower()
         if qr in ("auto", "real", "preview"):
             qr = "inline"
+        if qr not in ("inline", "sheet", "none"):
+            qr = "inline"
     except Exception:
         qr = "inline"
     try:
-        sh = int(sheet) if sheet is not None else 0
+        sh = (str(sheet).strip()[:64]) if (sheet is not None and str(sheet).strip()) else ""
     except Exception:
-        sh = 0
+        sh = ""
     try:
-        base = f"{pid}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+        base = f"{pid}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{sh}".encode("utf-8")
     except Exception:
         base = f"{pid}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
     return hmac.new(secret, base, hashlib.sha256).hexdigest()
 
 # Firma stateless basada en payload codificado
-def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: int | None = None) -> str:
+def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int, qr_mode: str = "auto", sheet: str | None = None) -> str:
     try:
         d = str(data)
     except Exception:
@@ -219,14 +224,16 @@ def _sign_excel_view_draft_data(data: str, weeks: int, filename: str, ts: int, q
         qr = str(qr_mode or "inline").strip().lower()
         if qr in ("auto", "real", "preview"):
             qr = "inline"
+        if qr not in ("inline", "sheet", "none"):
+            qr = "inline"
     except Exception:
         qr = "inline"
     try:
-        sh = int(sheet) if sheet is not None else 0
+        sh = (str(sheet).strip()[:64]) if (sheet is not None and str(sheet).strip()) else ""
     except Exception:
-        sh = 0
+        sh = ""
     try:
-        base = f"{d}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{int(sh)}".encode("utf-8")
+        base = f"{d}|{int(weeks)}|{filename}|{int(ts)}|{qr}|{sh}".encode("utf-8")
     except Exception:
         base = f"{d}|{weeks}|{filename}|{ts}|{qr}|{sh}".encode("utf-8")
     secret = _get_preview_secret().encode("utf-8")
