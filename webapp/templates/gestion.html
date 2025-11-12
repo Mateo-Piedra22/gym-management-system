@@ -8546,23 +8546,7 @@ function ensurePdfZoomControls(containerId, frameId){
           }
         }catch(_){ }
       }, { passive:false });
-      document.body.appendChild(fab);
-      const positionToolbar = () => {
-        try{
-          const rect = cont.getBoundingClientRect();
-          const pad = 12;
-          const top = Math.max(pad, Math.min(window.innerHeight - (fab.offsetHeight||48) - pad, rect.top + pad));
-          const left = rect.left + rect.width/2;
-          fab.style.position = 'fixed';
-          fab.style.top = `${top}px`;
-          fab.style.left = `${left}px`;
-          fab.style.transform = 'translateX(-50%)';
-          fab.style.zIndex = '9999';
-        }catch(_){ }
-      };
-      positionToolbar();
-      window.addEventListener('scroll', positionToolbar, { passive:true });
-      window.addEventListener('resize', positionToolbar, { passive:true });
+      cont.appendChild(fab);
       // No ocultamos controles principales; el menú alberga acciones extra
     }
   }catch(_){ }
