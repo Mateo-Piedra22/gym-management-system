@@ -8289,22 +8289,38 @@ async function updateRutinaPDFPreview(){
     segs.push(dateStr);
     let xlsxName = segs.join('_') + '.xlsx';
     try { xlsxName = String(xlsxName).replace(/\s+/g,'_').replace(/[\\/:*?"<>|]+/g, '_').slice(0,150); } catch(_) {}
-    // Leer controles flotantes (si existen)
     const qrPlacement = ((document.getElementById('preview-qr-placement')||{}).value || 'inline');
     const sheetName = (((document.getElementById('preview-sheet-name')||{}).value || '').trim() || '');
-    const urlSignedRes = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}&qr_mode=${encodeURIComponent(String(qrPlacement))}&sheet=${encodeURIComponent(String(sheetName))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
-    const urlSignedData = await urlSignedRes.json().catch(()=>({}));
-    if(urlSignedRes.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return; }
-    if(!urlSignedRes.ok || !urlSignedData.url){ let msg = urlSignedData.detail || urlSignedData.error || `Error ${urlSignedRes.status}`; showToast(msg, 'error', 4500); const empty = document.getElementById('rutina-preview-pdf-empty'); const frame = document.getElementById('rutina-preview-frame'); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return; }
-    // Usar Office Viewer en lugar de Google Viewer para evitar errores de autenticación de Google Cloud
-    let srcUrl = String(urlSignedData.url || "");
-    try { srcUrl = srcUrl.replace(/([^:])\/\/+/, "$1/"); } catch(_) {}
-    const viewerSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(srcUrl)}`;
+    async function makeViewerSrc(sheetArg){
+      let res;
+      if(d && d.id){
+        const qs = new URLSearchParams({ weeks: String(weeks), filename: xlsxName, qr_mode: qrPlacement, sheet: sheetArg });
+        res = await fetch(`/api/rutinas/${encodeURIComponent(String(d.id))}/export/excel_view_url?` + qs.toString(), { method:'GET', headers:{ 'Accept':'application/json' } });
+      } else {
+        res = await fetch(`/api/rutinas/preview/excel_view_url?weeks=${encodeURIComponent(String(weeks))}&filename=${encodeURIComponent(xlsxName)}&qr_mode=${encodeURIComponent(String(qrPlacement))}&sheet=${encodeURIComponent(String(sheetArg||''))}`, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) });
+      }
+      const data = await res.json().catch(()=>({}));
+      if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href='/gestion/login'; }catch(e){} return null; }
+      if(!res.ok || !data.url){ let msg = data.detail || data.error || `Error ${res.status}`; showToast(msg, 'error', 4500); if(empty && frame){ empty.style.display='block'; frame.style.display='none'; } return null; }
+      let signed = String(data.url || "");
+      try { signed = signed.replace(/([^:])\/\/+/, "$1/"); } catch(_) {}
+      return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signed)}`;
+    }
+    let cache = { sheet: null, qr: null };
+    if(String(qrPlacement).toLowerCase() === 'inline'){
+      cache.sheet = await makeViewerSrc('Sheet');
+      cache.qr = await makeViewerSrc('QR');
+    } else {
+      const current = await makeViewerSrc(sheetName || 'Sheet');
+      cache.sheet = current;
+    }
+    state.rutinaPreviewSrcCache = cache;
     empty.style.display='none';
     if(statusEl){ statusEl.textContent = 'Actualizando vista previa…'; statusEl.style.display='block'; }
     frame.style.display='block';
-  try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
-  frame.src = viewerSrc;
+    try{ frame.onload = () => { try{ if(statusEl){ statusEl.textContent = 'Vista previa actualizada'; setTimeout(() => { statusEl.style.display='none'; }, 900); } }catch(_){ } }; }catch(_){ }
+    const pick = (() => { const v = (sheetName||'').trim().toLowerCase(); if(v === 'qr' && cache.qr){ return cache.qr; } return cache.sheet; })();
+    if(pick){ frame.src = pick; }
   // Adjuntar zoom con rueda
   try{ attachWheelZoom('rutina-preview-pdf', 'rutina-preview-frame'); }catch(_){ }
   // Asegurar controles flotantes de zoom
@@ -8321,7 +8337,7 @@ function ensureFloatingPreviewControls(){
   const prevBtn = document.getElementById('preview-sheet-prev');
   const nextBtn = document.getElementById('preview-sheet-next');
   const cycle = ['Sheet','QR'];
-  if(sheetInput){ sheetInput.oninput = () => { try{ const v = String(sheetInput.value||'').trim().toLowerCase(); if(v === 'qr' && qrSel){ qrSel.value = 'sheet'; } updateRutinaPDFPreview(); }catch(_){ } }; }
+  if(sheetInput){ sheetInput.oninput = () => { try{ const v = String(sheetInput.value||'').trim().toLowerCase(); const frame = document.getElementById('rutina-preview-frame'); if(v === 'qr'){ if(qrSel){ qrSel.value = 'inline'; } if(state.rutinaPreviewSrcCache && state.rutinaPreviewSrcCache.qr && frame){ frame.src = state.rutinaPreviewSrcCache.qr; return; } } if(v === 'sheet'){ if(state.rutinaPreviewSrcCache && state.rutinaPreviewSrcCache.sheet && frame){ frame.src = state.rutinaPreviewSrcCache.sheet; return; } } updateRutinaPDFPreview(); }catch(_){ } }; }
   if(qrSel){ qrSel.onchange = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
   function step(dir){
     try{
@@ -8331,7 +8347,9 @@ function ensureFloatingPreviewControls(){
       idx = (idx + (dir<0 ? -1 : 1) + cycle.length) % cycle.length;
       const nextVal = cycle[idx];
       if(sheetInput){ sheetInput.value = nextVal; }
-      if(nextVal.toLowerCase() === 'qr' && qrSel){ qrSel.value = 'sheet'; }
+      const frame = document.getElementById('rutina-preview-frame');
+      if(nextVal.toLowerCase() === 'qr'){ if(qrSel){ qrSel.value = 'inline'; } if(state.rutinaPreviewSrcCache && state.rutinaPreviewSrcCache.qr && frame){ frame.src = state.rutinaPreviewSrcCache.qr; return; } }
+      if(state.rutinaPreviewSrcCache && state.rutinaPreviewSrcCache.sheet && frame){ frame.src = state.rutinaPreviewSrcCache.sheet; return; }
       updateRutinaPDFPreview();
     }catch(_){ }
   }
@@ -8488,7 +8506,12 @@ function ensurePdfZoomControls(containerId, frameId){
             const nextSheet = (cur === 'sheet') ? 'QR' : 'Sheet';
             input.value = nextSheet;
             const qrSel = document.getElementById('preview-qr-placement');
-            if(qrSel){ qrSel.value = (nextSheet === 'QR') ? 'sheet' : 'inline'; }
+            const frame = document.getElementById('rutina-preview-frame');
+            if(qrSel && nextSheet === 'QR'){ qrSel.value = 'inline'; }
+            if(frame && state.rutinaPreviewSrcCache){
+              const src = (nextSheet === 'QR') ? state.rutinaPreviewSrcCache.qr : state.rutinaPreviewSrcCache.sheet;
+              if(src){ frame.src = src; closeMenu(); return; }
+            }
             try{ updateRutinaPDFPreview(); }catch(_){ }
           }catch(__){ }
           closeMenu();
@@ -8523,7 +8546,8 @@ function ensurePdfZoomControls(containerId, frameId){
           }
         }catch(_){ }
       }, { passive:false });
-      cont.appendChild(fab);
+      try{ fab.style.position = 'fixed'; fab.style.bottom = '16px'; fab.style.right = '16px'; fab.style.zIndex = '9999'; }catch(_){ }
+      document.body.appendChild(fab);
       // No ocultamos controles principales; el menú alberga acciones extra
     }
   }catch(_){ }
