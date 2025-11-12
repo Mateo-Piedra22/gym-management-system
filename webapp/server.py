@@ -1633,6 +1633,14 @@ _safe_mkdir(uploads_dir)
 templates_dir = _resolve_existing_dir("webapp", "templates")
 templates = Jinja2Templates(directory=str(templates_dir))
 
+# Registrar rutas adicionales (bloques de ejercicios por clase)
+try:
+    from .routes_bloques import register_bloques_routes  # type: ignore
+    register_bloques_routes(app)
+except Exception:
+    # No bloquear el arranque si no se pueden registrar
+    pass
+
 try:
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 except Exception:
@@ -2009,7 +2017,19 @@ def _verify_owner_password(password: str) -> bool:
 
 
 def _resolve_logo_url() -> str:
-    # Resuelve el logo desde assets del proyecto principal
+    # Primero intentar obtener URL desde configuración en DB
+    try:
+        db = _get_db()
+        if db is not None and hasattr(db, 'obtener_configuracion'):
+            try:
+                url = db.obtener_configuracion('gym_logo_url')  # type: ignore
+            except Exception:
+                url = None
+            if isinstance(url, str) and url.strip():
+                return url.strip()
+    except Exception:
+        pass
+    # Fallback a assets locales
     candidates = [
         _resolve_existing_dir("assets") / "gym_logo.png",
         _resolve_existing_dir("assets") / "logo.svg",
@@ -2044,8 +2064,8 @@ async def api_gym_data(request: Request):
 
 @app.post("/api/gym/update")
 async def api_gym_update(request: Request):
-    """Actualiza nombre y dirección del gimnasio en gym_data.txt.
-    Requiere dueño. Preserva comentarios y otras claves del archivo.
+    """Actualiza nombre y dirección del gimnasio en configuración (DB).
+    Requiere dueño. Fallback a gym_data.txt si DB no disponible.
     """
     try:
         # Verificar acceso de dueño sin depender del orden de definición
@@ -2068,41 +2088,50 @@ async def api_gym_update(request: Request):
             # Persistir saltos de línea como \n
             updates["gym_address"] = addr.replace("\n", "\\n").strip()
 
-        path = Path("gym_data.txt")
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-        except Exception:
-            lines = []
+        # Intentar DB primero
+        db = _get_db()
+        if db is not None and hasattr(db, 'actualizar_configuracion'):
+            try:
+                db.actualizar_configuracion('gym_name', updates.get('gym_name', ''))  # type: ignore
+                if 'gym_address' in updates:
+                    db.actualizar_configuracion('gym_address', updates.get('gym_address', ''))  # type: ignore
+                try:
+                    from utils import read_gym_data as _read_gym_data  # type: ignore
+                    _read_gym_data(force_reload=True)
+                except Exception:
+                    pass
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+        else:
+            # Fallback: actualizar gym_data.txt si DB no está disponible
+            path = Path("gym_data.txt")
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+            except Exception:
+                lines = []
 
-        found: dict = {k: False for k in updates}
-        out_lines = []
-        for line in lines:
-            s = line.strip()
-            if not s or s.startswith('#') or '=' not in s:
-                out_lines.append(line)
-                continue
-            k, _ = s.split('=', 1)
-            k = k.strip()
-            if k in updates:
-                out_lines.append(f"{k}={updates[k]}")
-                found[k] = True
-            else:
-                out_lines.append(line)
-        for k, done in found.items():
-            if not done:
-                out_lines.append(f"{k}={updates[k]}")
+            found: dict = {k: False for k in updates}
+            out_lines = []
+            for line in lines:
+                s = line.strip()
+                if not s or s.startswith('#') or '=' not in s:
+                    out_lines.append(line)
+                    continue
+                k, _ = s.split('=', 1)
+                k = k.strip()
+                if k in updates:
+                    out_lines.append(f"{k}={updates[k]}")
+                    found[k] = True
+                else:
+                    out_lines.append(line)
+            for k, done in found.items():
+                if not done:
+                    out_lines.append(f"{k}={updates[k]}")
 
-        try:
-            path.write_text("\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8")
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
-        # Refrescar caché de utils si existe
-        try:
-            from utils import read_gym_data as _read_gym_data  # type: ignore
-            _read_gym_data(force_reload=True)
-        except Exception:
-            pass
+            try:
+                path.write_text("\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8")
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
         return JSONResponse({
             "ok": True,
@@ -2120,32 +2149,62 @@ async def api_gym_update(request: Request):
 
 @app.post("/api/gym/logo")
 async def api_gym_logo(request: Request, file: UploadFile = File(...)):
-    """Sube y guarda el logo del gimnasio en assets/ como PNG o SVG."""
+    """Sube el logo del gimnasio y guarda URL en DB (GCS/B2 o assets)."""
     try:
         # Verificar acceso de dueño sin depender del orden de definición
         require_owner(request)  # type: ignore[name-defined]
         ctype = str(getattr(file, 'content_type', '') or '').lower()
         if ctype not in ("image/png", "image/svg+xml"):
             return JSONResponse({"ok": False, "error": "Formato no soportado. Use PNG o SVG"}, status_code=400)
-        assets_dir = _resolve_existing_dir("assets")
-        try:
-            assets_dir.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-        target_name = "gym_logo.png" if ctype == "image/png" else "logo.svg"
-        dest = assets_dir / target_name
+        target_name = "branding/logo.png" if ctype == "image/png" else "branding/logo.svg"
         try:
             data = await file.read()
         except Exception:
             data = b""
         if not data:
             return JSONResponse({"ok": False, "error": "Archivo vacío"}, status_code=400)
+
+        public_url = None
+        # Intentar GCS
         try:
-            with open(dest, "wb") as f:
-                f.write(data)
-        except Exception as e:
-            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-        return JSONResponse({"ok": True, "logo_url": _resolve_logo_url()}, status_code=200)
+            public_url = _upload_media_to_gcs(target_name, data, ctype)
+        except HTTPException:
+            raise
+        except Exception:
+            public_url = None
+        # Intentar B2 si GCS no disponible
+        if not public_url:
+            try:
+                public_url = _upload_media_to_b2(target_name, data, ctype)
+            except HTTPException:
+                raise
+            except Exception:
+                public_url = None
+        # Fallback: guardar en assets local
+        if not public_url:
+            assets_dir = _resolve_existing_dir("assets")
+            try:
+                assets_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            local_name = "gym_logo.png" if ctype == "image/png" else "logo.svg"
+            dest = assets_dir / local_name
+            try:
+                with open(dest, "wb") as f:
+                    f.write(data)
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+            public_url = f"/assets/{local_name}"
+
+        # Guardar URL en DB
+        try:
+            db = _get_db()
+            if db is not None and hasattr(db, 'actualizar_configuracion'):
+                db.actualizar_configuracion('gym_logo_url', public_url)  # type: ignore
+        except Exception:
+            pass
+
+        return JSONResponse({"ok": True, "logo_url": public_url}, status_code=200)
     except HTTPException:
         raise
     except Exception as e:
@@ -2816,6 +2875,7 @@ async def api_rutina_excel_view(
     ts: int = 0,
     sig: Optional[str] = None,
 ):
+    # Validaciones básicas
     if not sig:
         raise HTTPException(status_code=403, detail="Firma requerida")
     try:
@@ -2823,27 +2883,7 @@ async def api_rutina_excel_view(
     except Exception:
         weeks = 1
 
-# Variante con extensión .xlsx para compatibilidad con Office/Google Viewer
-@app.get("/api/rutinas/{rutina_id}/export/excel_view.xlsx")
-async def api_rutina_excel_view_ext(
-    rutina_id: int,
-    weeks: int = 1,
-    filename: Optional[str] = None,
-    qr_mode: str = "auto",
-    sheet: Optional[str] = None,
-    ts: int = 0,
-    sig: Optional[str] = None,
-):
-    return await api_rutina_excel_view(
-        rutina_id=rutina_id,
-        weeks=weeks,
-        filename=filename,
-        qr_mode=qr_mode,
-        sheet=sheet,
-        ts=ts,
-        sig=sig,
-    )
-    # Normalizar qr_mode y sheet (ubicación del QR)
+    # Normalizar qr_mode y sheet
     try:
         qr_mode = str(qr_mode or "inline").strip().lower()
         if qr_mode in ("auto", "real", "preview"):
@@ -2859,6 +2899,7 @@ async def api_rutina_excel_view_ext(
             sheet_norm = sheet_str[:64] if sheet_str else None
     except Exception:
         sheet_norm = None
+
     # Normalizar nombre de archivo
     try:
         base_name = os.path.basename(filename) if filename else f"rutina_{rutina_id}.xlsx"
@@ -2868,6 +2909,7 @@ async def api_rutina_excel_view_ext(
         base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
     except Exception:
         base_name = f"rutina_{rutina_id}.xlsx"
+
     # Verificar ventana de tiempo (10 minutos)
     try:
         now = int(time.time())
@@ -2875,11 +2917,13 @@ async def api_rutina_excel_view_ext(
             raise HTTPException(status_code=403, detail="Link de previsualización expirado")
     except Exception:
         raise HTTPException(status_code=403, detail="Timestamp inválido")
+
     # Verificar firma
     expected = _sign_excel_view(rutina_id, weeks, base_name, int(ts), qr_mode=qr_mode, sheet=sheet_norm)
     if not hmac.compare_digest(expected, str(sig)):
         raise HTTPException(status_code=403, detail="Firma inválida")
-    # Generar Excel como en el endpoint autenticado
+
+    # Generar y servir Excel
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="Base de datos no disponible")
@@ -2891,7 +2935,6 @@ async def api_rutina_excel_view_ext(
         if rutina is None:
             raise HTTPException(status_code=404, detail="Rutina no encontrada")
         # Usuario asociado (con respaldo)
-        # Soportar objeto o dict
         u_raw = getattr(rutina, "usuario_id", None)
         if u_raw is None and isinstance(rutina, dict):
             try:
@@ -2908,7 +2951,6 @@ async def api_rutina_excel_view_ext(
                 usuario = db.obtener_usuario(u_id)  # type: ignore
             except Exception:
                 usuario = None
-        # Si no se pudo obtener o el nombre está vacío, intentar por JOIN directo
         try:
             nombre_ok = (getattr(usuario, "nombre", None) or "").strip() if usuario else ""
         except Exception:
@@ -2942,7 +2984,6 @@ async def api_rutina_excel_view_ext(
                             usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
             except Exception:
                 pass
-        # Fallback final si sigue sin nombre: usar 'Plantilla' SOLO si no hay usuario_id (plantilla pura)
         if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
             try:
                 if u_id is None:
@@ -2954,9 +2995,10 @@ async def api_rutina_excel_view_ext(
                     def __init__(self, nombre: str):
                         self.nombre = nombre
                 usuario = _Usr("" if u_id is not None else "Plantilla")
+
         ejercicios_por_dia = _build_exercises_by_day(rutina)
         out_path = rm.generate_routine_excel(rutina, usuario, ejercicios_por_dia, weeks=weeks, qr_mode=qr_mode, sheet=sheet_norm)
-        # Servir inline para permitir incrustación en Google Viewer
+
         resp = FileResponse(
             out_path,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2964,7 +3006,6 @@ async def api_rutina_excel_view_ext(
         )
         try:
             resp.headers["Content-Disposition"] = f'inline; filename="{base_name}"'
-            # Evitar caché agresivo en enlaces temporales
             resp.headers["Cache-Control"] = "private, max-age=60"
         except Exception:
             pass
@@ -2974,6 +3015,27 @@ async def api_rutina_excel_view_ext(
     except Exception as e:
         logging.exception("Error generando Excel inline de rutina")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Variante con extensión .xlsx para compatibilidad con Office/Google Viewer
+@app.get("/api/rutinas/{rutina_id}/export/excel_view.xlsx")
+async def api_rutina_excel_view_ext(
+    rutina_id: int,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    ts: int = 0,
+    sig: Optional[str] = None,
+):
+    return await api_rutina_excel_view(
+        rutina_id=rutina_id,
+        weeks=weeks,
+        filename=filename,
+        qr_mode=qr_mode,
+        sheet=sheet,
+        ts=ts,
+        sig=sig,
+    )
 
 
 # URL firmada para previsualización con datos efímeros (borrador en memoria)

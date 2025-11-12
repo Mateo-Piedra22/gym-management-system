@@ -1,6 +1,6 @@
 import sys
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 def safe_get(obj, name, default=None):
@@ -39,11 +39,33 @@ def resource_path(relative_path):
     base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-# Lectura de gym_data.txt
+# Lectura de gym_data desde DB con fallback a archivo
 
 _GYM_DATA_DEFAULT_PATH = r"c:\\Users\\mateo\\OneDrive\\Escritorio\\gym-management-system\\gym_data.txt"
 
 _cached_gym_data = None
+
+# Inicialización ligera de acceso a DB desde utils
+_utils_db = None
+_utils_db_init_failed = False
+
+def _get_db_utils():
+    global _utils_db, _utils_db_init_failed
+    if _utils_db is not None:
+        return _utils_db
+    if _utils_db_init_failed:
+        return None
+    try:
+        from database import DatabaseManager  # type: ignore
+    except Exception:
+        _utils_db_init_failed = True
+        return None
+    try:
+        _utils_db = DatabaseManager()
+        return _utils_db
+    except Exception:
+        _utils_db_init_failed = True
+        return None
 
 
 def _resolve_gym_data_path() -> str:
@@ -61,14 +83,57 @@ def _resolve_gym_data_path() -> str:
 
 
 def read_gym_data(force_reload: bool = False) -> dict:
-    """Lee y cachea el contenido de gym_data.txt como diccionario clave=valor.
-    Comentarios (# ...) y líneas vacías son ignoradas.
+    """Obtiene datos del gimnasio priorizando la base de datos y cachea en memoria.
+    Fallback a gym_data.txt si no están disponibles en DB.
     """
     global _cached_gym_data
     if _cached_gym_data is not None and not force_reload:
         return _cached_gym_data
 
-    data = {}
+    merged: Dict[str, Any] = {}
+
+    # 1) Intentar leer desde DB (configuracion)
+    db = _get_db_utils()
+    if db is not None and hasattr(db, 'obtener_configuracion'):
+        try:
+            name = db.obtener_configuracion('gym_name')  # type: ignore
+            addr = db.obtener_configuracion('gym_address')  # type: ignore
+            logo = None
+            try:
+                logo = db.obtener_configuracion('gym_logo_url')  # type: ignore
+            except Exception:
+                logo = None
+            if isinstance(name, str) and name.strip():
+                merged['gym_name'] = name.strip()
+            if isinstance(addr, str) and addr.strip():
+                merged['gym_address'] = addr.strip()
+            if isinstance(logo, str) and logo.strip():
+                merged['gym_logo_url'] = logo.strip()
+            branding_json = None
+            try:
+                branding_json = db.obtener_configuracion('branding_config')  # type: ignore
+            except Exception:
+                branding_json = None
+            if branding_json:
+                try:
+                    import json as _json
+                    branding = _json.loads(branding_json)
+                    if isinstance(branding, dict):
+                        for k in (
+                            'gym_slogan','gym_phone','gym_email','gym_website',
+                            'facebook','instagram','twitter','primary_color','secondary_color',
+                            'accent_color','background_color','alt_background_color'
+                        ):
+                            v = branding.get(k)
+                            if isinstance(v, str):
+                                merged[k] = v
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # 2) Fallback: merge con archivo gym_data.txt
+    file_data: Dict[str, Any] = {}
     path = _resolve_gym_data_path()
     try:
         if os.path.exists(path):
@@ -79,20 +144,20 @@ def read_gym_data(force_reload: bool = False) -> dict:
                         continue
                     if '=' in line:
                         k, v = line.split('=', 1)
-                        data[k.strip()] = v.strip()
-        else:
-            # Si no existe, devolvemos dict vacío para evitar defaults con nombres hardcodeados
-            data = {}
+                        file_data[k.strip()] = v.strip()
     except Exception:
-        # Ante cualquier error, devolvemos dict vacío para evitar mostrar nombres hardcodeados
-        data = {}
+        file_data = {}
 
-    _cached_gym_data = data
-    return data
+    for k, v in file_data.items():
+        if k not in merged or not str(merged.get(k, '')).strip():
+            merged[k] = v
+
+    _cached_gym_data = merged
+    return merged
 
 
 def get_gym_value(key: str, default: str = "") -> str:
-    """Devuelve el valor de una clave del archivo de datos del gimnasio.
+    """Devuelve el valor de una clave de datos del gimnasio usando caché.
     Usa default si no existe.
     """
     data = read_gym_data()
@@ -100,9 +165,8 @@ def get_gym_value(key: str, default: str = "") -> str:
 
 
 def get_gym_name(default: str = "Gimnasio") -> str:
-    """Atajo para obtener el nombre del gimnasio sin valores hardcodeados.
-    """
-    return get_gym_value('gym_name', default)
+    """Obtiene el nombre del gimnasio priorizando DB, con fallback a archivo."""
+    return (get_gym_value('gym_name', default) or default).strip()
 
 
 # Utility cleanup functions

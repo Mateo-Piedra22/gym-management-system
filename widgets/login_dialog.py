@@ -11,7 +11,7 @@ from typing import List, Optional, Dict
 from models import Usuario
 from database import DatabaseManager
 from utils_modules.async_runner import TaskThread
-from utils import resource_path, get_public_tunnel_enabled, get_webapp_base_url
+from utils import resource_path, get_public_tunnel_enabled, get_webapp_base_url, read_gym_data
 import uuid
 import socket
 import logging
@@ -390,36 +390,34 @@ class LoginDialog(QDialog):
         self.connect_signals()
 
     def load_gym_data(self):
-        """Carga los datos del gimnasio desde gym_data.txt"""
+        """Carga los datos del gimnasio priorizando DB con caché y fallback a archivo."""
         try:
-            from utils import _resolve_gym_data_path
-            gym_data_path = _resolve_gym_data_path()
-            if os.path.exists(gym_data_path):
-                with open(gym_data_path, 'r', encoding='utf-8') as file:
-                    for line in file:
-                        line = line.strip()
-                        if line and not line.startswith('#') and '=' in line:
-                            key, value = line.split('=', 1)
-                            self.gym_data[key.strip()] = value.strip()
+            data = read_gym_data()
+            if isinstance(data, dict):
+                self.gym_data = dict(data)
+                return
         except Exception as e:
-            print(f"Error cargando datos del gimnasio: {e}")
-            # Datos por defecto
-            self.gym_data = {
-                'gym_name': 'Gimnasio',
-                'gym_slogan': 'Tu mejor versión te espera',
-                'gym_address': 'Dirección no disponible',
-                'gym_phone': 'Teléfono no disponible',
-                'gym_email': 'Email no disponible',
-                'gym_website': 'Website no disponible',
-                'facebook': '@gym',
-                'instagram': '@gym',
-                'twitter': '@gym'
-            }
+            try:
+                logging.warning(f"LoginDialog: error leyendo gym data desde utils/DB: {e}")
+            except Exception:
+                pass
+        # Datos por defecto si falla
+        self.gym_data = {
+            'gym_name': 'Gimnasio',
+            'gym_slogan': 'Tu mejor versión te espera',
+            'gym_address': 'Dirección no disponible',
+            'gym_phone': 'Teléfono no disponible',
+            'gym_email': 'Email no disponible',
+            'gym_website': 'Website no disponible',
+            'facebook': '@gym',
+            'instagram': '@gym',
+            'twitter': '@gym'
+        }
 
     def _load_gym_data_cached(self):
         """Carga gym_data usando caché en memoria si disponible, con fallback a disco."""
         try:
-            cache_key = 'config:gym_data_txt'
+            cache_key = 'config:gym_data'
             if self._mem_cache:
                 cached = None
                 try:

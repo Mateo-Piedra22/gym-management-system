@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThread, pyqtSlot
 
 from utils_modules.async_utils import run_in_background
 from database import DatabaseManager
+from utils import get_gym_name
 
 # Importaciones condicionales para WhatsApp
 try:

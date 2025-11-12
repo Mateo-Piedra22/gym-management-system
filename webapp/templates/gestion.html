@@ -265,6 +265,32 @@
     /* Zebra stripes y selección */
     .table-scroll tbody tr:nth-child(odd){ background: rgba(255,255,255,.03); }
     .row-selectable tr.selected{ background: rgba(139,120,185,.16); outline: 1px solid rgba(139,120,185,.45); }
+    /* Handle visual para filas arrastrables */
+    .handle{ font-weight: 600; letter-spacing: 1px; }
+    .handle:active{ cursor: grabbing; }
+    /* Indicador de zona de drop en el bloque de ejercicios */
+    #clase-ej-bloque-table tbody.drag-over{ background: rgba(89,160,255,0.08); outline: 2px dashed rgba(89,160,255,0.6); transition: background .18s ease; }
+    /* Indicador cuando se suelta sobre el mensaje vacío del bloque */
+    #clase-ej-bloque-empty.drag-over{ background: rgba(89,160,255,0.08); outline: 2px dashed rgba(89,160,255,0.6); transition: background .18s ease; }
+    /* Indicadores simétricos para el catálogo (tabla izquierda) */
+    #clase-ej-list-table tbody.drag-over{ background: rgba(89,160,255,0.08); outline: 2px dashed rgba(89,160,255,0.6); transition: background .18s ease; }
+    #clase-ej-list-empty.drag-over{ background: rgba(89,160,255,0.08); outline: 2px dashed rgba(89,160,255,0.6); transition: background .18s ease; }
+    /* Pulso suave para drop-zones (ambas tablas) */
+    @keyframes dropPulse { 0% { box-shadow: inset 0 0 0 0 rgba(89,160,255,0.0); } 50% { box-shadow: inset 0 0 0 6px rgba(89,160,255,0.12); } 100% { box-shadow: inset 0 0 0 0 rgba(89,160,255,0.0); } }
+    #clase-ej-bloque-table tbody.drag-over,
+    #clase-ej-bloque-empty.drag-over,
+    #clase-ej-list-table tbody.drag-over,
+    #clase-ej-list-empty.drag-over { animation: dropPulse 1.2s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce){
+      #clase-ej-bloque-table tbody.drag-over,
+      #clase-ej-bloque-empty.drag-over,
+      #clase-ej-list-table tbody.drag-over,
+      #clase-ej-list-empty.drag-over { animation: none; }
+    }
+    /* Animación sutil al insertar/reordenar filas del bloque */
+    @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    #clase-ej-bloque-table tbody tr.animate-in{ animation: fadeSlideIn 180ms ease-out; }
+    @media (prefers-reduced-motion: reduce){ #clase-ej-bloque-table tbody tr.animate-in{ animation: none; } }
     /* Animaciones toast */
     @keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
     @keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-6px); } }
@@ -294,6 +320,11 @@
     .app-shell { display: grid; grid-template-columns: 280px 1fr; gap: 0; flex: 1 1 auto; min-height: 0; overflow: hidden; }
     .sidebar { position: sticky; top: 0; height: 100%; overflow: hidden; }
     .main { overflow: auto; height: 100%; min-height: 0; -webkit-overflow-scrolling: touch; }
+    /* Modo móvil: ocultar sidebar y usar una sola columna */
+    @media (max-width: 960px){
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+    }
 
     /* Indicador de sesión tipo "pill" con pulso cuando está activa */
 .session-indicator { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background: rgba(139,120,185,0.12); color: var(--info); border:1px solid rgba(139,120,185,0.35); transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
@@ -325,8 +356,33 @@
     #rutina-side-unassign {
       display: none !important;
     }
-    /* Ocultar subtabs de rutinas para vista unificada */
-    #rutinas-subtabs { display: none !important; }
+    /* Ocultar subtabs de rutinas en escritorio; mostrar en móvil como selector superior */
+    #rutinas-subtabs { display: none; }
+    @media (max-width: 960px){
+      #rutinas-subtabs { display: flex !important; gap: 8px; align-items: center; }
+    }
+    /* Barra superior móvil que replica la sidebar (todas las subpestañas) */
+    #mobile-subtabs { display: none; }
+    @media (max-width: 960px){
+      .mobile-subtabs-open #mobile-subtabs { display:flex; gap:8px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: var(--z-header); overflow-x: auto; -webkit-overflow-scrolling: touch; animation: mobileSubtabsFade .18s ease-out; }
+      @media (prefers-reduced-motion: reduce){ .mobile-subtabs-open #mobile-subtabs { animation: none; } }
+      .mobile-subtabs-open #mobile-subtabs.compact { padding:4px 8px; gap:6px; }
+      #mobile-subtabs .btn { white-space: nowrap; font-size: 14px; padding:6px 10px; position: relative; flex: 0 0 auto; touch-action: manipulation; }
+      .mobile-subtabs-open #mobile-subtabs.compact .btn { font-size: 13px; padding:4px 8px; }
+      #mobile-subtabs .btn.active { background: rgba(139,120,185,0.12); border-color: var(--info); color: var(--info); }
+      #mobile-subtabs .btn.active::after { content: ""; position: absolute; left:8px; right:8px; bottom:0; height:2px; background: var(--info); border-radius: 2px; }
+      /* Peek semitransparente cuando barra está oculta */
+      #mobile-subtabs-peek { display:none; position: sticky; top: 0; z-index: var(--z-header); padding:6px 12px; background: var(--bg); border-bottom:1px solid var(--border); }
+      body:not(.mobile-subtabs-open) #mobile-subtabs-peek { display:flex; gap:8px; align-items:center; justify-content:flex-start; opacity: 0.7; }
+      body:not(.mobile-subtabs-open) #mobile-subtabs-peek:hover { opacity: 1; }
+      #mobile-subtabs-peek .btn { font-size: 13px; padding:4px 8px; }
+      @keyframes mobileSubtabsFade { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    }
+    /* Ocultar selector móvil de módulos en escritorio explícitamente */
+    @media (min-width: 961px){
+      #mobile-subtabs,
+      #mobile-subtabs-peek { display: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -346,7 +402,7 @@
                 data-role="{{ 'profesor' if (request.session.get('gestion_profesor_id') or request.session.get('gestion_profesor_user_id')) else ('dueño' if request.session.get('logged_in') else '') }}"
                 data-prof-id="{{ request.session.get('gestion_profesor_id') or '' }}"
                 data-prof-uid="{{ request.session.get('gestion_profesor_user_id') or '' }}">Sesión: —</span>
-          <button class="btn outline neutral icon-only" data-sidebar-toggle aria-label="Mostrar/ocultar navegación" title="Mostrar/ocultar navegación">
+          <button class="btn outline neutral icon-only" data-sidebar-toggle aria-label="Mostrar/ocultar navegación" aria-controls="mobile-subtabs" aria-expanded="false" title="Mostrar/ocultar navegación">
             <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
           </button>
           <a id="logout-link" class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir" onclick="try{var el=document.getElementById('login-current');var r=(el&&(el.getAttribute('data-role')||'').trim())||'';if(r==='profesor'){try{populateSesionFinModal();}catch(_){ }try{openModal('modal-sesion-fin');}catch(_){ }setTimeout(function(){try{var m=document.getElementById('modal-sesion-fin');var cs=m?window.getComputedStyle(m):null;var visible=!!(m && cs && cs.display!=='none' && cs.visibility!=='hidden' && m.getClientRects && m.getClientRects().length>0);if(!visible && m && m.parentElement && m.parentElement.tagName && m.parentElement.tagName.toLowerCase()!=='body'){ try{ document.body.appendChild(m); m.classList.add('active'); m.style.display='flex'; m.setAttribute('aria-hidden','false'); visible=!!(m.getClientRects && m.getClientRects().length>0); }catch(__){} }if(!visible){fetch('/api/profesor_sesion_fin',{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'}}).finally(function(){try{window.location.href='/gestion/logout';}catch(__){}});} }catch(__){ try{window.location.href='/gestion/logout';}catch(__){} }},160);return false;}}catch(__){return true;}">
@@ -376,7 +432,7 @@
       <aside class="sidebar" aria-label="Navegación lateral">
         <div class="sidebar-header">
           <span class="nav-label">Módulos</span>
-          <button class="btn icon-only ghost" data-sidebar-toggle aria-label="Colapsar barra" title="Colapsar barra"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
+          <button class="btn icon-only ghost" data-sidebar-toggle aria-label="Colapsar barra" aria-controls="mobile-subtabs" aria-expanded="false" title="Colapsar barra"><i class="bi bi-layout-sidebar" aria-hidden="true"></i></button>
         </div>
         <nav class="nav-group">
           <a href="#" class="nav-item active" data-tab="usuarios"><i class="bi bi-people" aria-hidden="true"></i><span>Usuarios</span></a>
@@ -391,6 +447,20 @@
         </nav>
       </aside>
       <main class="main" id="main-content">
+      <nav id="mobile-subtabs" class="panel-controls" aria-label="Navegación móvil" aria-hidden="true">
+        <button class="btn ghost" data-tab="usuarios" aria-controls="panel-usuarios">Usuarios</button>
+        {% if request.session.get('logged_in') %}
+        <button class="btn ghost" data-tab="profesores" aria-controls="panel-profesores">Profesores</button>
+        {% endif %}
+        <button class="btn ghost" data-tab="clases" aria-controls="panel-clases">Clases</button>
+        <button class="btn ghost" data-tab="pagos" aria-controls="panel-pagos">Pagos</button>
+        <button class="btn ghost" data-tab="ejercicios" aria-controls="panel-ejercicios">Ejercicios</button>
+        <button class="btn ghost" data-tab="rutinas" aria-controls="panel-rutinas">Rutinas</button>
+        <button class="btn ghost" data-tab="configuracion" aria-controls="panel-configuracion">Configuración</button>
+      </nav>
+      <div id="mobile-subtabs-peek" aria-hidden="false" aria-label="Abrir módulos">
+        <button class="btn ghost" type="button"><i class="bi bi-chevron-down" aria-hidden="true"></i><span id="mobile-subtabs-peek-label" style="margin-left:6px">Módulos</span></button>
+      </div>
       <section id="panel-pagos" class="panel">
         <div class="split">
           <div class="split-main">
@@ -1242,6 +1312,15 @@
             <label style="display:flex; gap:6px; align-items:center"><input id="clase-ej-multi" type="checkbox" /> <span>Selección múltiple</span></label>
           </div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+            <label class="muted" for="clase-ej-bloque-select" style="min-width:120px">Bloque</label>
+            <select id="clase-ej-bloque-select" title="Seleccionar bloque de ejercicios" aria-label="Seleccionar bloque" style="min-width:220px"></select>
+            <label for="clase-ej-bloque-name" class="sr-only">Nombre del bloque</label>
+            <input id="clase-ej-bloque-name" type="text" placeholder="Nombre del bloque" aria-label="Nombre del bloque" style="min-width:220px" />
+            <button class="btn sm" id="clase-ej-bloque-save" title="Guardar como nuevo bloque">Guardar bloque</button>
+            <button class="btn sm" id="clase-ej-bloque-update" title="Actualizar bloque seleccionado">Actualizar bloque</button>
+            <button class="btn outline neutral sm" id="clase-ej-bloque-delete" title="Eliminar bloque seleccionado">Eliminar</button>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
             <button class="btn" id="clase-ej-add">Agregar a la clase</button>
             <button class="btn danger" id="clase-ej-remove-selected">Quitar del bloque</button>
             <span class="muted" id="clase-ej-status" style="margin-left:auto">—</span>
@@ -1259,6 +1338,7 @@
               <table id="clase-ej-list-table">
                 <thead>
                   <tr>
+                    <th style="width:28px;" title="Mover" aria-label="Mover"></th>
                     <th>Ejercicio</th>
                     <th>Grupo</th>
                     <th>Objetivo</th>
@@ -1274,6 +1354,7 @@
               <table id="clase-ej-bloque-table">
                 <thead>
                   <tr>
+                    <th style="width:28px;" title="Mover" aria-label="Mover"></th>
                     <th>Orden</th>
                     <th>Ejercicio</th>
                     <th>Series</th>
@@ -3370,8 +3451,86 @@
         if(isActive) item.setAttribute('aria-current', 'page');
         else item.removeAttribute('aria-current');
       });
+      // Sincronizar estado activo en subtabs móviles
+      const mobileItems = document.querySelectorAll('#mobile-subtabs [data-tab]');
+      mobileItems.forEach(item => {
+        const isActive = (item.getAttribute('data-tab') || '') === String(tab);
+        item.classList.toggle('active', isActive);
+        if(isActive) item.setAttribute('aria-current', 'page');
+        else item.removeAttribute('aria-current');
+      });
       // Persistir módulo activo
       try { localStorage.setItem('gestion-active-tab', String(tab)); } catch(_){}
+      // Reordenar barra móvil (solo móvil) para coincidir con sidebar
+      try { reorderMobileSubtabs(); } catch(_){}
+      // Actualizar etiqueta del peek con el módulo activo
+      try { updatePeekLabel(); } catch(_){}
+    }
+
+    // --- Toggle de barra móvil (usa mismo botón que sidebar) ---
+    function isMobile(){ try{ return (window.innerWidth || document.documentElement.clientWidth || 0) <= 960; }catch(_){ return false; } }
+    function openMobileSubtabs(){
+      try{
+        if(!isMobile()) return;
+        document.body.classList.add('mobile-subtabs-open');
+        const nav = document.getElementById('mobile-subtabs');
+        if(nav){ nav.setAttribute('aria-hidden','false'); }
+        document.querySelectorAll('[data-sidebar-toggle]').forEach(btn => { try{ btn.setAttribute('aria-expanded','true'); }catch(_){} });
+        startMobileSubtabsAutoHide();
+      }catch(_){ }
+    }
+    function closeMobileSubtabs(){
+      try{
+        document.body.classList.remove('mobile-subtabs-open');
+        const nav = document.getElementById('mobile-subtabs');
+        if(nav){ nav.setAttribute('aria-hidden','true'); }
+        document.querySelectorAll('[data-sidebar-toggle]').forEach(btn => { try{ btn.setAttribute('aria-expanded','false'); }catch(_){} });
+        stopMobileSubtabsAutoHide();
+      }catch(_){ }
+    }
+    function toggleMobileSubtabs(){ try{ if(document.body.classList.contains('mobile-subtabs-open')) closeMobileSubtabs(); else openMobileSubtabs(); }catch(_){} }
+    function startMobileSubtabsAutoHide(){ try{ window.clearTimeout(state._mobileSubtabsTimer); state._mobileSubtabsTimer = window.setTimeout(() => { try{ if(document.body.classList.contains('mobile-subtabs-open')) closeMobileSubtabs(); }catch(_){} }, 8000); }catch(_){} }
+    function stopMobileSubtabsAutoHide(){ try{ window.clearTimeout(state._mobileSubtabsTimer); }catch(_){} }
+
+    // Etiqueta dinámica del "peek" con el módulo activo
+    function getActiveTabName(){
+      try{
+        const m = document.querySelector('#mobile-subtabs [data-tab].active');
+        if(m){ return (m.textContent || '').trim(); }
+        const h = document.querySelector('.tab.active');
+        if(h){ return (h.textContent || '').trim(); }
+        const s = document.querySelector('.sidebar .nav-item.active');
+        if(s){ return (s.textContent || '').trim(); }
+        return '';
+      }catch(_){ return ''; }
+    }
+    function updatePeekLabel(){
+      try{
+        const labelEl = document.getElementById('mobile-subtabs-peek-label');
+        if(!labelEl) return;
+        const name = getActiveTabName();
+        labelEl.textContent = name ? ('Módulos — ' + name) : 'Módulos';
+      }catch(_){ }
+    }
+
+    // --- Mejoras móviles: orden consistente con sidebar ---
+    function reorderMobileSubtabs(){
+      try{
+        if((window.innerWidth || document.documentElement.clientWidth || 0) > 960) return; // solo móvil
+        const nav = document.getElementById('mobile-subtabs');
+        const sidebar = document.querySelector('.sidebar .nav-group');
+        if(!nav || !sidebar) return;
+        const sidebarOrder = Array.from(sidebar.querySelectorAll('.nav-item[data-tab]')).map(el => el.getAttribute('data-tab') || '');
+        const mobileItems = Array.from(nav.querySelectorAll('[data-tab]'));
+        const map = new Map();
+        mobileItems.forEach((el) => { map.set(el.getAttribute('data-tab') || '', el); });
+        // Reconstruir en orden de sidebar; añadir los que no estén al final
+        const fragment = document.createDocumentFragment();
+        sidebarOrder.forEach(t => { const el = map.get(t); if(el) fragment.appendChild(el); map.delete(t); });
+        // Resto en su orden actual
+        map.forEach((el) => fragment.appendChild(el));
+        nav.appendChild(fragment);
+      }catch(_){ }
     }
 
     function openModal(id){
@@ -6883,8 +7042,12 @@
         loadRutinasPlantillas();
         const uid = (document.getElementById('rutinas-usuario')||{}).value || '';
         loadRutinasPorUsuario(uid);
-        // Ocultar subtabs visualmente
-        const tabBar = document.getElementById('rutinas-subtabs'); if(tabBar) tabBar.style.display = 'none';
+        // Mostrar/ocultar subtabs según viewport: visibles en móvil como selector superior
+        const tabBar = document.getElementById('rutinas-subtabs');
+        if(tabBar){
+          const isMobile = window.matchMedia('(max-width: 960px)').matches;
+          tabBar.style.display = isMobile ? 'flex' : 'none';
+        }
         applyRutinasFilters();
       }
       const tabBar = document.getElementById('rutinas-subtabs');
@@ -7474,8 +7637,10 @@ function renderRutinaPreview(){
     `;
     col.appendChild(header);
     const list = document.createElement('div'); list.className = 'day-list'; list.style.display = collapsed ? 'none' : 'flex'; list.style.flexDirection='column'; list.style.gap='6px'; list.style.minHeight='64px';
+    // Identificador de día para soporte táctil
+    list.dataset.day = String(dia);
     // Zona de drop al inicio (ampliada)
-    const topDrop = document.createElement('div'); topDrop.style.height='28px'; topDrop.style.border='1px dashed #ddd'; topDrop.style.borderRadius='6px'; topDrop.style.opacity='0.7'; topDrop.style.marginBottom='6px'; topDrop.style.display='flex'; topDrop.style.alignItems='center'; topDrop.style.justifyContent='center'; topDrop.textContent = 'Soltar aquí para el inicio'; topDrop.style.fontSize='12px'; topDrop.style.color='#667';
+    const topDrop = document.createElement('div'); topDrop.className = 'drop-top'; topDrop.dataset.day = String(dia); topDrop.style.height='28px'; topDrop.style.border='1px dashed #ddd'; topDrop.style.borderRadius='6px'; topDrop.style.opacity='0.7'; topDrop.style.marginBottom='6px'; topDrop.style.display='flex'; topDrop.style.alignItems='center'; topDrop.style.justifyContent='center'; topDrop.textContent = 'Soltar aquí para el inicio'; topDrop.style.fontSize='12px'; topDrop.style.color='#667';
     topDrop.addEventListener('dragover', (ev) => { ev.preventDefault(); topDrop.style.borderColor = '#59a0ff'; });
     topDrop.addEventListener('dragleave', () => { topDrop.style.borderColor = '#ddd'; });
     topDrop.addEventListener('drop', (ev) => { ev.preventDefault(); const drag = state.dragEj||{}; if(drag.eid){ moveOrReorderEjercicio(drag.eid, dia, '__TOP__'); state.dragEj=null; } topDrop.style.borderColor = '#ddd'; });
@@ -7484,7 +7649,7 @@ function renderRutinaPreview(){
       const tile = document.createElement('div'); tile.className = 'ejercicio-tile';
       const key = `${String(item.ejercicio_id)}#${Number(dia)}#${Number(item.orden||1)}`;
       tile.style.border='1px solid var(--border)'; tile.style.borderRadius='10px'; tile.style.padding= state.rutinaCompact ? '6px 8px' : '10px 12px'; tile.style.cursor='pointer'; tile.style.background = selectedSet.has(key) ? 'rgba(89,160,255,0.12)' : 'var(--card)'; tile.style.borderColor = selectedSet.has(key) ? 'rgba(89,160,255,0.8)' : 'var(--border)'; tile.style.boxShadow='0 1px 2px rgba(0,0,0,0.06)'; tile.style.transition='background 0.2s ease, box-shadow 0.2s ease';
-      tile.setAttribute('draggable', 'true'); tile.dataset.eid = String(item.ejercicio_id); tile.dataset.day = String(dia);
+      tile.setAttribute('draggable', 'true'); tile.dataset.eid = String(item.ejercicio_id); tile.dataset.day = String(dia); tile.dataset.order = String(item.orden || 1);
       const name = (item.ejercicio && item.ejercicio.nombre) ? item.ejercicio.nombre : `Ejercicio ${item.ejercicio_id}`;
       const series = item.series != null ? item.series : '';
       const reps = item.repeticiones != null ? item.repeticiones : '';
@@ -7498,7 +7663,10 @@ function renderRutinaPreview(){
         if(rr || ss){ pairs.push(`${rr}x${ss}`); }
       }
       const pairsTxt = pairs.join(', ');
-      tile.innerHTML = state.rutinaCompact ? `<div><strong>${name}</strong> <span class="muted">(${pairsTxt})</span></div>` : `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px"><strong>${name}</strong><span style="font-size:12px; color:#667">#${Number(item.orden||1)}</span></div><div class="muted" style="margin-top:2px; font-size:12px">${pairsTxt}</div>`;
+      const handle = '<span aria-hidden="true" style="font-family:monospace; opacity:0.7; cursor:grab; margin-right:6px">⋮⋮</span>';
+      tile.innerHTML = state.rutinaCompact
+        ? `<div>${handle}<strong>${name}</strong> <span class="muted">(${pairsTxt})</span></div>`
+        : `<div style="display:flex; align-items:center; justify-content:space-between; gap:8px">${handle}<strong>${name}</strong><span style="font-size:12px; color:#667">#${Number(item.orden||1)}</span></div><div class="muted" style="margin-top:2px; font-size:12px">${pairsTxt}</div>`;
       tile.addEventListener('mouseenter', () => { tile.style.boxShadow='0 2px 6px rgba(0,0,0,0.12)'; });
       tile.addEventListener('mouseleave', () => { tile.style.boxShadow='0 1px 2px rgba(0,0,0,0.06)'; });
       tile.addEventListener('click', (ev) => {
@@ -7537,6 +7705,111 @@ function renderRutinaPreview(){
   // Si la vista avanzada está visible, refrescar su HTML
   const adv = document.getElementById('rutina-preview-excel-advanced');
   if(adv && adv.style.display !== 'none'){ renderRutinaSheetJSView(); }
+  // Activar soporte táctil global de drag & drop (una sola vez)
+  setupTouchDragDropFallback();
+}
+
+// Fallback móvil para drag & drop en elementos con atributo draggable
+function setupTouchDragDropFallback(){
+  try{
+    if(window.__touchDragDropEnabled) return;
+    window.__touchDragDropEnabled = true;
+    const isTouchEnv = () => (navigator.maxTouchPoints||0) > 0 || /Mobi|Android/i.test(String(navigator.userAgent||''));
+    if(!isTouchEnv()) return;
+
+    let dragging = null; // { src, ghost, startX, startY, hasMoved, dataText }
+    let lastOver = null;
+
+    const onPointerDown = (ev) => {
+      // Solo iniciar en entorno táctil y sobre elementos draggable
+      if(ev.pointerType && ev.pointerType !== 'touch') return;
+      const el = ev.target && ev.target.closest && ev.target.closest('[draggable="true"]');
+      if(!el) return;
+
+      // Datos de arrastre (genéricos)
+      const dataText = String(
+        el.getAttribute('data-index') ||
+        el.getAttribute('data-eid') ||
+        el.getAttribute('data-id') ||
+        ''
+      );
+
+      // Para rutinas: preparar estado como en desktop
+      const ejEid = el.getAttribute('data-eid');
+      const ejDay = el.getAttribute('data-day');
+      const ejOrder = el.getAttribute('data-order');
+      if(ejEid){
+        try{ window.state = window.state || {}; }catch(_){ }
+        if(window.state){ window.state.dragEj = { eid: String(ejEid), fromDay: Number(ejDay||0)||null, order: Number(ejOrder||1)||1 }; }
+      }
+
+      const rect = el.getBoundingClientRect();
+      const ghost = el.cloneNode(true);
+      ghost.style.position = 'fixed';
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.zIndex = '9999';
+      ghost.style.pointerEvents = 'none';
+      ghost.style.opacity = '0.95';
+      ghost.style.transform = 'scale(0.98)';
+      ghost.style.boxShadow = '0 12px 28px rgba(0,0,0,0.3)';
+      document.body.appendChild(ghost);
+
+      // Feedback háptico breve (si está disponible)
+      try{ if(typeof navigator.vibrate==='function'){ navigator.vibrate(12); } }catch(_){ }
+
+      dragging = { src: el, ghost, startX: ev.clientX, startY: ev.clientY, hasMoved: false, dataText };
+
+      const onMove = (e) => {
+        if(!dragging) return;
+        const dx = e.clientX - dragging.startX, dy = e.clientY - dragging.startY;
+        if(!dragging.hasMoved && Math.hypot(dx,dy) > 6){ dragging.hasMoved = true; }
+        if(dragging.hasMoved){ e.preventDefault(); }
+        // Seguir el dedo
+        dragging.ghost.style.left = `${e.clientX - rect.width/2}px`;
+        dragging.ghost.style.top = `${e.clientY - rect.height/2}px`;
+
+        // Simular dragover para estilos existentes
+        const overEl = document.elementFromPoint(e.clientX, e.clientY);
+        if(lastOver && lastOver !== overEl){ try{ lastOver.dispatchEvent(new Event('dragleave', { bubbles:true })); }catch(_){ } }
+        lastOver = overEl;
+        if(overEl){ try{ overEl.dispatchEvent(new Event('dragover', { bubbles:true })); }catch(_){ }
+          // Realzar listas de día si aplica
+          const dayList = overEl.closest && overEl.closest('.day-list');
+          if(dayList){ dayList.style.border='1px dashed #59a0ff'; dayList.style.borderRadius='6px'; }
+        }
+      };
+
+      const onUp = (e) => {
+        document.removeEventListener('pointermove', onMove, { passive:false });
+        document.removeEventListener('pointerup', onUp);
+
+        if(!dragging){ return; }
+        // Si no hubo movimiento, dejar el click normal
+        if(!dragging.hasMoved){ try{ dragging.ghost && dragging.ghost.remove(); }catch(_){ } dragging = null; return; }
+
+        // Determinar objetivo y despachar drop con dataTransfer polifill
+        const targetElRaw = document.elementFromPoint(e.clientX, e.clientY);
+        const dropTarget = targetElRaw && targetElRaw.closest && (targetElRaw.closest('.ejercicio-tile') || targetElRaw.closest('.drop-top') || targetElRaw.closest('.day-list') || targetElRaw.closest('tr')) || targetElRaw;
+        const evt = new Event('drop', { bubbles:true, cancelable:true });
+        try{ evt.dataTransfer = { getData: () => String(dragging.dataText||''), setData: ()=>{} }; }catch(_){ }
+        if(dropTarget){ try{ dropTarget.dispatchEvent(evt); }catch(_){ } }
+        if(lastOver){ try{ lastOver.dispatchEvent(new Event('dragleave', { bubbles:true })); }catch(_){ } }
+
+        try{ dragging.ghost && dragging.ghost.remove(); }catch(_){ }
+        dragging = null; lastOver = null;
+
+        // Limpiar estado de arrastre de rutina
+        try{ if(window.state && window.state.dragEj){ window.state.dragEj = null; } }catch(_){ }
+      };
+
+      document.addEventListener('pointermove', onMove, { passive:false });
+      document.addEventListener('pointerup', onUp, { passive:false });
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, { passive:false });
+  }catch(_){ /* noop */ }
 }
     function clearRutinaDay(dia){
       const d = state.rutinaPreviewDraft || state.rutinaPreview || {};
@@ -8037,7 +8310,7 @@ function ensureFloatingPreviewControls(){
   const qrSel = document.getElementById('preview-qr-placement');
   const prevBtn = document.getElementById('preview-sheet-prev');
   const nextBtn = document.getElementById('preview-sheet-next');
-  const cycle = ['Día 1','Día 2','Día 3','Día 4','Día 5','QR'];
+  const cycle = ['Sheet','QR'];
   if(sheetInput){ sheetInput.oninput = () => { try{ const v = String(sheetInput.value||'').trim().toLowerCase(); if(v === 'qr' && qrSel){ qrSel.value = 'sheet'; } updateRutinaPDFPreview(); }catch(_){ } }; }
   if(qrSel){ qrSel.onchange = () => { try{ updateRutinaPDFPreview(); }catch(_){ } }; }
   function step(dir){
@@ -8197,39 +8470,16 @@ function ensurePdfZoomControls(containerId, frameId){
           catch(_){ }
           closeMenu();
         });
-        const itemToggleSheet = mkMenuItem('⇆', 'Hoja 1/2', 'Alternar hoja 1/2', () => {
+        const itemToggleSheet = mkMenuItem('⇆', 'Sheet/QR', 'Alternar entre Sheet y QR', () => {
           try{
+            const input = document.getElementById('preview-sheet-name');
+            if(!input){ closeMenu(); return; }
+            const cur = ((input.value||'').trim().toLowerCase());
+            const nextSheet = (cur === 'sheet') ? 'QR' : 'Sheet';
+            input.value = nextSheet;
             const qrSel = document.getElementById('preview-qr-placement');
-            const qrMode = (qrSel && qrSel.value) ? String(qrSel.value) : 'inline';
-            // Solo alternar cuando el QR no está en pie de página
-            if(qrMode === 'inline'){ closeMenu(); return; }
-            const frame = document.getElementById('rutina-preview-frame');
-            if(!frame || !frame.src){ closeMenu(); return; }
-            const src = String(frame.src);
-            // Detectar hoja actual desde el parámetro activeCell (acepta ActiveCell/activeCell)
-            const m = src.match(/[?&](?:activeCell|ActiveCell)=([^&]+)/);
-            let nextSheet = 'Día 2';
-            try{
-              const diasCount = Math.max(2, Math.min(5, Number((document.getElementById('rutina-preview-dias')||{}).value || 3)));
-              nextSheet = diasCount >= 2 ? 'Día 2' : 'Día 1';
-            }catch(_){ }
-            if(m){
-              const curr = decodeURIComponent(m[1]||'');
-              if(curr.includes("'Día 2'")){
-                nextSheet = 'Día 1';
-              } else if(curr.includes("'Día 1'")){
-                nextSheet = 'Día 2';
-              }
-            }
-            const encoded = encodeURIComponent(`'${nextSheet}'!A1`);
-            let newSrc = src;
-            // Reemplazar o anexar parámetro activeCell para alternar hoja sin regenerar el Excel
-            if(/[?&](?:activeCell|ActiveCell)=/.test(src)){
-              newSrc = src.replace(/([?&])(activeCell|ActiveCell)=([^&]*)/, `$1activeCell=${encoded}`);
-            } else {
-              newSrc = src + (src.includes('?') ? `&activeCell=${encoded}` : `?activeCell=${encoded}`);
-            }
-            frame.src = newSrc;
+            if(qrSel){ qrSel.value = (nextSheet === 'QR') ? 'sheet' : 'inline'; }
+            try{ updateRutinaPDFPreview(); }catch(_){ }
           }catch(__){ }
           closeMenu();
         });
@@ -8351,6 +8601,11 @@ function ensurePdfZoomControls(containerId, frameId){
           const adv = document.getElementById('rutina-preview-advanced'); const btnPrevToggle = document.getElementById('rutina-preview-toggle-advanced');
           if(adv){ adv.style.display = 'none'; state.rutinaPreviewAdvancedHidden = true; }
           if(btnPrevToggle) btnPrevToggle.textContent = 'Mostrar opciones avanzadas';
+        }catch(_){ }
+        // Establecer valores por defecto del visor: hoja y ubicación del QR
+        try{
+          const sheetInput = document.getElementById('preview-sheet-name'); if(sheetInput){ sheetInput.value = 'Sheet'; }
+          const qrSelDef = document.getElementById('preview-qr-placement'); if(qrSelDef){ qrSelDef.value = 'inline'; }
         }catch(_){ }
         try{ updateRutinaPDFPreview(); }catch(_){ }
         // Bind inline once modal opens
@@ -9707,6 +9962,15 @@ function ensurePdfZoomControls(containerId, frameId){
     }).join('');
     tbody.innerHTML = rows || '';
     tbody.querySelectorAll('tr').forEach(tr => {
+      // Resaltar la clase seleccionada (accesible y responsivo)
+      const idRow = tr.getAttribute('data-id');
+      if(String(idRow) === String(clasesState.selectedId||'')){
+        tr.classList.add('selected');
+        tr.setAttribute('aria-selected','true');
+      } else {
+        tr.classList.remove('selected');
+        tr.removeAttribute('aria-selected');
+      }
       tr.addEventListener('click', (e) => { if(!(e.target instanceof HTMLElement) || e.target.closest('button')) return; const id = tr.getAttribute('data-id'); selectClase(id); });
       tr.addEventListener('dblclick', (e) => { const id = tr.getAttribute('data-id'); selectClase(id); openClaseModal(id); });
       const edit = tr.querySelector('button[data-action="edit"]');
@@ -9725,6 +9989,15 @@ function ensurePdfZoomControls(containerId, frameId){
   async function selectClase(id){
     const clase = (clasesState.list||[]).find(x => String(x.id||'') === String(id));
     clasesState.selectedId = clase ? clase.id : null;
+    // Actualizar resaltado en la tabla de clases
+    const tbody = document.querySelector('#clases-table tbody');
+    if(tbody){
+      tbody.querySelectorAll('tr').forEach(tr => {
+        const isSel = String(tr.getAttribute('data-id')||'') === String(clasesState.selectedId||'');
+        tr.classList.toggle('selected', isSel);
+        if(isSel){ tr.setAttribute('aria-selected','true'); } else { tr.removeAttribute('aria-selected'); }
+      });
+    }
     const idEl = document.getElementById('clase-side-id'); if(idEl) idEl.textContent = clase ? `#${clase.id}` : '';
     const nombreEl = document.getElementById('clase-side-nombre'); if(nombreEl) nombreEl.value = String(clase?.nombre||'');
     const descEl = document.getElementById('clase-side-descripcion'); if(descEl) descEl.value = String(clase?.descripcion||'');
@@ -10249,6 +10522,8 @@ function ensurePdfZoomControls(containerId, frameId){
     }catch(_){}
     // Render listas
     renderClaseEjerciciosUI();
+    // Cargar bloques de la clase
+    try{ await loadClaseBloques(id); }catch(_){}
     // Enlazar controles
     const qEl = document.getElementById('clase-ej-q'); if(qEl){ qEl.value=''; qEl.addEventListener('input', debounce(renderClaseEjerciciosUI, 200)); }
     const gEl = document.getElementById('clase-ej-group'); if(gEl){ gEl.addEventListener('change', renderClaseEjerciciosUI); }
@@ -10260,11 +10535,15 @@ function ensurePdfZoomControls(containerId, frameId){
     const btnNew = document.getElementById('clase-ej-new'); if(btnNew){ btnNew.onclick = ()=> showEjercicioForm(null); }
     const btnEdit = document.getElementById('clase-ej-edit'); if(btnEdit){ btnEdit.onclick = editSelectedEjercicioFromCatalog; }
     const btnDel = document.getElementById('clase-ej-delete'); if(btnDel){ btnDel.onclick = deleteSelectedEjercicioFromCatalog; }
+    const selBloq = document.getElementById('clase-ej-bloque-select'); if(selBloq){ selBloq.onchange = async ()=>{ await applySelectedBloque(id); }; }
+    const btnBloqSave = document.getElementById('clase-ej-bloque-save'); if(btnBloqSave){ btnBloqSave.onclick = async ()=>{ await saveCurrentAsBloque(id); }; }
+    const btnBloqUpdate = document.getElementById('clase-ej-bloque-update'); if(btnBloqUpdate){ btnBloqUpdate.onclick = async ()=>{ await updateSelectedBloque(id); }; }
+    const btnBloqDelete = document.getElementById('clase-ej-bloque-delete'); if(btnBloqDelete){ btnBloqDelete.onclick = async ()=>{ await deleteSelectedBloque(id); }; }
     try { openModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.add('active'); el.style.display = 'flex'; el.setAttribute('aria-hidden','false'); }}
   }
   function closeClaseEjerciciosModal(){ try { closeModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.remove('active'); el.style.display = 'none'; el.setAttribute('aria-hidden','true'); } } }
 
-  function renderClaseEjerciciosUI(){
+function renderClaseEjerciciosUI(){
     const q = (document.getElementById('clase-ej-q')?.value||'').toLowerCase();
     const g = document.getElementById('clase-ej-group')?.value||'';
     const o = document.getElementById('clase-ej-objetivo')?.value||'';
@@ -10272,6 +10551,10 @@ function ensurePdfZoomControls(containerId, frameId){
     const emptyL = document.getElementById('clase-ej-list-empty');
     const tbodyB = document.querySelector('#clase-ej-bloque-table tbody');
     const emptyB = document.getElementById('clase-ej-bloque-empty');
+    const listTable = document.getElementById('clase-ej-list-table');
+    const bloqueTable = document.getElementById('clase-ej-bloque-table');
+    const listWrap = listTable && typeof listTable.closest==='function' ? listTable.closest('.table-scroll') : null;
+    const bloqueWrap = bloqueTable && typeof bloqueTable.closest==='function' ? bloqueTable.closest('.table-scroll') : null;
     if(tbodyL) tbodyL.innerHTML=''; if(tbodyB) tbodyB.innerHTML='';
     const catalog = Array.isArray(clasesState._ej_catalog)?clasesState._ej_catalog:[];
     const selected = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
@@ -10283,38 +10566,127 @@ function ensurePdfZoomControls(containerId, frameId){
     });
     if(tbodyL){ filtered.forEach(e => {
       const tr = document.createElement('tr'); tr.setAttribute('data-id', String(e.id||'')); tr.setAttribute('data-name', String(e.nombre||''));
-      tr.innerHTML = `<td>${String(e.nombre||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td><td>${String(e.grupo_muscular||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td><td>${String(e.objetivo||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>`;
+      const tdHandle = document.createElement('td'); tdHandle.innerHTML = `<span class="handle" style="display:inline-block; padding:0 6px; cursor:grab; user-select:none; opacity:.8;">${'⋮⋮'}</span>`;
+      const tdNombre = document.createElement('td'); tdNombre.textContent = String(e.nombre||'');
+      const tdGrupo = document.createElement('td'); tdGrupo.textContent = String(e.grupo_muscular||'');
+      const tdObj = document.createElement('td'); tdObj.textContent = String(e.objetivo||'');
       tr.addEventListener('click', () => { tr.classList.toggle('selected'); });
+      // Hacer arrastrable: permite mover del catálogo al bloque
+      tr.draggable = true;
+      tr.style.cursor = 'grab';
+      tr.addEventListener('dragstart', (ev) => { 
+        try{ 
+          ev.dataTransfer.effectAllowed = 'copyMove'; 
+          ev.dataTransfer.setData('text/plain', `CAT:${String(e.id)}`); 
+        }catch(_){ }
+      });
+      tr.appendChild(tdHandle);
+      tr.appendChild(tdNombre);
+      tr.appendChild(tdGrupo);
+      tr.appendChild(tdObj);
       tbodyL.appendChild(tr);
-    }); }
+    });
+    // Permitir soltar aquí para remover del bloque (desde BLK:)
+    if(tbodyL && !tbodyL.dataset.dndBound){
+      tbodyL.dataset.dndBound = '1';
+      tbodyL.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } tbodyL.classList.add('drag-over'); });
+      tbodyL.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } tbodyL.classList.add('drag-over'); });
+      tbodyL.addEventListener('dragleave', () => { tbodyL.classList.remove('drag-over'); });
+      tbodyL.addEventListener('drop', (ev) => {
+        ev.preventDefault(); ev.stopPropagation(); tbodyL.classList.remove('drag-over');
+        let from = -1; try{ const p = String(ev.dataTransfer.getData('text/plain')||''); from = p.startsWith('BLK:') ? Number(p.slice(4)) : -1; }catch(_){ from = -1; }
+        if(from>=0){
+          const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+          arr.splice(from, 1);
+          clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+          renderClaseEjerciciosUI();
+        }
+      });
+    }
+    // También aceptar drop en el contenedor y la tabla (facilita interacción en scroll)
+    [listWrap, listTable].forEach(el => {
+      if(el && !el.dataset?.dndBound){
+        try { el.dataset.dndBound = '1'; } catch(__){}
+        el.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } if(tbodyL){ tbodyL.classList.add('drag-over'); } });
+        el.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } if(tbodyL){ tbodyL.classList.add('drag-over'); } });
+        el.addEventListener('dragleave', () => { if(tbodyL){ tbodyL.classList.remove('drag-over'); } });
+        el.addEventListener('drop', (ev) => {
+          ev.preventDefault(); ev.stopPropagation(); if(tbodyL){ tbodyL.classList.remove('drag-over'); }
+          let from = -1; try{ const p = String(ev.dataTransfer.getData('text/plain')||''); from = p.startsWith('BLK:') ? Number(p.slice(4)) : -1; }catch(_){ from = -1; }
+          if(from>=0){
+            const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+            arr.splice(from, 1);
+            clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+            renderClaseEjerciciosUI();
+          }
+        });
+      }
+    });
+
+    // Aceptar drop también sobre el mensaje vacío del catálogo
+    if(emptyL && !emptyL.dataset.dndBound){
+      emptyL.dataset.dndBound = '1';
+      emptyL.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } emptyL.classList.add('drag-over'); });
+      emptyL.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } emptyL.classList.add('drag-over'); });
+      emptyL.addEventListener('dragleave', () => { emptyL.classList.remove('drag-over'); });
+      emptyL.addEventListener('drop', (ev) => {
+        ev.preventDefault(); ev.stopPropagation(); emptyL.classList.remove('drag-over');
+        let from = -1; try{ const p = String(ev.dataTransfer.getData('text/plain')||''); from = p.startsWith('BLK:') ? Number(p.slice(4)) : -1; }catch(_){ from = -1; }
+        if(from>=0){
+          const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+          arr.splice(from, 1);
+          clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+          renderClaseEjerciciosUI();
+        }
+      });
+    }
+    }
     if(emptyL) emptyL.style.display = (tbodyL && tbodyL.children.length===0) ? '' : 'none';
     if(tbodyB){
       tbodyB.innerHTML = '';
       selected.forEach((item, idx) => {
         const ej = catalog.find(x => Number(x.id)===Number(item.ejercicio_id));
         const tr = document.createElement('tr');
+        tr.classList.add('animate-in');
         tr.setAttribute('data-id', String(item.ejercicio_id));
         tr.setAttribute('data-index', String(idx));
         tr.draggable = true;
         tr.addEventListener('click', () => { tr.classList.toggle('selected'); });
         tr.addEventListener('dragstart', (ev) => {
-          try{ ev.dataTransfer.setData('text/plain', String(idx)); }catch(_){ }
+          try{ ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', `BLK:${String(idx)}`); }catch(_){ }
         });
-        tr.addEventListener('dragover', (ev) => { ev.preventDefault(); tr.classList.add('drag-over'); });
+        tr.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } tr.classList.add('drag-over'); });
         tr.addEventListener('dragleave', () => { tr.classList.remove('drag-over'); });
         tr.addEventListener('drop', (ev) => {
-          ev.preventDefault(); tr.classList.remove('drag-over');
-          let from = -1; try{ from = Number(ev.dataTransfer.getData('text/plain')||'-1'); }catch(_){ from = -1; }
+          ev.preventDefault(); ev.stopPropagation(); tr.classList.remove('drag-over');
+          const payload = (()=>{ try{ return String(ev.dataTransfer.getData('text/plain')||''); }catch(_){ return ''; } })();
           const to = idx;
-          if(from>=0 && to>=0 && from!==to){
+          // Si viene desde el propio bloque: reordenar
+          if(payload.startsWith('BLK:')){
+            const from = Number(payload.slice(4));
+            if(from>=0 && to>=0 && from!==to){
+              const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+              const [m] = arr.splice(from, 1);
+              arr.splice(to, 0, m);
+              clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+              renderClaseEjerciciosUI();
+            }
+            return;
+          }
+          // Si viene del catálogo: insertar antes de esta fila
+          const eid = payload.startsWith('CAT:') ? Number(payload.slice(4)) : 0;
+          if(eid>0){
             const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
-            const [m] = arr.splice(from, 1);
-            arr.splice(to, 0, m);
-            // Recalcular orden
-            clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
-            renderClaseEjerciciosUI();
+            const exists = arr.some(it => Number(it.ejercicio_id)===eid);
+            const ej = catalog.find(x => Number(x.id)===eid);
+            if(ej && !exists){
+              arr.splice(to, 0, { ejercicio_id:eid, orden:to, series:0, repeticiones:'', descanso_segundos:0, notas:'' });
+              clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+              renderClaseEjerciciosUI();
+            }
           }
         });
+        const tdHandle = document.createElement('td'); tdHandle.innerHTML = `<span class="handle" style="display:inline-block; padding:0 6px; cursor:grab; user-select:none; opacity:.8;">${'⋮⋮'}</span>`;
         const tdOrden = document.createElement('td'); tdOrden.textContent = String(idx+1);
         const tdNombre = document.createElement('td'); tdNombre.textContent = String(ej?.nombre||'—');
         const tdSeries = document.createElement('td');
@@ -10342,13 +10714,88 @@ function ensurePdfZoomControls(containerId, frameId){
         tdAcc.appendChild(btnRm);
         tr.appendChild(tdOrden);
         tr.appendChild(tdNombre);
+        tr.appendChild(tdHandle);
         tr.appendChild(tdSeries);
         tr.appendChild(tdReps);
         tr.appendChild(tdDesc);
         tr.appendChild(tdNotas);
         tr.appendChild(tdAcc);
-        tbodyB.appendChild(tr);
+      tbodyB.appendChild(tr);
       });
+      // Permitir soltar al final del bloque (desde CAT:) en tbody, tabla y contenedor
+      if(tbodyB && !tbodyB.dataset.dndBound){
+        tbodyB.dataset.dndBound = '1';
+        tbodyB.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } tbodyB.classList.add('drag-over'); });
+        tbodyB.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } tbodyB.classList.add('drag-over'); });
+        tbodyB.addEventListener('dragleave', () => { tbodyB.classList.remove('drag-over'); });
+        tbodyB.addEventListener('drop', (ev) => {
+          ev.preventDefault(); ev.stopPropagation(); tbodyB.classList.remove('drag-over');
+          const payload = (()=>{ try{ return String(ev.dataTransfer.getData('text/plain')||''); }catch(_){ return ''; } })();
+          // Si viene del catálogo: agregar al final
+          if(payload.startsWith('CAT:')){
+            const eid = Number(payload.slice(4))||0;
+            if(eid>0){
+              const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+              const exists = arr.some(it => Number(it.ejercicio_id)===eid);
+              const ej = catalog.find(x => Number(x.id)===eid);
+              if(ej && !exists){
+                arr.push({ ejercicio_id:eid, orden:arr.length, series:0, repeticiones:'', descanso_segundos:0, notas:'' });
+                clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+                renderClaseEjerciciosUI();
+              }
+            }
+          }
+        });
+      }
+      [bloqueWrap, bloqueTable].forEach(el => {
+        if(el && !el.dataset?.dndBound){
+          try { el.dataset.dndBound = '1'; } catch(__){}
+          el.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } if(tbodyB){ tbodyB.classList.add('drag-over'); } });
+          el.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } if(tbodyB){ tbodyB.classList.add('drag-over'); } });
+          el.addEventListener('dragleave', () => { if(tbodyB){ tbodyB.classList.remove('drag-over'); } });
+          el.addEventListener('drop', (ev) => {
+            ev.preventDefault(); ev.stopPropagation(); if(tbodyB){ tbodyB.classList.remove('drag-over'); }
+            const payload = (()=>{ try{ return String(ev.dataTransfer.getData('text/plain')||''); }catch(_){ return ''; } })();
+            if(payload.startsWith('CAT:')){
+              const eid = Number(payload.slice(4))||0;
+              if(eid>0){
+                const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+                const exists = arr.some(it => Number(it.ejercicio_id)===eid);
+                const ej = catalog.find(x => Number(x.id)===eid);
+                if(ej && !exists){
+                  arr.push({ ejercicio_id:eid, orden:arr.length, series:0, repeticiones:'', descanso_segundos:0, notas:'' });
+                  clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+                  renderClaseEjerciciosUI();
+                }
+              }
+            }
+          });
+        }
+      });
+      // Aceptar drop también sobre el mensaje vacío del bloque
+      if(emptyB && !emptyB.dataset.dndBound){
+        emptyB.dataset.dndBound = '1';
+        emptyB.addEventListener('dragenter', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } emptyB.classList.add('drag-over'); });
+        emptyB.addEventListener('dragover', (ev) => { ev.preventDefault(); try{ ev.dataTransfer.dropEffect = 'move'; }catch(_){ } emptyB.classList.add('drag-over'); });
+        emptyB.addEventListener('dragleave', () => { emptyB.classList.remove('drag-over'); });
+        emptyB.addEventListener('drop', (ev) => {
+          ev.preventDefault(); ev.stopPropagation(); emptyB.classList.remove('drag-over');
+          const payload = (()=>{ try{ return String(ev.dataTransfer.getData('text/plain')||''); }catch(_){ return ''; } })();
+          if(payload.startsWith('CAT:')){
+            const eid = Number(payload.slice(4))||0;
+            if(eid>0){
+              const arr = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected.slice():[];
+              const exists = arr.some(it => Number(it.ejercicio_id)===eid);
+              const ej = catalog.find(x => Number(x.id)===eid);
+              if(ej && !exists){
+                arr.push({ ejercicio_id:eid, orden:arr.length, series:0, repeticiones:'', descanso_segundos:0, notas:'' });
+                clasesState._ej_selected = arr.map((it,i) => ({...it, orden:i}));
+                renderClaseEjerciciosUI();
+              }
+            }
+          }
+        });
+      }
     }
     if(emptyB) emptyB.style.display = (tbodyB && tbodyB.children.length===0) ? '' : 'none';
   }
@@ -10384,6 +10831,103 @@ function ensurePdfZoomControls(containerId, frameId){
       showToast('Ejercicios de la clase actualizados', 'success');
       closeClaseEjerciciosModal();
     }catch(e){ showToast('Error de red al guardar', 'error'); }
+  }
+
+  async function loadClaseBloques(claseId){
+    const sel = document.getElementById('clase-ej-bloque-select'); if(!sel) return;
+    try{
+      const r = await fetch(`/api/clases/${claseId}/bloques`, { headers:{ 'Accept':'application/json' } });
+      const arr = r.ok ? (await r.json()) : [];
+      const list = Array.isArray(arr) ? arr : [];
+      clasesState._ej_bloques = list;
+      const html = ['<option value="">Seleccionar bloque…</option>'].concat(list.map(b => `<option value="${String(b.id).replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${String(b.nombre||'Bloque').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`)).join('');
+      sel.innerHTML = html;
+    }catch(_){ if(sel){ sel.innerHTML = '<option value="">Seleccionar bloque…</option>'; } }
+  }
+
+  async function applySelectedBloque(claseId){
+    const sel = document.getElementById('clase-ej-bloque-select'); const bid = sel ? Number(sel.value||0) : 0;
+    if(!bid){ return; }
+    try{
+      const r = await fetch(`/api/clases/${claseId}/bloques/${bid}`, { headers:{ 'Accept':'application/json' } });
+      const items = r.ok ? (await r.json()) : [];
+      const norm = (Array.isArray(items)?items:[]).map((it, idx) => ({
+        ejercicio_id: Number(it.ejercicio_id || it.id || 0),
+        orden: Number(it.orden ?? idx) || idx,
+        series: Number(it.series||0) || 0,
+        repeticiones: String(it.repeticiones||''),
+        descanso_segundos: Number(it.descanso_segundos||0) || 0,
+        notas: String(it.notas||'')
+      })).filter(x => Number(x.ejercicio_id));
+      norm.sort((a,b) => (a.orden||0) - (b.orden||0));
+      clasesState._ej_selected = norm.map((it,i) => ({...it, orden:i}));
+      clasesState._ej_bloque_selected_id = bid;
+      try{ const nameEl = document.getElementById('clase-ej-bloque-name'); if(nameEl && sel){ const opt = sel.options[sel.selectedIndex]; nameEl.value = String(opt?.text||''); } }catch(_){}
+      renderClaseEjerciciosUI();
+      showToast('Bloque aplicado a la vista', 'success', 2000);
+    }catch(_){ showToast('No se pudo cargar el bloque', 'error'); }
+  }
+
+  async function saveCurrentAsBloque(claseId){
+    const nameEl = document.getElementById('clase-ej-bloque-name');
+    const btnEl = document.getElementById('clase-ej-bloque-save');
+    const statusEl = document.getElementById('clase-ej-status');
+    const nombre = String((nameEl?.value||'')).trim();
+    if(!nombre){ showToast('Nombre de bloque obligatorio', 'warning'); try{ nameEl?.focus(); }catch(_){} return; }
+    const items = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+    if(!items.length){ showToast('Añade ejercicios antes de guardar el bloque', 'warning'); return; }
+    const payload = { nombre, items: items.map((it,idx) => ({ ejercicio_id: Number(it.ejercicio_id), orden: idx, series: Number(it.series||0), repeticiones: String(it.repeticiones||''), descanso_segundos: Number(it.descanso_segundos||0), notas: String(it.notas||'' ) })) };
+    try{
+      if(btnEl){ btnEl.disabled = true; }
+      if(statusEl){ statusEl.textContent = 'Guardando bloque…'; }
+      const r = await fetch(`/api/clases/${claseId}/bloques`, { method:'POST', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(payload) });
+      if(!r.ok){ showToast('No se pudo guardar el bloque', 'error'); return; }
+      const data = await r.json().catch(()=>({}));
+      await loadClaseBloques(claseId);
+      const sel = document.getElementById('clase-ej-bloque-select'); if(sel){ sel.value = String(data?.id||''); }
+      showToast('Bloque creado', 'success', 2500);
+    }catch(_){ showToast('Error de red al guardar bloque', 'error'); }
+    finally {
+      if(btnEl){ btnEl.disabled = false; }
+      if(statusEl){ statusEl.textContent = '—'; }
+    }
+  }
+
+  async function updateSelectedBloque(claseId){
+    const bid = Number(document.getElementById('clase-ej-bloque-select')?.value||0);
+    if(!bid){ showToast('Selecciona un bloque', 'warning'); return; }
+    const nameEl = document.getElementById('clase-ej-bloque-name');
+    const btnEl = document.getElementById('clase-ej-bloque-update');
+    const statusEl = document.getElementById('clase-ej-status');
+    const nombre = String((nameEl?.value||''));
+    const items = Array.isArray(clasesState._ej_selected)?clasesState._ej_selected:[];
+    const payload = { nombre, items: items.map((it,idx) => ({ ejercicio_id: Number(it.ejercicio_id), orden: idx, series: Number(it.series||0), repeticiones: String(it.repeticiones||''), descanso_segundos: Number(it.descanso_segundos||0), notas: String(it.notas||'' ) })) };
+    try{
+      if(btnEl){ btnEl.disabled = true; }
+      if(statusEl){ statusEl.textContent = 'Actualizando bloque…'; }
+      const r = await fetch(`/api/clases/${claseId}/bloques/${bid}`, { method:'PUT', headers:{ 'Content-Type':'application/json','Accept':'application/json' }, body: JSON.stringify(payload) });
+      if(!r.ok){ showToast('No se pudo actualizar el bloque', 'error'); return; }
+      await loadClaseBloques(claseId);
+      const sel = document.getElementById('clase-ej-bloque-select'); if(sel){ sel.value = String(bid||''); }
+      showToast('Bloque actualizado', 'success', 2500);
+    }catch(_){ showToast('Error de red al actualizar bloque', 'error'); }
+    finally {
+      if(btnEl){ btnEl.disabled = false; }
+      if(statusEl){ statusEl.textContent = '—'; }
+    }
+  }
+
+  async function deleteSelectedBloque(claseId){
+    const bid = Number(document.getElementById('clase-ej-bloque-select')?.value||0);
+    if(!bid){ showToast('Selecciona un bloque', 'warning'); return; }
+    try{ const ok = confirm('¿Eliminar bloque seleccionado?'); if(!ok) return; }catch(_){}
+    try{
+      const r = await fetch(`/api/clases/${claseId}/bloques/${bid}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+      if(!r.ok){ showToast('No se pudo eliminar el bloque', 'error'); return; }
+      await loadClaseBloques(claseId);
+      const sel = document.getElementById('clase-ej-bloque-select'); if(sel){ sel.value=''; }
+      showToast('Bloque eliminado', 'success', 2500);
+    }catch(_){ showToast('Error de red al eliminar bloque', 'error'); }
   }
 
   function editSelectedEjercicioFromCatalog(){
@@ -10449,6 +10993,91 @@ function ensurePdfZoomControls(containerId, frameId){
           try { if(tab === 'configuracion') loadConfigData(); } catch(_){}
         });
       });
+      // Subtabs móviles: replicar comportamiento de sidebar y header
+      document.querySelectorAll('#mobile-subtabs [data-tab]').forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          const tab = item.getAttribute('data-tab');
+          const btn = document.querySelector('.tab[data-tab="'+tab+'"]');
+          if(btn){ try{ btn.click(); }catch(_){} }
+          else { try{ switchTab(tab); }catch(_){} }
+          try{ closeMobileSubtabs(); }catch(_){}
+        });
+      });
+      // Botones de toggle de sidebar controlan también la barra móvil
+      document.querySelectorAll('[data-sidebar-toggle]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          if((window.innerWidth || document.documentElement.clientWidth || 0) <= 960){
+            e.preventDefault();
+            try{ e.stopPropagation(); }catch(_){}
+            try{ toggleMobileSubtabs(); }catch(_){}
+            try{ reorderMobileSubtabs(); }catch(_){}
+          }
+        });
+      });
+      // Peek controla apertura de barra móvil
+      try{
+        const peek = document.getElementById('mobile-subtabs-peek');
+        if(peek){ peek.addEventListener('click', (e) => { if((window.innerWidth || document.documentElement.clientWidth || 0) <= 960){ try{ toggleMobileSubtabs(); }catch(_){} try{ reorderMobileSubtabs(); }catch(_){} } }); }
+      }catch(_){}
+      // Modo compacto al hacer scroll (solo móvil)
+      try{
+        const nav = document.getElementById('mobile-subtabs');
+        const onScroll = () => {
+          if(!nav) return;
+          if(window.innerWidth > 960){ nav.classList.remove('compact'); return; }
+          const scrolled = (window.scrollY || document.documentElement.scrollTop || 0) > 64;
+          nav.classList.toggle('compact', scrolled);
+          try{
+            const y = (window.scrollY || document.documentElement.scrollTop || 0);
+            if(y > 160 && document.body.classList.contains('mobile-subtabs-open')){ closeMobileSubtabs(); }
+          }catch(_){}
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+      }catch(_){}
+      // Gestos de swipe para cambiar pestañas (solo móvil)
+      try{
+        const main = document.getElementById('main-content');
+        let sx = 0, sy = 0;
+        main.addEventListener('touchstart', (e) => {
+          const t = e.touches && e.touches[0];
+          if(!t) return;
+          sx = t.clientX; sy = t.clientY;
+        }, { passive: true });
+        main.addEventListener('touchend', (e) => {
+          const t = e.changedTouches && e.changedTouches[0];
+          if(!t) return;
+          const dx = t.clientX - sx; const dy = t.clientY - sy;
+          if(window.innerWidth > 960) return;
+          if(Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy)+10) return;
+          const items = Array.from(document.querySelectorAll('#mobile-subtabs [data-tab]'));
+          const idx = items.findIndex(i => i.classList.contains('active'));
+          if(idx < 0) return;
+          let nextIdx = idx;
+          if(dx < 0 && idx < items.length-1) nextIdx = idx+1; // swipe izquierda => siguiente
+          else if(dx > 0 && idx > 0) nextIdx = idx-1; // swipe derecha => anterior
+          if(nextIdx !== idx){ try{ items[nextIdx].click(); }catch(_){} try{ closeMobileSubtabs(); }catch(_){} }
+        }, { passive: true });
+      }catch(_){}
+      // Reordenar barra móvil al iniciar y actualizar etiqueta del peek
+      try{ reorderMobileSubtabs(); }catch(_){}
+      try{ updatePeekLabel(); }catch(_){}
+      // Cerrar barra móvil al hacer click fuera
+      try{
+        document.addEventListener('click', (e) => {
+          try{
+            if((window.innerWidth || document.documentElement.clientWidth || 0) > 960) return;
+            const open = document.body.classList.contains('mobile-subtabs-open');
+            if(!open) return;
+            const nav = document.getElementById('mobile-subtabs');
+            const t = e.target;
+            const inNav = nav && t && typeof t.closest==='function' ? !!t.closest('#mobile-subtabs') : false;
+            const onToggle = t && typeof t.closest==='function' ? !!t.closest('[data-sidebar-toggle]') : false;
+            if(!inNav && !onToggle){ closeMobileSubtabs(); }
+          }catch(_){}
+        }, true);
+      }catch(_){}
       // Sidebar: enlazar elementos con data-tab a las mismas acciones de pestañas
       document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(item => {
         item.addEventListener('click', (e) => {
@@ -10525,6 +11154,8 @@ function ensurePdfZoomControls(containerId, frameId){
       if(btnProf && role === 'profesor'){ btnProf.style.display = 'none'; }
       const sideProfItem = document.querySelector('.sidebar .nav-item[data-tab="profesores"]');
       if(sideProfItem && role === 'profesor'){ sideProfItem.style.display = 'none'; }
+      const mobileProfItem = document.querySelector('#mobile-subtabs [data-tab="profesores"]');
+      if(mobileProfItem && role === 'profesor'){ mobileProfItem.style.display = 'none'; }
 
       // Interceptar logout para profesor: mostrar confirmación
       const logoutLink = document.querySelector('a[href^="/gestion/logout"]');

@@ -1738,7 +1738,7 @@ class RoutineTemplateManager:
                 qr_png_path = None
         try:
             if qr_png_path and os.path.exists(qr_png_path):
-                from PIL import Image  # type: ignore
+                from PIL import Image, ImageOps  # type: ignore
                 qr_img = Image.open(qr_png_path).convert('RGBA')
                 logo_path = resource_path(os.path.join('assets', 'gym_logo.png'))
                 if not os.path.exists(logo_path):
@@ -1749,12 +1749,11 @@ class RoutineTemplateManager:
                     qr_w, qr_h = qr_img.size
                     target_w = int(min(max(qr_w * 0.22, 48), 96))
                     logo_img.thumbnail((target_w, target_w), Image.LANCZOS)
-                    lw, lh = logo_img.size
-                    pad = max(4, int(target_w * 0.08))
-                    bg = Image.new('RGBA', (lw + pad * 2, lh + pad * 2), (255, 255, 255, 255))
-                    bg.paste(logo_img, (pad, pad), logo_img)
-                    pos = (int((qr_w - bg.size[0]) / 2), int((qr_h - bg.size[1]) / 2))
-                    qr_img.alpha_composite(bg, dest=pos)
+                    pad = max(6, int(round(target_w * 0.12)))
+                    # Añadir borde blanco alrededor del logo para mejorar contraste y evitar confusiones del lector
+                    padded = ImageOps.expand(logo_img, border=pad, fill=(255, 255, 255, 255))
+                    pos = (int((qr_w - padded.size[0]) / 2), int((qr_h - padded.size[1]) / 2))
+                    qr_img.alpha_composite(padded, dest=pos)
                     qr_img = qr_img.convert('RGB')
                     qr_img.save(qr_png_path)
         except Exception:
@@ -1880,15 +1879,12 @@ class RoutineTemplateManager:
                     target_w = int(min(max(qr_w * 0.22, 48), 96))
                     # Mantener proporción
                     logo_img.thumbnail((target_w, target_w), Image.LANCZOS)
-                    lw, lh = logo_img.size
-                    # Fondo blanco ligeramente más grande para mejorar legibilidad del QR
-                    pad = max(4, int(target_w * 0.08))
-                    bg = Image.new('RGBA', (lw + pad * 2, lh + pad * 2), (255, 255, 255, 255))
-                    # Centrar el logo en el fondo
-                    bg.paste(logo_img, (pad, pad), logo_img)
+                    # Borde blanco más visible para estándares de lectura
+                    pad = max(6, int(round(target_w * 0.12)))
+                    padded = ImageOps.expand(logo_img, border=pad, fill=(255, 255, 255, 255))
                     # Posición centrada sobre el QR
-                    pos = (int((qr_w - bg.size[0]) / 2), int((qr_h - bg.size[1]) / 2))
-                    qr_img.alpha_composite(bg, dest=pos)
+                    pos = (int((qr_w - padded.size[0]) / 2), int((qr_h - padded.size[1]) / 2))
+                    qr_img.alpha_composite(padded, dest=pos)
                     # Guardar de vuelta el PNG
                     qr_img = qr_img.convert('RGB')
                     qr_img.save(qr_png_path)

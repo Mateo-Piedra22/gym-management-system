@@ -2819,7 +2819,160 @@ class DatabaseManager:
                     logging.info("Conexión directa cerrada")
                 except Exception as e:
                     logging.warning(f"Error cerrando conexión directa: {e}")
-    
+
+    # --- Configuración del Gimnasio (gym_config) ---
+    def _ensure_gym_config_table(self, conn):
+        """Crea la tabla gym_config si no existe y asegura una fila inicial."""
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gym_config (
+                    id SERIAL PRIMARY KEY,
+                    gym_name TEXT DEFAULT '',
+                    gym_slogan TEXT DEFAULT '',
+                    gym_address TEXT DEFAULT '',
+                    gym_phone TEXT DEFAULT '',
+                    gym_email TEXT DEFAULT '',
+                    gym_website TEXT DEFAULT '',
+                    facebook TEXT DEFAULT '',
+                    instagram TEXT DEFAULT '',
+                    twitter TEXT DEFAULT '',
+                    logo_url TEXT DEFAULT '',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute("SELECT id FROM gym_config LIMIT 1")
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute(
+                    """
+                    INSERT INTO gym_config (
+                        gym_name, gym_slogan, gym_address, gym_phone, gym_email,
+                        gym_website, facebook, instagram, twitter, logo_url
+                    )
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        'Gimnasio', '', '', '', '',
+                        '', '', '', '', ''
+                    )
+                )
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    def obtener_configuracion_gimnasio(self, timeout_ms: int = 1000) -> Dict[str, str]:
+        """Obtiene todos los datos del gimnasio desde la tabla gym_config."""
+        with self.get_connection_context() as conn:
+            self._ensure_gym_config_table(conn)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT gym_name, gym_slogan, gym_address, gym_phone, gym_email,
+                           gym_website, facebook, instagram, twitter, logo_url
+                    FROM gym_config
+                    ORDER BY id
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return {
+                        'gym_name': 'Gimnasio',
+                        'gym_slogan': '',
+                        'gym_address': '',
+                        'gym_phone': '',
+                        'gym_email': '',
+                        'gym_website': '',
+                        'facebook': '',
+                        'instagram': '',
+                        'twitter': '',
+                        'logo_url': ''
+                    }
+                # Mapear por posición fija
+                return {
+                    'gym_name': row[0] or '',
+                    'gym_slogan': row[1] or '',
+                    'gym_address': row[2] or '',
+                    'gym_phone': row[3] or '',
+                    'gym_email': row[4] or '',
+                    'gym_website': row[5] or '',
+                    'facebook': row[6] or '',
+                    'instagram': row[7] or '',
+                    'twitter': row[8] or '',
+                    'logo_url': row[9] or ''
+                }
+
+    def actualizar_configuracion_gimnasio(self, data: dict) -> bool:
+        """Actualiza múltiples campos de gym_config y sincroniza el logo en configuracion."""
+        allowed = {
+            'gym_name','gym_slogan','gym_address','gym_phone','gym_email',
+            'gym_website','facebook','instagram','twitter','logo_url'
+        }
+        cols = [k for k in data.keys() if k in allowed]
+        if not cols:
+            return False
+        values = [str(data.get(k, '') or '') for k in cols]
+        set_clause = ", ".join([f"{k} = %s" for k in cols])
+        with self.get_connection_context() as conn:
+            self._ensure_gym_config_table(conn)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE gym_config SET {set_clause}, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE id = (SELECT id FROM gym_config ORDER BY id LIMIT 1)"
+                    , values
+                )
+                if cursor.rowcount == 0:
+                    placeholders = ", ".join(["%s"] * len(cols))
+                    columns = ", ".join(cols)
+                    cursor.execute(
+                        f"INSERT INTO gym_config ({columns}) VALUES ({placeholders})",
+                        values
+                    )
+                # Sincronizar logo_url en configuracion para compatibilidad
+                if 'logo_url' in data:
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT INTO configuracion (clave, valor)
+                            VALUES ('gym_logo_url', %s)
+                            ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+                            """,
+                            (str(data.get('logo_url') or ''),)
+                        )
+                    except Exception:
+                        pass
+            try:
+                conn.commit()
+            except Exception:
+                pass
+        return True
+
+    def obtener_logo_url(self) -> Optional[str]:
+        """Obtiene el logo_url desde gym_config, con fallback a configuracion."""
+        with self.get_connection_context() as conn:
+            self._ensure_gym_config_table(conn)
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT logo_url FROM gym_config ORDER BY id LIMIT 1"
+                )
+                row = cursor.fetchone()
+                if row and isinstance(row[0], str) and row[0].strip():
+                    return row[0].strip()
+        try:
+            val = self.obtener_configuracion('gym_logo_url')
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        except Exception:
+            pass
+        return None
+
+    def actualizar_logo_url(self, url: str) -> bool:
+        """Actualiza el logo_url en gym_config y en configuracion."""
+        return self.actualizar_configuracion_gimnasio({'logo_url': str(url or '')})
+
     def inicializar_base_datos(self):
         """Inicializa todas las tablas y datos por defecto en PostgreSQL"""
         # Guard de ejecución única para evitar múltiples inicializaciones pesadas
@@ -3034,6 +3187,104 @@ class DatabaseManager:
                         tipo VARCHAR(50) DEFAULT 'string',
                         descripcion TEXT
                     )""")
+
+                    # Tabla centralizada de datos del gimnasio
+                    # Se asegura su existencia durante la inicialización del sistema.
+                    try:
+                        self._ensure_gym_config_table(conn)
+                    except Exception:
+                        pass
+
+                    # Migración inicial de claves existentes en 'configuracion' hacia 'gym_config'
+                    # Mantiene compatibilidad con instalaciones previas.
+                    try:
+                        with conn.cursor() as mig:
+                            # Migrar logo si existe
+                            try:
+                                mig.execute("SELECT valor FROM configuracion WHERE clave = 'gym_logo_url'")
+                                r = mig.fetchone()
+                                if r and r[0]:
+                                    mig.execute(
+                                        "UPDATE gym_config SET logo_url = %s, updated_at = CURRENT_TIMESTAMP "
+                                        "WHERE id = (SELECT id FROM gym_config ORDER BY id LIMIT 1)",
+                                        (str(r[0]) ,)
+                                    )
+                            except Exception:
+                                pass
+
+                            # Migrar datos básicos si existen
+                            keys = ['gym_name','gym_slogan','gym_address','gym_phone','gym_email',
+                                    'gym_website','facebook','instagram','twitter']
+                            existing = {}
+                            for k in keys:
+                                try:
+                                    mig.execute("SELECT valor FROM configuracion WHERE clave = %s", (k,))
+                                    rv = mig.fetchone()
+                                    if rv and isinstance(rv[0], str) and rv[0].strip():
+                                        existing[k] = rv[0].strip()
+                                except Exception:
+                                    pass
+                            if existing:
+                                set_clause = ", ".join([f"{k} = %s" for k in existing.keys()])
+                                mig.execute(
+                                    f"UPDATE gym_config SET {set_clause}, updated_at = CURRENT_TIMESTAMP "
+                                    "WHERE id = (SELECT id FROM gym_config ORDER BY id LIMIT 1)",
+                                    [str(existing[k]) for k in existing.keys()]
+                                )
+
+                            # Migrar claves históricas en español → columnas de gym_config
+                            # Mapa: gym_nombre→gym_name, gym_direccion→gym_address, gym_telefono→gym_phone, gym_correo→gym_email
+                            spanish_map = {
+                                'gym_nombre': 'gym_name',
+                                'gym_direccion': 'gym_address',
+                                'gym_telefono': 'gym_phone',
+                                'gym_correo': 'gym_email'
+                            }
+                            # Obtener valores actuales de gym_config para no sobreescribir si ya están poblados
+                            current_row = None
+                            try:
+                                mig.execute(
+                                    """
+                                    SELECT gym_name, gym_slogan, gym_address, gym_phone, gym_email,
+                                           gym_website, facebook, instagram, twitter, logo_url
+                                    FROM gym_config ORDER BY id LIMIT 1
+                                    """
+                                )
+                                current_row = mig.fetchone()
+                            except Exception:
+                                current_row = None
+                            current_vals = {
+                                'gym_name': '', 'gym_slogan': '', 'gym_address': '', 'gym_phone': '', 'gym_email': '',
+                                'gym_website': '', 'facebook': '', 'instagram': '', 'twitter': '', 'logo_url': ''
+                            }
+                            if current_row:
+                                try:
+                                    current_vals['gym_name'] = str(current_row[0] or '')
+                                    current_vals['gym_address'] = str(current_row[2] or '')
+                                    current_vals['gym_phone'] = str(current_row[3] or '')
+                                    current_vals['gym_email'] = str(current_row[4] or '')
+                                except Exception:
+                                    pass
+
+                            spanish_updates = {}
+                            for sk, col in spanish_map.items():
+                                try:
+                                    mig.execute("SELECT valor FROM configuracion WHERE clave = %s", (sk,))
+                                    rv = mig.fetchone()
+                                    val = (rv[0].strip() if rv and isinstance(rv[0], str) else '')
+                                    if val and not (current_vals.get(col, '').strip()):
+                                        spanish_updates[col] = val
+                                except Exception:
+                                    pass
+                            if spanish_updates:
+                                set_clause_es = ", ".join([f"{k} = %s" for k in spanish_updates.keys()])
+                                mig.execute(
+                                    f"UPDATE gym_config SET {set_clause_es}, updated_at = CURRENT_TIMESTAMP "
+                                    "WHERE id = (SELECT id FROM gym_config ORDER BY id LIMIT 1)",
+                                    [str(spanish_updates[k]) for k in spanish_updates.keys()]
+                                )
+                    except Exception:
+                        pass
                     
                     # Tabla de auditoría
                     cursor.execute("""

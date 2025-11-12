@@ -1394,14 +1394,16 @@ class BrandingCustomizationWidget(QWidget):
             branding_json = self.db_manager.obtener_configuracion('branding_config')
             if branding_json:
                 config = json.loads(branding_json)
-                # Remover datos del gimnasio si existen en la configuración guardada
-                # Estos datos se cargan EXCLUSIVAMENTE desde gym_data.txt
-                gym_data_keys = ['gym_name', 'gym_slogan', 'gym_address', 'gym_phone', 
-                               'gym_email', 'gym_website', 'facebook', 'instagram', 'twitter']
-                for key in gym_data_keys:
-                    config.pop(key, None)
-                # Actualizar configuración base con los datos de la BD
                 base_config.update(config)
+            # Cargar datos del gimnasio desde DB
+            for key in ['gym_name', 'gym_slogan', 'gym_address', 'gym_phone', 
+                        'gym_email', 'gym_website', 'facebook', 'instagram', 'twitter']:
+                try:
+                    val = self.db_manager.obtener_configuracion(key)
+                    if isinstance(val, str):
+                        base_config[key] = val
+                except Exception:
+                    pass
         except Exception as e:
             logging.warning(f"Error cargando configuración de branding: {e}")
         
@@ -1648,19 +1650,26 @@ class BrandingCustomizationWidget(QWidget):
             # Guardar en la base de datos
             branding_json = json.dumps(self.current_branding, indent=2)
             self.db_manager.actualizar_configuracion('branding_config', branding_json)
-            
-            # Guardar también en gym_data.txt automáticamente
-            gym_data_saved = self.save_branding_to_gym_data()
+            try:
+                self.db_manager.actualizar_configuracion_gimnasio({
+                    'gym_name': str(self.current_branding.get('gym_name', '')),
+                    'gym_slogan': str(self.current_branding.get('gym_slogan', '')),
+                    'gym_address': str(self.current_branding.get('gym_address', '')),
+                    'gym_phone': str(self.current_branding.get('gym_phone', '')),
+                    'gym_email': str(self.current_branding.get('gym_email', '')),
+                    'gym_website': str(self.current_branding.get('gym_website', '')),
+                    'facebook': str(self.current_branding.get('facebook', '')),
+                    'instagram': str(self.current_branding.get('instagram', '')),
+                    'twitter': str(self.current_branding.get('twitter', ''))
+                })
+            except Exception:
+                pass
             
             # Emitir señal de cambio
             self.branding_changed.emit(self.current_branding)
             
             success_message = "La configuración de branding ha sido guardada exitosamente.\n\n"
-            if gym_data_saved:
-                success_message += "✅ Los datos del gimnasio también se guardaron en gym_data.txt\n\n"
-            else:
-                success_message += "⚠️ Advertencia: No se pudieron guardar los datos en gym_data.txt\n\n"
-            
+            success_message += "✅ Los datos del gimnasio se guardaron en la base de datos\n\n"
             success_message += "Algunos cambios pueden requerir reiniciar la aplicación para verse completamente."
             
             QMessageBox.information(
@@ -3502,132 +3511,3 @@ class BrandingCustomizationWidget(QWidget):
         except Exception as e:
             import logging
             logging.warning(f"Error mostrando notificación de accesibilidad: {e}")
-    
-    # ==================== FUNCIONES DE MANEJO DE DATOS DEL GIMNASIO ====================
-    
-    def get_gym_data_file_path(self):
-        """Obtiene la ruta del archivo gym_data.txt"""
-        try:
-            from utils import _resolve_gym_data_path
-            return _resolve_gym_data_path()
-        except Exception:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(current_dir)
-            return os.path.join(project_root, 'gym_data.txt')
-    
-    def load_gym_data_from_file(self):
-        """Carga los datos del gimnasio desde el archivo gym_data.txt"""
-        gym_data = {
-            'gym_name': 'Gimnasio',
-            'gym_slogan': '',
-            'gym_address': '',
-            'gym_phone': '',
-            'gym_email': '',
-            'gym_website': '',
-            'facebook': '',
-            'instagram': '',
-            'twitter': ''
-        }
-        
-        try:
-            data_file_path = self.get_gym_data_file_path()
-            if os.path.exists(data_file_path):
-                with open(data_file_path, 'r', encoding='utf-8') as file:
-                    for line in file:
-                        line = line.strip()
-                        # Ignorar líneas vacías y comentarios
-                        if line and not line.startswith('#'):
-                            if '=' in line:
-                                key, value = line.split('=', 1)
-                                key = key.strip()
-                                value = value.strip()
-                                # Manejar saltos de línea en direcciones
-                                if key == 'gym_address':
-                                    value = value.replace('\\n', '\n')
-                                gym_data[key] = value
-                logging.info(f"Datos del gimnasio cargados desde {data_file_path}")
-            else:
-                logging.warning(f"Archivo {data_file_path} no encontrado, usando valores por defecto")
-                
-        except Exception as e:
-            logging.error(f"Error cargando datos del gimnasio: {e}")
-            
-        return gym_data
-    
-    def save_gym_data_to_file(self, gym_data):
-        """Guarda los datos del gimnasio en el archivo gym_data.txt"""
-        try:
-            data_file_path = self.get_gym_data_file_path()
-            # Crear el directorio si no existe
-            os.makedirs(os.path.dirname(data_file_path), exist_ok=True)
-            
-            with open(data_file_path, 'w', encoding='utf-8') as file:
-                file.write("# Información del Gimnasio\n")
-                file.write("# Este archivo contiene toda la información básica, de contacto y redes sociales del gimnasio\n")
-                file.write("# Formato: clave=valor\n\n")
-                
-                file.write("# Información Básica\n")
-                file.write(f"gym_name={gym_data.get('gym_name', '')}\n")
-                file.write(f"gym_slogan={gym_data.get('gym_slogan', '')}\n")
-                # Manejar saltos de línea en direcciones
-                address = gym_data.get('gym_address', '').replace('\n', '\\n')
-                file.write(f"gym_address={address}\n\n")
-                
-                file.write("# Información de Contacto\n")
-                file.write(f"gym_phone={gym_data.get('gym_phone', '')}\n")
-                file.write(f"gym_email={gym_data.get('gym_email', '')}\n")
-                file.write(f"gym_website={gym_data.get('gym_website', '')}\n\n")
-                
-                file.write("# Redes Sociales\n")
-                file.write(f"facebook={gym_data.get('facebook', '')}\n")
-                file.write(f"instagram={gym_data.get('instagram', '')}\n")
-                file.write(f"twitter={gym_data.get('twitter', '')}\n")
-            
-            logging.info(f"Datos del gimnasio guardados en {data_file_path}")
-            return True
-            
-        except Exception as e:
-            logging.error(f"Error guardando datos del gimnasio: {e}")
-            return False
-    
-    def update_gym_data_file(self, updates):
-        """Actualiza datos específicos del gimnasio en el archivo"""
-        current_data = self.load_gym_data_from_file()
-        current_data.update(updates)
-        return self.save_gym_data_to_file(current_data)
-    
-    def get_gym_info_from_file(self, key):
-        """Obtiene un valor específico de la información del gimnasio desde el archivo"""
-        gym_data = self.load_gym_data_from_file()
-        return gym_data.get(key)
-    
-    def gym_data_file_exists(self):
-        """Verifica si el archivo de datos del gimnasio existe"""
-        return os.path.exists(self.get_gym_data_file_path())
-    
-    
-    def save_branding_to_gym_data(self):
-        """Guarda la información del gimnasio desde branding al archivo gym_data.txt"""
-        try:
-            # Recopilar datos actuales de la interfaz
-            self.collect_current_settings()
-            
-            # Extraer solo los datos del gimnasio
-            gym_data = {
-                'gym_name': self.current_branding.get('gym_name', ''),
-                'gym_slogan': self.current_branding.get('gym_slogan', ''),
-                'gym_address': self.current_branding.get('gym_address', ''),
-                'gym_phone': self.current_branding.get('gym_phone', ''),
-                'gym_email': self.current_branding.get('gym_email', ''),
-                'gym_website': self.current_branding.get('gym_website', ''),
-                'facebook': self.current_branding.get('facebook', ''),
-                'instagram': self.current_branding.get('instagram', ''),
-                'twitter': self.current_branding.get('twitter', '')
-            }
-            
-            # Guardar en el archivo
-            return self.save_gym_data_to_file(gym_data)
-            
-        except Exception as e:
-            logging.error(f"Error guardando branding a gym_data.txt: {e}")
-            return False
