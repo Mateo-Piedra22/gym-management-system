@@ -52,9 +52,9 @@
       .table th, .table td { padding: 6px; }
       #qr-reader { max-width: 100%; min-height: 200px; }
     }
-    .modal header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
-    .modal .content { padding: 16px; }
-    .modal .content video, .modal .content img { width: 100%; height: auto; border-radius: 12px; }
+    .modal-header { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
+    .modal-body { padding: 16px; }
+    .modal-body video, .modal-body img { width: 100%; height: auto; border-radius: 12px; }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     /* Skeleton shimmer */
     .skeleton { background: linear-gradient(90deg, #e6e6e6 0%, #f2f2f2 50%, #e6e6e6 100%); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
@@ -252,13 +252,13 @@
       </section>
 
       <!-- Modal: Escaneo de QR de rutina -->
-      <div class="modal-backdrop" id="qr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title" style="display:none;">
+      <div class="modal-backdrop" id="qr-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qr-modal-title">
         <div class="modal" role="document">
-          <header>
+          <div class="modal-header">
             <h4 id="qr-modal-title" style="margin:0;">Escanear QR de rutina</h4>
-            <button class="btn" type="button" onclick="cerrarModalQR()" aria-label="Cerrar"><i class="bi bi-x" aria-hidden="true"></i></button>
-          </header>
-          <div class="content">
+            <button class="modal-close" type="button" onclick="cerrarModalQR()" aria-label="Cerrar">×</button>
+          </div>
+          <div class="modal-body">
             <div id="qr-reader-modal" class="reader" role="region" aria-label="Lector QR" aria-live="polite" style="min-height:260px"></div>
             <div id="qr-msg" class="muted" style="margin-top:8px;">Apunta la cámara al código QR de tu rutina.</div>
           </div>
@@ -277,11 +277,11 @@
 
       <div class="modal-backdrop" id="exercise-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="exercise-modal-title">
         <div class="modal" role="document">
-          <header>
+          <div class="modal-header">
             <h4 id="exercise-modal-title" style="margin:0;">Ejercicio</h4>
-            <button class="btn" type="button" onclick="cerrarModalEjercicio()" aria-label="Cerrar"><i class="bi bi-x" aria-hidden="true"></i></button>
-          </header>
-          <div class="content">
+            <button class="modal-close" type="button" onclick="cerrarModalEjercicio()" aria-label="Cerrar">×</button>
+          </div>
+          <div class="modal-body">
             <h5 id="exercise-name" style="margin:0 0 8px 0;"></h5>
             <p id="exercise-desc" class="muted"></p>
             <div id="exercise-media" style="margin-top:10px;"></div>
@@ -290,12 +290,12 @@
       </div>
 
       <!-- Modal: Usuario inactivo (incerrable) -->
-      <div class="modal-backdrop" id="inactive-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="inactive-modal-title" style="display:none;">
+      <div class="modal-backdrop" id="inactive-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="inactive-modal-title">
         <div class="modal" role="document">
-          <header>
+          <div class="modal-header">
             <h4 id="inactive-modal-title" style="margin:0;">Estado de cuenta</h4>
-          </header>
-          <div class="content">
+          </div>
+          <div class="modal-body">
             <p style="font-size:16px;">
               <span class="chip danger" style="font-weight:600;">
                 <i class="bi bi-slash-circle" aria-hidden="true"></i>
@@ -491,7 +491,7 @@
     function abrirModalQR(){
       const bd = document.getElementById('qr-modal-backdrop');
       if (!bd) return;
-      bd.style.display = 'flex';
+      bd.classList.add('active');
       const titleEl = document.getElementById('qr-modal-title');
       if (titleEl){ try { titleEl.setAttribute('tabindex','-1'); titleEl.focus(); } catch(_){ } }
       bd.addEventListener('click', (ev) => { if (ev.target === bd) cerrarModalQR(); });
@@ -501,7 +501,13 @@
     async function cerrarModalQR(){
       await detenerLectorQR();
       const bd = document.getElementById('qr-modal-backdrop');
-      if (bd) { bd.style.display = 'none'; }
+      const m = bd ? bd.querySelector('.modal') : null;
+      if(m){
+        m.classList.add('closing');
+        setTimeout(() => { bd.classList.remove('active'); m.classList.remove('closing'); }, 160);
+      } else {
+        bd.classList.remove('active');
+      }
       document.removeEventListener('keydown', onEscCloseQR);
     }
     function onEscCloseQR(ev){ if (ev.key === 'Escape') cerrarModalQR(); }
@@ -844,7 +850,7 @@
           if (txtEl) txtEl.textContent = reason;
           var mb = document.getElementById('inactive-modal-backdrop');
           if (mb) {
-            mb.style.display = 'flex';
+            mb.classList.add('active');
             // Bloquear cierre por Escape o clic de fondo
             mb.addEventListener('click', function(e){
               if (e.target === mb) { e.preventDefault(); e.stopPropagation(); }

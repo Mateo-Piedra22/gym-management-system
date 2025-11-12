@@ -160,12 +160,7 @@
     table.data-table tbody tr:hover { background: rgba(176,125,93,0.12); }
     .panel-controls { display:flex; gap:12px; align-items:center; margin:8px 0 12px 0; flex-wrap: wrap; }
     .selected-row { outline:2px solid var(--accent); background: rgba(176,125,93,0.16) !important; }
-    /* Modal usuario detalle */
-    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
-    .modal.show { display: flex; }
-    .modal .box { background: #0b1220; border:1px solid var(--border); border-radius:10px; width: min(900px, 96vw); max-height: 90vh; overflow: auto; padding: 16px; }
-    @media (max-width:640px){ .modal .box { padding:12px; } table.data-table { font-size:0.85rem; } }
-    .modal .box header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    @media (max-width:640px){ table.data-table { font-size:0.85rem; } }
     .empty { color: var(--muted); padding: 8px; }
     /* Inputs nativos de fecha: usamos `type=date` y mostramos etiqueta (dd/mm/aaaa) */
     .filters input[type=date] { background: #0b1220; color: var(--text); border:1px solid var(--border); border-radius:10px; padding:8px 10px; }
@@ -428,11 +423,13 @@
     </main>
   </div>
   <!-- Modal detalle de usuario seleccionado -->
-  <div id="usuario-detail-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="usuario-modal-title" aria-hidden="true">
-    <div class="box">
-      <header>
+  <div id="usuario-detail-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="usuario-modal-title" aria-hidden="true">
+    <div class="modal" role="document">
+      <div class="modal-header">
         <h3 id="usuario-modal-title" style="margin:0">Detalle de usuario</h3>
-      </header>
+        <button class="modal-close" type="button" aria-label="Cerrar" onclick="closeUsuarioModal()">×</button>
+      </div>
+      <div class="modal-body">
       <section class="card" style="margin-bottom:12px;">
         <h4 style="margin:0 0 8px 0;">Pagos</h4>
         <div class="panel-controls">
@@ -477,14 +474,17 @@
           </table>
         </div>
       </section>
+      </div>
     </div>
   </div>
   <!-- Modal detalle de profesor seleccionado -->
-  <div id="profesor-detail-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="profesor-modal-title" aria-hidden="true">
-    <div class="box">
-      <header>
+  <div id="profesor-detail-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="profesor-modal-title" aria-hidden="true">
+    <div class="modal" role="document">
+      <div class="modal-header">
         <h3 id="profesor-modal-title" style="margin:0">Detalle de profesor</h3>
-      </header>
+        <button class="modal-close" type="button" aria-label="Cerrar" onclick="closeProfesorModal()">×</button>
+      </div>
+      <div class="modal-body">
       <section class="card" style="margin-bottom:12px;">
         <h4 style="margin:0 0 8px 0;">Horarios</h4>
         <div class="table-scroll">
@@ -525,6 +525,7 @@
         <h4 style="margin:12px 0 8px 0;">Datos de contacto</h4>
         <div id="profesor-contacto"></div>
       </section>
+      </div>
     </div>
   </div>
   <script>
@@ -1308,9 +1309,9 @@ async function loadAdvanced() {
       } catch(e) { console.error('Error cargando resumen de profesor', e); }
     }
     function openProfesorModal(prof){
-      const modal = document.getElementById('profesor-detail-modal');
-      modal.classList.add('show');
+      const backdrop = document.getElementById('profesor-detail-modal');
       document.getElementById('profesor-modal-title').textContent = `Detalle de ${prof.nombre} (ID ${prof.id})`;
+      openBackdrop(backdrop);
       // Inicializar rango del modal con el rango de la barra superior si está disponible
       try {
         const { start, end } = getFilters();
@@ -1352,8 +1353,8 @@ async function loadAdvanced() {
       loadSesionesProfesor(prof.id);
     }
     function closeProfesorModal(){
-      const modal = document.getElementById('profesor-detail-modal');
-      modal.classList.remove('show');
+      const backdrop = document.getElementById('profesor-detail-modal');
+      closeBackdrop(backdrop);
     }
     async function loadPagosUsuario(usuarioId){
       try {
@@ -1423,9 +1424,9 @@ async function loadAdvanced() {
     }
     // Modal de usuario seleccionado
     function openUsuarioModal(user){
-      const modal = document.getElementById('usuario-detail-modal');
-      modal.classList.add('show');
+      const backdrop = document.getElementById('usuario-detail-modal');
       document.getElementById('usuario-modal-title').textContent = `Detalle de ${user.nombre} (ID ${user.id})`;
+      openBackdrop(backdrop);
       window.__usuarioSeleccionado = user.id;
       window.__usuarioPagosOffset = 0;
       window.__usuarioAsOffset = 0;
@@ -1433,9 +1434,30 @@ async function loadAdvanced() {
       loadAsistenciasUsuario(user.id);
     }
     function closeUsuarioModal(){
-      const modal = document.getElementById('usuario-detail-modal');
-      modal.classList.remove('show');
+      const backdrop = document.getElementById('usuario-detail-modal');
+      closeBackdrop(backdrop);
     }
+    function openBackdrop(backdrop){
+      if(!backdrop) return;
+      backdrop.classList.add('active');
+      const labelId = backdrop.querySelector('.modal')?.getAttribute('aria-labelledby');
+      const labelEl = labelId ? document.getElementById(labelId) : null;
+      if(labelEl){ try { labelEl.setAttribute('tabindex','-1'); labelEl.focus(); } catch(_){} }
+      backdrop.addEventListener('click', function(ev){ if(ev.target === backdrop) closeBackdrop(backdrop); });
+      document.addEventListener('keydown', onBackdropEscClose);
+    }
+    function closeBackdrop(backdrop){
+      if(!backdrop) return;
+      const m = backdrop.querySelector('.modal');
+      if(m){
+        m.classList.add('closing');
+        setTimeout(function(){ backdrop.classList.remove('active'); m.classList.remove('closing'); }, 160);
+      } else {
+        backdrop.classList.remove('active');
+      }
+      document.removeEventListener('keydown', onBackdropEscClose);
+    }
+    function onBackdropEscClose(ev){ if(ev.key==='Escape'){ const open = document.querySelector('.modal-backdrop.active'); if(open) closeBackdrop(open); } }
     function setupPagination(tableId, pageSizeSelectId, paginationContainerId){
       const table = document.getElementById(tableId);
       const rows = Array.from(table.querySelectorAll('tbody tr'));

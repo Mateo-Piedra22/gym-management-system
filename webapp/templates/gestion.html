@@ -405,7 +405,7 @@
           <button class="btn outline neutral icon-only" data-sidebar-toggle aria-label="Mostrar/ocultar navegación" aria-controls="mobile-subtabs" aria-expanded="false" title="Mostrar/ocultar navegación">
             <i class="bi bi-layout-sidebar" aria-hidden="true"></i>
           </button>
-          <a id="logout-link" class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir" onclick="try{var el=document.getElementById('login-current');var r=(el&&(el.getAttribute('data-role')||'').trim())||'';if(r==='profesor'){try{populateSesionFinModal();}catch(_){ }try{openModal('modal-sesion-fin');}catch(_){ }setTimeout(function(){try{var m=document.getElementById('modal-sesion-fin');var cs=m?window.getComputedStyle(m):null;var visible=!!(m && cs && cs.display!=='none' && cs.visibility!=='hidden' && m.getClientRects && m.getClientRects().length>0);if(!visible && m && m.parentElement && m.parentElement.tagName && m.parentElement.tagName.toLowerCase()!=='body'){ try{ document.body.appendChild(m); m.classList.add('active'); m.style.display='flex'; m.setAttribute('aria-hidden','false'); visible=!!(m.getClientRects && m.getClientRects().length>0); }catch(__){} }if(!visible){fetch('/api/profesor_sesion_fin',{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'}}).finally(function(){try{window.location.href='/gestion/logout';}catch(__){}});} }catch(__){ try{window.location.href='/gestion/logout';}catch(__){} }},160);return false;}}catch(__){return true;}">
+          <a id="logout-link" class="btn outline neutral icon-only" href="/gestion/logout" title="Cerrar sesión" aria-label="Salir" onclick="try{var el=document.getElementById('login-current');var r=(el&&(el.getAttribute('data-role')||'').trim())||'';if(r==='profesor'){try{populateSesionFinModal();}catch(_){ }try{openModal('modal-sesion-fin');}catch(_){ }setTimeout(function(){try{var m=document.getElementById('modal-sesion-fin');var cs=m?window.getComputedStyle(m):null;var visible=!!(m && cs && cs.display!=='none' && cs.visibility!=='hidden' && m.getClientRects && m.getClientRects().length>0);if(!visible && m && m.parentElement && m.parentElement.tagName && m.parentElement.tagName.toLowerCase()!=='body'){ try{ document.body.appendChild(m); m.classList.add('active'); m.setAttribute('aria-hidden','false'); visible=!!(m.getClientRects && m.getClientRects().length>0); }catch(__){} }if(!visible){fetch('/api/profesor_sesion_fin',{method:'POST',headers:{'Accept':'application/json','Content-Type':'application/json'}}).finally(function(){try{window.location.href='/gestion/logout';}catch(__){}});} }catch(__){ try{window.location.href='/gestion/logout';}catch(__){} }},160);return false;}}catch(__){return true;}">
           <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
           </a>
         </div>
@@ -1219,7 +1219,7 @@
   </section>
 
   <!-- Modal: Clase (Crear/Editar con ejercicios) -->
-  <div class="modal-backdrop" id="modal-clase" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-clase" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-clase-title" style="width: 70vw; max-width: 900px">
       <div class="modal-header">
         <h3 id="modal-clase-title" style="margin:0; font-size:16px;">Clase</h3>
@@ -1292,7 +1292,7 @@
   </div>
 
   <!-- Modal: Ejercicios asignados a la clase -->
-  <div class="modal-backdrop" id="modal-ejercicios-clase" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-ejercicios-clase" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicios-title" style="width: 92vw; max-width: 1200px; max-height: 90vh; overflow:hidden">
       <div class="modal-header">
         <h3 id="modal-ejercicios-title" style="margin:0; font-size:16px;">Ejercicios de la clase</h3>
@@ -1378,11 +1378,11 @@
     </div>
   </div>
   <!-- Modal: Recordatorio de clase por WhatsApp -->
-  <div id="modal-wa-clase" class="modal-overlay" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-wa-clase" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="wa-clase-title">
       <div class="modal-header">
         <h3 id="wa-clase-title">Recordatorio de clase (WhatsApp)</h3>
-        <button class="btn secondary sm" id="wa-clase-close">Cerrar</button>
+        <button class="modal-close" id="wa-clase-close" aria-label="Cerrar">×</button>
       </div>
       <div class="modal-body">
         <div class="input-row" style="align-items:center">
@@ -1700,7 +1700,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-secure-owner-title">
         <div class="modal-header">
           <h3 id="modal-secure-owner-title" style="margin:0; font-size:16px;">Confirmar Asegurar Dueño</h3>
-          <button class="btn icon-only" id="secure-owner-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="secure-owner-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p class="muted">Esta acción:</p>
@@ -1726,22 +1726,22 @@
             <h3 id="modal-sesion-fin-title" style="margin:0; font-size:16px;">Confirmar finalización</h3>
             <span class="muted" style="font-size:12px;">Tu sesión se guardará al salir</span>
           </div>
-          <button class="btn icon-only" id="sesion-fin-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="sesion-fin-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div style="display:flex; flex-direction:column; gap:12px;">
             <p class="muted" style="margin:0">Antes de salir, confirma la finalización de tu sesión.</p>
-            <div style="display:flex; gap:12px; align-items:stretch;">
-              <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
-                <label class="muted" style="display:block; margin-bottom:6px;">Tiempo trabajado</label>
-                <span id="modal-sesion-fin-duracion" class="duration-timer" aria-live="polite" style="font-size:20px; font-weight:600;">—</span>
-              </div>
-              <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
-                <label class="muted" style="display:block; margin-bottom:6px;">Tipo de sesión</label>
-                <span id="modal-sesion-fin-tipo" style="display:inline-block; padding:6px 10px; border:1px solid var(--border); border-radius:999px; font-size:12px;">—</span>
-                <p class="muted" style="margin-top:8px; font-size:12px;">Si no coincide con tus horarios asignados, se registrará como horas extra.</p>
-              </div>
-            </div>
+        <div class="input-row">
+          <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
+            <label class="muted" style="display:block; margin-bottom:6px;">Tiempo trabajado</label>
+            <span id="modal-sesion-fin-duracion" class="duration-timer" aria-live="polite" style="font-size:20px; font-weight:600;">—</span>
+          </div>
+          <div style="flex:1; border:1px solid var(--border); border-radius:10px; padding:12px;">
+            <label class="muted" style="display:block; margin-bottom:6px;">Tipo de sesión</label>
+            <span id="modal-sesion-fin-tipo" style="display:inline-block; padding:6px 10px; border:1px solid var(--border); border-radius:999px; font-size:12px;">—</span>
+            <p class="muted" style="margin-top:8px; font-size:12px;">Si no coincide con tus horarios asignados, se registrará como horas extra.</p>
+          </div>
+        </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1764,7 +1764,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-sesion-delete-title">
         <div class="modal-header">
           <h3 id="modal-sesion-delete-title" style="margin:0; font-size:16px;">Eliminar sesión</h3>
-          <button class="btn icon-only" id="sesion-delete-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="sesion-delete-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p class="muted">¿Deseas eliminar esta sesión? Esta acción no se puede deshacer.</p>
@@ -1781,7 +1781,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pagos-filtros-title">
         <div class="modal-header">
           <h3 id="modal-pagos-filtros-title" style="margin:0; font-size:16px;">Filtros avanzados</h3>
-          <button class="btn icon-only" id="pagos-filtros-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="pagos-filtros-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div class="input-row">
@@ -1807,7 +1807,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-config-title">
         <div class="modal-header">
           <h3 id="modal-recibo-config-title" style="margin:0; font-size:16px;">Numeración de recibos</h3>
-          <button class="btn icon-only" id="recibo-config-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="recibo-config-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div class="input-row">
@@ -1859,7 +1859,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-preview-title">
         <div class="modal-header">
           <h3 id="modal-recibo-preview-title" style="margin:0; font-size:16px;">Vista previa del recibo</h3>
-          <button class="btn icon-only" id="recibo-preview-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="recibo-preview-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body" style="max-height:72vh; overflow-y:auto;">
           <div class="input-row" style="align-items:flex-end">
@@ -1971,7 +1971,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-recibo-save-title">
         <div class="modal-header">
           <h3 id="modal-recibo-save-title" style="margin:0; font-size:16px;">Guardar cambios del recibo</h3>
-          <button class="btn icon-only" id="recibo-save-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="recibo-save-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p class="muted">Se detectaron cambios en fecha o total. ¿Quieres aplicar estos cambios al pago?</p>
@@ -1992,7 +1992,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pago-detalle-title">
         <div class="modal-header">
           <h3 id="modal-pago-detalle-title" style="margin:0; font-size:16px;">Detalle de pago</h3>
-          <button class="btn icon-only" id="pago-detalle-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="pago-detalle-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div class="input-row">
@@ -2035,7 +2035,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-usuario-title">
         <div class="modal-header">
           <h3 id="modal-usuario-title" style="margin:0; font-size:16px;">Usuario</h3>
-          <button class="btn icon-only" id="usuarios-modal-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="usuarios-modal-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div class="input-row">
@@ -2104,7 +2104,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-usuarios-delete-title">
         <div class="modal-header">
           <h3 id="modal-usuarios-delete-title" style="margin:0; font-size:16px;">Eliminar usuario</h3>
-          <button class="btn icon-only" id="usuarios-delete-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="usuarios-delete-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p>¿Estás seguro? Esta acción es permanente.</p>
@@ -2121,7 +2121,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-renum-confirm-title">
         <div class="modal-header">
           <h3 id="modal-renum-confirm-title" style="margin:0; font-size:16px;">Renumerar IDs de usuarios</h3>
-          <button class="btn icon-only" id="renum-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="renum-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p>Esta operación es irreversible y actualizará todas las referencias.</p>
@@ -2140,7 +2140,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-pagos-delete-title">
         <div class="modal-header">
           <h3 id="modal-pagos-delete-title" style="margin:0; font-size:16px;">Eliminar pago</h3>
-          <button class="btn icon-only" id="pagos-delete-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="pagos-delete-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p>¿Estás seguro? Esta acción es permanente.</p>
@@ -2157,7 +2157,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-wa-delete-title">
         <div class="modal-header">
           <h3 id="modal-wa-delete-title" style="margin:0; font-size:16px;">Eliminar mensaje de WhatsApp</h3>
-          <button class="btn icon-only" id="wa-delete-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="wa-delete-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <p>¿Estás seguro? Esta acción es permanente.</p>
@@ -2175,7 +2175,7 @@
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="pago-form-title">
         <div class="modal-header">
           <h3 id="pago-form-title" style="margin:0; font-size:16px;">Pago</h3>
-          <button class="btn icon-only" id="pago-form-close" aria-label="Cerrar">×</button>
+          <button class="modal-close" id="pago-form-close" aria-label="Cerrar">×</button>
         </div>
         <div class="modal-body">
           <div class="input-row">
@@ -2211,8 +2211,6 @@
                 <option value="">Seleccionar (opcional)</option>
               </select>
             </div>
-          </div>
-          <div class="input-row">
             <div style="flex:1">
               <label class="muted" for="pago-concepto">Concepto</label>
               <select id="pago-concepto" style="width:100%" aria-label="Concepto">
@@ -2375,11 +2373,11 @@
   </div>
 
   <!-- Modal: Sesión (Editar) -->
-  <div class="modal-backdrop" id="modal-sesion-form" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-sesion-form" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sesion-form-title">
       <div class="modal-header">
         <h3 id="sesion-form-title" style="margin:0; font-size:16px;">Editar sesión</h3>
-        <button class="btn icon-only" id="sesion-form-close" aria-label="Cerrar">×</button>
+        <button class="modal-close" id="sesion-form-close" aria-label="Cerrar">×</button>
       </div>
       <div class="modal-body">
         <div class="input-row">
@@ -2439,7 +2437,7 @@
   </div>
 
   <!-- Modal: Tipo de Cuota (Crear/Editar) -->
-  <div class="modal-backdrop" id="modal-tipo-cuota" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-tipo-cuota" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-tipo-cuota-title">
       <div class="modal-header">
         <h3 id="modal-tipo-cuota-title">Tipo de Cuota</h3>
@@ -2484,7 +2482,7 @@
   </div>
 
   <!-- Modal: Concepto de Pago (Crear/Editar) -->
-  <div class="modal-backdrop" id="modal-concepto" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-concepto" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-concepto-title">
       <div class="modal-header">
         <h3 id="modal-concepto-title">Concepto de Pago</h3>
@@ -2529,7 +2527,7 @@
   </div>
 
   <!-- Modal: Método de Pago (Crear/Editar) -->
-  <div class="modal-backdrop" id="modal-metodo" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-metodo" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-metodo-title">
       <div class="modal-header">
         <h3 id="modal-metodo-title">Método de Pago</h3>
@@ -2570,7 +2568,7 @@
   </div>
 
   <!-- Modales: Ejercicios -->
-<div class="modal-backdrop" id="modal-ejercicio-form" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-ejercicio-form" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-title">
     <div class="modal-header">
       <h3 id="modal-ejercicio-title" style="margin:0; font-size:16px;">Ejercicio</h3>
@@ -2629,7 +2627,7 @@
 </div>
 
   <!-- Modales: Rutinas -->
-<div class="modal-backdrop" id="modal-plantilla-new" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-plantilla-new" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-plantilla-new-title" style="width: 60vw; max-width: 720px">
     <div class="modal-header">
       <h3 id="modal-plantilla-new-title" style="margin:0; font-size:16px;">Nueva plantilla</h3>
@@ -2686,7 +2684,7 @@
   </div>
 </div>
 <!-- Modal: Elección de creación de rutina/plantilla -->
-<div class="modal-backdrop" id="modal-rutina-new-choice" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-new-choice" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-new-choice-title" style="width: 65vw; max-width: 780px">
     <div class="modal-header">
       <h3 id="modal-rutina-new-choice-title" style="margin:0; font-size:16px;">Crear rutina</h3>
@@ -2737,7 +2735,7 @@
     </div>
   </div>
 </div>
-<div class="modal-backdrop" id="modal-rutina-form" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-form" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-title" style="width: 75vw; max-width: 900px">
     <div class="modal-header">
       <h3 id="modal-rutina-title" style="margin:0; font-size:16px;">Rutina</h3>
@@ -2762,7 +2760,7 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="modal-rutina-delete" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-delete" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-del-title" style="width: 65vw; max-width: 780px">
     <div class="modal-header">
       <h3 id="modal-rutina-del-title" style="margin:0; font-size:16px;">Eliminar rutina</h3>
@@ -2778,7 +2776,7 @@
 </div>
 </div>
 
-<div class="modal-backdrop" id="modal-rutina-assign" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-assign" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-assign-title" style="width: 70vw; max-width: 900px">
     <div class="modal-header">
       <h3 id="modal-rutina-assign-title" style="margin:0; font-size:16px;">Asignar rutina a usuario</h3>
@@ -2806,7 +2804,7 @@
 
 <!-- (El modal de Resumen de Rutina fue removido; se usa un toast no bloqueante) -->
 
-<div class="modal-backdrop" id="modal-rutina-unassign" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-unassign" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-unassign-title" style="width: 70vw; max-width: 900px">
     <div class="modal-header">
       <h3 id="modal-rutina-unassign-title" style="margin:0; font-size:16px;">Desasignar rutina</h3>
@@ -2833,7 +2831,7 @@
 </div>
 
 <!-- Modal: Previsualización y edición avanzada de Rutina -->
-  <div class="modal-backdrop" id="modal-rutina-preview" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-preview" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-preview-title" style="width: 99vw; max-width: 1600px; max-height: 95vh; overflow: auto; overscroll-behavior: contain">
     <div class="modal-header">
       <h3 id="modal-rutina-preview-title" style="margin:0; font-size:16px;">Vista previa de rutina</h3>
@@ -3032,7 +3030,7 @@
 </div>
 
 <!-- Modal: Exportar Excel de Rutina (previsualización y edición rápida) -->
-<div class="modal-backdrop" id="modal-rutina-export" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-rutina-export" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-rutina-export-title" style="width: 95vw; max-width: 1200px">
     <div class="modal-header">
       <h3 id="modal-rutina-export-title" style="margin:0; font-size:16px;">Exportar a Excel</h3>
@@ -3115,7 +3113,7 @@
     </div>
   </div>
 </div>
-<div class="modal-backdrop" id="modal-ejercicio-delete" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-ejercicio-delete" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-del-title">
     <div class="modal-header">
       <h3 id="modal-ejercicio-del-title" style="margin:0; font-size:16px;">Eliminar ejercicio</h3>
@@ -3132,7 +3130,7 @@
 </div>
 
 <!-- Modal: Ejercicio Extras (Equipamiento y Variantes) -->
-<div class="modal-backdrop" id="modal-ejercicio-extras" style="display:none" aria-hidden="true">
+<div class="modal-backdrop" id="modal-ejercicio-extras" aria-hidden="true">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-ejercicio-extras-title">
     <div class="modal-header">
       <h3 id="modal-ejercicio-extras-title" style="margin:0; font-size:16px;">Editar equipamiento y variantes</h3>
@@ -3158,7 +3156,7 @@
 </div>
 
 <!-- Modal: QR Check-in Toast -->
-  <div class="modal-backdrop" id="modal-qr-toast" style="display:none" aria-hidden="true">
+  <div class="modal-backdrop" id="modal-qr-toast" aria-hidden="true">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-qr-title" aria-describedby="modal-qr-desc" style="max-width: 380px;">
       <div class="modal-header">
         <h3 id="modal-qr-title" style="margin:0; font-size:16px; font-weight:600;">QR de Check-in</h3>
@@ -3555,7 +3553,6 @@
           el.style.zIndex = String(state._modalZBase);
         } catch(_){ }
         el.classList.add('active');
-        el.style.display = 'flex';
         el.setAttribute('aria-hidden','false');
         const modalEl = el.querySelector('.modal');
         if(modalEl){
@@ -3570,9 +3567,9 @@
       const m = el.querySelector('.modal');
       if(m){
         m.classList.add('closing');
-        setTimeout(() => { el.classList.remove('active'); m.classList.remove('closing'); el.style.display = 'none'; el.setAttribute('aria-hidden','true'); }, 160);
+        setTimeout(() => { el.classList.remove('active'); m.classList.remove('closing'); el.setAttribute('aria-hidden','true'); }, 160);
       } else {
-        el.classList.remove('active'); el.style.display = 'none'; el.setAttribute('aria-hidden','true');
+        el.classList.remove('active'); el.setAttribute('aria-hidden','true');
       }
     }
 
@@ -10395,7 +10392,7 @@ function ensurePdfZoomControls(containerId, frameId){
   function openClaseModal(id){
     try { openModal('modal-clase'); } catch(_){
       const m = document.getElementById('modal-clase');
-      if(m){ m.classList.add('active'); m.style.display='flex'; m.setAttribute('aria-hidden','false'); }
+      if(m){ m.classList.add('active'); m.setAttribute('aria-hidden','false'); }
     }
     const nombreEl = document.getElementById('modal-clase-nombre');
     const descEl = document.getElementById('modal-clase-descripcion');
@@ -10441,7 +10438,7 @@ function ensurePdfZoomControls(containerId, frameId){
   function closeClaseModal(){
     try { closeModal('modal-clase'); } catch(_){
       const m = document.getElementById('modal-clase');
-      if(m){ m.classList.remove('active'); m.style.display='none'; m.setAttribute('aria-hidden','true'); }
+      if(m){ m.classList.remove('active'); m.setAttribute('aria-hidden','true'); }
     }
   }
 
@@ -10552,9 +10549,9 @@ function ensurePdfZoomControls(containerId, frameId){
     const btnBloqSave = document.getElementById('clase-ej-bloque-save'); if(btnBloqSave){ btnBloqSave.onclick = async ()=>{ await saveCurrentAsBloque(id); }; }
     const btnBloqUpdate = document.getElementById('clase-ej-bloque-update'); if(btnBloqUpdate){ btnBloqUpdate.onclick = async ()=>{ await updateSelectedBloque(id); }; }
     const btnBloqDelete = document.getElementById('clase-ej-bloque-delete'); if(btnBloqDelete){ btnBloqDelete.onclick = async ()=>{ await deleteSelectedBloque(id); }; }
-    try { openModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.add('active'); el.style.display = 'flex'; el.setAttribute('aria-hidden','false'); }}
+  try { openModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.add('active'); el.setAttribute('aria-hidden','false'); }}
   }
-  function closeClaseEjerciciosModal(){ try { closeModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.remove('active'); el.style.display = 'none'; el.setAttribute('aria-hidden','true'); } } }
+  function closeClaseEjerciciosModal(){ try { closeModal('modal-ejercicios-clase'); } catch(_){ const el = document.getElementById('modal-ejercicios-clase'); if(el){ el.classList.remove('active'); el.setAttribute('aria-hidden','true'); } } }
 
 function renderClaseEjerciciosUI(){
     const q = (document.getElementById('clase-ej-q')?.value||'').toLowerCase();
@@ -10972,10 +10969,10 @@ function renderClaseEjerciciosUI(){
     if(tipoEl){ tipoEl.value = String(cls?.nombre||''); }
     if(horaEl){ horaEl.value = String(hor?.hora_inicio||''); }
     try{ const today = new Date(); const yyyy = today.getFullYear(); const mm = String(today.getMonth()+1).padStart(2,'0'); const dd = String(today.getDate()).padStart(2,'0'); if(fechaEl){ fechaEl.value = `${yyyy}-${mm}-${dd}`; } }catch(_){}
-    const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.style.display='flex'; modal.setAttribute('aria-hidden','false'); }
+    const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.classList.add('active'); modal.setAttribute('aria-hidden','false'); }
     modal?.setAttribute('data-uid', String(uid||''));
   }
-  function closeWaClaseModal(){ const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.style.display='none'; modal.setAttribute('aria-hidden','true'); modal.removeAttribute('data-uid'); } }
+  function closeWaClaseModal(){ const modal = document.getElementById('modal-wa-clase'); if(modal){ modal.classList.remove('active'); modal.setAttribute('aria-hidden','true'); modal.removeAttribute('data-uid'); } }
   async function sendWaClaseReminder(){
     const modal = document.getElementById('modal-wa-clase'); const uidRaw = modal?.getAttribute('data-uid')||''; const uid = Number(uidRaw||0);
     if(!uid){ showToast('Usuario inválido', 'error'); return; }
@@ -11209,7 +11206,7 @@ function renderClaseEjerciciosUI(){
                     try{
                       document.body.appendChild(m);
                       // Reabrir con util para asegurar z-index correcto y foco accesible
-                      try{ openModal('modal-sesion-fin'); }catch(__){ m.classList.add('active'); m.style.display = 'flex'; m.setAttribute('aria-hidden','false'); }
+                      try{ openModal('modal-sesion-fin'); }catch(__){ m.classList.add('active'); m.setAttribute('aria-hidden','false'); }
                       const rects2 = (typeof m.getClientRects === 'function') ? m.getClientRects() : [];
                       visible = !!(rects2.length > 0);
                     }catch(__){}
@@ -11805,14 +11802,14 @@ function renderClaseEjerciciosUI(){
     // Usar utilidades de modales consistentes
     try { openModal('modal-sesion-delete'); } catch(_) {
       const mb = document.getElementById('modal-sesion-delete');
-      if(mb){ mb.classList.add('active'); mb.style.display = 'flex'; mb.setAttribute('aria-hidden','false'); }
+      if(mb){ mb.classList.add('active'); mb.setAttribute('aria-hidden','false'); }
     }
   }
   function closeDeleteSesionModal(){
     // Usar utilidades de modales consistentes
     try { closeModal('modal-sesion-delete'); } catch(_) {
       const mb = document.getElementById('modal-sesion-delete');
-      if(mb){ mb.classList.remove('active'); mb.style.display = 'none'; mb.setAttribute('aria-hidden','true'); }
+      if(mb){ mb.classList.remove('active'); mb.setAttribute('aria-hidden','true'); }
     }
     pendingDeleteSesionId = null;
   }

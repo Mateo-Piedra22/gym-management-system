@@ -44,13 +44,7 @@
     @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
   </style>
   <script src="/static/js/toast.js"></script>
-  <style>
-    /* Modal incerrable para usuarios inactivos */
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: grid; place-items: center; z-index: 9998; }
-    .modal { width: 100%; max-width: 500px; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 10px 24px rgba(0,0,0,.45); padding: 20px; }
-    .modal h2 { margin: 0 0 8px 0; font-size: 18px; }
-    .modal p { margin: 8px 0 16px 0; color: var(--muted); }
-  </style>
+  
 </head>
 <body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}" data-activo="{{ 'true' if socio.activo else 'false' }}"{% endif %}>
   <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -405,7 +399,7 @@
           const reason = document.getElementById('inactive-reason');
           if (reason && reasonText) reason.textContent = reasonText;
           if (backdrop) {
-            backdrop.style.display = 'grid';
+            backdrop.classList.add('active');
             backdrop.setAttribute('aria-hidden', 'false');
           }
         } catch {}
