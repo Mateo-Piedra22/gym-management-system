@@ -2892,8 +2892,8 @@
         <div class="form-row" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap">
           <label for="preview-qr-placement" style="display:flex; gap:6px; align-items:center"><span class="muted">QR</span>
             <select id="preview-qr-placement" aria-label="Ubicación del QR" style="min-width:160px">
-              <option value="inline" selected>Debajo de la rutina</option>
-              <option value="sheet">Segunda hoja (QR)</option>
+              <option value="inline" selected>Segunda hoja (QR)</option>
+              <option value="sheet">Debajo de la rutina</option>
               <option value="none">Sin QR</option>
             </select>
           </label>
@@ -5509,7 +5509,7 @@
         await deleteUser(id);
       });
       const editarQuick = document.getElementById('usuario-side-editar');
-      if(editarQuick){ editarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(u) showUserForm(u); }); }
+      if(editarQuick){ editarQuick.addEventListener('click', async () => { const u = state.selectedUsuario; if(!u || !u.id) return; try{ const res = await fetch(`/api/usuarios/${u.id}`, { headers:{ 'Accept':'application/json' } }); const full = await res.json().catch(()=>({})); if(full && full.id){ showUserForm(full); } else { showUserForm(u); } }catch(_){ showUserForm(u); } }); }
       const eliminarQuick = document.getElementById('usuario-side-eliminar');
       if(eliminarQuick){ eliminarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(!u || !u.id) return; state.deleteUserId = u.id; openModal('modal-usuarios-delete'); }); }
       const verPagosQuick = document.getElementById('usuario-side-ver-pagos');
@@ -5679,7 +5679,7 @@
       const notas = notasText ? notasText : null;
       if(!nombre || !dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
       const nuevoActivo = !(u.activo === true || u.activo === 'true');
-      const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo: nuevoActivo, tipo_cuota, notas };
+      const payload = { nombre, dni, telefono: telefono || null, rol, activo: nuevoActivo, tipo_cuota, notas };
       fetch(`/api/usuarios/${u.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) })
         .then(async res => { if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } return res; })
         .then(async () => { await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); })
@@ -5890,7 +5890,7 @@
       const notas = notasText ? notasText : null;
       const activo = (u.activo === true || u.activo === 'true');
       if(!nombre || !dni){ showToast('Nombre y DNI son obligatorios', 'warning', 3000); return; }
-      const payload = { nombre, dni, telefono: telefono || null, pin: null, rol, activo, tipo_cuota, notas };
+      const payload = { nombre, dni, telefono: telefono || null, rol, activo, tipo_cuota, notas };
       const st = document.getElementById('usuario-notas-status'); if(st) st.textContent = 'Guardando…';
       fetch(`/api/usuarios/${u.id}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(payload) })
         .then(async res => { if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } return res; })

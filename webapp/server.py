@@ -5504,7 +5504,8 @@ async def api_usuario_create(request: Request, _=Depends(require_gestion_access)
         nombre = ((payload.get("nombre") or "").strip()).upper()
         dni = str(payload.get("dni") or "").strip()
         telefono = str(payload.get("telefono") or "").strip() or None
-        pin = str(payload.get("pin") or "").strip() or None
+        pin_raw = payload.get("pin") if isinstance(payload, dict) else None
+        pin = None
         rol = (payload.get("rol") or "socio").strip().lower()
         activo = bool(payload.get("activo", True))
         tipo_cuota = payload.get("tipo_cuota")
@@ -5550,7 +5551,8 @@ async def api_usuario_update(usuario_id: int, request: Request, _=Depends(requir
         nombre = ((payload.get("nombre") or "").strip()).upper()
         dni = str(payload.get("dni") or "").strip()
         telefono = str(payload.get("telefono") or "").strip() or None
-        pin = str(payload.get("pin") or "").strip() or None
+        pin_raw = payload.get("pin") if isinstance(payload, dict) else None
+        pin = None
         try:
             orig = db.obtener_usuario_por_id(usuario_id)  # type: ignore
         except Exception:
@@ -5559,8 +5561,19 @@ async def api_usuario_update(usuario_id: int, request: Request, _=Depends(requir
             session_prof_uid = request.session.get("gestion_profesor_user_id")
             if session_prof_uid and orig and str(getattr(orig, "rol", "")).strip().lower() == "profesor" and int(usuario_id) != int(session_prof_uid):
                 pin = getattr(orig, "pin", None)
-            elif "pin" not in payload and orig is not None:
-                pin = getattr(orig, "pin", None)
+            else:
+                if (payload is not None) and ("pin" in payload):
+                    pv = pin_raw
+                    try:
+                        pv_str = str(pv).strip() if pv is not None else None
+                    except Exception:
+                        pv_str = None
+                    if pv_str:
+                        pin = pv_str
+                    else:
+                        pin = getattr(orig, "pin", None) if orig is not None else None
+                else:
+                    pin = getattr(orig, "pin", None) if orig is not None else None
         except Exception:
             pass
         rol = (payload.get("rol") or "socio").strip().lower()
