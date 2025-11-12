@@ -6502,6 +6502,13 @@
         const preview = document.getElementById('gym-logo-preview');
         if (nameInput && typeof j.gym_name === 'string') nameInput.value = j.gym_name;
         if (preview && typeof j.logo_url === 'string') preview.src = j.logo_url;
+        // Actualizar encabezado y título de la página para reflejar el nuevo nombre
+        try {
+          const headerTitle = document.querySelector('#main-header .brand h1');
+          const gname = (typeof j.gym_name === 'string') ? j.gym_name.trim() : '';
+          if (headerTitle && gname) headerTitle.textContent = 'Gestión • ' + gname;
+          if (gname) { document.title = 'Gestión • ' + gname; }
+        } catch(_){ /* silencioso */ }
       }catch(_){ /* silencioso */ }
     }
     async function saveBranding(){
@@ -6529,6 +6536,12 @@
           }
         }
         await refreshBranding();
+        try {
+          localStorage.setItem('gym_branding_update', JSON.stringify({ gym_name: name, ts: Date.now() }));
+        } catch(_){ /* noop */ }
+        try {
+          window.dispatchEvent(new CustomEvent('gym-branding-updated', { detail: { gym_name: name } }));
+        } catch(_){ /* noop */ }
         if (statusEl) statusEl.textContent = 'Guardado correctamente';
         if (logoInput) logoInput.value = '';
       }catch(err){

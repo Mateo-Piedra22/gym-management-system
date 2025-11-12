@@ -39,10 +39,6 @@ def resource_path(relative_path):
     base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
-# Lectura de gym_data desde DB con fallback a archivo
-
-_GYM_DATA_DEFAULT_PATH = r"c:\\Users\\mateo\\OneDrive\\Escritorio\\gym-management-system\\gym_data.txt"
-
 _cached_gym_data = None
 
 # Inicialización ligera de acceso a DB desde utils
@@ -68,23 +64,9 @@ def _get_db_utils():
         return None
 
 
-def _resolve_gym_data_path() -> str:
-    """Obtiene la ruta del archivo gym_data.txt, priorizando la ruta fija solicitada por el usuario."""
-    # 1) Ruta fija provista por el usuario
-    if os.path.exists(_GYM_DATA_DEFAULT_PATH):
-        return _GYM_DATA_DEFAULT_PATH
-    # 2) Mismo directorio del ejecutable/script
-    local_path = resource_path('gym_data.txt')
-    if os.path.exists(local_path):
-        return local_path
-    # 3) Recurso empaquetado
-    packaged_path = resource_path('gym_data.txt')
-    return packaged_path
-
-
 def read_gym_data(force_reload: bool = False) -> dict:
-    """Obtiene datos del gimnasio priorizando la base de datos y cachea en memoria.
-    Fallback a gym_data.txt si no están disponibles en DB.
+    """Obtiene datos del gimnasio desde la base de datos priorizando `gym_config`.
+    Si algún campo no está configurado en la DB, se aplican valores por defecto.
     """
     global _cached_gym_data
     if _cached_gym_data is not None and not force_reload:
@@ -92,63 +74,83 @@ def read_gym_data(force_reload: bool = False) -> dict:
 
     merged: Dict[str, Any] = {}
 
-    # 1) Intentar leer desde DB (configuracion)
+    # 1) Intentar leer desde DB (gym_config) como fuente principal
     db = _get_db_utils()
+    if db is not None and hasattr(db, 'obtener_configuracion_gimnasio'):
+        try:
+            cfg = db.obtener_configuracion_gimnasio()  # type: ignore
+        except Exception:
+            cfg = {}
+        if isinstance(cfg, dict):
+            gname = cfg.get('gym_name')
+            if isinstance(gname, str) and gname.strip():
+                merged['gym_name'] = gname.strip()
+            gaddr = cfg.get('gym_address')
+            if isinstance(gaddr, str) and gaddr.strip():
+                merged['gym_address'] = gaddr.strip()
+            # En gym_config la clave de logo se almacena como 'logo_url'
+            glogo = cfg.get('logo_url')
+            if isinstance(glogo, str) and glogo.strip():
+                merged['gym_logo_url'] = glogo.strip()
+
+    # 2) Fallback: completar con configuracion si faltan campos
     if db is not None and hasattr(db, 'obtener_configuracion'):
         try:
-            name = db.obtener_configuracion('gym_name')  # type: ignore
-            addr = db.obtener_configuracion('gym_address')  # type: ignore
-            logo = None
-            try:
+            if not (isinstance(merged.get('gym_name'), str) and merged.get('gym_name').strip()):
+                name = db.obtener_configuracion('gym_name')  # type: ignore
+                if isinstance(name, str) and name.strip():
+                    merged['gym_name'] = name.strip()
+            if not (isinstance(merged.get('gym_address'), str) and merged.get('gym_address').strip()):
+                addr = db.obtener_configuracion('gym_address')  # type: ignore
+                if isinstance(addr, str) and addr.strip():
+                    merged['gym_address'] = addr.strip()
+            if not (isinstance(merged.get('gym_logo_url'), str) and merged.get('gym_logo_url').strip()):
                 logo = db.obtener_configuracion('gym_logo_url')  # type: ignore
-            except Exception:
-                logo = None
-            if isinstance(name, str) and name.strip():
-                merged['gym_name'] = name.strip()
-            if isinstance(addr, str) and addr.strip():
-                merged['gym_address'] = addr.strip()
-            if isinstance(logo, str) and logo.strip():
-                merged['gym_logo_url'] = logo.strip()
-            branding_json = None
-            try:
-                branding_json = db.obtener_configuracion('branding_config')  # type: ignore
-            except Exception:
-                branding_json = None
-            if branding_json:
-                try:
-                    import json as _json
-                    branding = _json.loads(branding_json)
-                    if isinstance(branding, dict):
-                        for k in (
-                            'gym_slogan','gym_phone','gym_email','gym_website',
-                            'facebook','instagram','twitter','primary_color','secondary_color',
-                            'accent_color','background_color','alt_background_color'
-                        ):
-                            v = branding.get(k)
-                            if isinstance(v, str):
-                                merged[k] = v
-                except Exception:
-                    pass
+                if isinstance(logo, str) and logo.strip():
+                    merged['gym_logo_url'] = logo.strip()
         except Exception:
             pass
 
-    # 2) Fallback: merge con archivo gym_data.txt
-    file_data: Dict[str, Any] = {}
-    path = _resolve_gym_data_path()
-    try:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                for raw in f:
-                    line = raw.strip()
-                    if not line or line.startswith('#'):
-                        continue
-                    if '=' in line:
-                        k, v = line.split('=', 1)
-                        file_data[k.strip()] = v.strip()
-    except Exception:
-        file_data = {}
+        # 1.2) Branding JSON como fuente secundaria (solo completa si falta)
+        try:
+            branding_json = db.obtener_configuracion('branding_config')  # type: ignore
+        except Exception:
+            branding_json = None
+        if branding_json:
+            try:
+                import json as _json
+                branding = _json.loads(branding_json)
+                if isinstance(branding, dict):
+                    try:
+                        bn = branding.get('gym_name')
+                        if isinstance(bn, str) and bn.strip() and not (isinstance(merged.get('gym_name'), str) and merged.get('gym_name').strip()):
+                            merged['gym_name'] = bn.strip()
+                    except Exception:
+                        pass
+                    for k in (
+                        'gym_slogan','gym_phone','gym_email','gym_website',
+                        'facebook','instagram','twitter','primary_color','secondary_color',
+                        'accent_color','background_color','alt_background_color'
+                    ):
+                        v = branding.get(k)
+                        if isinstance(v, str) and v:
+                            merged[k] = v
+            except Exception:
+                pass
 
-    for k, v in file_data.items():
+    # 3) Valores por defecto cuando no hay datos en DB
+    defaults: Dict[str, Any] = {
+        'gym_name': 'Gimnasio',
+        'gym_slogan': 'Tu mejor versión te espera',
+        'gym_address': 'Dirección no disponible',
+        'gym_phone': 'Teléfono no disponible',
+        'gym_email': 'Email no disponible',
+        'gym_website': 'Website no disponible',
+        'facebook': '@gym',
+        'instagram': '@gym',
+        'twitter': '@gym'
+    }
+    for k, v in defaults.items():
         if k not in merged or not str(merged.get(k, '')).strip():
             merged[k] = v
 
@@ -158,14 +160,14 @@ def read_gym_data(force_reload: bool = False) -> dict:
 
 def get_gym_value(key: str, default: str = "") -> str:
     """Devuelve el valor de una clave de datos del gimnasio usando caché.
-    Usa default si no existe.
+    Usa default si no existe. Solo DB, sin archivo.
     """
     data = read_gym_data()
     return data.get(key, default)
 
 
 def get_gym_name(default: str = "Gimnasio") -> str:
-    """Obtiene el nombre del gimnasio priorizando DB, con fallback a archivo."""
+    """Obtiene el nombre del gimnasio desde la DB (con valores por defecto)."""
     return (get_gym_value('gym_name', default) or default).strip()
 
 

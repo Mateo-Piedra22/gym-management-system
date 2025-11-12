@@ -1624,20 +1624,23 @@ class MainWindow(QMainWindow):
             pass
             
     def get_gym_name(self) -> str:
-        """Obtiene el nombre del gimnasio desde gym_data.txt"""
+        """Obtiene el nombre del gimnasio desde la DB (con valores por defecto)."""
+        # 1) Intentar desde el DatabaseManager
         try:
-            from utils import _resolve_gym_data_path
-            gym_data_path = _resolve_gym_data_path()
-            if os.path.exists(gym_data_path):
-                with open(gym_data_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if line.startswith('gym_name='):
-                            return line.split('=', 1)[1].strip()
-            # Fallback al nombre por defecto
-            return "Gimnasio"
+            if hasattr(self, 'db_manager') and self.db_manager and hasattr(self.db_manager, 'obtener_configuracion'):
+                nombre = self.db_manager.obtener_configuracion('gym_name')
+                if isinstance(nombre, str) and nombre.strip():
+                    return nombre.strip()
         except Exception as e:
-            logging.error(f"Error obteniendo nombre del gimnasio: {e}")
-            return "Gimnasio"
+            logging.debug(f"No se pudo obtener gym_name desde DB: {e}")
+        # 2) Utils (lee sólo DB y aplica defaults)
+        try:
+            from utils import get_gym_name as _get_gym_name
+            return _get_gym_name("Gimnasio")
+        except Exception as e:
+            logging.debug(f"Utils.get_gym_name no disponible: {e}")
+        # 3) Default
+        return "Gimnasio"
     
     def update_window_title(self):
         """Actualiza el título de la ventana con información dinámica"""
@@ -2202,16 +2205,40 @@ class MainWindow(QMainWindow):
     # Método setup_header eliminado - funcionalidad movida al área de pestañas
     
     def update_gym_header(self):
-        """Actualiza el nombre del gimnasio en el área de pestañas con la información de branding actual"""
-        if hasattr(self, 'branding_config') and self.branding_config:
-            # Actualizar nombre del gimnasio en el área de pestañas
-            gym_name = self.branding_config.get('gym_name', 'Gimnasio')
-            if hasattr(self, 'gym_name_label'):
-                self.gym_name_label.setText(gym_name)
-        else:
-            # Valor por defecto
-            if hasattr(self, 'gym_name_label'):
-                self.gym_name_label.setText("Gimnasio")
+        """Actualiza el nombre del gimnasio en el encabezado leyendo desde la DB.
+        Usa branding_config solo como respaldo si la lectura directa falla.
+        También sincroniza self.gym_name para el título de la ventana.
+        """
+        new_name = None
+        try:
+            new_name = self.get_gym_name()
+        except Exception:
+            new_name = None
+        if not (isinstance(new_name, str) and new_name.strip()):
+            try:
+                if hasattr(self, 'branding_config') and self.branding_config:
+                    bn = self.branding_config.get('gym_name')
+                    if isinstance(bn, str) and bn.strip():
+                        new_name = bn.strip()
+            except Exception:
+                pass
+        if not (isinstance(new_name, str) and new_name.strip()):
+            new_name = "Gimnasio"
+
+        try:
+            self.gym_name = new_name
+        except Exception:
+            pass
+        if hasattr(self, 'gym_name_label'):
+            try:
+                self.gym_name_label.setText(new_name)
+            except Exception:
+                pass
+        # Actualizar título de la ventana para reflejar el nuevo nombre
+        try:
+            self.update_window_title()
+        except Exception:
+            pass
     
     def connect_search_signals(self):
         """Conecta las señales de búsqueda"""
@@ -5429,6 +5456,13 @@ class MainWindow(QMainWindow):
         try:
             # Guardar configuración de branding
             self.branding_config = branding_config
+            # Sincronizar nombre del gimnasio en el estado y título
+            try:
+                bn = branding_config.get('gym_name')
+                if isinstance(bn, str) and bn.strip():
+                    self.gym_name = bn.strip()
+            except Exception:
+                pass
             
             # Guardar configuración en la base de datos para persistencia
             try:
@@ -5448,6 +5482,11 @@ class MainWindow(QMainWindow):
             # NUEVO: Actualizar header del gimnasio
             if hasattr(self, 'update_gym_header'):
                 self.update_gym_header()
+            # Asegurar que el título se refresque
+            try:
+                self.update_window_title()
+            except Exception:
+                pass
             
             print("✓ Cambios de branding aplicados correctamente")
             

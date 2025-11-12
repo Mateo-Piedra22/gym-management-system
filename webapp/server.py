@@ -77,14 +77,7 @@ try:
     from utils import get_gym_name  # type: ignore
 except Exception:
     def get_gym_name(default: str = "Gimnasio") -> str:  # type: ignore
-        try:
-            path = Path("gym_data.txt")
-            if path.exists():
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    if line.startswith("gym_name="):
-                        return line.split("=", 1)[1].strip()
-        except Exception:
-            pass
+        # Fallback seguro sin tocar archivos: devolver default
         return default
 
 # Dirección del gimnasio (fallback si no se puede importar desde utils)
@@ -98,14 +91,7 @@ try:
             return default
 except Exception:
     def get_gym_address(default: str = "Dirección del gimnasio") -> str:  # type: ignore
-        try:
-            path = Path("gym_data.txt")
-            if path.exists():
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    if line.startswith("gym_address="):
-                        return line.split("=", 1)[1].strip()
-        except Exception:
-            pass
+        # Fallback seguro sin tocar archivos: devolver default
         return default
 
 try:
@@ -2024,16 +2010,29 @@ def _verify_owner_password(password: str) -> bool:
 
 
 def _resolve_logo_url() -> str:
-    # Primero intentar obtener URL desde configuración en DB
+    # Primero intentar obtener URL desde gym_config; luego desde configuracion
     try:
         db = _get_db()
-        if db is not None and hasattr(db, 'obtener_configuracion'):
-            try:
-                url = db.obtener_configuracion('gym_logo_url')  # type: ignore
-            except Exception:
-                url = None
-            if isinstance(url, str) and url.strip():
-                return url.strip()
+        if db is not None:
+            # Prioridad: gym_config
+            if hasattr(db, 'obtener_configuracion_gimnasio'):
+                try:
+                    cfg = db.obtener_configuracion_gimnasio()  # type: ignore
+                except Exception:
+                    cfg = {}
+                if isinstance(cfg, dict):
+                    # En gym_config la clave se almacena como 'logo_url'
+                    u1 = str(cfg.get('logo_url') or '').strip()
+                    if u1:
+                        return u1
+            # Fallback: tabla configuracion
+            if hasattr(db, 'obtener_configuracion'):
+                try:
+                    url = db.obtener_configuracion('gym_logo_url')  # type: ignore
+                except Exception:
+                    url = None
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
     except Exception:
         pass
     # Fallback a assets locales
@@ -2051,28 +2050,68 @@ def _resolve_logo_url() -> str:
     return "/assets/logo.svg"
 
 
+def _get_gym_info() -> Dict[str, str]:
+    """Obtiene nombre y dirección del gimnasio directamente desde DB, con defaults."""
+    name = "Gimnasio"
+    addr = "Dirección del gimnasio"
+    try:
+        db = _get_db()
+        if db is not None and hasattr(db, 'obtener_configuracion_gimnasio'):
+            try:
+                cfg = db.obtener_configuracion_gimnasio()  # type: ignore
+            except Exception:
+                cfg = {}
+            if isinstance(cfg, dict):
+                n = str(cfg.get('gym_name') or '').strip()
+                a = str(cfg.get('gym_address') or '').strip()
+                if n:
+                    name = n
+                if a:
+                    addr = a
+        if (not name or name == "Gimnasio") and db is not None and hasattr(db, 'obtener_configuracion'):
+            try:
+                n2 = db.obtener_configuracion('gym_name')  # type: ignore
+                if isinstance(n2, str) and n2.strip():
+                    name = n2.strip()
+            except Exception:
+                pass
+        if (not addr or addr == "Dirección del gimnasio") and db is not None and hasattr(db, 'obtener_configuracion'):
+            try:
+                a2 = db.obtener_configuracion('gym_address')  # type: ignore
+                if isinstance(a2, str) and a2.strip():
+                    addr = a2.strip()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return {"gym_name": name, "gym_address": addr}
+
+
 @app.get("/api/gym/data")
 async def api_gym_data(request: Request):
     try:
         # Validar acceso a Gestión sin depender del orden de definición
         require_gestion_access(request)
+        info = _get_gym_info()
         return JSONResponse({
-            "gym_name": get_gym_name(),
-            "gym_address": get_gym_address(),
+            "gym_name": info.get("gym_name") or get_gym_name(),
+            "gym_address": info.get("gym_address") or get_gym_address(),
             "logo_url": _resolve_logo_url(),
         })
     except Exception as e:
         logging.error(f"api_gym_data error: {e}")
+        info = _get_gym_info()
         return JSONResponse({
-            "gym_name": get_gym_name(),
-            "gym_address": get_gym_address(),
+            "gym_name": info.get("gym_name") or get_gym_name(),
+            "gym_address": info.get("gym_address") or get_gym_address(),
             "logo_url": _resolve_logo_url(),
         })
 
 @app.post("/api/gym/update")
 async def api_gym_update(request: Request):
-    """Actualiza nombre y dirección del gimnasio en configuración (DB).
-    Requiere dueño. Fallback a gym_data.txt si DB no disponible.
+    """Actualiza nombre y dirección del gimnasio en la base de datos.
+    Requiere dueño. Escribe en `gym_config` y sincroniza claves en `configuracion`.
+    No usa archivos locales; falla si DB no está disponible.
     """
     try:
         # Verificar acceso de dueño sin depender del orden de definición
@@ -2097,53 +2136,34 @@ async def api_gym_update(request: Request):
 
         # Intentar DB primero
         db = _get_db()
-        if db is not None and hasattr(db, 'actualizar_configuracion'):
-            try:
+        if db is None:
+            return JSONResponse({"ok": False, "error": "Base de datos no disponible"}, status_code=500)
+        # Preferir escribir en gym_config para mantener una sola fuente de verdad
+        try:
+            if hasattr(db, 'actualizar_configuracion_gimnasio'):
+                # Escribe en gym_config y sincroniza claves principales en configuracion
+                db.actualizar_configuracion_gimnasio(updates)  # type: ignore
+            elif hasattr(db, 'actualizar_configuracion'):
+                # Fallback amplio: escribir claves sueltas en configuracion
                 db.actualizar_configuracion('gym_name', updates.get('gym_name', ''))  # type: ignore
                 if 'gym_address' in updates:
                     db.actualizar_configuracion('gym_address', updates.get('gym_address', ''))  # type: ignore
-                try:
-                    from utils import read_gym_data as _read_gym_data  # type: ignore
-                    _read_gym_data(force_reload=True)
-                except Exception:
-                    pass
-            except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-        else:
-            # Fallback: actualizar gym_data.txt si DB no está disponible
-            path = Path("gym_data.txt")
+            else:
+                return JSONResponse({"ok": False, "error": "Gestor de DB incompatible"}, status_code=500)
+            # Refrescar caché de utils inmediatamente
             try:
-                lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+                from utils import read_gym_data as _read_gym_data  # type: ignore
+                _read_gym_data(force_reload=True)
             except Exception:
-                lines = []
+                pass
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-            found: dict = {k: False for k in updates}
-            out_lines = []
-            for line in lines:
-                s = line.strip()
-                if not s or s.startswith('#') or '=' not in s:
-                    out_lines.append(line)
-                    continue
-                k, _ = s.split('=', 1)
-                k = k.strip()
-                if k in updates:
-                    out_lines.append(f"{k}={updates[k]}")
-                    found[k] = True
-                else:
-                    out_lines.append(line)
-            for k, done in found.items():
-                if not done:
-                    out_lines.append(f"{k}={updates[k]}")
-
-            try:
-                path.write_text("\n".join(out_lines) + ("\n" if out_lines else ""), encoding="utf-8")
-            except Exception as e:
-                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-
+        info = _get_gym_info()
         return JSONResponse({
             "ok": True,
-            "gym_name": get_gym_name(),
-            "gym_address": get_gym_address(),
+            "gym_name": info.get("gym_name") or get_gym_name(),
+            "gym_address": info.get("gym_address") or get_gym_address(),
         }, status_code=200)
     except HTTPException:
         raise
@@ -2203,15 +2223,29 @@ async def api_gym_logo(request: Request, file: UploadFile = File(...)):
                 return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
             public_url = f"/assets/{local_name}"
 
-        # Guardar URL en DB
+        # Guardar URL en DB: preferir gym_config y sincronizar configuracion
         try:
             db = _get_db()
-            if db is not None and hasattr(db, 'actualizar_configuracion'):
-                db.actualizar_configuracion('gym_logo_url', public_url)  # type: ignore
+            if db is not None:
+                if hasattr(db, 'actualizar_logo_url'):
+                    # Método dedicado si existe
+                    db.actualizar_logo_url(public_url)  # type: ignore
+                elif hasattr(db, 'actualizar_configuracion_gimnasio'):
+                    # Escribir en gym_config y sincronizar claves
+                    db.actualizar_configuracion_gimnasio({'gym_logo_url': public_url})  # type: ignore
+                elif hasattr(db, 'actualizar_configuracion'):
+                    # Fallback: solo configuracion
+                    db.actualizar_configuracion('gym_logo_url', public_url)  # type: ignore
+                # Refrescar caché de utils inmediatamente
+                try:
+                    from utils import read_gym_data as _read_gym_data  # type: ignore
+                    _read_gym_data(force_reload=True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        return JSONResponse({"ok": True, "logo_url": public_url}, status_code=200)
+        return JSONResponse({"ok": True, "logo_url": _resolve_logo_url()}, status_code=200)
     except HTTPException:
         raise
     except Exception as e:

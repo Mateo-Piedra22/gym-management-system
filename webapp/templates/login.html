@@ -83,3 +83,41 @@
   </main>
 </body>
 </html>
+
+<!-- Actualización dinámica de nombre del gimnasio en toda la webapp -->
+<script>
+(function(){
+  function applyBranding(j){
+    var name = j && typeof j.gym_name === 'string' ? j.gym_name.trim() : '';
+    if(!name) return;
+    try {
+      var t = document.title || '';
+      var prefix = t.includes('•') ? t.split('•')[0].trim() : t.trim();
+      if (prefix) document.title = prefix + ' • ' + name;
+    } catch(_){}
+    var candidates = [
+      document.getElementById('brand-title'),
+      document.getElementById('login-title'),
+      document.querySelector('.brand h1'),
+      document.querySelector('.brand strong')
+    ];
+    for (var i=0;i<candidates.length;i++){ if (candidates[i]) { candidates[i].textContent = name; break; } }
+  }
+  async function fetchBranding(){ 
+    try { 
+      var r = await fetch('/api/gym/data', { headers: { 'Accept': 'application/json' } });
+      var j = await r.json(); 
+      applyBranding(j); 
+    } catch(_){ /* noop */ }
+  }
+  window.addEventListener('DOMContentLoaded', fetchBranding);
+  window.addEventListener('storage', function(e){ 
+    if (e && e.key === 'gym_branding_update' && e.newValue){ 
+      try { var payload = JSON.parse(e.newValue); if (payload && payload.gym_name) applyBranding({ gym_name: payload.gym_name }); } catch(_){ /* noop */ } 
+    } 
+  });
+  window.addEventListener('gym-branding-updated', function(ev){ 
+    try { var d = ev && ev.detail ? ev.detail : null; if (d && d.gym_name) applyBranding({ gym_name: d.gym_name }); } catch(_){ /* noop */ }
+  });
+})();
+</script>

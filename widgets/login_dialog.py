@@ -390,7 +390,7 @@ class LoginDialog(QDialog):
         self.connect_signals()
 
     def load_gym_data(self):
-        """Carga los datos del gimnasio priorizando DB con caché y fallback a archivo."""
+        """Carga los datos del gimnasio priorizando DB con caché (sin archivo)."""
         try:
             data = read_gym_data()
             if isinstance(data, dict):
@@ -415,7 +415,7 @@ class LoginDialog(QDialog):
         }
 
     def _load_gym_data_cached(self):
-        """Carga gym_data usando caché en memoria si disponible, con fallback a disco."""
+        """Carga gym_data usando caché en memoria si disponible (sin disco)."""
         try:
             cache_key = 'config:gym_data'
             if self._mem_cache:
@@ -2072,7 +2072,7 @@ class LoginDialog(QDialog):
                         if estadisticas:
                             QMessageBox.information(
                                 self, "Nuevo Mes Detectado",
-                                f"🗓️ Nuevo mes iniciado!\n\n"
+                                f"Nuevo mes iniciado!\n\n"
                                 f"Resumen del mes anterior:\n"
                                 f"• Total de sesiones: {estadisticas['total_sesiones']}\n"
                                 f"• Horas trabajadas: {estadisticas['total_horas']:.2f}h\n"
@@ -2100,7 +2100,7 @@ class LoginDialog(QDialog):
                             # Continuar con la sesión existente
                             QMessageBox.information(
                                 self, "Sesión Continuada", 
-                                f"✅ Continuando con la sesión activa desde las {hora_inicio}"
+                                f"Continuando con la sesión activa desde las {hora_inicio}"
                             )
                         else:
                             # Finalizar la sesión actual e iniciar una nueva
@@ -2110,7 +2110,7 @@ class LoginDialog(QDialog):
                                 if resultado_inicio.get('success'):
                                     QMessageBox.information(
                                         self, "Nueva Sesión", 
-                                        "✅ Sesión anterior finalizada y nueva sesión iniciada"
+                                        "Sesión anterior finalizada y nueva sesión iniciada"
                                     )
                                 else:
                                     QMessageBox.warning(
@@ -2124,7 +2124,7 @@ class LoginDialog(QDialog):
                         if resultado_inicio.get('success'):
                             QMessageBox.information(
                                 self, "Sesión Iniciada", 
-                                f"✅ Sesión de trabajo iniciada para {selected_prof['nombre']}"
+                                f"Sesión de trabajo iniciada para {selected_prof['nombre']}"
                             )
                         else:
                             logging.warning(f"Error al iniciar la sesión de trabajo: {resultado_inicio.get('mensaje', 'Error desconocido')}")
