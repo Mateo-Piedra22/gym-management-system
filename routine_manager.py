@@ -1007,8 +1007,8 @@ class RoutineTemplateManager:
                                 pass
                         else:
                             try:
-                                target_title = (sheet or "QR") if isinstance(sheet, str) and sheet.strip() else "QR"
-                                self._add_qr_sheet(str(output_path), qr_link_val, target_title, template_data.get('uuid_rutina'))
+                                # Siempre insertar en una segunda hoja llamada "QR"
+                                self._add_qr_sheet(str(output_path), qr_link_val, "QR", template_data.get('uuid_rutina'))
                             except Exception:
                                 pass
                     if isinstance(sheet, str) and sheet.strip():
@@ -1256,9 +1256,8 @@ class RoutineTemplateManager:
                             pass
                     else:
                         try:
-                            # Usar el parámetro 'sheet' (nombre de hoja), no la variable local
-                            target_title = (sheet or "QR") if isinstance(sheet, str) and sheet.strip() else "QR"
-                            self._add_qr_sheet(str(output_path), qr_link_val, target_title, template_data.get('uuid_rutina'))
+                            # Siempre insertar en una segunda hoja llamada "QR"
+                            self._add_qr_sheet(str(output_path), qr_link_val, "QR", template_data.get('uuid_rutina'))
                         except Exception:
                             pass
                 # Ajustar hoja activa solo si se pasó un nombre de hoja válido por parámetro

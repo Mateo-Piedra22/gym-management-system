@@ -2944,10 +2944,44 @@ class DatabaseManager:
                         )
                     except Exception:
                         pass
+                # Sincronizar claves principales en configuracion para compatibilidad amplia
+                try:
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS configuracion (
+                            id SERIAL PRIMARY KEY,
+                            clave VARCHAR(255) UNIQUE NOT NULL,
+                            valor TEXT NOT NULL,
+                            tipo VARCHAR(50) DEFAULT 'string',
+                            descripcion TEXT
+                        )
+                        """
+                    )
+                except Exception:
+                    pass
+                for k in ['gym_name','gym_slogan','gym_address','gym_phone','gym_email','gym_website','facebook','instagram','twitter']:
+                    if k in data:
+                        try:
+                            cursor.execute(
+                                """
+                                INSERT INTO configuracion (clave, valor)
+                                VALUES (%s, %s)
+                                ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+                                """,
+                                (k, str(data.get(k) or ''))
+                            )
+                        except Exception:
+                            pass
             try:
                 conn.commit()
             except Exception:
                 pass
+        # Invalidar cache de configuración para las claves afectadas
+        try:
+            for k in ['gym_name','gym_slogan','gym_address','gym_phone','gym_email','gym_website','facebook','instagram','twitter','gym_logo_url']:
+                self.cache.invalidate('config', k)
+        except Exception:
+            pass
         return True
 
     def obtener_logo_url(self) -> Optional[str]:
@@ -3518,7 +3552,44 @@ class DatabaseManager:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS notas TEXT")
                     except Exception:
                         pass
-                    
+
+                    # --- TABLAS DE BLOQUES DE EJERCICIOS POR CLASE ---
+                    # Tabla de bloques asociados a una clase
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS clase_bloques (
+                            id SERIAL PRIMARY KEY,
+                            clase_id INTEGER NOT NULL,
+                            nombre TEXT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (clase_id) REFERENCES clases (id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                    # Índices para clase_bloques
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_bloques_clase ON clase_bloques(clase_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_clase_bloques_nombre ON clase_bloques(nombre)")
+
+                    # Tabla de items dentro de un bloque
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS clase_bloque_items (
+                            id SERIAL PRIMARY KEY,
+                            bloque_id INTEGER NOT NULL REFERENCES clase_bloques(id) ON DELETE CASCADE,
+                            ejercicio_id INTEGER NOT NULL REFERENCES ejercicios(id) ON DELETE CASCADE,
+                            orden INTEGER NOT NULL DEFAULT 0,
+                            series INTEGER DEFAULT 0,
+                            repeticiones TEXT,
+                            descanso_segundos INTEGER DEFAULT 0,
+                            notas TEXT
+                        )
+                        """
+                    )
+                    # Índices para clase_bloque_items
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bloque_items_bloque ON clase_bloque_items(bloque_id)")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_bloque_items_bloque_orden ON clase_bloque_items(bloque_id, orden)")
+
                     # --- TABLAS PARA GRUPOS DE EJERCICIOS ---
                     cursor.execute("""
                     CREATE TABLE IF NOT EXISTS ejercicio_grupos (
@@ -6104,6 +6175,42 @@ class DatabaseManager:
                     except Exception:
                         pass
                     return value
+                # 3.1) Fallback: leer desde gym_config si la clave corresponde
+                try:
+                    gc_map = {
+                        'gym_name': 'gym_name',
+                        'gym_slogan': 'gym_slogan',
+                        'gym_address': 'gym_address',
+                        'gym_phone': 'gym_phone',
+                        'gym_email': 'gym_email',
+                        'gym_website': 'gym_website',
+                        'facebook': 'facebook',
+                        'instagram': 'instagram',
+                        'twitter': 'twitter',
+                        'gym_logo_url': 'logo_url'
+                    }
+                    col = gc_map.get(str(clave))
+                    if col:
+                        # Asegurar que la tabla exista antes del SELECT
+                        try:
+                            self._ensure_gym_config_table(conn)
+                        except Exception:
+                            pass
+                        try:
+                            cursor.execute(f"SELECT {col} FROM gym_config ORDER BY id LIMIT 1")
+                            r2 = cursor.fetchone()
+                            if r2 and len(r2) > 0:
+                                gval = r2[0]
+                                if isinstance(gval, str) and gval.strip():
+                                    try:
+                                        self.cache.set('config', clave, gval)
+                                    except Exception:
+                                        pass
+                                    return gval
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 # Fallback por entorno si la DB no devuelve valor
                 try:
                     env_key = f"CONFIG_{str(clave).upper()}"
@@ -22057,3 +22164,55 @@ class DatabaseOperationManager(QObject):
         if worker_id in self.active_workers:
             self.active_workers[worker_id].stop()
             self._cleanup_worker(worker_id)
+
+if __name__ == "__main__":
+    import sys
+    import logging
+    try:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    except Exception:
+        pass
+    try:
+        print("Inicializando la base de datos...")
+        db_manager = DatabaseManager()
+        db_manager.inicializar_base_datos()
+        print("✅ Base de datos inicializada correctamente")
+        # Verificar tablas clave
+        try:
+            with db_manager.get_connection_context() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = 'public' AND table_name = 'gym_config'
+                        )
+                    """)
+                    gym_exists = bool(cur.fetchone()[0])
+                    cur.execute("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = 'public' AND table_name = 'clase_bloques'
+                        )
+                    """)
+                    bloques_exists = bool(cur.fetchone()[0])
+                    cur.execute("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM information_schema.tables
+                            WHERE table_schema = 'public' AND table_name = 'clase_bloque_items'
+                        )
+                    """)
+                    bloque_items_exists = bool(cur.fetchone()[0])
+            print(f"gym_config: {'OK' if gym_exists else 'FALTA'}")
+            print(f"clase_bloques: {'OK' if bloques_exists else 'FALTA'}")
+            print(f"clase_bloque_items: {'OK' if bloque_items_exists else 'FALTA'}")
+        except Exception:
+            # No bloquear si la verificación falla
+            pass
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Error al inicializar la base de datos: {e}")
+        try:
+            logging.exception("Fallo al inicializar database.py")
+        except Exception:
+            pass
+        sys.exit(1)
