@@ -40,4 +40,4 @@ COPY . /app
 EXPOSE 8000
 
 # Default command: run FastAPI webapp
-CMD ["sh", "-c", "uvicorn webapp.server:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn apps.webapp.server:app --host 0.0.0.0 --port ${PORT}"]
