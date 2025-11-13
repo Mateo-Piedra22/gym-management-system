@@ -9,6 +9,7 @@ import secrets
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timezone
+import contextvars
 
 from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
 import logging
@@ -1037,6 +1038,153 @@ def _get_rm() -> Optional[RoutineTemplateManager]:
     except Exception:
         return None
 
+CURRENT_TENANT: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("CURRENT_TENANT", default=None)
+_tenant_dbs: Dict[str, DatabaseManager] = {}
+_tenant_lock = threading.RLock()
+
+def _get_multi_tenant_mode() -> bool:
+    try:
+        v = os.getenv("MULTI_TENANT_MODE", "false").strip().lower()
+        return v in ("1", "true", "yes", "on")
+    except Exception:
+        return False
+
+def _get_request_host(request: Request) -> str:
+    try:
+        h = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        h = h.strip()
+        if h:
+            return h.split(":")[0].strip().lower()
+        try:
+            return (request.url.hostname or "").strip().lower()
+        except Exception:
+            return ""
+    except Exception:
+        return ""
+
+def _extract_tenant_from_host(host: str) -> Optional[str]:
+    try:
+        base = os.getenv("TENANT_BASE_DOMAIN", "gymms-motiona.xyz").strip().lower().lstrip(".")
+    except Exception:
+        base = "gymms-motiona.xyz"
+    h = (host or "").strip().lower()
+    if not h:
+        return None
+    if "localhost" in h or h.endswith(".localhost"):
+        return None
+    if not h.endswith(base):
+        return None
+    try:
+        prefix = h[: max(0, len(h) - len(base))].rstrip(".")
+    except Exception:
+        prefix = ""
+    if not prefix:
+        return None
+    try:
+        sub = prefix.split(".")[0].strip()
+    except Exception:
+        sub = prefix
+    if not sub:
+        return None
+    return sub
+
+def _resolve_base_db_params() -> Dict[str, Any]:
+    host = os.getenv("DB_HOST", "localhost").strip()
+    try:
+        port = int(os.getenv("DB_PORT", 5432))
+    except Exception:
+        port = 5432
+    user = os.getenv("DB_USER", "postgres").strip()
+    password = os.getenv("DB_PASSWORD", "")
+    sslmode = os.getenv("DB_SSLMODE", "prefer").strip()
+    try:
+        connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", 10))
+    except Exception:
+        connect_timeout = 10
+    application_name = os.getenv("DB_APPLICATION_NAME", "gym_management_system").strip()
+    database = os.getenv("DB_NAME", "Zurka").strip()
+    params: Dict[str, Any] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "user": user,
+        "password": password,
+        "sslmode": sslmode,
+        "connect_timeout": connect_timeout,
+        "application_name": application_name,
+    }
+    return params
+
+def _get_db_for_tenant(tenant: str) -> Optional[DatabaseManager]:
+    t = (tenant or "").strip().lower()
+    if not t:
+        return None
+    with _tenant_lock:
+        dm = _tenant_dbs.get(t)
+        if dm is not None:
+            return dm
+        base = _resolve_base_db_params()
+        db_name = None
+        adm = _get_admin_db_manager()
+        if adm is not None:
+            try:
+                with adm.db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor()
+                    cur.execute("SELECT db_name FROM gyms WHERE subdominio = %s", (t,))
+                    row = cur.fetchone()
+                    if row:
+                        db_name = str(row[0] or "").strip()
+            except Exception:
+                db_name = None
+        if not db_name:
+            suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
+            db_name = f"{t}{suffix}"
+        base["database"] = db_name
+        try:
+            dm = DatabaseManager(connection_params=base)  # type: ignore
+        except Exception:
+            return None
+        try:
+            with dm.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                _ = cur.fetchone()
+        except Exception:
+            return None
+        _tenant_dbs[t] = dm
+        return dm
+
+_admin_db_cached = None
+
+def _get_admin_db_manager():
+    global _admin_db_cached
+    if _admin_db_cached is not None:
+        return _admin_db_cached
+    try:
+        from apps.admin.database import AdminDatabaseManager  # type: ignore
+        _admin_db_cached = AdminDatabaseManager()
+        return _admin_db_cached
+    except Exception:
+        return None
+
+def _is_tenant_suspended(tenant: str) -> bool:
+    adm = _get_admin_db_manager()
+    if adm is None:
+        return False
+    try:
+        return bool(adm.is_gym_suspended(tenant))
+    except Exception:
+        return False
+
+def _get_tenant_maintenance_message(tenant: str):
+    adm = _get_admin_db_manager()
+    if adm is None:
+        return None
+    try:
+        return adm.get_mantenimiento(tenant)
+    except Exception:
+        return None
+
 # Ajuste de stdout/stderr para ejecutables sin consola en Windows (runw.exe)
 # Evita fallos de configuración de logging en Uvicorn cuando sys.stdout/sys.stderr es None.
 try:
@@ -1210,6 +1358,52 @@ app = FastAPI(
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
+
+class TenantMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        sub = None
+        token = None
+        if _get_multi_tenant_mode():
+            host = _get_request_host(request)
+            sub = _extract_tenant_from_host(host)
+        if sub:
+            token = CURRENT_TENANT.set(sub)
+            try:
+                request.state.tenant = sub
+            except Exception:
+                pass
+            try:
+                msg = _get_tenant_maintenance_message(sub)
+                if msg:
+                    html = (
+                        "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
+                        + "<h1 style=\"font-size:24px;font-weight:600\">Mantenimiento</h1>"
+                        + "<p style=\"margin-top:8px\">" + str(msg) + "</p>"
+                        + "<p style=\"margin-top:12px\" class=\"muted\">Vuelve a intentarlo más tarde.</p>"
+                        + "</div></div>"
+                    )
+                    return Response(content=html, media_type="text/html", status_code=503)
+                if _is_tenant_suspended(sub):
+                    html = (
+                        "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
+                        + "<h1 style=\"font-size:24px;font-weight:600\">Servicio suspendido</h1>"
+                        + "<p style=\"margin-top:8px\">Contacta a administración para reactivar el servicio.</p>"
+                        + "</div></div>"
+                    )
+                    return Response(content=html, media_type="text/html", status_code=403)
+            except Exception:
+                pass
+        try:
+            response = await call_next(request)
+        finally:
+            if token is not None:
+                try:
+                    CURRENT_TENANT.reset(token)
+                except Exception:
+                    pass
+        return response
+
+app.add_middleware(TenantMiddleware)
 
 # Redirección amigable de 401 según la sección
 @app.exception_handler(HTTPException)
@@ -1610,6 +1804,50 @@ try:
 except Exception:
     pass
 
+def _get_theme_from_db() -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    db = _get_db()
+    if db is None:
+        return out
+    keys = [
+        ("theme_primary", "--primary"),
+        ("theme_secondary", "--secondary"),
+        ("theme_accent", "--accent"),
+        ("theme_bg", "--bg"),
+        ("theme_card", "--card"),
+        ("theme_text", "--text"),
+        ("theme_muted", "--muted"),
+        ("theme_border", "--border"),
+        ("font_base", "--font-base"),
+        ("font_heading", "--font-heading"),
+    ]
+    for cfg_key, css_var in keys:
+        try:
+            val = db.obtener_configuracion(cfg_key)  # type: ignore
+        except Exception:
+            val = None
+        v = str(val or "").strip()
+        if v:
+            out[css_var] = v
+    return out
+
+def _resolve_theme_vars() -> Dict[str, str]:
+    base = read_theme_vars(static_dir / "style.css")
+    dbv = _get_theme_from_db()
+    return {**base, **dbv}
+
+@app.get("/theme.css")
+async def theme_css():
+    tv = _resolve_theme_vars()
+    lines: List[str] = []
+    lines.append(":root {")
+    for k, v in tv.items():
+        lines.append(f"  {k}: {v};")
+    lines.append("}")
+    lines.append("body { font-family: var(--font-base, Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji'); }")
+    lines.append("h1,h2,h3,h4,h5,h6 { font-family: var(--font-heading, var(--font-base, Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji')); }")
+    return Response("\n".join(lines), media_type="text/css")
+
 uploads_dir = _resolve_existing_dir("webapp", "uploads")
 # En serverless, usar /tmp si la ruta del proyecto no existe o no es escribible
 if _is_serverless_env() and not uploads_dir.exists():
@@ -1741,13 +1979,20 @@ async def favicon_ico():
 
 # Configuración y utilidades para subida de medios a Google Cloud Storage
 def _get_gcs_settings() -> Dict[str, Any]:
-    """Lee configuración de GCS desde variables de entorno.
-    Devuelve un dict con claves: bucket, project_id, prefix, public_base_url, make_public.
-    """
     try:
         bucket = (os.getenv("GCS_BUCKET_NAME") or os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
         project_id = (os.getenv("GCS_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT") or "").strip()
         prefix = (os.getenv("GCS_MEDIA_PREFIX") or "ejercicios").strip().strip("/")
+        tenant = None
+        try:
+            tenant = CURRENT_TENANT.get()
+        except Exception:
+            tenant = None
+        if tenant:
+            try:
+                prefix = f"{prefix}/{tenant}".strip().strip("/")
+            except Exception:
+                pass
         public_base = (os.getenv("GCS_PUBLIC_BASE_URL") or "https://storage.googleapis.com").strip().rstrip("/")
         make_public = (os.getenv("GCS_PUBLIC_READ", "1").strip() in ("1", "true", "yes"))
         return {
@@ -1796,27 +2041,44 @@ def _upload_media_to_gcs(dest_name: str, data: bytes, content_type: str) -> Opti
 
 # Configuración y utilidades para subida de medios a Backblaze B2 (fallback)
 def _get_b2_settings() -> Dict[str, Any]:
-    """Lee configuración de Backblaze B2 desde variables de entorno.
-    Devuelve un dict con claves: account_id, application_key, bucket_id, bucket_name, prefix, public_base_url.
-    """
     try:
-        # B2 usa applicationKeyId (keyId) para b2_authorize_account; mantener también accountId para otras llamadas
-        key_id = (os.getenv("B2_KEY_ID") or "").strip()
-        account_id = (os.getenv("B2_ACCOUNT_ID") or "").strip()
-        application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
-        bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
-        bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
-        prefix = (os.getenv("B2_MEDIA_PREFIX") or "ejercicios").strip().strip("/")
         public_base = (os.getenv("B2_PUBLIC_BASE_URL") or "").strip().rstrip("/")
-        # Sanitizar prefijo si accidentalmente incluye el nombre del bucket
+        prefix = (os.getenv("B2_MEDIA_PREFIX") or "assets").strip().strip("/")
+        tenant = None
         try:
-            if bucket_name and prefix and prefix.lower().startswith((bucket_name + "/").lower()):
-                prefix = prefix[len(bucket_name) + 1 :]
+            tenant = CURRENT_TENANT.get()
         except Exception:
-            pass
+            tenant = None
+        bucket_id = ""
+        bucket_name = ""
+        key_id = ""
+        application_key = ""
+        if tenant:
+            adm = _get_admin_db_manager()
+            if adm is not None:
+                try:
+                    with adm.db.get_connection_context() as conn:  # type: ignore
+                        cur = conn.cursor()
+                        cur.execute("SELECT b2_bucket_id, b2_bucket_name, b2_key_id, b2_application_key FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
+                        row = cur.fetchone()
+                        if row:
+                            bucket_id = str(row[0] or "").strip()
+                            bucket_name = str(row[1] or "").strip()
+                            key_id = str(row[2] or "").strip()
+                            application_key = str(row[3] or "").strip()
+                except Exception:
+                    bucket_id = bucket_id
+                    bucket_name = bucket_name
+                    key_id = key_id
+                    application_key = application_key
+        if tenant:
+            try:
+                prefix = f"{prefix}/{tenant}".strip().strip("/")
+            except Exception:
+                pass
         return {
             "key_id": key_id,
-            "account_id": account_id,
+            "account_id": key_id,
             "application_key": application_key,
             "bucket_id": bucket_id,
             "bucket_name": bucket_name,
@@ -1830,7 +2092,7 @@ def _get_b2_settings() -> Dict[str, Any]:
             "application_key": "",
             "bucket_id": "",
             "bucket_name": "",
-            "prefix": "ejercicios",
+            "prefix": "assets",
             "public_base_url": "",
         }
 
@@ -1979,6 +2241,24 @@ def _get_password() -> str:
             pwd = db.obtener_configuracion('owner_password', timeout_ms=700)  # type: ignore
             if isinstance(pwd, str) and pwd.strip():
                 return pwd.strip()
+    except Exception:
+        pass
+    # Fallback: leer desde Admin DB por subdominio
+    try:
+        tenant = None
+        try:
+            tenant = CURRENT_TENANT.get()
+        except Exception:
+            tenant = None
+        if tenant:
+            adm = _get_admin_db_manager()
+            if adm is not None:
+                with adm.db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor()
+                    cur.execute("SELECT owner_password_hash FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
+                    row = cur.fetchone()
+                    if row and isinstance(row[0], str) and row[0].strip():
+                        return row[0].strip()
     except Exception:
         pass
     # Fallback: variables de entorno si están definidas (solo si DB no devuelve valor)
@@ -2271,6 +2551,15 @@ async def api_gym_logo(request: Request, file: UploadFile = File(...)):
 
 def _get_db() -> Optional[DatabaseManager]:
     global _db, _db_initializing
+    if _get_multi_tenant_mode():
+        try:
+            current = CURRENT_TENANT.get()
+        except Exception:
+            current = None
+        if current:
+            dm = _get_db_for_tenant(current)
+            if dm is not None:
+                return dm
     # Fast path
     if _db is not None:
         return _db
@@ -4623,7 +4912,7 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
 @app.get("/")
 async def root_selector(request: Request):
     """Página de selección: Dashboard (lleva a login) o Check-in."""
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -4637,7 +4926,7 @@ async def root_selector(request: Request):
 @app.get("/login")
 async def login_page_get(request: Request):
     """Muestra el formulario de login del dueño."""
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -4698,7 +4987,7 @@ def _issue_usuario_jwt(usuario_id: int) -> Optional[str]:
 @app.get("/usuario/login")
 async def usuario_login_get(request: Request):
     """Formulario de login para usuarios (DNI + PIN)."""
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -4845,7 +5134,7 @@ async def api_usuario_change_pin(request: Request):
 
 @app.get("/usuario/panel")
 async def usuario_panel_get(request: Request, _=Depends(require_usuario)):
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     db = _get_db()
     usuario_id = request.session.get("usuario_id")
     usuario = None
@@ -5533,7 +5822,7 @@ async def dashboard(request: Request):
     # Redirigir a login si no hay sesión activa
     if not request.session.get("logged_in"):
         return RedirectResponse(url="/", status_code=303)
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -5547,7 +5836,7 @@ async def gestion(request: Request):
     # Redirigir a login de Gestión si no hay sesión activa (dueño o profesor)
     if not (request.session.get("logged_in") or request.session.get("gestion_profesor_id") or request.session.get("gestion_profesor_user_id")):
         return RedirectResponse(url="/gestion/login", status_code=303)
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -6943,7 +7232,7 @@ async def api_tipos_cuota_delete(tipo_id: int, _=Depends(require_gestion_access)
 
 @app.get("/gestion/login")
 async def gestion_login_get(request: Request):
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
         "theme": theme_vars,
@@ -7805,7 +8094,7 @@ async def api_auth_logout(request: Request):
 @app.get("/api/theme")
 async def api_theme(_=Depends(require_owner)):
     try:
-        theme_vars = read_theme_vars(static_dir / "style.css")
+        theme_vars = _resolve_theme_vars()
         return JSONResponse(theme_vars)
     except Exception as e:
         logging.exception("Error in /api/theme")
@@ -8050,7 +8339,7 @@ async def api_arpu12m(request: Request, _=Depends(require_owner)):
 @app.get("/checkin")
 async def checkin_page(request: Request):
     """Página pública de check-in para socios: autenticación por DNI+teléfono y lector de QR."""
-    theme_vars = read_theme_vars(static_dir / "style.css")
+    theme_vars = _resolve_theme_vars()
     autenticado = bool(request.session.get("checkin_user_id"))
     socio_info = {}
     if autenticado:
