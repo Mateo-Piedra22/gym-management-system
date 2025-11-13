@@ -1766,6 +1766,15 @@ try:
             hosts.append(_vercel)
         # Mantener compatibilidad con despliegues anteriores en Railway
         hosts.append("gym-ms-zrk.up.railway.app")
+        # Añadir dominio base del SaaS y variantes (www, subdominios) automáticamente
+        try:
+            _base = os.getenv("TENANT_BASE_DOMAIN", "gymms-motiona.xyz").strip().lower().lstrip(".")
+            if _base:
+                hosts.append(_base)
+                hosts.append(f"www.{_base}")
+                hosts.append(f"*.{_base}")
+        except Exception:
+            pass
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=hosts)
     # Forzar HTTPS en producción si se indica
     if (os.getenv("FORCE_HTTPS", "0").strip() in ("1", "true", "yes")):
@@ -4921,7 +4930,14 @@ def start_web_server(db_manager: Optional[DatabaseManager] = None, host: str = "
 
 @app.get("/")
 async def root_selector(request: Request):
-    """Página de selección: Dashboard (lleva a login) o Check-in."""
+    try:
+        if _get_multi_tenant_mode():
+            host = _get_request_host(request)
+            sub = _extract_tenant_from_host(host)
+            if not sub:
+                return RedirectResponse(url="/admin", status_code=307)
+    except Exception:
+        pass
     theme_vars = _resolve_theme_vars()
     ctx = {
         "request": request,
