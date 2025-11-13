@@ -66,6 +66,9 @@ async def admin_login(request: Request, password: str = Form(...)):
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
     ok = adm.verificar_owner_password(password)
     if not ok:
+        acc = (request.headers.get("accept") or "").lower()
+        if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+            return RedirectResponse(url="/admin/login?error=Credenciales", status_code=303)
         return JSONResponse({"ok": False}, status_code=401)
     try:
         request.session["admin_logged_in"] = True
@@ -79,6 +82,9 @@ async def admin_login(request: Request, password: str = Form(...)):
         adm.log_action("owner", "login", None, None)
     except Exception:
         pass
+    acc = (request.headers.get("accept") or "").lower()
+    if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+        return RedirectResponse(url="/admin", status_code=303)
     return JSONResponse({"ok": True}, status_code=200)
 
 @admin_app.post("/logout")
@@ -97,6 +103,19 @@ async def admin_logout(request: Request):
 
 @admin_app.get("/")
 async def admin_home(request: Request):
+    acc = (request.headers.get("accept") or "").lower()
+    if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+        try:
+            v = int(request.session.get("session_version") or 0)
+            cur = int(getattr(admin_app.state, "session_version", 1))
+            logged = bool(request.session.get("admin_logged_in")) and v == cur
+        except Exception:
+            logged = False
+        if not logged:
+            secret = os.getenv("ADMIN_SECRET", "").strip()
+            hdr = request.headers.get("x-admin-secret") or ""
+            if not secret or hdr.strip() != secret:
+                return RedirectResponse(url="/admin/login", status_code=303)
     _require_admin(request)
     html = """
     <div class="dark"><div style="max-width:720px;margin:0 auto;padding:20px;font-family:system-ui"><h1 style="font-size:24px;font-weight:600">Panel Admin</h1><div style="display:flex;gap:12px;margin-top:12px"><a href="/admin/gyms" style="padding:10px 14px;border-radius:6px;background:#111;color:#fff;text-decoration:none">Ver gimnasios</a><a href="/admin/owner/password?ui=1" style="padding:10px 14px;border-radius:6px;background:#374151;color:#fff;text-decoration:none">Contraseña Admin</a><a href="/admin/subscriptions/upcoming?ui=1" style="padding:10px 14px;border-radius:6px;background:#1e40af;color:#fff;text-decoration:none">Próximos vencimientos</a><a href="/admin/login" style="padding:10px 14px;border-radius:6px;background:#444;color:#fff;text-decoration:none">Cambiar cuenta</a></div><form method="post" action="/admin/gyms" style="display:grid;gap:8px;margin-top:16px"><input name="nombre" placeholder="Nombre" required style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="subdominio" placeholder="Subdominio" required style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="owner_phone" placeholder="Teléfono dueño (+54...)" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="whatsapp_phone_id" placeholder="WhatsApp Phone ID" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="whatsapp_access_token" placeholder="WhatsApp Access Token" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="whatsapp_business_account_id" placeholder="WhatsApp Business Account ID" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="whatsapp_verify_token" placeholder="WhatsApp Verify Token" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><input name="whatsapp_app_secret" placeholder="WhatsApp App Secret" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="whatsapp_nonblocking" value="true"/> WhatsApp no bloqueante</label><input type="number" step="0.1" name="whatsapp_send_timeout_seconds" placeholder="Timeout envío WhatsApp (seg)" style="padding:8px;border:1px solid #ccc;border-radius:6px" /><button type="submit" style="padding:10px 14px;border-radius:6px;background:#111;color:#fff">Crear gimnasio</button></form></div></div>
