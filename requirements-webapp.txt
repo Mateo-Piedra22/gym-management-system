@@ -16,3 +16,4 @@ qrcode
 bcrypt
 pywa
 google-cloud-storage
+pandas

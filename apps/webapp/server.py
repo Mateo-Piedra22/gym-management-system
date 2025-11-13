@@ -1111,10 +1111,16 @@ def _compute_base_dir() -> Path:
         return Path('.')
 
 def _resolve_existing_dir(*parts: str) -> Path:
-    """Devuelve el primer directorio existente entre varias ubicaciones candidatas.
-    Prioriza BASE_DIR, luego el directorio del ejecutable (onedir) y por último el proyecto.
-    """
     candidates = []
+    try:
+        if parts and parts[0] == "webapp":
+            try:
+                local = Path(__file__).resolve().parent.joinpath(*parts[1:])
+                candidates.append(local)
+            except Exception:
+                pass
+    except Exception:
+        pass
     try:
         candidates.append(BASE_DIR.joinpath(*parts))
     except Exception:
@@ -1140,7 +1146,6 @@ def _resolve_existing_dir(*parts: str) -> Path:
                 return c
         except Exception:
             continue
-    # Fallback: primera opción aunque no exista
     return candidates[0] if candidates else Path(*parts)
 
 # Helper para secreto de sesion estable
@@ -1716,6 +1721,23 @@ except Exception:
     # Fallback silencioso; la UI seguirá mostrando colores por defecto
     pass
 
+
+@app.get("/favicon.png")
+async def favicon_png():
+    p = _resolve_existing_dir("assets") / "web-icon.png"
+    if p.exists():
+        return FileResponse(str(p))
+    p2 = _resolve_existing_dir("assets") / "gym_logo.png"
+    if p2.exists():
+        return FileResponse(str(p2))
+    return Response(status_code=404)
+
+@app.get("/favicon.ico")
+async def favicon_ico():
+    p = _resolve_existing_dir("assets") / "gym_logo.ico"
+    if p.exists():
+        return FileResponse(str(p))
+    return Response(status_code=404)
 
 # Configuración y utilidades para subida de medios a Google Cloud Storage
 def _get_gcs_settings() -> Dict[str, Any]:
@@ -2630,9 +2652,133 @@ def _build_exercises_by_day(rutina: "Rutina") -> Dict[int, list]:
         return {}
 
 @app.get("/api/rutinas/{rutina_id}/export/pdf")
-async def api_rutina_export_pdf(rutina_id: int, weeks: int = 1, filename: Optional[str] = None, _=Depends(require_gestion_access)):
-    # Desactivado en la webapp: usar la previsualización de Excel con Google Viewer
-    raise HTTPException(status_code=410, detail="Exportación PDF desactivada en la webapp; use la previsualización de Excel.")
+async def api_rutina_export_pdf(
+    rutina_id: int,
+    weeks: int = 1,
+    filename: Optional[str] = None,
+    qr_mode: str = "auto",
+    sheet: Optional[str] = None,
+    _=Depends(require_gestion_access),
+):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Base de datos no disponible")
+    guard = _circuit_guard_json(db, "/api/rutinas/{rutina_id}/export/pdf")
+    if guard:
+        return guard
+    rm = _get_rm()
+    if rm is None:
+        raise HTTPException(status_code=500, detail="Gestor de rutinas no disponible")
+    try:
+        rutina = db.obtener_rutina_completa(rutina_id)  # type: ignore
+        if rutina is None:
+            raise HTTPException(status_code=404, detail="Rutina no encontrada")
+        u_raw = getattr(rutina, "usuario_id", None)
+        if u_raw is None and isinstance(rutina, dict):
+            try:
+                u_raw = rutina.get("usuario_id") or (rutina.get("usuario") or {}).get("id")
+            except Exception:
+                u_raw = None
+        try:
+            u_id = int(u_raw) if u_raw is not None else None
+        except Exception:
+            u_id = None
+        usuario = None
+        if u_id is not None:
+            try:
+                usuario = db.obtener_usuario(u_id)  # type: ignore
+            except Exception:
+                usuario = None
+        try:
+            nombre_ok = (getattr(usuario, "nombre", None) or "").strip() if usuario else ""
+        except Exception:
+            nombre_ok = ""
+        if not nombre_ok:
+            try:
+                with db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute(
+                        """
+                        SELECT COALESCE(u.nombre,'') AS usuario_nombre,
+                               COALESCE(u.dni,'')     AS dni,
+                               COALESCE(u.telefono,'') AS telefono
+                        FROM rutinas r
+                        LEFT JOIN usuarios u ON u.id = r.usuario_id
+                        WHERE r.id = %s
+                        """,
+                        (int(rutina_id),)
+                    )
+                    row = cur.fetchone() or {}
+                    u_nombre = (row.get("usuario_nombre") or "").strip()
+                    u_dni = (row.get("dni") or "").strip() or None
+                    u_tel = (row.get("telefono") or "").strip()
+                    if u_nombre:
+                        try:
+                            usuario = Usuario(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)  # type: ignore
+                        except Exception:
+                            class _Usr2:
+                                def __init__(self, id=None, nombre="", dni=None, telefono=""):
+                                    self.id = id; self.nombre = nombre; self.dni = dni; self.telefono = telefono
+                            usuario = _Usr2(id=u_id, nombre=u_nombre, dni=u_dni, telefono=u_tel)
+            except Exception:
+                pass
+        if usuario is None or not (getattr(usuario, "nombre", "") or "").strip():
+            try:
+                if u_id is None:
+                    usuario = Usuario(nombre="Plantilla")  # type: ignore
+                else:
+                    usuario = Usuario(nombre="")
+            except Exception:
+                class _Usr:
+                    def __init__(self, nombre: str):
+                        self.nombre = nombre
+                usuario = _Usr("" if u_id is not None else "Plantilla")
+        ejercicios_por_dia = _build_exercises_by_day(rutina)
+        try:
+            weeks = max(1, min(int(weeks), 4))
+        except Exception:
+            weeks = 1
+        try:
+            qr_mode = str(qr_mode or "inline").strip().lower()
+            if qr_mode in ("auto", "real", "preview"):
+                qr_mode = "inline"
+            if qr_mode not in ("inline", "sheet", "none"):
+                qr_mode = "inline"
+        except Exception:
+            qr_mode = "inline"
+        try:
+            sheet_norm = None
+            if sheet is not None:
+                sheet_str = str(sheet).strip()
+                sheet_norm = sheet_str[:64] if sheet_str else None
+        except Exception:
+            sheet_norm = None
+        xlsx_path = rm.generate_routine_excel(
+            rutina,
+            usuario,
+            ejercicios_por_dia,
+            weeks=weeks,
+            qr_mode=qr_mode,
+            sheet=sheet_norm,
+        )
+        pdf_path = rm.convert_excel_to_pdf(xlsx_path)
+        try:
+            final_name = os.path.basename(filename) if filename else os.path.basename(pdf_path)
+            if not final_name.lower().endswith(".pdf"):
+                final_name = f"{final_name}.pdf"
+            final_name = final_name[:150]
+        except Exception:
+            final_name = os.path.basename(pdf_path)
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=final_name,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error generando PDF de rutina")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/rutinas/{rutina_id}/export/excel")
 async def api_rutina_export_excel(
@@ -6319,6 +6465,47 @@ async def api_ejercicios_delete(ejercicio_id: int, _=Depends(require_gestion_acc
         import traceback
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/api/ejercicios/export/excel")
+async def api_ejercicios_export_excel(
+    filtro: str = "",
+    objetivo: str = "",
+    grupo_muscular: str = "",
+    filename: Optional[str] = None,
+    _=Depends(require_gestion_access),
+):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, "/api/ejercicios/export/excel")
+    if guard:
+        return guard
+    try:
+        ejercicios = db.obtener_ejercicios(filtro=filtro or "", objetivo=objetivo or "", grupo_muscular=grupo_muscular or "")  # type: ignore
+        if ejercicios is None:
+            ejercicios = []
+        from core.export_manager import ExportManager  # type: ignore
+        em = ExportManager(db)
+        try:
+            base_name = os.path.basename(filename) if filename else "ejercicios.xlsx"
+            if not base_name.lower().endswith(".xlsx"):
+                base_name = f"{base_name}.xlsx"
+            base_name = base_name[:150]
+            base_name = base_name.replace("\\", "_").replace("/", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+        except Exception:
+            base_name = "ejercicios.xlsx"
+        out_path = os.path.join(em.export_dir, base_name)
+        em.exportar_ejercicios_a_excel(out_path, ejercicios)
+        return FileResponse(
+            out_path,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=base_name,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Error exportando ejercicios a Excel")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/conceptos_pago")
 async def api_conceptos_pago(_=Depends(require_gestion_access)):

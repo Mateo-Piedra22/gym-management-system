@@ -1,6 +1,0 @@
-{
-  "cpu_threshold": 80,
-  "memory_threshold": 85,
-  "disk_threshold": 90,
-  "enable_alerts": true
-}

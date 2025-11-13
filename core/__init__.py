@@ -21,9 +21,12 @@ from .models import (
     PagoDetalle,
 )
 from .payment_manager import PaymentManager
-from .export_manager import ExportManager
 from .pdf_generator import PDFGenerator
 from .routine_manager import RoutineTemplateManager
+try:
+    from .export_manager import ExportManager
+except Exception:
+    ExportManager = None
 from .utils import (
     read_gym_data,
     get_gym_value,
@@ -60,9 +63,9 @@ __all__ = [
     "Asistencia",
     "PagoDetalle",
     "PaymentManager",
-    "ExportManager",
     "PDFGenerator",
     "RoutineTemplateManager",
+    "ExportManager",
     "read_gym_data",
     "get_gym_value",
     "get_gym_name",
