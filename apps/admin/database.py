@@ -47,6 +47,11 @@ class AdminDatabaseManager:
         params = connection_params or _resolve_admin_db_params()
         created_admin_db = False
         try:
+            try:
+                if (os.getenv("NEON_API_TOKEN") or "").strip():
+                    created_admin_db = bool(self._ensure_admin_database())
+            except Exception:
+                created_admin_db = False
             self.db = DatabaseManager(connection_params=params)  # type: ignore
             ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
             if not ok:
@@ -475,6 +480,10 @@ class AdminDatabaseManager:
             return []
 
     def crear_gimnasio(self, nombre: str, subdominio: str, whatsapp_phone_id: str | None = None, whatsapp_access_token: str | None = None, owner_phone: str | None = None, whatsapp_business_account_id: str | None = None, whatsapp_verify_token: str | None = None, whatsapp_app_secret: str | None = None, whatsapp_nonblocking: bool | None = None, whatsapp_send_timeout_seconds: float | None = None) -> Dict[str, Any]:
+        try:
+            self._ensure_schema()
+        except Exception:
+            pass
         sub = subdominio.strip().lower()
         suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
         db_name = f"{sub}{suffix}"

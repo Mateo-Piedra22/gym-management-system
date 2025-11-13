@@ -1102,7 +1102,7 @@ def _resolve_base_db_params() -> Dict[str, Any]:
     except Exception:
         connect_timeout = 10
     application_name = os.getenv("DB_APPLICATION_NAME", "gym_management_system").strip()
-    database = os.getenv("DB_NAME", "Zurka").strip()
+    database = os.getenv("DB_NAME", "gimnasio").strip()
     params: Dict[str, Any] = {
         "host": host,
         "port": port,
@@ -2560,6 +2560,8 @@ def _get_db() -> Optional[DatabaseManager]:
             dm = _get_db_for_tenant(current)
             if dm is not None:
                 return dm
+        # En modo multi‑tenant sin tenant activo, no inicializar DB base
+        return None
     # Fast path
     if _db is not None:
         return _db
@@ -2786,8 +2788,16 @@ def _force_db_init() -> Optional[DatabaseManager]:
 @app.on_event("startup")
 async def _startup_init_db():
     try:
-        if _get_db() is None:
-            _force_db_init()
+        # Evitar inicializar DB base en modo multi‑tenant
+        if not _get_multi_tenant_mode():
+            if _get_db() is None:
+                _force_db_init()
+        # Bootstrap de DB de Admin en primer acceso (creación automática si falta)
+        try:
+            from apps.admin.main import _get_admin_db  # type: ignore
+            _ = _get_admin_db()
+        except Exception:
+            pass
         pm = _get_pm()
         if pm is not None:
             try:
