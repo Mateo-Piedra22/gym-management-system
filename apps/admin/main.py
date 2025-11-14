@@ -890,6 +890,25 @@ async def admin_owner_password_save(request: Request, current_password: str = Fo
     except Exception:
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
+
+@admin_app.post("/owner/password/reset")
+async def admin_owner_password_reset(request: Request, new_password: str = Form(None)):
+    hdr = request.headers.get("x-admin-secret") or ""
+    secret = os.getenv("ADMIN_SECRET", "").strip()
+    if not secret or hdr.strip() != secret:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    pwd = (new_password or os.getenv("ADMIN_INITIAL_PASSWORD", "")).strip()
+    if not pwd:
+        return JSONResponse({"error": "missing_password"}, status_code=400)
+    ok = adm.set_admin_owner_password(pwd)
+    try:
+        adm.log_action("system", "admin_owner_password_reset", None, None)
+    except Exception:
+        pass
+    return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
 @admin_app.get("/gyms/{gym_id}/branding")
 async def branding_form(request: Request, gym_id: int):
     _require_admin(request)
