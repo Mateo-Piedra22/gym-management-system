@@ -419,7 +419,11 @@ class ConnectionPool:
 
     def get_connection(self) -> psycopg2.extensions.connection:
         """Obtiene una conexión del pool con reintentos automáticos y fallback robusto"""
-        max_retries = 3
+        try:
+            env_r = os.getenv('DB_CONNECT_RETRIES')
+            max_retries = int(env_r) if (env_r and env_r.strip()) else 2
+        except Exception:
+            max_retries = 2
         retry_delay = 0.1
         
         for attempt in range(max_retries):
@@ -452,7 +456,7 @@ class ConnectionPool:
             except Empty:
                 try:
                     with self._lock:
-                        if self._pool.qsize() < self.max_connections:
+                        if len(self._all_connections) < self.max_connections:
                             return self._create_connection()
                     
                     # Esperar por una conexión disponible
@@ -504,9 +508,12 @@ class ConnectionPool:
                         continue
                     raise
         
-        # Si todos los reintentos fallan, intentar crear conexión de emergencia
+        # Si todos los reintentos fallan y no se alcanzó el máximo, crear conexión
         try:
-            return self._create_connection()
+            with self._lock:
+                if len(self._all_connections) < self.max_connections:
+                    return self._create_connection()
+            raise TimeoutError("Pool max connections reached")
         except Exception as e:
             logging.error(f"Falló la creación de conexión de emergencia: {e}")
             # Como último recurso, intentar conexión directa si tenemos acceso al DatabaseManager
@@ -605,37 +612,19 @@ class ConnectionPool:
         base_delay = 0.1
         
         for attempt in range(max_retries):
-            # Create a fresh connection for transactions to avoid session config conflicts
             try:
-                # Normalizar parámetros para psycopg2 (dbname)
-                params = dict(self.connection_params)
-                if 'dbname' not in params and 'database' in params:
-                    params['dbname'] = params['database']
-                conn = psycopg2.connect(**params)
+                conn = self.get_connection()
+                prev_autocommit = conn.autocommit
                 conn.autocommit = False
-                try:
-                    conn.set_client_encoding('UTF8')
-                except Exception:
-                    pass
-                
-                # Ensure timezone for transaction-scoped connection
                 with conn.cursor() as cursor:
                     cursor.execute("SET TIME ZONE 'America/Argentina/Buenos_Aires'")
-                
-                with self._lock:
-                    self._all_connections.add(id(conn))
-                    self.stats['connections_created'] += 1
-                
                 yield conn
                 conn.commit()
                 return
             except psycopg2.OperationalError as e:
                 try:
-                    conn.rollback()
-                except psycopg2.Error:
-                    pass
-                try:
-                    conn.close()
+                    if conn:
+                        conn.rollback()
                 except psycopg2.Error:
                     pass
                 
@@ -648,19 +637,20 @@ class ConnectionPool:
                     raise
             except Exception as e:
                 try:
-                    conn.rollback()
-                except psycopg2.Error:
-                    pass
-                try:
-                    conn.close()
+                    if conn:
+                        conn.rollback()
                 except psycopg2.Error:
                     pass
                 raise
             finally:
                 try:
-                    if 'conn' in locals() and not conn.closed:
-                        conn.close()
-                except (psycopg2.Error, NameError):
+                    if conn:
+                        try:
+                            conn.autocommit = prev_autocommit
+                        except Exception:
+                            pass
+                        self.return_connection(conn)
+                except Exception:
                     pass
         
         raise psycopg2.OperationalError("Transaction failed after maximum retries")
@@ -872,15 +862,29 @@ class DatabaseManager:
         
         # Configuración optimizada para conexión remota São Paulo -> Argentina
         optimized_params = connection_params.copy()
+        try:
+            ct_env = os.getenv('DB_CONNECT_TIMEOUT')
+            ct_val = int(ct_env) if (ct_env and ct_env.strip()) else int(connection_params.get('connect_timeout') or 30)
+        except Exception:
+            ct_val = int(connection_params.get('connect_timeout') or 30)
+        try:
+            app_env = os.getenv('DB_APPLICATION_NAME')
+            app_name = (app_env.strip() if app_env else 'GymManagementSystem_Argentina')
+        except Exception:
+            app_name = 'GymManagementSystem_Argentina'
         optimized_params.update({
-            'connect_timeout': 30,
-            'application_name': 'GymManagementSystem_Argentina',
+            'connect_timeout': ct_val,
+            'application_name': app_name,
         })
         try:
-            base_opts = str(optimized_params.get('options') or '').strip()
-            extra_opts = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
-            opts = (base_opts + (' ' if base_opts else '') + extra_opts).strip()
-            optimized_params['options'] = opts
+            host_lc = str(connection_params.get('host') or '').lower()
+            if ('neon.tech' in host_lc) or ('neon' in host_lc):
+                optimized_params['options'] = ''
+            else:
+                base_opts = str(optimized_params.get('options') or '').strip()
+                extra_opts = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
+                opts = (base_opts + (' ' if base_opts else '') + extra_opts).strip()
+                optimized_params['options'] = opts
         except Exception:
             optimized_params['options'] = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
         
@@ -905,14 +909,32 @@ class DatabaseManager:
         except Exception:
             pass
         
-        # Pool de conexiones con mayor capacidad para conexión remota
+        try:
+            appname_l = str(optimized_params.get('application_name') or '').lower()
+        except Exception:
+            appname_l = ''
+        try:
+            pool_env = os.getenv('ADMIN_DB_POOL_MAX') if ('admin' in appname_l) else os.getenv('DB_POOL_MAX')
+            pool_max = int(pool_env) if (pool_env and pool_env.strip()) else 3
+        except Exception:
+            pool_max = 3
+        try:
+            if (os.getenv('VERCEL') or os.getenv('VERCEL_ENV') or os.getenv('RAILWAY')):
+                pool_max = max(1, min(pool_max, 1))
+        except Exception:
+            pass
+        try:
+            tout_env = os.getenv('DB_POOL_TIMEOUT')
+            tout = float(tout_env) if (tout_env and tout_env.strip()) else 25.0
+        except Exception:
+            tout = 25.0
         self._connection_pool = ConnectionPool(
             connection_params=optimized_params,
-            max_connections=20,  # Aumentado de 8 a 20
-            timeout=45.0  # Aumentado de 20s a 45s para conexión remota
+            max_connections=pool_max,
+            timeout=tout
         )
         try:
-            self.logger.info("DatabaseManager: pool creado max_connections=20, timeout=45.0s (optimizado para São Paulo)")
+            self.logger.info(f"DatabaseManager: pool creado max_connections={pool_max}, timeout={tout}s")
         except Exception:
             pass
         
@@ -2975,10 +2997,19 @@ class DatabaseManager:
 
     def inicializar_base_datos(self):
         """Inicializa todas las tablas y datos por defecto en PostgreSQL"""
-        # Guard de ejecución única para evitar múltiples inicializaciones pesadas
-        global _INIT_ONCE_DONE
-        if _INIT_ONCE_DONE:
-            return
+        try:
+            dbkey = f"{self.connection_params.get('host')}:{self.connection_params.get('port')}:{self.connection_params.get('dbname') or self.connection_params.get('database')}"
+        except Exception:
+            dbkey = str(self.connection_params.get('dbname') or self.connection_params.get('database') or '')
+        try:
+            global _INIT_DONE_DBS
+        except NameError:
+            _INIT_DONE_DBS = set()
+        try:
+            if dbkey and dbkey in _INIT_DONE_DBS:
+                return
+        except Exception:
+            pass
         self._initializing = True
         try:
             conn = self._crear_conexion_directa()
@@ -4313,6 +4344,15 @@ class DatabaseManager:
                     self.ensure_indexes()
                 except Exception as e:
                     logging.warning(f"Error al asegurar índices durante la inicialización: {e}")
+                try:
+                    dbkey = f"{self.connection_params.get('host')}:{self.connection_params.get('port')}:{self.connection_params.get('dbname') or self.connection_params.get('database')}"
+                except Exception:
+                    dbkey = str(self.connection_params.get('dbname') or self.connection_params.get('database') or '')
+                try:
+                    if dbkey:
+                        _INIT_DONE_DBS.add(dbkey)
+                except Exception:
+                    pass
         finally:
             self._initializing = False
     

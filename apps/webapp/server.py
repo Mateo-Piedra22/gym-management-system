@@ -272,15 +272,17 @@ _login_attempts_by_dni: Dict[str, list] = {}
 
 def _get_client_ip(request: Request) -> str:
     try:
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            try:
-                return xff.split(",")[0].strip()
-            except Exception:
-                return xff.strip()
-        xri = request.headers.get("x-real-ip")
-        if xri:
-            return xri.strip()
+        trust_proxy = str(os.getenv("PROXY_HEADERS_ENABLED", "0")).strip().lower() in ("1", "true", "yes", "on")
+        if trust_proxy:
+            xff = request.headers.get("x-forwarded-for")
+            if xff:
+                try:
+                    return xff.split(",")[0].strip()
+                except Exception:
+                    return xff.strip()
+            xri = request.headers.get("x-real-ip")
+            if xri:
+                return xri.strip()
         c = getattr(request, "client", None)
         if c and getattr(c, "host", None):
             return c.host
@@ -1108,6 +1110,13 @@ def _resolve_base_db_params() -> Dict[str, Any]:
         connect_timeout = 10
     application_name = os.getenv("DB_APPLICATION_NAME", "gym_management_system").strip()
     database = os.getenv("DB_NAME", "gimnasio").strip()
+    try:
+        h = host.lower()
+        if ("neon.tech" in h) or ("neon" in h):
+            if not sslmode or sslmode.lower() in ("disable", "prefer"):
+                sslmode = "require"
+    except Exception:
+        pass
     params: Dict[str, Any] = {
         "host": host,
         "port": port,
@@ -2594,27 +2603,29 @@ def _get_db() -> Optional[DatabaseManager]:
             _db = DatabaseManager()
             # Opcional: crear índices de rendimiento de forma diferida y no bloqueante
             try:
-                if hasattr(_db, 'ensure_indexes'):
-                    import threading
-                    def _defer_ensure_indexes():
-                        try:
-                            import time, random, logging as _logging
-                            # Jitter para evitar competir con otras tareas de arranque
-                            time.sleep(random.uniform(1.5, 4.0))
-                            try:
-                                _db.ensure_indexes()  # type: ignore
-                            except Exception as ie:
-                                try:
-                                    _logging.exception(f"ensure_indexes diferido falló: {ie}")
-                                except Exception:
-                                    pass
-                        except Exception:
-                            # No bloquear la inicialización por errores aquí
-                            pass
-                    threading.Thread(target=_defer_ensure_indexes, daemon=True).start()
+                is_serverless = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV") or os.getenv("RAILWAY"))
             except Exception:
-                # No bloquear la inicialización por errores al programar el hilo
-                pass
+                is_serverless = False
+            if not is_serverless:
+                try:
+                    if hasattr(_db, 'ensure_indexes'):
+                        import threading
+                        def _defer_ensure_indexes():
+                            try:
+                                import time, random, logging as _logging
+                                time.sleep(random.uniform(1.5, 4.0))
+                                try:
+                                    _db.ensure_indexes()  # type: ignore
+                                except Exception as ie:
+                                    try:
+                                        _logging.exception(f"ensure_indexes diferido falló: {ie}")
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                        threading.Thread(target=_defer_ensure_indexes, daemon=True).start()
+                except Exception:
+                    pass
             try:
                 # Verificación ligera para asegurar que la conexión está saludable (con timeouts de lectura)
                 with _db.get_connection_context() as conn:  # type: ignore

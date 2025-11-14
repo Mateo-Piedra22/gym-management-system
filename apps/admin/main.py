@@ -189,18 +189,22 @@ async def admin_home(request: Request):
 
 def _lim_key(request: Request, bucket: str) -> str:
     try:
-        xff = request.headers.get("x-forwarded-for") or ""
-        if xff:
-            try:
-                ip = xff.split(",")[0].strip()
-            except Exception:
-                ip = xff.strip()
-        else:
-            xri = request.headers.get("x-real-ip") or ""
-            if xri:
-                ip = xri.strip()
+        trust_proxy = str(os.getenv("PROXY_HEADERS_ENABLED", "0")).strip().lower() in ("1", "true", "yes", "on")
+        if trust_proxy:
+            xff = request.headers.get("x-forwarded-for") or ""
+            if xff:
+                try:
+                    ip = xff.split(",")[0].strip()
+                except Exception:
+                    ip = xff.strip()
             else:
-                ip = (request.client.host if request.client else "-")
+                xri = request.headers.get("x-real-ip") or ""
+                if xri:
+                    ip = xri.strip()
+                else:
+                    ip = (request.client.host if request.client else "-")
+        else:
+            ip = (request.client.host if request.client else "-")
     except Exception:
         ip = "-"
     try:
