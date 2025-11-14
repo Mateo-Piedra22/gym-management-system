@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 import re
 import unicodedata
 from typing import Any, Dict, List, Optional
@@ -574,11 +575,11 @@ class AdminDatabaseManager:
         created_db = False
         bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
-            created_db = bool(self._crear_db_postgres(db_name))
+            created_db = bool(self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0))
         except Exception:
             created_db = False
         try:
-            bucket_info = self._crear_bucket_b2(bucket_name)
+            bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
         except Exception:
             bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
@@ -810,6 +811,21 @@ class AdminDatabaseManager:
         except Exception:
             return False
 
+    def _crear_db_postgres_con_reintentos(self, db_name: str, intentos: int = 3, espera: float = 2.0) -> bool:
+        ok = False
+        for i in range(max(1, int(intentos))):
+            try:
+                ok = bool(self._crear_db_postgres(db_name))
+                if ok:
+                    break
+            except Exception:
+                ok = False
+            try:
+                time.sleep(espera)
+            except Exception:
+                pass
+        return bool(ok)
+
     def _b2_authorize_master(self) -> Dict[str, Any]:
         try:
             acc = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
@@ -891,6 +907,21 @@ class AdminDatabaseManager:
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"bucket_name": bucket_name, "bucket_id": None}
+
+    def _crear_bucket_b2_con_reintentos(self, bucket_name: str, intentos: int = 3, espera: float = 2.0) -> Dict[str, Any]:
+        info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
+        for i in range(max(1, int(intentos))):
+            try:
+                info = self._crear_bucket_b2(bucket_name)
+                if info.get("bucket_id"):
+                    break
+            except Exception:
+                info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
+            try:
+                time.sleep(espera)
+            except Exception:
+                pass
+        return info
 
     def _b2_delete_key(self, key_id: str | None) -> bool:
         try:
@@ -999,8 +1030,8 @@ class AdminDatabaseManager:
                 return {"ok": False, "error": "invalid_subdomain"}
             db_name = str(row.get("db_name") or "").strip() or f"{sub}{os.getenv('TENANT_DB_SUFFIX', '_db')}"
             bucket_name = str(row.get("b2_bucket_name") or "").strip() or f"{os.getenv('B2_BUCKET_PREFIX', 'motiona-assets')}-{sub}"
-            created_db = self._crear_db_postgres(db_name)
-            bucket_info = self._crear_bucket_b2(bucket_name)
+            created_db = self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0)
+            bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
                 cur.execute("UPDATE gyms SET db_name = %s, b2_bucket_name = %s, b2_bucket_id = %s, b2_key_id = %s, b2_application_key = %s WHERE id = %s", (db_name, bucket_info.get("bucket_name") or bucket_name, bucket_info.get("bucket_id") or None, bucket_info.get("key_id") or None, bucket_info.get("application_key") or None, int(gym_id)))
