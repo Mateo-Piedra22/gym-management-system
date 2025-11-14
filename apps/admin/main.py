@@ -403,7 +403,7 @@ async def listar_gimnasios(request: Request):
     return Response(content=html, media_type="text/html")
 
 @admin_app.post("/gyms")
-async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[float] = Form(None)):
+async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_create", 20, 60)
     if rl:
@@ -430,7 +430,17 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
         except Exception:
             pass
         return JSONResponse({"ok": False, "error": "subdominio_in_use", "suggestion": sug}, status_code=400)
-    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, whatsapp_send_timeout_seconds)
+    wsts = None
+    try:
+        raw = (whatsapp_send_timeout_seconds or "").strip()
+        if raw:
+            try:
+                wsts = float(raw)
+            except Exception:
+                wsts = None
+    except Exception:
+        wsts = None
+    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, wsts)
     try:
         adm.log_action("owner", "create_gym", res.get("id") if isinstance(res, dict) else None, f"{nombre}|{sd_in}")
     except Exception:
@@ -591,7 +601,7 @@ async def whatsapp_form(request: Request, gym_id: int):
     return Response(content=html, media_type="text/html")
 
 @admin_app.post("/gyms/{gym_id}/whatsapp")
-async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] = Form(None), access_token: Optional[str] = Form(None), waba_id: Optional[str] = Form(None), verify_token: Optional[str] = Form(None), app_secret: Optional[str] = Form(None), nonblocking: Optional[bool] = Form(False), send_timeout_seconds: Optional[float] = Form(None)):
+async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] = Form(None), access_token: Optional[str] = Form(None), waba_id: Optional[str] = Form(None), verify_token: Optional[str] = Form(None), app_secret: Optional[str] = Form(None), nonblocking: Optional[bool] = Form(False), send_timeout_seconds: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "whatsapp_save", 40, 60)
     if rl:
@@ -599,7 +609,17 @@ async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] =
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = adm.set_gym_whatsapp_config(int(gym_id), phone_id, access_token, waba_id, verify_token, app_secret, nonblocking, send_timeout_seconds)
+    sto = None
+    try:
+        raw = (send_timeout_seconds or "").strip()
+        if raw:
+            try:
+                sto = float(raw)
+            except Exception:
+                sto = None
+    except Exception:
+        sto = None
+    ok = adm.set_gym_whatsapp_config(int(gym_id), phone_id, access_token, waba_id, verify_token, app_secret, nonblocking, sto)
     try:
         adm.log_action("owner", "set_whatsapp_config", int(gym_id), None)
     except Exception:
@@ -674,14 +694,24 @@ async def listar_pagos_gym(request: Request, gym_id: int):
     return Response(content=html, media_type="text/html")
 
 @admin_app.post("/gyms/{gym_id}/payments")
-async def registrar_pago_gym(request: Request, gym_id: int, plan: Optional[str] = Form(None), amount: Optional[float] = Form(None), currency: Optional[str] = Form(None), valid_until: Optional[str] = Form(None), status: Optional[str] = Form(None), notes: Optional[str] = Form(None)):
+async def registrar_pago_gym(request: Request, gym_id: int, plan: Optional[str] = Form(None), amount: Optional[str] = Form(None), currency: Optional[str] = Form(None), valid_until: Optional[str] = Form(None), status: Optional[str] = Form(None), notes: Optional[str] = Form(None)):
     _require_admin(request)
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = adm.registrar_pago(int(gym_id), plan, amount, currency, valid_until, status, notes)
+    amt = None
     try:
-        details = f"{plan}|{amount}|{currency}|{valid_until}|{status}"
+        raw = (amount or "").strip()
+        if raw:
+            try:
+                amt = float(raw)
+            except Exception:
+                amt = None
+    except Exception:
+        amt = None
+    ok = adm.registrar_pago(int(gym_id), plan, amt, currency, valid_until, status, notes)
+    try:
+        details = f"{plan}|{amt}|{currency}|{valid_until}|{status}"
         adm.log_action("owner", "register_payment", int(gym_id), details)
     except Exception:
         pass
@@ -746,7 +776,7 @@ async def crear_plan(request: Request, name: str = Form(...), amount: float = Fo
     return JSONResponse({"ok": bool(ok)}, status_code=200)
 
 @admin_app.post("/plans/{plan_id}")
-async def actualizar_plan(request: Request, plan_id: int, name: Optional[str] = Form(None), amount: Optional[float] = Form(None), currency: Optional[str] = Form(None), period_days: Optional[int] = Form(None)):
+async def actualizar_plan(request: Request, plan_id: int, name: Optional[str] = Form(None), amount: Optional[str] = Form(None), currency: Optional[str] = Form(None), period_days: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "plans_change", 40, 60)
     if rl:
@@ -762,19 +792,35 @@ async def actualizar_plan(request: Request, plan_id: int, name: Optional[str] = 
             currency = c
         except Exception:
             return JSONResponse({"ok": False, "error": "invalid_currency"}, status_code=400)
+    amt = None
     if amount is not None:
         try:
-            if float(amount) <= 0:
-                return JSONResponse({"ok": False, "error": "invalid_amount"}, status_code=400)
+            raw_amt = (amount or "").strip()
+            if raw_amt:
+                try:
+                    v = float(raw_amt)
+                except Exception:
+                    return JSONResponse({"ok": False, "error": "invalid_amount"}, status_code=400)
+                if v <= 0:
+                    return JSONResponse({"ok": False, "error": "invalid_amount"}, status_code=400)
+                amt = v
         except Exception:
             return JSONResponse({"ok": False, "error": "invalid_amount"}, status_code=400)
+    pd = None
     if period_days is not None:
         try:
-            if int(period_days) <= 0:
-                return JSONResponse({"ok": False, "error": "invalid_period"}, status_code=400)
+            raw_pd = (period_days or "").strip()
+            if raw_pd:
+                try:
+                    vp = int(raw_pd)
+                except Exception:
+                    return JSONResponse({"ok": False, "error": "invalid_period"}, status_code=400)
+                if vp <= 0:
+                    return JSONResponse({"ok": False, "error": "invalid_period"}, status_code=400)
+                pd = vp
         except Exception:
             return JSONResponse({"ok": False, "error": "invalid_period"}, status_code=400)
-    ok = adm.actualizar_plan(int(plan_id), name, amount, currency, period_days)
+    ok = adm.actualizar_plan(int(plan_id), name, amt, currency, pd)
     try:
         adm.log_action("owner", "update_plan", None, f"{plan_id}")
     except Exception:
