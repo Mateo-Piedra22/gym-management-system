@@ -1086,6 +1086,11 @@ def _extract_tenant_from_host(host: str) -> Optional[str]:
         sub = prefix
     if not sub:
         return None
+    try:
+        if sub.lower() == "www":
+            return None
+    except Exception:
+        pass
     return sub
 
 def _resolve_base_db_params() -> Dict[str, Any]:
@@ -1137,8 +1142,7 @@ def _get_db_for_tenant(tenant: str) -> Optional[DatabaseManager]:
             except Exception:
                 db_name = None
         if not db_name:
-            suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
-            db_name = f"{t}{suffix}"
+            return None
         base["database"] = db_name
         try:
             dm = DatabaseManager(connection_params=base)  # type: ignore
@@ -1984,7 +1988,7 @@ async def favicon_ico():
     p = _resolve_existing_dir("assets") / "gym_logo.ico"
     if p.exists():
         return FileResponse(str(p))
-    return Response(status_code=404)
+    return Response(status_code=204)
 
 # Configuración y utilidades para subida de medios a Google Cloud Storage
 def _get_gcs_settings() -> Dict[str, Any]:

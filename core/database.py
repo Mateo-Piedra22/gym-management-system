@@ -873,22 +873,16 @@ class DatabaseManager:
         # Configuración optimizada para conexión remota São Paulo -> Argentina
         optimized_params = connection_params.copy()
         optimized_params.update({
-            'connect_timeout': 30,  # 30 segundos para conexión inicial
+            'connect_timeout': 30,
             'application_name': 'GymManagementSystem_Argentina',
-            'options': '-c timezone=America/Argentina/Buenos_Aires'
         })
-        
-        # Solo agregar parámetros de timeout si no es Neon.tech (no los soporta)
         try:
-            host_lc = str(connection_params.get('host', '')).lower()
-            if 'neon.tech' not in host_lc:
-                optimized_params.update({
-                    'statement_timeout': '60s',  # Timeout de 60 segundos por consulta
-                    'lock_timeout': '10s',       # Timeout de 10 segundos para locks
-                    'idle_in_transaction_session_timeout': '30s',  # Timeout para transacciones inactivas
-                })
+            base_opts = str(optimized_params.get('options') or '').strip()
+            extra_opts = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
+            opts = (base_opts + (' ' if base_opts else '') + extra_opts).strip()
+            optimized_params['options'] = opts
         except Exception:
-            pass
+            optimized_params['options'] = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
         
         self.connection_params = optimized_params
         # Atributo de compatibilidad con código SQLite existente
