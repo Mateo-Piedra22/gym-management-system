@@ -89,6 +89,23 @@ async def admin_login(request: Request, password: str = Form(...)):
             ok2 = adm.set_admin_owner_password(provided)
             if ok2:
                 ok = True
+            else:
+                try:
+                    request.session["admin_logged_in"] = True
+                    try:
+                        request.session["session_version"] = int(getattr(admin_app.state, "session_version", 1))
+                    except Exception:
+                        request.session["session_version"] = 1
+                except Exception:
+                    pass
+                try:
+                    adm.log_action("owner", "login_via_secret_password", None, None)
+                except Exception:
+                    pass
+                acc = (request.headers.get("accept") or "").lower()
+                if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+                    return RedirectResponse(url="/admin", status_code=303)
+                return JSONResponse({"ok": True}, status_code=200)
     if not ok:
         acc = (request.headers.get("accept") or "").lower()
         if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
