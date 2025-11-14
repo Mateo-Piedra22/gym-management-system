@@ -904,6 +904,31 @@ async def admin_owner_password_reset(request: Request, new_password: str = Form(
     if not pwd:
         return JSONResponse({"error": "missing_password"}, status_code=400)
     ok = adm.set_admin_owner_password(pwd)
+    if not ok:
+        try:
+            adm._ensure_owner_user()
+            ok = adm.set_admin_owner_password(pwd)
+        except Exception:
+            ok = False
+    if not ok:
+        try:
+            with adm.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                try:
+                    cur.execute("CREATE TABLE IF NOT EXISTS admin_users (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW())")
+                except Exception:
+                    pass
+                cur.execute("SELECT id FROM admin_users WHERE username = %s", ("owner",))
+                row = cur.fetchone()
+                ph = adm._hash_password(pwd)
+                if not row:
+                    cur.execute("INSERT INTO admin_users (username, password_hash) VALUES (%s, %s)", ("owner", ph))
+                else:
+                    cur.execute("UPDATE admin_users SET password_hash = %s WHERE username = %s", (ph, "owner"))
+                conn.commit()
+                ok = True
+        except Exception:
+            ok = False
     try:
         adm.log_action("system", "admin_owner_password_reset", None, None)
     except Exception:
