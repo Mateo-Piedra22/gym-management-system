@@ -31,6 +31,13 @@ def _resolve_admin_db_params() -> Dict[str, Any]:
         connect_timeout = 10
     application_name = os.getenv("ADMIN_DB_APPLICATION_NAME", os.getenv("DB_APPLICATION_NAME", "gym_management_admin")).strip()
     database = os.getenv("ADMIN_DB_NAME", "gymms_admin").strip()
+    try:
+        h = host.lower()
+        if ("neon.tech" in h) or ("neon" in h):
+            if not sslmode or sslmode.lower() in ("disable", "prefer"):
+                sslmode = "require"
+    except Exception:
+        pass
     return {
         "host": host,
         "port": port,
@@ -156,7 +163,7 @@ class AdminDatabaseManager:
                 connect_timeout = 10
             appname = (base.get("application_name") or "gym_admin_bootstrap").strip()
             admin_db_name = (base.get("database") or "gymms_admin").strip()
-            base_db = os.getenv("ADMIN_DB_BASE_NAME", "postgres").strip() or "postgres"
+            base_db = os.getenv("ADMIN_DB_BASE_NAME", "neondb").strip() or "neondb"
             conn = psycopg2.connect(host=host, port=port, dbname=base_db, user=user, password=password, sslmode=sslmode, connect_timeout=connect_timeout, application_name=appname)
             try:
                 conn.autocommit = True
@@ -552,11 +559,31 @@ class AdminDatabaseManager:
         created_db = False
         bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
+            created_db = bool(self._crear_db_postgres(db_name))
+        except Exception:
+            created_db = False
+        try:
+            bucket_info = self._crear_bucket_b2(bucket_name)
+        except Exception:
+            bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
+        try:
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
                 cur.execute("INSERT INTO gyms (nombre, subdominio, db_name, b2_bucket_name, b2_bucket_id, b2_key_id, b2_application_key, whatsapp_phone_id, whatsapp_access_token, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, whatsapp_send_timeout_seconds, owner_phone) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", (nombre.strip(), sub, db_name, bucket_info.get("bucket_name") or bucket_name, bucket_info.get("bucket_id") or None, bucket_info.get("key_id") or None, bucket_info.get("application_key") or None, (whatsapp_phone_id or "").strip() or None, (whatsapp_access_token or "").strip() or None, (whatsapp_business_account_id or "").strip() or None, (whatsapp_verify_token or "").strip() or None, (whatsapp_app_secret or "").strip() or None, bool(whatsapp_nonblocking or False), whatsapp_send_timeout_seconds, (owner_phone or "").strip() or None))
                 rid = cur.fetchone()[0]
                 conn.commit()
+                try:
+                    if created_db:
+                        base = _resolve_admin_db_params()
+                        params = dict(base)
+                        params["database"] = db_name
+                        dm = DatabaseManager(connection_params=params)  # type: ignore
+                        try:
+                            dm.inicializar_base_datos()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
                 try:
                     if (whatsapp_phone_id or whatsapp_access_token or whatsapp_business_account_id or whatsapp_verify_token or whatsapp_app_secret):
                         self._push_whatsapp_to_gym_db(int(rid))

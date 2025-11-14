@@ -189,12 +189,37 @@ async def admin_home(request: Request):
 
 def _lim_key(request: Request, bucket: str) -> str:
     try:
-        ip = (request.client.host if request.client else "-")
+        xff = request.headers.get("x-forwarded-for") or ""
+        if xff:
+            try:
+                ip = xff.split(",")[0].strip()
+            except Exception:
+                ip = xff.strip()
+        else:
+            xri = request.headers.get("x-real-ip") or ""
+            if xri:
+                ip = xri.strip()
+            else:
+                ip = (request.client.host if request.client else "-")
     except Exception:
         ip = "-"
-    return f"{bucket}:{ip}"
+    try:
+        path = request.url.path
+    except Exception:
+        path = "-"
+    return f"{bucket}:{ip}:{path}"
 
 def _check_rate_limit(request: Request, bucket: str, limit: int = 30, window_seconds: int = 60):
+    try:
+        acc = (request.headers.get("accept") or "").lower()
+    except Exception:
+        acc = ""
+    try:
+        wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
+    except Exception:
+        wants_html = False
+    if wants_html:
+        return None
     k = _lim_key(request, bucket)
     try:
         now = int(datetime.utcnow().timestamp())
@@ -207,11 +232,18 @@ def _check_rate_limit(request: Request, bucket: str, limit: int = 30, window_sec
         store[k] = {"count": 1, "start": now}
         setattr(admin_app.state, "rate_limits", store)
         return None
-    c = int(rec.get("count") or 0) + 1
+    try:
+        c = int(rec.get("count") or 0) + 1
+    except Exception:
+        c = (rec.get("count") or 0) + 1
     rec["count"] = c
     store[k] = rec
     setattr(admin_app.state, "rate_limits", store)
-    if c > int(limit):
+    try:
+        lim = int(limit)
+    except Exception:
+        lim = limit
+    if c > lim:
         return JSONResponse({"error": "rate_limited"}, status_code=429)
     return None
 
