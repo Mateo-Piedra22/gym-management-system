@@ -955,6 +955,47 @@ async def admin_secret_login(request: Request, token: str):
     except Exception:
         pass
     return RedirectResponse(url="/admin", status_code=303)
+
+@admin_app.get("/owner/password/reset")
+async def admin_owner_password_reset_get(request: Request, token: str, new: str | None = None):
+    secret = os.getenv("ADMIN_SECRET", "").strip()
+    if not secret or str(token or "").strip() != secret:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    pwd = (new or os.getenv("ADMIN_INITIAL_PASSWORD", "")).strip()
+    if not pwd:
+        return JSONResponse({"error": "missing_password"}, status_code=400)
+    ok = adm.set_admin_owner_password(pwd)
+    if not ok:
+        try:
+            adm._ensure_owner_user()
+            ok = adm.set_admin_owner_password(pwd)
+        except Exception:
+            ok = False
+    if not ok:
+        try:
+            with adm.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                try:
+                    cur.execute("CREATE TABLE IF NOT EXISTS admin_users (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW())")
+                except Exception:
+                    pass
+                cur.execute("SELECT id FROM admin_users WHERE username = %s", ("owner",))
+                row = cur.fetchone()
+                ph = adm._hash_password(pwd)
+                if not row:
+                    cur.execute("INSERT INTO admin_users (username, password_hash) VALUES (%s, %s)", ("owner", ph))
+                else:
+                    cur.execute("UPDATE admin_users SET password_hash = %s WHERE username = %s", (ph, "owner"))
+                conn.commit()
+                ok = True
+        except Exception:
+            ok = False
+    if ok:
+        return RedirectResponse(url="/admin/login?ui=1", status_code=303)
+    return JSONResponse({"ok": False}, status_code=400)
 @admin_app.get("/gyms/{gym_id}/branding")
 async def branding_form(request: Request, gym_id: int):
     _require_admin(request)
