@@ -390,14 +390,23 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
         pass
     if "error" in res:
         return JSONResponse(res, status_code=400)
-    try:
-        gid = int(res.get("id")) if isinstance(res, dict) else None
-        if gid:
-            background_tasks.add_task(adm.provisionar_recursos, gid)
-    except Exception:
-        pass
+    gid = int(res.get("id")) if isinstance(res, dict) else None
+    provision = None
+    provisioning_ok = False
+    if gid:
+        try:
+            provision = adm.provisionar_recursos(int(gid))
+            provisioning_ok = bool((provision or {}).get("ok"))
+        except Exception:
+            provisioning_ok = False
+        try:
+            adm._push_whatsapp_to_gym_db(int(gid))
+        except Exception:
+            pass
     out = dict(res)
-    out["provisioning"] = True
+    out["provisioning"] = bool(provisioning_ok)
+    if provision is not None:
+        out["provision"] = provision
     return JSONResponse(out, status_code=201)
 
 @admin_app.get("/subdomains/check")
