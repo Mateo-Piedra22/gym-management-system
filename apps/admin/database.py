@@ -440,10 +440,25 @@ class AdminDatabaseManager:
 
     def eliminar_gimnasio(self, gym_id: int) -> bool:
         try:
+            db_name = None
+            try:
+                with self.db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
+                    row = cur.fetchone()
+                if row:
+                    db_name = str(row.get("db_name") or "").strip()
+            except Exception:
+                db_name = None
             try:
                 self.eliminar_bucket_gym(int(gym_id))
             except Exception:
                 pass
+            if db_name:
+                try:
+                    self._eliminar_db_postgres(db_name)
+                except Exception:
+                    pass
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
                 cur.execute("DELETE FROM gyms WHERE id = %s", (int(gym_id),))
@@ -818,7 +833,7 @@ class AdminDatabaseManager:
             auth = self._b2_authorize_master()
             api_url = str(auth.get("apiUrl") or "").strip()
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
             headers = {"Authorization": token}
@@ -835,6 +850,11 @@ class AdminDatabaseManager:
                             break
                     except Exception:
                         continue
+            else:
+                try:
+                    logging.getLogger(__name__).error(f"B2 list_buckets fallo {lb.status_code}: {lb.text}")
+                except Exception:
+                    pass
             if not bucket_id:
                 btype = "allPublic"
                 try:
@@ -847,6 +867,11 @@ class AdminDatabaseManager:
                     bj = cb.json()
                     bucket_name = bj.get("bucketName")
                     bucket_id = bj.get("bucketId")
+                else:
+                    try:
+                        logging.getLogger(__name__).error(f"B2 create_bucket fallo {cb.status_code}: {cb.text}")
+                    except Exception:
+                        pass
             key_id = None
             application_key = None
             if bucket_id:
@@ -857,10 +882,109 @@ class AdminDatabaseManager:
                     kj = ck.json()
                     key_id = kj.get("applicationKeyId")
                     application_key = kj.get("applicationKey")
+                else:
+                    try:
+                        logging.getLogger(__name__).error(f"B2 create_key fallo {ck.status_code}: {ck.text}")
+                    except Exception:
+                        pass
             return {"bucket_name": bucket_name, "bucket_id": bucket_id, "key_id": key_id, "application_key": application_key}
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"bucket_name": bucket_name, "bucket_id": None}
+
+    def _b2_delete_key(self, key_id: str | None) -> bool:
+        try:
+            kid = str(key_id or "").strip()
+            if not kid:
+                return False
+            auth = self._b2_authorize_master()
+            api_url = str(auth.get("apiUrl") or "").strip()
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return False
+            headers = {"Authorization": token}
+            r = requests.post(f"{api_url}/b2api/v2/b2_delete_key", headers=headers, json={"applicationKeyId": kid}, timeout=10)
+            ok = bool(r.status_code == 200)
+            if not ok:
+                try:
+                    logging.getLogger(__name__).error(f"B2 delete_key fallo {r.status_code}: {r.text}")
+                except Exception:
+                    pass
+            return ok
+        except Exception:
+            return False
+
+    def _b2_delete_bucket(self, bucket_id: str | None) -> bool:
+        try:
+            bid = str(bucket_id or "").strip()
+            if not bid:
+                return False
+            auth = self._b2_authorize_master()
+            api_url = str(auth.get("apiUrl") or "").strip()
+            token = str(auth.get("authorizationToken") or "").strip()
+            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
+            if not api_url or not token or not account_id:
+                return False
+            headers = {"Authorization": token}
+            r = requests.post(f"{api_url}/b2api/v2/b2_delete_bucket", headers=headers, json={"accountId": account_id, "bucketId": bid}, timeout=12)
+            ok = bool(r.status_code == 200)
+            if not ok:
+                try:
+                    logging.getLogger(__name__).error(f"B2 delete_bucket fallo {r.status_code}: {r.text}")
+                except Exception:
+                    pass
+            return ok
+        except Exception:
+            return False
+
+    def _b2_empty_bucket(self, bucket_id: str | None) -> bool:
+        try:
+            bid = str(bucket_id or "").strip()
+            if not bid:
+                return False
+            auth = self._b2_authorize_master()
+            api_url = str(auth.get("apiUrl") or "").strip()
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return False
+            headers = {"Authorization": token}
+            start_name = None
+            any_error = False
+            while True:
+                body = {"bucketId": bid, "maxFileCount": 1000}
+                if start_name:
+                    body["startFileName"] = start_name
+                lr = requests.post(f"{api_url}/b2api/v2/b2_list_file_names", headers=headers, json=body, timeout=12)
+                if lr.status_code != 200:
+                    try:
+                        logging.getLogger(__name__).error(f"B2 list_file_names fallo {lr.status_code}: {lr.text}")
+                    except Exception:
+                        pass
+                    break
+                data = lr.json() or {}
+                files = data.get("files") or []
+                for f in files:
+                    try:
+                        fid = str(f.get("fileId") or "").strip()
+                        fname = str(f.get("fileName") or "").strip()
+                        if fid and fname:
+                            dr = requests.post(f"{api_url}/b2api/v2/b2_delete_file_version", headers=headers, json={"fileName": fname, "fileId": fid}, timeout=12)
+                            if dr.status_code != 200:
+                                any_error = True
+                                try:
+                                    logging.getLogger(__name__).error(f"B2 delete_file_version fallo {dr.status_code}: {dr.text}")
+                                except Exception:
+                                    pass
+                    except Exception:
+                        any_error = True
+                        continue
+                next_name = data.get("nextFileName")
+                if not next_name:
+                    break
+                start_name = next_name
+            return not any_error
+        except Exception:
+            return False
 
     def provisionar_recursos(self, gym_id: int) -> Dict[str, Any]:
         try:
@@ -1027,6 +1151,10 @@ class AdminDatabaseManager:
                     pass
             ok = False
             if bid:
+                try:
+                    self._b2_empty_bucket(bid)
+                except Exception:
+                    pass
                 ok = self._b2_delete_bucket(bid)
             try:
                 with self.db.get_connection_context() as conn:  # type: ignore
@@ -1036,6 +1164,81 @@ class AdminDatabaseManager:
             except Exception:
                 pass
             return bool(ok)
+        except Exception:
+            return False
+
+    def _eliminar_db_postgres(self, db_name: str) -> bool:
+        try:
+            name = str(db_name or "").strip()
+            if not name:
+                return False
+            token = (os.getenv("NEON_API_TOKEN") or "").strip()
+            if token and requests is not None:
+                base = _resolve_admin_db_params()
+                host = str(base.get("host") or "").strip().lower()
+                comp_host = host.replace("-pooler.", ".")
+                api = "https://console.neon.tech/api/v2"
+                headers = {"Accept": "application/json", "Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                project_id = (os.getenv("NEON_PROJECT_ID") or "").strip()
+                branch_id = (os.getenv("NEON_BRANCH_ID") or "").strip()
+                if not project_id or not branch_id:
+                    pr = requests.get(f"{api}/projects", headers=headers, timeout=12)
+                    if pr.status_code != 200:
+                        return False
+                    pjs = (pr.json() or {}).get("projects") or []
+                    for pj in pjs:
+                        pid = pj.get("id")
+                        if not pid:
+                            continue
+                        er = requests.get(f"{api}/projects/{pid}/endpoints", headers=headers, timeout=12)
+                        if er.status_code != 200:
+                            continue
+                        eps = (er.json() or {}).get("endpoints") or []
+                        for ep in eps:
+                            h = str(ep.get("host") or "").strip().lower()
+                            hp = h.replace("-pooler.", ".")
+                            if h == host or hp == host or h == comp_host or hp == comp_host or host.startswith(h) or h.startswith(host):
+                                project_id = pid
+                                branch_id = ep.get("branch_id")
+                                break
+                        if project_id:
+                            break
+                    if not project_id or not branch_id:
+                        return False
+                dr = requests.delete(f"{api}/projects/{project_id}/branches/{branch_id}/databases/{name}", headers=headers, timeout=12)
+                if 200 <= dr.status_code < 300:
+                    return True
+                return False
+            base = _resolve_admin_db_params()
+            host = base.get("host")
+            port = int(base.get("port") or 5432)
+            user = base.get("user")
+            password = base.get("password")
+            sslmode = base.get("sslmode")
+            connect_timeout = int(base.get("connect_timeout") or 10)
+            application_name = (base.get("application_name") or "gym_admin_provisioner").strip()
+            conn = psycopg2.connect(host=host, port=port, dbname=base.get("database"), user=user, password=password, sslmode=sslmode, connect_timeout=connect_timeout, application_name=application_name)
+            try:
+                conn.autocommit = True
+                cur = conn.cursor()
+                try:
+                    cur.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s", (name,))
+                except Exception:
+                    pass
+                try:
+                    cur.execute(f"DROP DATABASE IF EXISTS {name}")
+                except Exception:
+                    pass
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return True
         except Exception:
             return False
 
@@ -1053,7 +1256,7 @@ class AdminDatabaseManager:
             auth = self._b2_authorize_master()
             api_url = str(auth.get("apiUrl") or "").strip()
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"ok": False}
             headers = {"Authorization": token}
