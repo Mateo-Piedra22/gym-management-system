@@ -15,7 +15,10 @@ from core.database import DatabaseManager  # type: ignore
 
 
 admin_app = FastAPI(title="GymMS Admin", version="1.0")
-admin_app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET", "admin-session"))
+_cookie_domain = os.getenv("SESSION_COOKIE_DOMAIN", "").strip() or None
+_cookie_secure = (os.getenv("SESSION_COOKIE_SECURE", "1").strip().lower() in ("1", "true", "yes"))
+_cookie_samesite = (os.getenv("SESSION_COOKIE_SAMESITE", "lax").strip().lower() or "lax")
+admin_app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET", "admin-session"), domain=_cookie_domain, https_only=_cookie_secure, same_site=_cookie_samesite)
 try:
     setattr(admin_app.state, "session_version", int(getattr(admin_app.state, "session_version", 1)))
     setattr(admin_app.state, "rate_limits", dict(getattr(admin_app.state, "rate_limits", {})))
@@ -1017,6 +1020,37 @@ async def admin_owner_password_reset_get(request: Request, token: str, new: str 
     if ok:
         return RedirectResponse(url="/admin/login?ui=1", status_code=303)
     return JSONResponse({"ok": False}, status_code=400)
+
+@admin_app.post("/owner/password/hash")
+async def admin_owner_password_set_hash(request: Request, password_hash: str = Form(...)):
+    hdr = request.headers.get("x-admin-secret") or ""
+    secret = os.getenv("ADMIN_SECRET", "").strip()
+    if not secret or hdr.strip() != secret:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            try:
+                cur.execute("CREATE TABLE IF NOT EXISTS admin_users (id BIGSERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW())")
+            except Exception:
+                pass
+            cur.execute("SELECT id FROM admin_users WHERE username = %s", ("owner",))
+            row = cur.fetchone()
+            if not row:
+                cur.execute("INSERT INTO admin_users (username, password_hash) VALUES (%s, %s)", ("owner", password_hash))
+            else:
+                cur.execute("UPDATE admin_users SET password_hash = %s WHERE username = %s", (password_hash, "owner"))
+            conn.commit()
+    except Exception:
+        return JSONResponse({"ok": False}, status_code=400)
+    try:
+        adm.log_action("system", "admin_owner_password_set_hash", None, None)
+    except Exception:
+        pass
+    return JSONResponse({"ok": True}, status_code=200)
 @admin_app.get("/gyms/{gym_id}/branding")
 async def branding_form(request: Request, gym_id: int):
     _require_admin(request)
