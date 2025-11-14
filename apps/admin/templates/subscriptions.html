@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">{% if mode=='dashboard' %}Dashboard de vencimientos{% else %}Próximos vencimientos{% endif %}</h1>
+    {{ ui.btn('Inicio','default','/admin/') }}
+  </div>
+  <div class="flex flex-wrap gap-3 items-center">
+    <form method="get" action="{% if mode=='dashboard' %}/admin/subscriptions/dashboard{% else %}/admin/subscriptions/upcoming{% endif %}" class="flex gap-2">
+      <input name="days" value="{{ days }}" placeholder="Días" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
+      {% if mode=='dashboard' %}
+      <input name="q" value="{{ q }}" placeholder="Buscar nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
+      {% endif %}
+      <input type="hidden" name="ui" value="1" />
+      {{ ui.btn('Filtrar','default', None, 'type="submit"') }}
+    </form>
+    {% if mode=='dashboard' %}
+    <form method="post" action="/admin/subscriptions/remind" class="flex items-center gap-2">
+      <input name="days" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
+      {{ ui.btn('Recordar por ventana','primary', None, 'type="submit"') }}
+    </form>
+    {% endif %}
+  </div>
+  <div class="overflow-x-auto">
+    <form method="post" action="/admin/subscriptions/remind-selected">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-gray-300">
+            {% if mode=='dashboard' %}<th class="p-2"><input id="select-all" type="checkbox" /></th>{% endif %}
+            <th class="text-left p-2">Gym ID</th>
+            <th class="text-left p-2">Nombre</th>
+            <th class="text-left p-2">Subdominio</th>
+            <th class="text-left p-2">Próximo vencimiento</th>
+            <th class="text-left p-2">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          {% set gid = it.gym_id %}
+          <tr class="border-t border-gray-800">
+            {% if mode=='dashboard' %}<td class="p-2"><input type="checkbox" name="gym_ids" value="{{ gid }}" /></td>{% endif %}
+            <td class="p-2">{{ gid }}</td>
+            <td class="p-2">{{ it.nombre }}</td>
+            <td class="p-2">{{ it.subdominio }}</td>
+            <td class="p-2">{{ it.next_due_date }}</td>
+            <td class="p-2">
+              <form method="post" action="/admin/gyms/{{ gid }}/subscription/remind" class="inline">
+                <input type="hidden" name="message" value="Recordatorio: vence el {{ it.next_due_date }}" />
+                {{ ui.btn('Recordar','default', None, 'type="submit"') }}
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if mode=='dashboard' %}
+      <div class="mt-3 flex gap-2 items-center">
+        <input name="message" placeholder="Mensaje opcional" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[320px]" />
+        {{ ui.btn('Recordar seleccionados','primary', None, 'type="submit"') }}
+      </div>
+      {% endif %}
+    </form>
+  </div>
+  {% if mode=='dashboard' %}
+  <script>
+  (function(){var sa=document.getElementById('select-all');if(sa){sa.addEventListener('change',function(){var c=document.querySelectorAll('input[name="gym_ids"]');for(var i=0;i<c.length;i++){c[i].checked=sa.checked}})}})();
+  </script>
+  {% endif %}
+</div>
+{% endblock %}

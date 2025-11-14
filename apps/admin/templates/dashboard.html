@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="flex items-center justify-between">
+  <h1 class="text-2xl font-semibold">Dashboard</h1>
+  {{ ui.btn('Inicio','default','/admin/') }}
+</div>
+
+<div class="grid gap-4 mt-4 sm:grid-cols-2 lg:grid-cols-4">
+  {% set g = metrics.gyms %}
+  {% set s = metrics.subscriptions %}
+  {% set p = metrics.payments %}
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Gimnasios</div>
+    <div class="text-2xl font-bold">{{ g.total }}</div>
+  </div>
+  <a href="/admin/gyms?ui=1&status=active" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Activos</div>
+    <div class="text-2xl font-bold">{{ g.active }}</div>
+  </a>
+  <a href="/admin/gyms?ui=1&status=suspended" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Suspendidos</div>
+    <div class="text-2xl font-bold">{{ g.suspended }}</div>
+  </a>
+  <a href="/admin/gyms?ui=1&status=maintenance" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Mantenimiento</div>
+    <div class="text-2xl font-bold">{{ g.maintenance }}</div>
+  </a>
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Subs activas</div>
+    <div class="text-2xl font-bold">{{ s.active }}</div>
+  </div>
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Subs vencidas</div>
+    <div class="text-2xl font-bold">{{ s.overdue }}</div>
+  </div>
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <div class="text-gray-400">Pagos 30d</div>
+    <div class="text-2xl font-bold">{{ p.last_30_sum }}</div>
+  </div>
+</div>
+
+<div class="grid gap-4 mt-6 md:grid-cols-2 xl:grid-cols-3">
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4"><canvas id="gymsChart" height="280"></canvas></div>
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4"><canvas id="subsChart" height="280"></canvas></div>
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4"><canvas id="paymentsChart" height="280"></canvas></div>
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4 md:col-span-2 xl:col-span-3"><canvas id="trendChart" height="280"></canvas></div>
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4"><canvas id="auditActionChart" height="280"></canvas></div>
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-4"><canvas id="auditUserChart" height="280"></canvas></div>
+</div>
+
+<h2 class="text-lg mt-6">Próximos vencimientos</h2>
+<div class="mt-2">
+  <form hx-post="/admin/subscriptions/auto-suspend" hx-vals='{"grace_days": 7}' hx-swap="none" class="inline-flex items-center gap-2">
+    {{ ui.btn('Auto-suspender vencidos','danger', None, 'type="submit"') }}
+  </form>
+</div>
+<div class="mt-3 overflow-x-auto">
+  <table class="w-full text-sm">
+    <thead>
+      <tr class="text-gray-300">
+        <th class="text-left p-2">Gym</th>
+        <th class="text-left p-2">Nombre</th>
+        <th class="text-left p-2">Subdominio</th>
+        <th class="text-left p-2">Vence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for it in upcoming[:8] %}
+      <tr class="border-t border-gray-800">
+        <td class="p-2">{{ it.gym_id }}</td>
+        <td class="p-2">{{ it.nombre }}</td>
+        <td class="p-2">{{ it.subdominio }}</td>
+        <td class="p-2">{{ it.next_due_date }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not upcoming %}
+  <div class="text-gray-400 mt-2">Sin vencimientos próximos</div>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  function buildCharts(m){
+    var g = (m && m.gyms) || {}; var s = (m && m.subscriptions) || {}; var p = (m && m.payments) || {};
+    var gymsData = { labels: ["Activos", "Suspendidos", "Mantenimiento"], datasets: [{ data: [parseInt(g.active||0), parseInt(g.suspended||0), parseInt(g.maintenance||0)], backgroundColor: ["#16a34a", "#ef4444", "#f59e0b"] }] };
+    new Chart(document.getElementById("gymsChart"), { type: "pie", data: gymsData, options: { plugins: { legend: { labels: { color: "#9ca3af" } } } } });
+    var subsData = { labels: ["Activas", "Vencidas"], datasets: [{ data: [parseInt(s.active||0), parseInt(s.overdue||0)], backgroundColor: ["#22c55e", "#1e40af"] }] };
+    new Chart(document.getElementById("subsChart"), { type: "pie", data: subsData, options: { plugins: { legend: { labels: { color: "#9ca3af" } } } } });
+    new Chart(document.getElementById("paymentsChart"), { type: "bar", data: { labels: ["Total 30d"], datasets: [{ label: "$", data: [parseFloat(p.last_30_sum||0)], backgroundColor: "#1e40af" }] }, options: { scales: { x: { ticks: { color: "#9ca3af" } }, y: { ticks: { color: "#9ca3af" }, grid: { color: "#374151" } } } } });
+    var series = ((m.gyms||{}).series_30)||[]; var labels = []; var counts=[]; for(var i=0;i<series.length;i++){labels.push(String(series[i].date||''));counts.push(parseInt(series[i].count||0))}
+    new Chart(document.getElementById("trendChart"), { type: "line", data: { labels: labels, datasets: [{ data: counts, borderColor: "#22c55e" }] }, options: { scales: { x: { ticks: { color: "#9ca3af" } }, y: { ticks: { color: "#9ca3af" }, grid: { color: "#374151" } } } } });
+  }
+  fetch('/admin/metrics', { headers: { 'accept': 'application/json' } })
+    .then(function(r){return r.json()})
+    .then(function(m){buildCharts(m)})
+    .catch(function(){});
+  fetch('/admin/audit', { headers: { 'accept': 'application/json' } })
+    .then(function(r){return r.json()})
+    .then(function(j){
+      var byAction = (j && j.summary && j.summary.by_action) || []; var labelsA = byAction.slice(0,6).map(function(x){return String(x.action||'')}); var valuesA = byAction.slice(0,6).map(function(x){return parseInt(x.c||0)});
+      new Chart(document.getElementById("auditActionChart"), { type: "bar", data: { labels: labelsA, datasets: [{ data: valuesA, backgroundColor: "#22c55e" }] }, options: { scales: { x: { ticks: { color: "#9ca3af" } }, y: { ticks: { color: "#9ca3af" }, grid: { color: "#374151" } } } } });
+      var byActor = (j && j.summary && j.summary.by_actor) || []; var labelsU = byActor.slice(0,6).map(function(x){return String(x.actor_username||'')}); var valuesU = byActor.slice(0,6).map(function(x){return parseInt(x.c||0)});
+      new Chart(document.getElementById("auditUserChart"), { type: "bar", data: { labels: labelsU, datasets: [{ data: valuesU, backgroundColor: "#1e40af" }] }, options: { scales: { x: { ticks: { color: "#9ca3af" } }, y: { ticks: { color: "#9ca3af" }, grid: { color: "#374151" } } } } });
+    })
+    .catch(function(){});
+})();
+</script>
+{% endblock %}

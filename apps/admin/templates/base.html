@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GymMS Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/flowbite@2.3.0/dist/flowbite.min.js"></script>
+  <style>
+    .skeleton { position: relative; overflow: hidden; background-color: rgb(31 41 55); }
+    .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background-image: linear-gradient(90deg, rgba(31,41,55,0) 0, rgba(107,114,128,.15) 50%, rgba(31,41,55,0) 100%); animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 100% { transform: translateX(100%) } }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: false }">
+  <div class="grid grid-cols-[240px,1fr] min-h-screen">
+    <aside class="bg-[#0b1222] border-r border-gray-800 p-4">
+      <div class="text-lg font-bold">GymMS Admin</div>
+      <nav class="mt-3 space-y-2" hx-boost="true">
+        <a href="/admin/dashboard?ui=1" class="block px-3 py-2 rounded-md bg-gray-900">Dashboard</a>
+        <a href="/admin/gyms?ui=1" class="block px-3 py-2 rounded-md bg-gray-900">Gimnasios</a>
+        <a href="/admin/audit?ui=1" class="block px-3 py-2 rounded-md bg-gray-900">Auditoría</a>
+        <a href="/admin/subscriptions/dashboard?ui=1" class="block px-3 py-2 rounded-md bg-gray-900">Suscripciones</a>
+      </nav>
+    </aside>
+    <main class="p-5">
+      {% macro btn(label, variant='default', href=None, attrs='') %}
+        {% set cls = 'px-3 py-2 rounded-md bg-gray-900' %}
+        {% if variant=='primary' %}{% set cls = 'px-3 py-2 rounded-md bg-primary text-primary-foreground' %}{% endif %}
+        {% if variant=='danger' %}{% set cls = 'px-3 py-2 rounded-md bg-red-600 text-white' %}{% endif %}
+        {% if variant=='success' %}{% set cls = 'px-3 py-2 rounded-md bg-green-600 text-white' %}{% endif %}
+        {% if variant=='warning' %}{% set cls = 'px-3 py-2 rounded-md bg-yellow-500 text-black' %}{% endif %}
+        {% if href %}<a href="{{ href }}" class="{{ cls }}" {{ attrs|safe }}>{{ label }}</a>{% else %}<button class="{{ cls }}" {{ attrs|safe }}>{{ label }}</button>{% endif %}
+      {% endmacro %}
+      {% macro status_badge(status) %}
+        {% set st = (status or '') %}
+        {% set cls = 'px-2 py-1 rounded-full text-xs bg-gray-700 text-white' %}
+        {% if st=='active' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-green-600 text-white' %}{% endif %}
+        {% if st=='suspended' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-red-600 text-white' %}{% endif %}
+        {% if st=='maintenance' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-yellow-500 text-black' %}{% endif %}
+        {% if st=='paid' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-green-600 text-white' %}{% endif %}
+        {% if st=='pending' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-yellow-500 text-black' %}{% endif %}
+        {% if st=='failed' %}{% set cls = 'px-2 py-1 rounded-full text-xs bg-red-600 text-white' %}{% endif %}
+        <span class="{{ cls }}">{{ status }}</span>
+      {% endmacro %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

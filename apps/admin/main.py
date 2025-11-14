@@ -3,6 +3,8 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, Response, RedirectResponse
+from fastapi.templating import Jinja2Templates
+from pathlib import Path
 from starlette.middleware.sessions import SessionMiddleware
 try:
     import requests  # type: ignore
@@ -24,6 +26,7 @@ try:
     setattr(admin_app.state, "rate_limits", dict(getattr(admin_app.state, "rate_limits", {})))
 except Exception:
     pass
+templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 _admin_db: Optional[AdminDatabaseManager] = None
 
@@ -77,11 +80,7 @@ def _admin_wrap(content: str) -> str:
 
 @admin_app.get("/login")
 async def admin_login_form(request: Request):
-    html = """
-    <div style="max-width:360px;margin:0 auto;padding:20px;font-family:system-ui"><h1 style="font-size:20px;font-weight:600">Acceso admin</h1><form method="post" action="/admin/login" style="display:grid;gap:8px;margin-top:16px"><input type="password" name="password" placeholder="Contraseña" required style="padding:8px;border:1px solid #ccc;border-radius:6px" /><button type="submit" style="padding:10px 14px;border-radius:6px;background:#111;color:#fff">Entrar</button></form></div>
-    """
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse("login.html", {"request": request})
 
 @admin_app.post("/login")
 async def admin_login(request: Request, password: str = Form(...)):
@@ -179,6 +178,19 @@ async def admin_home(request: Request):
             if not secret or hdr.strip() != secret:
                 return RedirectResponse(url="/admin/login", status_code=303)
     _require_admin(request)
+    try:
+        adm = _get_admin_db()
+    except Exception:
+        adm = None
+    warnings: List[str] = []
+    try:
+        if adm is not None:
+            ws = adm.obtener_warnings_admin()
+            if ws:
+                warnings = list(ws)
+    except Exception:
+        warnings = []
+    return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings})
     html = """
     <div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\"><aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside><main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600\">Panel Admin</h1><div style=\"display:flex;gap:12px;margin-top:12px\"><a href=\"/admin/login\" style=\"padding:10px 14px;border-radius:6px;background:#444;color:#fff;text-decoration:none\">Cambiar cuenta</a></div><h2 style=\"font-size:18px;margin-top:16px\">Crear gimnasio</h2><div style=\"color:#9ca3af;margin-top:6px\">Los campos marcados con * son obligatorios</div><form id=\"create-form\" method=\"post\" action=\"/admin/gyms\" style=\"display:grid;gap:8px;margin-top:8px;max-width:640px\"><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Nombre *</span><input id=\"create-name\" name=\"nombre\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><div style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Subdominio (opcional)</span><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"create-sub\" name=\"subdominio\" placeholder=\"Subdominio (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /><span id=\"create-sub-status\" style=\"color:#9ca3af;font-size:12px\"></span></div></div><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Teléfono dueño (opcional)</span><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Phone ID (opcional)</span><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Access Token (opcional)</span><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Business Account ID (opcional)</span><input name=\"whatsapp_business_account_id\" placeholder=\"WhatsApp Business Account ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Verify Token (opcional)</span><input name=\"whatsapp_verify_token\" placeholder=\"WhatsApp Verify Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp App Secret (opcional)</span><input name=\"whatsapp_app_secret\" placeholder=\"WhatsApp App Secret (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" name=\"whatsapp_nonblocking\" value=\"true\"/> WhatsApp no bloqueante</label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Timeout envío WhatsApp (seg) (opcional)</span><input type=\"number\" step=\"0.1\" name=\"whatsapp_send_timeout_seconds\" placeholder=\"Timeout envío WhatsApp (seg) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Crear gimnasio</button></form></main></div></div>
     """
@@ -220,7 +232,6 @@ async def admin_home(request: Request):
             html = _admin_wrap(html)
     except Exception:
         html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
 
 def _lim_key(request: Request, bucket: str) -> str:
     try:
@@ -310,6 +321,7 @@ async def listar_gimnasios(request: Request):
     payload = adm.listar_gimnasios_avanzado(page, page_size, q or None, status_q or None, order_by or None, order_dir or None)
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    snippet = (str(request.query_params.get("snippet") or "").strip() == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
     if not wants_html:
         return JSONResponse(payload, status_code=200)
     try:
@@ -317,9 +329,29 @@ async def listar_gimnasios(request: Request):
     except Exception:
         payload_grid = payload
     items: List[Dict[str, Any]] = list((payload_grid or {}).get("items") or [])
-    total = int(payload.get("total") or 0)
-    p = int(payload.get("page") or page)
-    ps = int(payload.get("page_size") or page_size)
+    total = int((payload or {}).get("total") or 0)
+    p = int((payload or {}).get("page") or page)
+    ps = int((payload or {}).get("page_size") or page_size)
+    prev_link = f"/admin/gyms?ui=1&page={max(p-1,1)}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}"
+    next_link = f"/admin/gyms?ui=1&page={p+1}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}"
+    last_page = max((total + ps - 1) // ps, 1)
+    if p >= last_page:
+        next_link = prev_link
+    return templates.TemplateResponse(
+        "gyms.html",
+        {
+            "request": request,
+            "items": items,
+            "q": q,
+            "status_q": status_q,
+            "page_size": ps,
+            "page": p,
+            "prev_link": prev_link,
+            "next_link": next_link,
+            "last_page": last_page,
+            "total": total,
+        },
+    )
     def chip(s: str) -> str:
         t = (s or "").strip().lower()
         bg = "#1f2937"
@@ -449,7 +481,6 @@ async def listar_gimnasios(request: Request):
             html = _admin_wrap(html)
     except Exception:
         html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
 
 @admin_app.post("/gyms")
 async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None)):
@@ -539,6 +570,13 @@ async def check_subdomain(request: Request, sub: Optional[str] = None, name: Opt
             sug = adm.sugerir_subdominio_unico(str(name or s))
         except Exception:
             sug = s
+    accept = (request.headers.get("accept") or "").lower()
+    wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    if wants_html:
+        return templates.TemplateResponse(
+            "subdomain-status.html",
+            {"request": request, "available": bool(av), "suggestion": sug},
+        )
     return JSONResponse({"ok": True, "available": av, "suggestion": sug, "sub": s}, status_code=200)
 
 @admin_app.post("/gyms/{gym_id}/update")
@@ -644,11 +682,21 @@ async def whatsapp_form(request: Request, gym_id: int):
     asct = str(g.get("whatsapp_app_secret") or "")
     nb = "checked" if bool(g.get("whatsapp_nonblocking")) else ""
     sto = str(g.get("whatsapp_send_timeout_seconds") or "")
-    content = """
-    <div style=\"max-width:640px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Configurar WhatsApp</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a></div><form method=\"post\" action=\"/admin/gyms/{gid}/whatsapp\" style=\"display:grid;gap:8px\"><input name=\"phone_id\" value=\"{pid}\" placeholder=\"Phone ID\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"access_token\" value=\"{tok}\" placeholder=\"Access Token\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"waba_id\" value=\"{waba}\" placeholder=\"WABA ID\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"verify_token\" value=\"{vt}\" placeholder=\"Verify Token\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"app_secret\" value=\"{asct}\" placeholder=\"App Secret\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" name=\"nonblocking\" {nb}/> Envío no bloqueante</label><input name=\"send_timeout_seconds\" value=\"{sto}\" placeholder=\"Timeout segundos\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#22c55e;color:#fff\">Guardar</button></form></div>
-    """.replace("{gid}", str(int(gym_id))).replace("{pid}", pid).replace("{tok}", tok).replace("{waba}", waba).replace("{vt}", vt).replace("{asct}", asct).replace("{nb}", nb).replace("{sto}", sto)
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {
+            "request": request,
+            "section": "whatsapp",
+            "gid": int(gym_id),
+            "phone_id": pid,
+            "access_token": tok,
+            "waba_id": waba,
+            "verify_token": vt,
+            "app_secret": asct,
+            "nonblocking": bool(g.get("whatsapp_nonblocking") or False),
+            "send_timeout_seconds": sto,
+        },
+    )
 
 @admin_app.post("/gyms/{gym_id}/whatsapp")
 async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] = Form(None), access_token: Optional[str] = Form(None), waba_id: Optional[str] = Form(None), verify_token: Optional[str] = Form(None), app_secret: Optional[str] = Form(None), nonblocking: Optional[bool] = Form(False), send_timeout_seconds: Optional[str] = Form(None)):
@@ -683,7 +731,10 @@ async def mantenimiento_form(request: Request, gym_id: int):
     <div style=\"max-width:640px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Modo mantenimiento</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a></div><form method=\"post\" action=\"/admin/gyms/{gid}/maintenance\" style=\"display:grid;gap:8px\"><textarea name=\"message\" placeholder=\"Mensaje para usuarios\" style=\"padding:8px;border:1px solid #333;border-radius:6px;height:120px\"></textarea><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#f59e0b;color:#000\">Activar mantenimiento</button></form><form method=\"post\" action=\"/admin/gyms/{gid}/maintenance/clear\" style=\"margin-top:12px\"><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#16a34a;color:#fff\">Desactivar mantenimiento</button></form></div>
     """.replace("{gid}", str(int(gym_id)))
     html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {"request": request, "section": "maintenance", "gid": int(gym_id)},
+    )
 
 @admin_app.post("/gyms/{gym_id}/maintenance")
 async def activar_mantenimiento(request: Request, gym_id: int, message: Optional[str] = Form(None)):
@@ -728,22 +779,10 @@ async def listar_pagos_gym(request: Request, gym_id: int):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"items": items}, status_code=200)
-    rows = []
-    for p in items:
-        pid = str(p.get("id") or "")
-        plan = str(p.get("plan") or "")
-        amount = str(p.get("amount") or "")
-        currency = str(p.get("currency") or "")
-        paid_at = str(p.get("paid_at") or "")
-        valid_until = str(p.get("valid_until") or "")
-        status = str(p.get("status") or "")
-        notes = str(p.get("notes") or "")
-        rows.append(f"<tr><td>{pid}</td><td>{plan}</td><td>{amount}</td><td>{currency}</td><td>{paid_at}</td><td>{valid_until}</td><td>{status}</td><td>{notes}</td></tr>")
-    content = """
-    <div style="max-width:1024px;margin:0 auto"><h1 style="font-size:24px;font-weight:600">Pagos</h1><div style="margin:12px 0"><a href="/admin/gyms?ui=1" style="padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none">Volver</a></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>ID</th><th>Plan</th><th>Monto</th><th>Moneda</th><th>Pagado</th><th>Válido hasta</th><th>Status</th><th>Notas</th></tr></thead><tbody>{rows}</tbody></table></div><h2 style="font-size:18px;margin-top:16px">Registrar pago</h2><form method="post" action="/admin/gyms/{gid}/payments" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px"><input name="plan" placeholder="Plan" style="padding:8px;border:1px solid #333;border-radius:6px"/><input name="amount" placeholder="Monto" type="number" step="0.01" style="padding:8px;border:1px solid #333;border-radius:6px"/><input name="currency" placeholder="Moneda" style="padding:8px;border:1px solid #333;border-radius:6px"/><input name="valid_until" placeholder="YYYY-MM-DD" style="padding:8px;border:1px solid #333;border-radius:6px"/><input name="status" placeholder="status" style="padding:8px;border:1px solid #333;border-radius:6px"/><input name="notes" placeholder="Notas" style="padding:8px;border:1px solid #333;border-radius:6px"/><button type="submit" style="padding:10px 14px;border-radius:6px;background:#2563eb;color:#fff">Guardar</button></form></div>
-    """.replace("{rows}", "".join(rows)).replace("{gid}", str(int(gym_id)))
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {"request": request, "section": "payments", "items": items, "gid": int(gym_id)},
+    )
 
 @admin_app.post("/gyms/{gym_id}/payments")
 async def registrar_pago_gym(request: Request, gym_id: int, plan: Optional[str] = Form(None), amount: Optional[str] = Form(None), currency: Optional[str] = Form(None), valid_until: Optional[str] = Form(None), status: Optional[str] = Form(None), notes: Optional[str] = Form(None)):
@@ -783,21 +822,7 @@ async def listar_planes(request: Request):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"items": items}, status_code=200)
-    rows = []
-    for p in items:
-        pid = str(p.get('id') or '')
-        name = str(p.get('name') or '')
-        amount = str(p.get('amount') or '')
-        currency = str(p.get('currency') or '')
-        pdays = str(p.get('period_days') or '')
-        active = bool(p.get('active'))
-        toggle_lbl = 'Desactivar' if active else 'Activar'
-        rows.append(f"<tr><td>{pid}</td><td><form method=\"post\" action=\"/admin/plans/{pid}\" style=\"display:flex;gap:6px;align-items:center\"><input name=\"name\" value=\"{name}\" style=\"padding:6px;border:1px solid #333;border-radius:6px\"/></td><td><input name=\"amount\" value=\"{amount}\" type=\"number\" step=\"0.01\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:120px\"/></td><td><input name=\"currency\" value=\"{currency}\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:100px\"/></td><td><input name=\"period_days\" value=\"{pdays}\" type=\"number\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:100px\"/></td><td><button type=\"submit\" style=\"padding:6px 10px;border-radius:6px;background:#22c55e;color:#fff\">Guardar</button></form></td><td><form method=\"post\" action=\"/admin/plans/{pid}/toggle\" style=\"display:inline\"><input type=\"hidden\" name=\"active\" value=\"{str(not active).lower()}\"/><button type=\"submit\" style=\"padding:6px 10px;border-radius:6px;background:#374151;color:#fff\">{toggle_lbl}</button></form></td></tr>")
-    content = """
-    <div style=\"max-width:900px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Planes</h1><div style=\"margin:12px 0\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a></div><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>ID</th><th>Nombre</th><th>Monto</th><th>Moneda</th><th>Días</th><th>Acciones</th><th>Estado</th></tr></thead><tbody>{rows}</tbody></table></div><h2 style=\"font-size:18px;margin-top:16px\">Crear plan</h2><form method=\"post\" action=\"/admin/plans\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px\"><input name=\"name\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"amount\" type=\"number\" step=\"0.01\" placeholder=\"Monto\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"currency\" placeholder=\"Moneda (e.g. ARS)\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"period_days\" type=\"number\" placeholder=\"Días\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#9333ea;color:#fff\">Crear</button></form></div>
-    """.replace("{rows}", "".join(rows))
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse("plans.html", {"request": request, "items": items})
 
 @admin_app.post("/plans")
 async def crear_plan(request: Request, name: str = Form(...), amount: float = Form(...), currency: str = Form(...), period_days: int = Form(...)):
@@ -908,19 +933,7 @@ async def ver_subscription(request: Request, gym_id: int):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"subscription": sub, "plans": planes}, status_code=200)
-    opts = []
-    for p in planes:
-        pid = str(p.get("id") or "")
-        name = str(p.get("name") or "")
-        selected = " selected" if sub and str(sub.get("plan_id")) == pid else ""
-        opts.append(f"<option value=\"{pid}\"{selected}>{name}</option>")
-    cur = "" if not sub else str(sub.get("start_date") or "")
-    nd = "" if not sub else str(sub.get("next_due_date") or "")
-    html = """
-    <div style="max-width:640px;margin:0 auto;padding:20px;font-family:system-ui"><h1 style="font-size:24px;font-weight:600">Suscripción</h1><div style="margin:12px 0"><a href="/admin/gyms?ui=1" style="padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none">Volver</a></div><div style="margin-top:8px"><p>Inicio actual: {cur}</p><p>Próximo vencimiento: {nd}</p></div><form method="post" action="/admin/gyms/{gid}/subscription" style="display:grid;gap:8px;margin-top:12px"><label>Plan<select name="plan_id" style="padding:8px;border:1px solid #333;border-radius:6px">{opts}</select></label><input name="start_date" placeholder="YYYY-MM-DD" required style="padding:8px;border:1px solid #333;border-radius:6px"/><button type="submit" style="padding:10px 14px;border-radius:6px;background:#22c55e;color:#fff">Guardar</button></form></div>
-    """.replace("{opts}", "".join(opts)).replace("{cur}", cur).replace("{nd}", nd).replace("{gid}", str(int(gym_id)))
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "subscription", "gid": int(gym_id), "subscription": sub, "plans": planes})
 
 @admin_app.post("/gyms/{gym_id}/subscription")
 async def set_subscription(request: Request, gym_id: int, plan_id: int = Form(...), start_date: str = Form(...)):
@@ -994,16 +1007,10 @@ async def subs_upcoming(request: Request, days: Optional[int] = None):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"items": items, "days": d}, status_code=200)
-    rows = []
-    for it in items:
-        gid = str(it.get('gym_id') or '')
-        nd = str(it.get('next_due_date') or '')
-        rows.append(f"<tr><td>{gid}</td><td>{it.get('nombre')}</td><td>{it.get('subdominio')}</td><td>{nd}</td><td><form method=\"post\" action=\"/admin/gyms/{gid}/subscription/remind\" style=\"display:inline\"><input type=\"hidden\" name=\"message\" value=\"Recordatorio: vence el {nd}\"/><button type=\"submit\">Enviar recordatorio</button></form></td></tr>")
-    content = """
-    <div style="max-width:800px;margin:0 auto"><h1 style="font-size:24px;font-weight:600">Próximos vencimientos</h1><div style="margin:12px 0"><a href="/admin/" style="padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none">Inicio</a> <form method="post" action="/admin/subscriptions/remind" style="display:inline;margin-left:12px"><input name="days" value="{days}" style="padding:6px;border:1px solid #333;border-radius:6px;width:80px"/><button type="submit" style="margin-left:6px;padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff">Enviar recordatorios</button></form></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Gym ID</th><th>Nombre</th><th>Subdominio</th><th>Próximo vencimiento</th><th>Acciones</th></tr></thead><tbody>{rows}</tbody></table></div></div>
-    """.replace("{rows}", "".join(rows)).replace("{days}", str(int(d)))
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "subscriptions.html",
+        {"request": request, "mode": "upcoming", "items": items, "days": int(d)},
+    )
 
 @admin_app.post("/subscriptions/auto-suspend")
 async def auto_suspend_overdue(request: Request, grace_days: int = Form(...)):
@@ -1064,18 +1071,10 @@ async def subs_dashboard(request: Request, days: Optional[int] = None, q: Option
         items = [it for it in items if query in str(it.get('nombre') or '').lower() or query in str(it.get('subdominio') or '').lower()]
     if not wants_html:
         return JSONResponse({"items": items, "days": d, "q": query}, status_code=200)
-    rows = []
-    for it in items:
-        gid = str(it.get('gym_id') or '')
-        nd = str(it.get('next_due_date') or '')
-        nombre = str(it.get('nombre') or '')
-        sub = str(it.get('subdominio') or '')
-        rows.append(f"<tr><td><input type=\"checkbox\" name=\"gym_ids\" value=\"{gid}\"/></td><td>{gid}</td><td>{nombre}</td><td>{sub}</td><td>{nd}</td><td><form method=\"post\" action=\"/admin/gyms/{gid}/subscription/remind\" style=\"display:inline\"><input type=\"hidden\" name=\"message\" value=\"Recordatorio: vence el {nd}\"/><button type=\"submit\">Recordar</button></form></td></tr>")
-    html = """
-    <div class=\"dark\"><div style=\"max-width:960px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Dashboard de vencimientos</h1><div style=\"margin:12px 0;display:flex;gap:12px;flex-wrap:wrap\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a><form method=\"get\" action=\"/admin/subscriptions/dashboard\" style=\"display:flex;gap:8px\"><input name=\"days\" value=\"{days}\" placeholder=\"Días\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:80px\"/><input name=\"q\" value=\"{q}\" placeholder=\"Buscar nombre o subdominio\" style=\"padding:6px;border:1px solid #333;border-radius:6px;min-width:240px\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Filtrar</button></form><form method=\"post\" action=\"/admin/subscriptions/remind\" style=\"display:inline\"><input name=\"days\" value=\"{days}\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:80px\"/><button type=\"submit\" style=\"margin-left:6px;padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Recordar por ventana</button></form></div><div style=\"overflow-x:auto\"><form method=\"post\" action=\"/admin/subscriptions/remind-selected\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th><input id=\"select-all\" type=\"checkbox\"/></th><th>Gym ID</th><th>Nombre</th><th>Subdominio</th><th>Próximo vencimiento</th><th>Acciones</th></tr></thead><tbody>{rows}</tbody></table><div style=\"margin-top:12px;display:flex;gap:8px\"><input name=\"message\" placeholder=\"Mensaje opcional\" style=\"padding:6px;border:1px solid #333;border-radius:6px;min-width:320px\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Recordar seleccionados</button></div></form></div><script>var sa=document.getElementById('select-all');if(sa){sa.addEventListener('change',function(){var c=document.querySelectorAll('input[name=\"gym_ids\"]');for(var i=0;i<c.length;i++){c[i].checked=sa.checked;}});} </script></div></div>
-    """.replace("{rows}", "".join(rows)).replace("{days}", str(int(d))).replace("{q}", (query or ""))
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "subscriptions.html",
+        {"request": request, "mode": "dashboard", "items": items, "days": int(d), "q": (query or "")},
+    )
 
 @admin_app.post("/subscriptions/remind-selected")
 async def enviar_recordatorios_seleccionados(request: Request, message: Optional[str] = Form(None)):
@@ -1200,11 +1199,10 @@ async def owner_password_form(request: Request, gym_id: int):
     if not g:
         return JSONResponse({"error": "gym_not_found"}, status_code=404)
     sub = str(g.get("subdominio") or "")
-    html = """
-    <div class=\"dark\"><div style=\"max-width:520px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:22px;font-weight:600\">Contraseña de dueño</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a></div><p style=\"margin:8px 0\">Gimnasio: {sub}</p><form method=\"post\" action=\"/admin/gyms/{gid}/owner\" style=\"display:grid;gap:8px\"><input type=\"password\" name=\"new_password\" placeholder=\"Nueva contraseña\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input type=\"password\" name=\"confirm_password\" placeholder=\"Confirmar contraseña\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Guardar</button></form></div></div>
-    """.replace("{gid}", str(int(gym_id))).replace("{sub}", sub)
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "passwords.html",
+        {"request": request, "mode": "owner", "gid": int(gym_id), "sub": sub},
+    )
 
 @admin_app.post("/gyms/{gym_id}/owner")
 async def owner_password_save(request: Request, gym_id: int, new_password: str = Form(...), confirm_password: str = Form(...)):
@@ -1230,7 +1228,10 @@ async def admin_owner_password_form(request: Request):
     <div style=\"max-width:480px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:22px;font-weight:600\">Cambiar contraseña Admin</h1><div style=\"margin:12px 0\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a></div><form method=\"post\" action=\"/admin/owner/password\" style=\"display:grid;gap:8px\"><input type=\"password\" name=\"current_password\" placeholder=\"Contraseña actual\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input type=\"password\" name=\"new_password\" placeholder=\"Nueva contraseña\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input type=\"password\" name=\"confirm_password\" placeholder=\"Confirmar contraseña\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Guardar</button></form></div>
     """
     html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "passwords.html",
+        {"request": request, "mode": "admin"},
+    )
 
 @admin_app.post("/owner/password")
 async def admin_owner_password_save(request: Request, current_password: str = Form(...), new_password: str = Form(...), confirm_password: str = Form(...)):
@@ -1401,7 +1402,10 @@ async def branding_form(request: Request, gym_id: int):
     <div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Branding</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a></div><div class=\"grid\" style=\"display:grid;grid-template-columns:1fr;gap:16px\"><form id=\"branding-form\" method=\"post\" action=\"/admin/gyms/{gid}/branding\" style=\"display:grid;gap:8px\"><input id=\"gym_name\" name=\"gym_name\" placeholder=\"Nombre público\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"gym_address\" name=\"gym_address\" placeholder=\"Dirección\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"logo_url\" name=\"logo_url\" placeholder=\"Logo URL\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><div style=\"margin-top:12px\"><h2 style=\"font-size:18px\">Colores</h2><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px\"><input id=\"primary\" name=\"primary\" placeholder=\"#2b8a3e\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"secondary\" name=\"secondary\" placeholder=\"#1e3a8a\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"accent\" name=\"accent\" placeholder=\"#f59e0b\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"bg\" name=\"bg\" placeholder=\"#0f172a\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"card\" name=\"card\" placeholder=\"#111827\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"text\" name=\"text\" placeholder=\"#e5e7eb\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"muted\" name=\"muted\" placeholder=\"#9ca3af\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"border\" name=\"border\" placeholder=\"#374151\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/></div></div><div style=\"margin-top:12px\"><h2 style=\"font-size:18px\">Tipografías</h2><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px\"><input id=\"font_base\" name=\"font_base\" placeholder=\"Inter, system-ui\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input id=\"font_heading\" name=\"font_heading\" placeholder=\"Inter, system-ui\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/></div></div><div class=\"actions\" style=\"display:flex;gap:8px;margin-top:8px\"><button id=\"btn-preview\" type=\"button\" style=\"padding:10px 14px;border-radius:6px;background:#374151;color:#fff\">Vista previa</button><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Guardar</button></div><div id=\"errors\" style=\"margin-top:8px;color:#ef4444\"></div></form><div id=\"preview\" style=\"padding:20px;border-radius:16px;border:1px solid #333;background:#111827\"><div style=\"display:flex;align-items:center;gap:12px\"><div style=\"width:44px;height:44px;border-radius:8px;background:var(--accent,#f59e0b)\"></div><div><div style=\"font-weight:600;font-size:18px\">Vista previa</div><div style=\"color:#9ca3af\">Colores y tipografías aplicados</div></div></div><div style=\"margin-top:12px;display:flex;gap:8px\"><button id=\"btn-reset\" type=\"button\" style=\"padding:10px 14px;border-radius:6px;background:#4b5563;color:#fff\">Reset</button></div></div></div><script>(function(){function isHex(s){var x=(s||'').trim();return /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(x);}function applyPreview(){var m=['primary','secondary','accent','bg','card','text','muted','border'];var errs=[];var root=document.getElementById('preview');var css='';for(var i=0;i<m.length;i++){var id=m[i];var v=(document.getElementById(id)||{}).value||'';if(v){if(!isHex(v)){errs.push('Color inválido: '+id);}else{css+=id+'='+v+';';root.style.setProperty('--'+id,v);}}}var fb=(document.getElementById('font_base')||{}).value||'';var fh=(document.getElementById('font_heading')||{}).value||'';if(fb){root.style.setProperty('--font-base',fb);}if(fh){root.style.setProperty('--font-heading',fh);}var e=document.getElementById('errors');e.textContent=errs.join(' \u2022 ');}function resetPreview(){var m=['primary','secondary','accent','bg','card','text','muted','border'];var root=document.getElementById('preview');for(var i=0;i<m.length;i++){root.style.removeProperty('--'+m[i]);}root.style.removeProperty('--font-base');root.style.removeProperty('--font-heading');var e=document.getElementById('errors');e.textContent='';}var bp=document.getElementById('btn-preview');if(bp){bp.addEventListener('click',applyPreview);}var br=document.getElementById('btn-reset');if(br){br.addEventListener('click',resetPreview);}var form=document.getElementById('branding-form');if(form){form.addEventListener('submit',function(ev){var m=['primary','secondary','accent','bg','card','text','muted','border'];var errs=[];for(var i=0;i<m.length;i++){var id=m[i];var v=(document.getElementById(id)||{}).value||'';if(v && !isHex(v)){errs.push('Color inválido: '+id);}}var e=document.getElementById('errors');if(errs.length){ev.preventDefault();e.textContent=errs.join(' \u2022 ');}else{e.textContent='';}});} })();</script>
     """.replace("{gid}", str(int(gym_id)))
     html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {"request": request, "section": "branding", "gid": int(gym_id), "gym": g},
+    )
 
 @admin_app.post("/gyms/{gym_id}/branding")
 async def branding_save(request: Request, gym_id: int, gym_name: Optional[str] = Form(None), gym_address: Optional[str] = Form(None), logo_url: Optional[str] = Form(None), primary: Optional[str] = Form(None), secondary: Optional[str] = Form(None), accent: Optional[str] = Form(None), bg: Optional[str] = Form(None), card: Optional[str] = Form(None), text: Optional[str] = Form(None), muted: Optional[str] = Form(None), border: Optional[str] = Form(None), font_base: Optional[str] = Form(None), font_heading: Optional[str] = Form(None)):
@@ -1445,12 +1449,11 @@ async def listar_templates(request: Request):
     ]
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    name = (request.query_params.get("name") or "").strip()
     if not wants_html:
-        return JSONResponse({"templates": names}, status_code=200)
-    items = "".join([f"<li style=\"padding:6px 0\">{n}</li>" for n in names])
-    html = f"<div style=\"max-width:800px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Templates WhatsApp</h1><div style=\"margin:12px 0\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a> <a href=\"/admin/templates/preview?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none;margin-left:8px\">Previsualizar</a></div><p>Se usan de forma estándar y no se personalizan por gimnasio.</p><ul>{items}</ul></div>"
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+        return JSONResponse({"templates": names, "name": name or None, "text": (_template_text(name) if name else None)}, status_code=200)
+    text = _template_text(name) if name else ""
+    return templates.TemplateResponse("templates.html", {"request": request, "names": names, "name": name, "text": text})
 
 def _template_text(name: str) -> str:
     n = (name or "").strip().lower()
@@ -1478,7 +1481,6 @@ async def preview_template(request: Request):
     text = _template_text(name) if name else "Selecciona un template"
     if not wants_html:
         return JSONResponse({"name": name, "text": text}, status_code=200)
-    opts = []
     base = [
         "aviso_de_confirmacion_de_pago_de_cuota_gimnasio_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
         "aviso_de_vencimiento_de_cuota_gimnasio_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
@@ -1489,14 +1491,7 @@ async def preview_template(request: Request):
         "aviso_de_promocion_a_lista_principal_para_clase_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
         "mensaje_de_bienvenida_a_gimnasio_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
     ]
-    for n in base:
-        sel = " selected" if n == name else ""
-        opts.append(f"<option value=\"{n}\"{sel}>{n}</option>")
-    html = """
-    <div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Previsualización de template</h1><div style=\"margin:12px 0\"><a href=\"/admin/templates?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a></div><form method=\"get\" action=\"/admin/templates/preview\" style=\"display:flex;gap:8px\"><select name=\"name\" style=\"padding:8px;border:1px solid #333;border-radius:6px;min-width:280px\">{opts}</select><input type=\"hidden\" name=\"ui\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Ver</button></form><div style=\"margin-top:16px;padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"color:#9ca3af\">Texto</div><div style=\"font-size:16px\">{text}</div></div><h2 style=\"font-size:18px;margin-top:16px\">Enviar prueba</h2><form method=\"post\" action=\"/admin/gyms/test-send\" style=\"display:flex;gap:8px;flex-wrap:wrap\"><input name=\"gym_id\" placeholder=\"Gym ID\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:120px\"/><input name=\"name\" value=\"{name}\" style=\"padding:8px;border:1px solid #333;border-radius:6px;min-width:280px\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Enviar</button></form></div></div>
-    """.replace("{opts}", "".join(opts)).replace("{text}", text).replace("{name}", name)
-    html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse("templates.html", {"request": request, "names": base, "name": name, "text": text})
 
 @admin_app.post("/gyms/test-send")
 async def send_template_test(request: Request, gym_id: int = Form(...), name: str = Form(...)):
@@ -1583,6 +1578,7 @@ async def health_check(request: Request, gym_id: int):
         st_cfg = False
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    snippet = (str(request.query_params.get("snippet") or "").strip() == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
     res = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
     try:
         cache[int(gym_id)] = {"ts": int(now), "val": res}
@@ -1591,10 +1587,30 @@ async def health_check(request: Request, gym_id: int):
         pass
     if not wants_html:
         return JSONResponse(res, status_code=200)
-    ok = lambda v: "<span style=\"color:#16a34a\">OK</span>" if v else "<span style=\"color:#ef4444\">Fallo</span>"
-    content = f"<div style=\"max-width:640px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Salud del gimnasio #{int(gym_id)}</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a> <a href=\"/admin/gyms/{int(gym_id)}/health?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none;margin-left:8px\">Reverificar</a></div><div class=\"cards\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px\"><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">Base de datos</div><div>{ok(db_ok)}</div><div style=\"color:#9ca3af\">{(db_err or '')}</div></div><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">WhatsApp</div><div>{ok(wa_ok)}</div><div style=\"color:#9ca3af\">HTTP {str(wa_status or '')}</div></div><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">Almacenamiento</div><div>{ok(st_ok)}</div><div style=\"color:#9ca3af\">Configurado: {('Sí' if st_cfg else 'No')}</div></div></div></div>"
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    if snippet:
+        return templates.TemplateResponse(
+            "health-snippet.html",
+            {
+                "request": request,
+                "db_ok": bool(db_ok),
+                "wa_ok": bool(wa_ok),
+                "st_ok": bool(st_ok),
+            },
+        )
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {
+            "request": request,
+            "section": "health",
+            "gid": int(gym_id),
+            "db_ok": bool(db_ok),
+            "db_err": db_err,
+            "wa_ok": bool(wa_ok),
+            "wa_status": wa_status,
+            "st_ok": bool(st_ok),
+            "st_cfg": bool(st_cfg),
+        },
+    )
 
 @admin_app.get("/gyms/{gym_id}/details")
 async def gym_details(request: Request, gym_id: int):
@@ -1775,24 +1791,22 @@ async def ver_auditoria(request: Request):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"items": payload.get("items"), "total": payload.get("total"), "page": payload.get("page"), "page_size": payload.get("page_size"), "summary": summary}, status_code=200)
-    rows = []
-    for it in list(payload.get("items") or []):
-        rid = str(it.get("id") or "")
-        actor_u = str(it.get("actor_username") or "")
-        act = str(it.get("action") or "")
-        gid = str(it.get("gym_id") or "")
-        det = str(it.get("details") or "")
-        when = str(it.get("created_at") or "")
-        rows.append(f"<tr><td>{rid}</td><td>{actor_u}</td><td>{act}</td><td>{gid}</td><td>{det}</td><td>{when}</td></tr>")
-    by_action = list(summary.get("by_action") or [])
-    by_actor = list(summary.get("by_actor") or [])
-    sa = "".join([f"<div style=\"padding:6px 10px;border:1px solid #333;border-radius:8px\"><div style=\"color:#9ca3af\">{str(x.get('action') or '')}</div><div style=\"font-weight:600\">{int(x.get('c') or 0)}</div></div>" for x in by_action])
-    su = "".join([f"<div style=\"padding:6px 10px;border:1px solid #333;border-radius:8px\"><div style=\"color:#9ca3af\">{str(x.get('actor_username') or '')}</div><div style=\"font-weight:600\">{int(x.get('c') or 0)}</div></div>" for x in by_actor])
-    content = """
-    <div style=\"max-width:1200px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Auditoría</h1><div style=\"margin:12px 0;display:flex;gap:12px;flex-wrap:wrap\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a><form method=\"get\" action=\"/admin/audit\" style=\"display:flex;gap:8px;flex-wrap:wrap\"><input name=\"actor\" value=\"{actor}\" placeholder=\"Actor\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"action\" value=\"{action}\" placeholder=\"Acción\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"gym_id\" value=\"{gid}\" placeholder=\"Gym ID\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:120px\"/><input name=\"from\" value=\"{from}\" placeholder=\"Desde YYYY-MM-DD\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"to\" value=\"{to}\" placeholder=\"Hasta YYYY-MM-DD\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input type=\"hidden\" name=\"ui\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Filtrar</button></form></div><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px\"><div style=\"font-weight:600\">Top acciones</div>{sa}<div style=\"font-weight:600\">Top actores</div>{su}</div><div style=\"overflow-x:auto;margin-top:12px\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>ID</th><th>Actor</th><th>Acción</th><th>Gym</th><th>Detalles</th><th>Fecha</th></tr></thead><tbody>{rows}</tbody></table></div></div>
-    """.replace("{rows}", "".join(rows)).replace("{actor}", actor).replace("{action}", action).replace("{gid}", str(gym_id or "")).replace("{from}", from_date).replace("{to}", to_date).replace("{sa}", sa).replace("{su}", su)
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "audit.html",
+        {
+            "request": request,
+            "items": list(payload.get("items") or []),
+            "summary": summary,
+            "actor": actor,
+            "action": action,
+            "gym_id": gym_id,
+            "from": from_date,
+            "to": to_date,
+            "page": int(payload.get("page") or 1),
+            "page_size": int(payload.get("page_size") or 50),
+            "total": int(payload.get("total") or 0),
+        },
+    )
 
 @admin_app.get("/metrics")
 async def ver_metricas(request: Request):
@@ -1805,35 +1819,20 @@ async def ver_metricas(request: Request):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse(m, status_code=200)
-    g = m.get("gyms") or {}
-    w = m.get("whatsapp") or {}
-    s = m.get("storage") or {}
-    sub = m.get("subscriptions") or {}
-    pay = m.get("payments") or {}
-    cards = []
-    def card(title, value, href=None):
-        inner = f"<div style=\"color:#9ca3af\">{title}</div><div style=\"font-size:22px;font-weight:700;color:#fff\">{value}</div>"
-        if href:
-            return f"<a href=\"{href}\" style=\"display:block;padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222;color:#fff;text-decoration:none\">{inner}</a>"
-        return f"<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\">{inner}</div>"
-    cards.append(card("Gimnasios", int(g.get("total") or 0), "/admin/gyms?ui=1"))
-    cards.append(card("Activos", int(g.get("active") or 0), "/admin/gyms?ui=1&status=active"))
-    cards.append(card("Suspendidos", int(g.get("suspended") or 0), "/admin/gyms?ui=1&status=suspended"))
-    cards.append(card("Mantenimiento", int(g.get("maintenance") or 0), "/admin/gyms?ui=1&status=maintenance"))
-    cards.append(card("Nuevos 7d", int(g.get("last_7") or 0)))
-    cards.append(card("Nuevos 30d", int(g.get("last_30") or 0)))
-    cards.append(card("WhatsApp configurado", int(w.get("configured") or 0)))
-    cards.append(card("Storage configurado", int(s.get("configured") or 0)))
-    cards.append(card("Subs activas", int(sub.get("active") or 0)))
-    cards.append(card("Subs vencidas", int(sub.get("overdue") or 0)))
-    cards.append(card("Pagos 30d", float(pay.get("last_30_sum") or 0.0)))
-    content = """
-    <div style=\"max-width:1200px;margin:0 auto\"><h1 style=\"font-size:24px;font-weight:600\">Métricas</h1><div style=\"margin:12px 0\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a></div><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px\">{cards}</div><div style=\"margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px\"><div id=\"chart-gyms-status\" style=\"height:280px\"></div><div id=\"chart-new-gyms\" style=\"height:280px\"></div><div id=\"chart-subs\" style=\"height:280px\"></div></div></div>
-    <script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>
-    <script>function _renderCharts(m){var t={text:'#fff',muted:'#9ca3af',border:'#374151'};var st=document.getElementById('chart-gyms-status');if(st){var c=echarts.init(st);var data=[{name:'Activos',value:parseInt((m.gyms&&m.gyms.active)||0)},{name:'Suspendidos',value:parseInt((m.gyms&&m.gyms.suspended)||0)},{name:'Mantenimiento',value:parseInt((m.gyms&&m.gyms.maintenance)||0)}];c.setOption({backgroundColor:'transparent',tooltip:{trigger:'item'},legend:{textStyle:{color:t.text}},series:[{type:'pie',radius:['40%','70%'],label:{color:t.text},data:data}]});window.addEventListener('resize',function(){c.resize()})}var ng=document.getElementById('chart-new-gyms');if(ng){var c2=echarts.init(ng);var labels=['7 días','30 días'];var values=[parseInt((m.gyms&&m.gyms.last_7)||0),parseInt((m.gyms&&m.gyms.last_30)||0)];c2.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:labels,axisLine:{lineStyle:{color:t.muted}},axisLabel:{color:t.muted}},yAxis:{type:'value',axisLine:{lineStyle:{color:t.muted}},splitLine:{lineStyle:{color:t.border}},axisLabel:{color:t.muted}},series:[{type:'bar',data:values,itemStyle:{color:'#1e40af'}}]});window.addEventListener('resize',function(){c2.resize()})}var sb=document.getElementById('chart-subs');if(sb){var c3=echarts.init(sb);var data2=[{name:'Activas',value:parseInt((m.subscriptions&&m.subscriptions.active)||0)},{name:'Vencidas',value:parseInt((m.subscriptions&&m.subscriptions.overdue)||0)}];c3.setOption({backgroundColor:'transparent',tooltip:{trigger:'item'},legend:{textStyle:{color:t.text}},series:[{type:'pie',radius:['40%','70%'],label:{color:t.text},data:data2}]});window.addEventListener('resize',function(){c3.resize()})}}document.addEventListener('DOMContentLoaded',function(){fetch('/admin/metrics',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){_renderCharts(j)}).catch(function(){})});</script>
-    """.replace("{cards}", "".join(cards))
-    html = _admin_wrap(content)
-    return Response(content=html, media_type="text/html")
+    upcoming = adm.listar_proximos_vencimientos(14)
+    series = list((m.get("gyms") or {}).get("series_30") or [])
+    trend_dates = [str(it.get("date") or "") for it in series]
+    trend_counts = [int(it.get("count") or 0) for it in series]
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "metrics": m,
+            "upcoming": upcoming,
+            "trend_dates": trend_dates,
+            "trend_counts": trend_counts,
+        },
+    )
 
 @admin_app.post("/sessions/invalidate")
 async def invalidate_sessions(request: Request):
@@ -1884,45 +1883,16 @@ async def unified_dashboard(request: Request):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"metrics": m, "upcoming": upcoming}, status_code=200)
-    g = m.get("gyms") or {}
-    sub = m.get("subscriptions") or {}
-    pay = m.get("payments") or {}
-    cards = []
-    def card(title, value, href=None):
-        inner = f"<div style=\"color:#9ca3af\">{title}</div><div style=\"font-size:22px;font-weight:700;color:#fff\">{value}</div>"
-        if href:
-            return f"<a href=\"{href}\" style=\"display:block;padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222;color:#fff;text-decoration:none\">{inner}</a>"
-        return f"<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\">{inner}</div>"
-    cards.append(card("Gimnasios", int(g.get("total") or 0), "/admin/gyms?ui=1"))
-    cards.append(card("Activos", int(g.get("active") or 0), "/admin/gyms?ui=1&status=active"))
-    cards.append(card("Suspendidos", int(g.get("suspended") or 0), "/admin/gyms?ui=1&status=suspended"))
-    cards.append(card("Mantenimiento", int(g.get("maintenance") or 0), "/admin/gyms?ui=1&status=maintenance"))
-    cards.append(card("Subs activas", int(sub.get("active") or 0)))
-    cards.append(card("Subs vencidas", int(sub.get("overdue") or 0)))
-    cards.append(card("Pagos 30d", float(pay.get("last_30_sum") or 0.0)))
-    rows = []
-    for it in (upcoming or [])[:8]:
-        rows.append(f"<tr><td>{int(it.get('gym_id') or 0)}</td><td>{str(it.get('nombre') or '')}</td><td>{str(it.get('subdominio') or '')}</td><td>{str(it.get('next_due_date') or '')}</td></tr>")
-    series = list((g.get("series_30") or []))
+    series = list((m.get("gyms") or {}).get("series_30") or [])
     trend_dates = [str(it.get("date") or "") for it in series]
     trend_counts = [int(it.get("count") or 0) for it in series]
-    html = """
-    <div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\"><aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside><main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600;color:#fff\">Dashboard</h1><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px\">{cards}</div><div style=\"margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px\"><div id=\"dash-gyms\" style=\"height:280px\"></div><div id=\"dash-subs\" style=\"height:280px\"></div><div id=\"dash-pay\" style=\"height:280px\"></div><div id=\"dash-gyms-trend\" style=\"height:280px\"></div><div id=\"dash-audit-act\" style=\"height:280px\"></div><div id=\"dash-audit-usr\" style=\"height:280px\"></div></div><h2 style=\"font-size:18px;margin-top:16px;color:#fff\">Próximos vencimientos</h2><div style=\"margin:8px 0\"><form id=\"auto-sus-form\" method=\"post\" action=\"/admin/subscriptions/auto-suspend\" style=\"display:flex;gap:8px;align-items:center\"><input name=\"grace_days\" value=\"7\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:80px\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Auto-suspender vencidos</button></form></div><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Gym</th><th>Nombre</th><th>Subdominio</th><th>Vence</th></tr></thead><tbody>{rows}</tbody></table></div></main></div></div>
-    <script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>
-    <script>var m={gyms:{active:{val:%a},suspended:{val:%b},maintenance:{val:%c}},subscriptions:{active:{val:%d},overdue:{val:%e}},payments:{sum30:{val:%f}}};function pie(id,data){var el=document.getElementById(id);if(!el)return;var c=echarts.init(el);var t={text:'#fff'};c.setOption({backgroundColor:'transparent',tooltip:{trigger:'item'},legend:{textStyle:{color:t.text}},series:[{type:'pie',radius:['40%','70%'],label:{color:t.text},data:data}]});window.addEventListener('resize',function(){c.resize()})}pie('dash-gyms',[{name:'Activos',value:m.gyms.active.val},{name:'Suspendidos',value:m.gyms.suspended.val},{name:'Mantenimiento',value:m.gyms.maintenance.val}]);pie('dash-subs',[{name:'Activas',value:m.subscriptions.active.val},{name:'Vencidas',value:m.subscriptions.overdue.val}]);var el=document.getElementById('dash-pay');if(el){var c=echarts.init(el);var t={text:'#fff',muted:'#9ca3af',border:'#374151'};c.setOption({backgroundColor:'transparent',xAxis:{type:'category',data:['Total 30d'],axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:[m.payments.sum30.val],itemStyle:{color:'#1e40af'}}]});window.addEventListener('resize',function(){c.resize()})}var el2=document.getElementById('dash-gyms-trend');if(el2){var c2=echarts.init(el2);var tt={text:'#fff',muted:'#9ca3af',border:'#374151'};var tdates=%trend_dates%;var tcounts=%trend_counts%;c2.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:tdates,axisLabel:{color:tt.muted}},yAxis:{type:'value',axisLabel:{color:tt.muted},splitLine:{lineStyle:{color:tt.border}}},series:[{type:'line',data:tcounts,smooth:true,itemStyle:{color:'#22c55e'}}]});window.addEventListener('resize',function(){c2.resize()})}var aa=document.getElementById('dash-audit-act');var au=document.getElementById('dash-audit-usr');if(aa||au){fetch('/admin/audit',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var t={text:'#fff',muted:'#9ca3af',border:'#374151'};if(aa){var c4=echarts.init(aa);var dataA=(j&&j.summary&&j.summary.by_action)||[];var labelsA=[];var valuesA=[];for(var i=0;i<dataA.length&&i<6;i++){labelsA.push(String(dataA[i].action||''));valuesA.push(parseInt(dataA[i].c||0))}c4.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:labelsA,axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:valuesA,itemStyle:{color:'#22c55e'}}]});window.addEventListener('resize',function(){c4.resize()})}if(au){var c5=echarts.init(au);var dataU=(j&&j.summary&&j.summary.by_actor)||[];var labelsU=[];var valuesU=[];for(var k=0;k<dataU.length&&k<6;k++){labelsU.push(String(dataU[k].actor_username||''));valuesU.push(parseInt(dataU[k].c||0))}c5.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:labelsU,axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:valuesU,itemStyle:{color:'#1e40af'}}]});window.addEventListener('resize',function(){c5.resize()})}}).catch(function(){})}</script>
-    """.replace("{cards}", "".join(cards)).replace("{rows}", "".join(rows)).replace("%a", str(int(g.get("active") or 0))).replace("%b", str(int(g.get("suspended") or 0))).replace("%c", str(int(g.get("maintenance") or 0))).replace("%d", str(int(sub.get("active") or 0))).replace("%e", str(int(sub.get("overdue") or 0))).replace("%f", str(float(pay.get("last_30_sum") or 0.0))).replace("%trend_dates%", str(trend_dates).replace("'", "\"")).replace("%trend_counts%", str(trend_counts))
-    try:
-        start = html.find('<main')
-        if start >= 0:
-            start = html.find('>', start) + 1
-            end = html.rfind('</main>')
-            if end > start:
-                content_only = html[start:end]
-                html = _admin_wrap(content_only)
-            else:
-                html = _admin_wrap(html)
-        else:
-            html = _admin_wrap(html)
-    except Exception:
-        html = _admin_wrap(html)
-    return Response(content=html, media_type="text/html")
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "metrics": m,
+            "upcoming": upcoming,
+            "trend_dates": trend_dates,
+            "trend_counts": trend_counts,
+        },
+    )

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Templates WhatsApp</h1>
+    {{ ui.btn('Inicio','default','/admin/') }}
+  </div>
+  <p class="text-gray-400">Se usan de forma estándar y no se personalizan por gimnasio.</p>
+  <div class="grid gap-3 md:grid-cols-2">
+    <div>
+      <h2 class="text-lg font-medium">Listado</h2>
+      <ul class="space-y-2">
+        {% for n in names %}
+        <li class="px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] flex items-center justify-between">
+          <span>{{ n }}</span>
+          <a href="/admin/templates?ui=1&name={{ n }}" class="px-2 py-1 rounded-md bg-gray-800">Ver</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div>
+      <h2 class="text-lg font-medium">Previsualización</h2>
+      <form method="get" action="/admin/templates" class="flex flex-wrap gap-2 items-center">
+        <select name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]">
+          {% for n in names %}
+          <option value="{{ n }}"{% if n==name %} selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+        <input type="hidden" name="ui" value="1" />
+        {{ ui.btn('Ver','default', None, 'type="submit"') }}
+      </form>
+      {% if name %}
+      <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] mt-2">
+        <div class="text-gray-400">Texto</div>
+        <div class="text-base">{{ text }}</div>
+      </div>
+      <h3 class="text-lg mt-3">Enviar prueba</h3>
+      <form method="post" action="/admin/gyms/test-send" class="flex flex-wrap gap-2 items-center">
+        <input name="gym_id" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-32" />
+        <input name="name" value="{{ name }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
+        {{ ui.btn('Enviar','primary', None, 'type="submit"') }}
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

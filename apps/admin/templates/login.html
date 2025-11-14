@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-sm mx-auto">
+  <div class="rounded-xl border border-gray-800 bg-gray-900 p-6">
+    <div class="flex items-center gap-2 text-xl font-semibold"><i class="fa-solid fa-lock"></i><span>Acceso admin</span></div>
+    <form method="post" action="/admin/login" class="mt-4 grid gap-3">
+      <label class="grid gap-1">
+        <span class="text-sm text-gray-300">Contraseña</span>
+        <input name="password" type="password" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 focus:outline-none focus:ring-2 focus:ring-primary" />
+      </label>
+      <button type="submit" class="px-4 py-2 rounded-md bg-primary text-primary-foreground">Entrar</button>
+    </form>
+  </div>
+  <div class="mt-3 text-xs text-gray-400">Usa tu contraseña de propietario o `ADMIN_SECRET`.</div>
+</div>
+{% endblock %}

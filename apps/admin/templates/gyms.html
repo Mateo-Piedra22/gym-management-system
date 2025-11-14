@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="space-y-4">
+  <h1 class="text-2xl font-semibold">Gimnasios</h1>
+  <div class="flex flex-wrap gap-3 items-center">
+    <form method="get" action="/admin/gyms" class="flex flex-wrap gap-2">
+      <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
+      <select name="status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
+        <option value="">Todos</option>
+        <option value="active"{% if status_q=='active' %} selected{% endif %}>Activos</option>
+        <option value="suspended"{% if status_q=='suspended' %} selected{% endif %}>Suspendidos</option>
+        <option value="maintenance"{% if status_q=='maintenance' %} selected{% endif %}>Mantenimiento</option>
+      </select>
+      <input type="hidden" name="ui" value="1" />
+      <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Filtrar</button>
+    </form>
+    <form method="get" action="/admin/gyms" class="flex items-center gap-2">
+      <input name="page_size" value="{{ page_size }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
+      <input type="hidden" name="ui" value="1" />
+      <input type="hidden" name="page" value="1" />
+      <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Tamaño página</button>
+    </form>
+    {{ ui.btn('Ctrl+K','default', None, 'id="open-k"') }}
+  </div>
+  <div class="grid [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))] gap-3">
+    {% for g in items %}
+    <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <input type="checkbox" class="select-gym" value="{{ g.id }}" />
+          <div class="font-semibold">{{ g.nombre }}</div>
+          <button type="button" class="text-gray-400 text-sm" data-sub="{{ g.subdominio }}">{{ g.subdominio }}</button>
+        </div>
+        {{ ui.status_badge(g.status) }}
+      </div>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div class="text-gray-400">Creado</div><div>{{ g.created_at }}</div>
+        <div class="text-gray-400">Teléfono</div>
+        <div>
+          <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex gap-2">
+            <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-40" />
+            <button type="submit" class="px-2 py-1 rounded-md bg-gray-900">Guardar</button>
+          </form>
+        </div>
+      </div>
+      {% set next_due = g.next_due_date if g.next_due_date is defined else '' %}
+      {% set last_amt = g.last_payment_amount if g.last_payment_amount is defined else '' %}
+      {% if next_due or last_amt %}
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div class="text-gray-400">Vence</div><div>{{ next_due }}</div>
+        <div class="text-gray-400">Último pago</div>
+        <div>{{ last_amt }} {{ g.last_payment_currency or '' }}{% if g.last_payment_at %} <span class="text-gray-400">· {{ g.last_payment_at }}</span>{% endif %}</div>
+      </div>
+      {% endif %}
+      <div class="flex justify-between items-center">
+        <div class="flex items-center gap-2">
+          <div class="text-gray-400">Salud</div>
+          <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="load delay:200ms" hx-swap="innerHTML" class="flex gap-2 items-center">
+            <div class="skeleton w-24 h-3 rounded-md"></div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          {{ ui.btn('Subs','default','/admin/gyms/' ~ g.id ~ '/subscription?ui=1') }}
+          {{ ui.btn('WA','default','/admin/gyms/' ~ g.id ~ '/whatsapp?ui=1') }}
+          {{ ui.btn('Mant.','default','/admin/gyms/' ~ g.id ~ '/maintenance?ui=1') }}
+          {{ ui.btn('Salud','default','/admin/gyms/' ~ g.id ~ '/health?ui=1') }}
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline">{{ ui.btn('Provisionar','primary', None, 'type="submit"') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/suspend" class="inline"><input type="hidden" name="hard" value="false" />{{ ui.btn('Suspender','danger', None, 'type="submit"') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline">{{ ui.btn('Reactivar','success', None, 'type="submit"') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?">{{ ui.btn('Regenerar clave B2','default', None, 'type="submit"') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?">{{ ui.btn('Eliminar bucket B2','default', None, 'type="submit"') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?">{{ ui.btn('Eliminar','default', None, 'type="submit"') }}</form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt-3 flex items-center gap-3">
+    <a id="prev-link" href="{{ prev_link }}" class="px-3 py-2 rounded-md bg-gray-900">Anterior</a>
+    <a id="next-link" href="{{ next_link }}" class="px-3 py-2 rounded-md bg-gray-900">Siguiente</a>
+    <div class="text-gray-400">Página {{ page }} de {{ last_page }} · {{ total }} resultados</div>
+    <div class="ml-auto text-gray-400">Seleccionados: <span id="sel-count">0</span></div>
+    <div class="flex gap-2">
+      <input type="hidden" id="selected-ids" />
+      {{ ui.btn('Provisionar','primary', None, 'id="batch-prov"') }}
+      {{ ui.btn('Suspender','danger', None, 'id="batch-sus"') }}
+      {{ ui.btn('Reactivar','success', None, 'id="batch-uns"') }}
+    </div>
+  </div>
+  <div class="fixed bottom-4 right-4">
+    <button id="open-k-float" class="px-3 py-2 rounded-full bg-gray-700 text-white">Ctrl+K</button>
+  </div>
+  <div id="confirm-modal" tabindex="-1" aria-hidden="true" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60">
+    <div class="relative p-4 w-full max-w-md">
+      <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
+        <div class="flex items-center justify-between p-3 border-b border-gray-800">
+          <h3 class="text-base font-semibold text-white">Confirmar acción</h3>
+          <button id="confirm-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+        </div>
+        <div class="p-3">
+          <p id="confirm-message" class="text-gray-300">¿Confirmar?</p>
+        </div>
+        <div class="p-3 flex justify-end gap-2">
+          <button id="confirm-cancel-2" class="px-3 py-2 rounded-md bg-gray-800">Cancelar</button>
+          <button id="confirm-yes" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div x-data="{ open: false, q: '' }" x-show="open" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50" x-transition
+       x-on:keydown.escape.window="open=false"
+       x-bind:class="open ? 'flex' : 'hidden'">
+    <div class="w-[92%] max-w-[720px] bg-gray-900 border border-gray-800 rounded-xl">
+      <div class="p-3 border-b border-gray-800 flex justify-between items-center">
+        <div class="font-semibold">Búsqueda</div>
+        <button x-on:click="open=false" id="k-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+      </div>
+      <div class="p-3">
+        <input id="k-input" x-model="q" placeholder="Buscar gimnasios o templates" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full" />
+        <div id="k-results" class="mt-3 grid gap-2"></div>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var confirmOverlay=document.getElementById('confirm-modal');
+    var confirmMsg=document.getElementById('confirm-message');
+    var confirmYes=document.getElementById('confirm-yes');
+    var confirmCancel=document.getElementById('confirm-cancel');
+    var pendingForm=null;
+    function openConfirm(message, form){if(confirmOverlay){confirmOverlay.classList.remove('hidden');confirmMsg.textContent=message||'¿Confirmar?';pendingForm=form}}
+    function closeConfirm(){if(confirmOverlay){confirmOverlay.classList.add('hidden');pendingForm=null}}
+    if(confirmYes){confirmYes.addEventListener('click',function(){if(pendingForm){pendingForm.submit()}closeConfirm()})}
+    if(confirmCancel){confirmCancel.addEventListener('click',function(){closeConfirm()})}
+    var confirmCancel2=document.getElementById('confirm-cancel-2');
+    if(confirmCancel2){confirmCancel2.addEventListener('click',function(){closeConfirm()})}
+    var cForms=document.querySelectorAll('form.needs-confirm');
+    for(var i=0;i<cForms.length;i++){cForms[i].addEventListener('submit',function(e){e.preventDefault();var m=this.getAttribute('data-confirm')||'¿Confirmar?';openConfirm(m,this)})}
+    function toast(msg,type){var c=document.getElementById('toast-container');if(!c){var t=document.createElement('div');t.id='toast-container';t.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(t);c=t}var bg=type==='error'?'#ef4444':(type==='info'?'#374151':'#16a34a');var el=document.createElement('div');el.setAttribute('style','background:'+bg+';color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent=msg;c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}
+    var selected=new Set();function updateSel(){var c=document.getElementById('sel-count');if(c){c.textContent=String(selected.size)}var hid=document.getElementById('selected-ids');if(hid){hid.value=Array.from(selected).join(',')}}
+    var boxes=document.querySelectorAll('.select-gym');for(var i=0;i<boxes.length;i++){boxes[i].addEventListener('change',function(){var v=this.value;if(this.checked){selected.add(v)}else{selected.delete(v)}updateSel()})}
+    var subs=document.querySelectorAll('[data-sub]');for(var j=0;j<subs.length;j++){subs[j].addEventListener('click',function(){var tx=this.getAttribute('data-sub')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')})}else{toast(tx,'info')}})}
+    function runBatch(action){if(selected.size===0){toast('No hay seleccionados','info');return}var form=new URLSearchParams();form.append('action',action);form.append('gym_ids',Array.from(selected).join(','));fetch('/admin/gyms/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Acción '+action+' aplicada','success');setTimeout(function(){window.location.reload()},600)}else{toast('Error en lote','error')}}).catch(function(){toast('Error de red','error')})}
+    var bp=document.getElementById('batch-prov');if(bp){bp.addEventListener('click',function(){runBatch('provision')})}
+    var bs=document.getElementById('batch-sus');if(bs){bs.addEventListener('click',function(){runBatch('suspend')})}
+    var bu=document.getElementById('batch-uns');if(bu){bu.addEventListener('click',function(){runBatch('unsuspend')})}
+    var ok=document.getElementById('open-k');var okf=document.getElementById('open-k-float');var overlay=document.querySelector('[x-data]');var inp=document.getElementById('k-input');var res=document.getElementById('k-results');
+    function openK(){if(overlay){overlay.classList.remove('hidden');overlay.classList.add('flex');setTimeout(function(){if(inp){inp.focus()}},50)}}
+    function closeK(){if(overlay){overlay.classList.add('hidden');overlay.classList.remove('flex')}}
+    if(ok){ok.addEventListener('click',openK)}if(okf){okf.addEventListener('click',openK)}
+    var kc=document.getElementById('k-close');if(kc){kc.addEventListener('click',closeK)}
+    var _kTimer=null;function searchK(q){if(!res)return;clearTimeout(_kTimer);_kTimer=setTimeout(function(){res.innerHTML='<div class="skeleton w-full h-4 rounded-md"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?('/admin/gyms/'+it.id+'/health?ui=1'):('/admin/templates?ui=1');html+='<a href="'+href+'" class="flex justify-between items-center px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] text-white"><span>'+it.label+'</span><span class="text-gray-400 text-xs">'+it.t+'</span></a>'}if(!html){html='<div class="text-gray-400">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div class="text-red-600">Error en búsqueda</div>'})},300)}
+    if(inp){inp.addEventListener('input',function(){searchK(inp.value)})}
+    document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openK()}if(e.key==='['){var link=document.getElementById('prev-link');if(link){link.click()}}if(e.key===']'){var link2=document.getElementById('next-link');if(link2){link2.click()}}});
+  })();
+  </script>
+</div>
+{% endblock %}

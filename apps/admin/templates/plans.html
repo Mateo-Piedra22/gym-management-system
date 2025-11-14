@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="max-w-5xl mx-auto" x-data="{ tab: 'list' }">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Planes</h1>
+    {{ ui.btn('Inicio','default','/admin/') }}
+  </div>
+  <div class="mt-4 flex gap-2">
+    <button x-on:click="tab='list'" x-bind:class="tab==='list' ? 'bg-primary text-primary-foreground' : 'bg-gray-900'" class="px-3 py-2 rounded-md">Listado</button>
+    <button x-on:click="tab='create'" x-bind:class="tab==='create' ? 'bg-primary text-primary-foreground' : 'bg-gray-900'" class="px-3 py-2 rounded-md">Crear</button>
+  </div>
+  <div class="mt-4 overflow-x-auto" x-show="tab==='list'">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-300">
+          <th class="text-left p-2">ID</th>
+          <th class="text-left p-2">Nombre</th>
+          <th class="text-left p-2">Monto</th>
+          <th class="text-left p-2">Moneda</th>
+          <th class="text-left p-2">Días</th>
+          <th class="text-left p-2">Acciones</th>
+          <th class="text-left p-2">Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in items %}
+        <tr class="border-t border-gray-800">
+          <td class="p-2">{{ p.id }}</td>
+          <td class="p-2">
+            <form hx-post="/admin/plans/{{ p.id }}" hx-swap="none" class="flex items-center gap-2">
+              <input name="name" value="{{ p.name }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
+          </td>
+          <td class="p-2">
+              <input name="amount" value="{{ p.amount }}" type="number" step="0.01" class="px-2 py-1 w-28 rounded-md border border-gray-700 bg-gray-950" />
+          </td>
+          <td class="p-2">
+              <input name="currency" value="{{ p.currency }}" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
+          </td>
+          <td class="p-2">
+              <input name="period_days" value="{{ p.period_days }}" type="number" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
+          </td>
+          <td class="p-2">
+              {{ ui.btn('Guardar','success', None, 'type="submit"') }}
+            </form>
+          </td>
+          <td class="p-2">
+            <div class="flex items-center gap-2">
+              {{ ui.status_badge(p.active and 'active' or 'inactive') }}
+              <form hx-post="/admin/plans/{{ p.id }}/toggle" hx-vals='{"active": {{ (not p.active)|string|lower }} }' hx-swap="none" class="inline">
+                {{ ui.btn(p.active and 'Desactivar' or 'Activar','default', None, 'type="submit"') }}
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div x-show="tab==='create'">
+  <h2 class="text-lg mt-6">Crear plan</h2>
+  <form method="post" action="/admin/plans" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+    <input name="name" placeholder="Nombre" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <input name="amount" type="number" step="0.01" placeholder="Monto" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <input name="currency" placeholder="Moneda (e.g. ARS)" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <input name="period_days" type="number" placeholder="Días" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <div class="sm:col-span-2 md:col-span-4">
+      {{ ui.btn('Crear','primary', None, 'type="submit"') }}
+    </div>
+  </form>
+  </div>
+</div>
+{% endblock %}

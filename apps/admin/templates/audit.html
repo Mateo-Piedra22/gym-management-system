@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% import "base.html" as ui %}
+{% block content %}
+<div class="max-w-6xl mx-auto space-y-4">
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Auditoría</h1>
+    {{ ui.btn('Inicio','default','/admin/') }}
+  </div>
+  <form method="get" action="/admin/audit" class="flex flex-wrap gap-2 items-center">
+    <input name="actor" value="{{ actor or '' }}" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <input name="action" value="{{ action or '' }}" placeholder="Acción" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <input name="gym_id" value="{{ gym_id or '' }}" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-28" />
+    <input name="from" value="{{ from or '' }}" placeholder="Desde YYYY-MM-DD" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <input name="to" value="{{ to or '' }}" placeholder="Hasta YYYY-MM-DD" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <input type="hidden" name="ui" value="1" />
+    {{ ui.btn('Filtrar','default', None, 'type="submit"') }}
+  </form>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">
+      <div class="font-semibold mb-2">Top acciones</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {% for x in (summary.by_action or [])[:6] %}
+        <div class="px-3 py-2 rounded-md border border-gray-800 bg-gray-900 flex items-center justify-between"><span class="text-gray-300">{{ x.action }}</span><span class="font-semibold">{{ x.c }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">
+      <div class="font-semibold mb-2">Top actores</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {% for x in (summary.by_actor or [])[:6] %}
+        <div class="px-3 py-2 rounded-md border border-gray-800 bg-gray-900 flex items-center justify-between"><span class="text-gray-300">{{ x.actor_username }}</span><span class="font-semibold">{{ x.c }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-300">
+          <th class="text-left p-2">ID</th>
+          <th class="text-left p-2">Actor</th>
+          <th class="text-left p-2">Acción</th>
+          <th class="text-left p-2">Gym</th>
+          <th class="text-left p-2">Detalles</th>
+          <th class="text-left p-2">Fecha</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+        <tr class="border-t border-gray-800">
+          <td class="p-2">{{ it.id }}</td>
+          <td class="p-2">{{ it.actor_username }}</td>
+          <td class="p-2">{{ it.action }}</td>
+          <td class="p-2">{{ it.gym_id }}</td>
+          <td class="p-2">{{ it.details }}</td>
+          <td class="p-2">{{ it.created_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="flex items-center gap-3 text-sm text-gray-400">
+    <div>Página {{ page }} de {{ (total + page_size - 1) // page_size }}</div>
+    <div>Total {{ total }}</div>
+  </div>
+</div>
+{% endblock %}
