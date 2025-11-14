@@ -66,6 +66,27 @@ async def admin_login(request: Request, password: str = Form(...)):
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
     ok = adm.verificar_owner_password(password)
     if not ok:
+        try:
+            candidate1 = (os.getenv("ADMIN_INITIAL_PASSWORD", "").strip())
+        except Exception:
+            candidate1 = ""
+        try:
+            candidate2 = (os.getenv("ADMIN_SECRET", "").strip())
+        except Exception:
+            candidate2 = ""
+        try:
+            provided = (password or "").strip()
+        except Exception:
+            provided = password
+        if provided and (provided == candidate1 or provided == candidate2):
+            try:
+                adm._ensure_owner_user()
+            except Exception:
+                pass
+            ok2 = adm.set_admin_owner_password(provided)
+            if ok2:
+                ok = True
+    if not ok:
         acc = (request.headers.get("accept") or "").lower()
         if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
             return RedirectResponse(url="/admin/login?error=Credenciales", status_code=303)
