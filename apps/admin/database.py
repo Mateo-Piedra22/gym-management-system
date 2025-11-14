@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 import psycopg2
@@ -514,6 +515,76 @@ class AdminDatabaseManager:
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"error": str(e)}
+
+    def subdominio_disponible(self, subdominio: str) -> bool:
+        try:
+            s = str(subdominio or "").strip().lower()
+            if not s:
+                return False
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute("SELECT 1 FROM gyms WHERE subdominio = %s", (s,))
+                row = cur.fetchone()
+                return not bool(row)
+        except Exception:
+            return False
+
+    def _slugify(self, value: str) -> str:
+        v = str(value or "").strip().lower()
+        if not v:
+            return ""
+        nf = unicodedata.normalize("NFKD", v)
+        ascii_v = nf.encode("ascii", "ignore").decode("ascii")
+        ascii_v = re.sub(r"[^a-z0-9]+", "-", ascii_v)
+        ascii_v = re.sub(r"-+", "-", ascii_v)
+        ascii_v = ascii_v.strip("-")
+        return ascii_v
+
+    def sugerir_subdominio_unico(self, nombre_base: str) -> str:
+        base = self._slugify(nombre_base)
+        if not base:
+            base = "gym"
+        cur = base
+        if self.subdominio_disponible(cur):
+            return cur
+        i = 1
+        while i < 1000:
+            cand = f"{base}-{i}"
+            if self.subdominio_disponible(cand):
+                return cand
+            i += 1
+        return f"{base}-{int(os.urandom(2).hex(), 16)}"
+
+    def actualizar_gimnasio(self, gym_id: int, nombre: Optional[str], subdominio: Optional[str]) -> Dict[str, Any]:
+        try:
+            gid = int(gym_id)
+            nm = (nombre or "").strip()
+            sd = (subdominio or "").strip().lower()
+            sets: List[str] = []
+            params: List[Any] = []
+            if nm:
+                sets.append("nombre = %s")
+                params.append(nm)
+            if sd:
+                with self.db.get_connection_context() as conn:  # type: ignore
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1 FROM gyms WHERE subdominio = %s AND id <> %s", (sd, gid))
+                    if cur.fetchone():
+                        return {"ok": False, "error": "subdominio_in_use"}
+                sets.append("subdominio = %s")
+                params.append(sd)
+            if not sets:
+                return {"ok": False, "error": "no_fields"}
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                sql = f"UPDATE gyms SET {', '.join(sets)} WHERE id = %s"
+                params.append(gid)
+                cur.execute(sql, params)
+                conn.commit()
+            return {"ok": True}
+        except Exception as e:
+            logging.getLogger(__name__).error(str(e))
+            return {"ok": False, "error": str(e)}
 
     def _crear_db_postgres(self, db_name: str) -> bool:
         try:
