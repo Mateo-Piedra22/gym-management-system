@@ -934,6 +934,27 @@ async def admin_owner_password_reset(request: Request, new_password: str = Form(
     except Exception:
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
+
+@admin_app.get("/secret-login")
+async def admin_secret_login(request: Request, token: str):
+    secret = os.getenv("ADMIN_SECRET", "").strip()
+    if not secret or (str(token or "").strip() != secret):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        request.session["admin_logged_in"] = True
+        try:
+            request.session["session_version"] = int(getattr(admin_app.state, "session_version", 1))
+        except Exception:
+            request.session["session_version"] = 1
+    except Exception:
+        pass
+    try:
+        adm = _get_admin_db()
+        if adm:
+            adm.log_action("owner", "secret_login", None, None)
+    except Exception:
+        pass
+    return RedirectResponse(url="/admin", status_code=303)
 @admin_app.get("/gyms/{gym_id}/branding")
 async def branding_form(request: Request, gym_id: int):
     _require_admin(request)
