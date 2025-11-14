@@ -370,6 +370,57 @@ class AdminDatabaseManager:
         except Exception:
             return {"items": [], "total": 0, "page": 1, "page_size": int(page_size or 20)}
 
+    def listar_gimnasios_con_resumen(self, page: int, page_size: int, q: Optional[str], status: Optional[str], order_by: Optional[str], order_dir: Optional[str]) -> Dict[str, Any]:
+        try:
+            p = max(int(page or 1), 1)
+            ps = max(int(page_size or 20), 1)
+            allowed_cols = {"id", "nombre", "subdominio", "status", "created_at"}
+            ob = (order_by or "id").strip().lower()
+            if ob not in allowed_cols:
+                ob = "id"
+            od = (order_dir or "desc").strip().upper()
+            if od not in {"ASC", "DESC"}:
+                od = "DESC"
+            where_terms: List[str] = []
+            params: List[Any] = []
+            qv = str(q or "").strip().lower()
+            if qv:
+                where_terms.append("(LOWER(g.nombre) LIKE %s OR LOWER(g.subdominio) LIKE %s)")
+                like = f"%{qv}%"
+                params.extend([like, like])
+            sv = str(status or "").strip().lower()
+            if sv:
+                where_terms.append("LOWER(g.status) = %s")
+                params.append(sv)
+            where_sql = (" WHERE " + " AND ".join(where_terms)) if where_terms else ""
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(f"SELECT COUNT(*) FROM gyms g{where_sql}", params)
+                total_row = cur.fetchone()
+                total = int(total_row[0]) if total_row else 0
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    f"""
+                    SELECT g.id, g.nombre, g.subdominio, g.db_name, g.owner_phone, g.status, g.hard_suspend, g.suspended_until,
+                           g.b2_bucket_name, g.b2_bucket_id, g.created_at,
+                           gs.next_due_date, gs.status AS sub_status,
+                           (SELECT amount FROM gym_payments WHERE gym_id = g.id ORDER BY paid_at DESC LIMIT 1) AS last_payment_amount,
+                           (SELECT currency FROM gym_payments WHERE gym_id = g.id ORDER BY paid_at DESC LIMIT 1) AS last_payment_currency,
+                           (SELECT paid_at FROM gym_payments WHERE gym_id = g.id ORDER BY paid_at DESC LIMIT 1) AS last_payment_at
+                    FROM gyms g
+                    LEFT JOIN gym_subscriptions gs ON gs.gym_id = g.id
+                    {where_sql}
+                    ORDER BY g.{ob} {od}
+                    LIMIT %s OFFSET %s
+                    """,
+                    params + [ps, (p - 1) * ps]
+                )
+                rows = cur.fetchall()
+            return {"items": [dict(r) for r in rows], "total": total, "page": p, "page_size": ps}
+        except Exception:
+            return {"items": [], "total": 0, "page": 1, "page_size": int(page_size or 20)}
+
     def obtener_gimnasio(self, gym_id: int) -> Optional[Dict[str, Any]]:
         try:
             with self.db.get_connection_context() as conn:  # type: ignore
@@ -498,8 +549,8 @@ class AdminDatabaseManager:
         db_name = f"{sub}{suffix}"
         bucket_prefix = os.getenv("B2_BUCKET_PREFIX", "motiona-assets")
         bucket_name = f"{bucket_prefix}-{sub}"
-        created_db = self._crear_db_postgres(db_name)
-        bucket_info = self._crear_bucket_b2(bucket_name)
+        created_db = False
+        bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
@@ -601,7 +652,7 @@ class AdminDatabaseManager:
                 project_id = (os.getenv("NEON_PROJECT_ID") or "").strip()
                 branch_id = (os.getenv("NEON_BRANCH_ID") or "").strip()
                 if project_id and branch_id:
-                    lr = requests.get(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers)
+                    lr = requests.get(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, timeout=10)
                     if lr.status_code != 200:
                         return False
                     dbs = (lr.json() or {}).get("databases") or []
@@ -610,18 +661,24 @@ class AdminDatabaseManager:
                             params = _resolve_admin_db_params()
                             params["database"] = name
                             dm = DatabaseManager(connection_params=params)  # type: ignore
-                            dm.inicializar_base_datos()
+                            try:
+                                dm.inicializar_base_datos()
+                            except Exception:
+                                pass
                             return True
                     owner = os.getenv("ADMIN_DB_USER", os.getenv("DB_USER", "neondb_owner")).strip() or "neondb_owner"
-                    cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}})
+                    cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}}, timeout=12)
                     if not (200 <= cr.status_code < 300):
                         return False
                     params = _resolve_admin_db_params()
                     params["database"] = name
                     dm = DatabaseManager(connection_params=params)  # type: ignore
-                    dm.inicializar_base_datos()
+                    try:
+                        dm.inicializar_base_datos()
+                    except Exception:
+                        pass
                     return True
-                pr = requests.get(f"{api}/projects", headers=headers)
+                pr = requests.get(f"{api}/projects", headers=headers, timeout=10)
                 if pr.status_code != 200:
                     return False
                 pjs = (pr.json() or {}).get("projects") or []
@@ -631,7 +688,7 @@ class AdminDatabaseManager:
                     pid = pj.get("id")
                     if not pid:
                         continue
-                    er = requests.get(f"{api}/projects/{pid}/endpoints", headers=headers)
+                    er = requests.get(f"{api}/projects/{pid}/endpoints", headers=headers, timeout=10)
                     if er.status_code != 200:
                         continue
                     eps = (er.json() or {}).get("endpoints") or []
@@ -646,7 +703,7 @@ class AdminDatabaseManager:
                         break
                 if not project_id or not branch_id:
                     return False
-                lr = requests.get(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers)
+                lr = requests.get(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, timeout=10)
                 if lr.status_code != 200:
                     return False
                 dbs = (lr.json() or {}).get("databases") or []
@@ -655,16 +712,22 @@ class AdminDatabaseManager:
                         params = _resolve_admin_db_params()
                         params["database"] = name
                         dm = DatabaseManager(connection_params=params)  # type: ignore
-                        dm.inicializar_base_datos()
+                        try:
+                            dm.inicializar_base_datos()
+                        except Exception:
+                            pass
                         return True
                 owner = os.getenv("ADMIN_DB_USER", os.getenv("DB_USER", "neondb_owner")).strip() or "neondb_owner"
-                cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}})
+                cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}}, timeout=12)
                 if not (200 <= cr.status_code < 300):
                     return False
                 params = _resolve_admin_db_params()
                 params["database"] = name
                 dm = DatabaseManager(connection_params=params)  # type: ignore
-                dm.inicializar_base_datos()
+                try:
+                    dm.inicializar_base_datos()
+                except Exception:
+                    pass
                 return True
             base = _resolve_admin_db_params()
             host = base.get("host")
@@ -711,7 +774,7 @@ class AdminDatabaseManager:
             key = (os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
             if not acc or not key:
                 return {}
-            r = requests.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", auth=(acc, key))
+            r = requests.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", auth=(acc, key), timeout=10)
             if r.status_code != 200:
                 return {}
             return r.json() or {}
@@ -732,7 +795,7 @@ class AdminDatabaseManager:
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
             headers = {"Authorization": token}
-            lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id})
+            lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id}, timeout=10)
             bucket_id = None
             bucket_name = name
             if lb.status_code == 200:
@@ -752,7 +815,7 @@ class AdminDatabaseManager:
                     btype = "allPrivate" if priv else "allPublic"
                 except Exception:
                     btype = "allPublic"
-                cb = requests.post(f"{api_url}/b2api/v2/b2_create_bucket", headers=headers, json={"accountId": account_id, "bucketName": name, "bucketType": btype})
+                cb = requests.post(f"{api_url}/b2api/v2/b2_create_bucket", headers=headers, json={"accountId": account_id, "bucketName": name, "bucketType": btype}, timeout=12)
                 if cb.status_code == 200:
                     bj = cb.json()
                     bucket_name = bj.get("bucketName")
@@ -762,7 +825,7 @@ class AdminDatabaseManager:
             if bucket_id:
                 key_name = f"gym-{name}"
                 caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles", "listBuckets", "readBuckets"]
-                ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id})
+                ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
                 if ck.status_code == 200:
                     kj = ck.json()
                     key_id = kj.get("applicationKeyId")
@@ -771,6 +834,30 @@ class AdminDatabaseManager:
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"bucket_name": bucket_name, "bucket_id": None}
+
+    def provisionar_recursos(self, gym_id: int) -> Dict[str, Any]:
+        try:
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, subdominio, db_name, b2_bucket_name FROM gyms WHERE id = %s", (int(gym_id),))
+                row = cur.fetchone()
+            if not row:
+                return {"ok": False, "error": "gym_not_found"}
+            sub = str(row.get("subdominio") or "").strip().lower()
+            if not sub:
+                return {"ok": False, "error": "invalid_subdomain"}
+            db_name = str(row.get("db_name") or "").strip() or f"{sub}{os.getenv('TENANT_DB_SUFFIX', '_db')}"
+            bucket_name = str(row.get("b2_bucket_name") or "").strip() or f"{os.getenv('B2_BUCKET_PREFIX', 'motiona-assets')}-{sub}"
+            created_db = self._crear_db_postgres(db_name)
+            bucket_info = self._crear_bucket_b2(bucket_name)
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute("UPDATE gyms SET db_name = %s, b2_bucket_name = %s, b2_bucket_id = %s, b2_key_id = %s, b2_application_key = %s WHERE id = %s", (db_name, bucket_info.get("bucket_name") or bucket_name, bucket_info.get("bucket_id") or None, bucket_info.get("key_id") or None, bucket_info.get("application_key") or None, int(gym_id)))
+                conn.commit()
+            return {"ok": True, "db_created": bool(created_db), "bucket": bucket_info}
+        except Exception as e:
+            logging.getLogger(__name__).error(str(e))
+            return {"ok": False, "error": str(e)}
 
     def set_gym_owner_phone(self, gym_id: int, owner_phone: Optional[str]) -> bool:
         try:
@@ -1188,15 +1275,18 @@ class AdminDatabaseManager:
                 active_subs = int((cur.fetchone() or [0])[0])
                 cur.execute("SELECT COALESCE(SUM(amount),0) FROM gym_payments WHERE paid_at >= (CURRENT_DATE - INTERVAL '30 days')")
                 payments_30_sum = float((cur.fetchone() or [0.0])[0] or 0)
+                cur.execute("SELECT created_at::date AS d, COUNT(*) AS c FROM gyms WHERE created_at >= (CURRENT_DATE - INTERVAL '30 days') GROUP BY d ORDER BY d ASC")
+                series_rows = cur.fetchall()
+                series_30 = [{"date": str(r[0]), "count": int(r[1])} for r in series_rows]
             return {
-                "gyms": {"total": total_gyms, "active": active_gyms, "suspended": suspended_gyms, "maintenance": maintenance_gyms, "last_7": gyms_last_7, "last_30": gyms_last_30},
+                "gyms": {"total": total_gyms, "active": active_gyms, "suspended": suspended_gyms, "maintenance": maintenance_gyms, "last_7": gyms_last_7, "last_30": gyms_last_30, "series_30": series_30},
                 "whatsapp": {"configured": whatsapp_cfg},
                 "storage": {"configured": storage_cfg},
                 "subscriptions": {"active": active_subs, "overdue": overdue_subs},
                 "payments": {"last_30_sum": payments_30_sum},
             }
         except Exception:
-            return {"gyms": {"total": 0, "active": 0, "suspended": 0, "maintenance": 0, "last_7": 0, "last_30": 0}, "whatsapp": {"configured": 0}, "storage": {"configured": 0}, "subscriptions": {"active": 0, "overdue": 0}, "payments": {"last_30_sum": 0.0}}
+            return {"gyms": {"total": 0, "active": 0, "suspended": 0, "maintenance": 0, "last_7": 0, "last_30": 0, "series_30": []}, "whatsapp": {"configured": 0}, "storage": {"configured": 0}, "subscriptions": {"active": 0, "overdue": 0}, "payments": {"last_30_sum": 0.0}}
 
     def obtener_warnings_admin(self) -> List[str]:
         ws: List[str] = []

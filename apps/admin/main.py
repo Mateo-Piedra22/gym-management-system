@@ -1,7 +1,7 @@
 import os
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, Request, HTTPException, Form
+from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, Response, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 try:
@@ -159,7 +159,7 @@ async def admin_home(request: Request):
                 return RedirectResponse(url="/admin/login", status_code=303)
     _require_admin(request)
     html = """
-    <div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Panel Admin</h1><div style=\"display:flex;gap:12px;margin-top:12px\"><a href=\"/admin/gyms\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Ver gimnasios</a><a href=\"/admin/owner/password?ui=1\" style=\"padding:10px 14px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Contraseña Admin</a><a href=\"/admin/subscriptions/upcoming?ui=1\" style=\"padding:10px 14px;border-radius:6px;background:#1e40af;color:#fff;text-decoration:none\">Próximos vencimientos</a><a href=\"/admin/login\" style=\"padding:10px 14px;border-radius:6px;background:#444;color:#fff;text-decoration:none\">Cambiar cuenta</a></div><form method=\"post\" action=\"/admin/gyms\" style=\"display:grid;gap:8px;margin-top:16px\"><input id=\"create-name\" name=\"nombre\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"create-sub\" name=\"subdominio\" placeholder=\"Subdominio\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><span id=\"create-sub-status\" style=\"color:#9ca3af;font-size:12px\"></span></div><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...)\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><input name=\"whatsapp_business_account_id\" placeholder=\"WhatsApp Business Account ID\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><input name=\"whatsapp_verify_token\" placeholder=\"WhatsApp Verify Token\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><input name=\"whatsapp_app_secret\" placeholder=\"WhatsApp App Secret\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" name=\"whatsapp_nonblocking\" value=\"true\"/> WhatsApp no bloqueante</label><input type=\"number\" step=\"0.1\" name=\"whatsapp_send_timeout_seconds\" placeholder=\"Timeout envío WhatsApp (seg)\" style=\"padding:8px;border:1px solid #ccc;border-radius:6px\" /><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Crear gimnasio</button></form></div></div>
+    <div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\"><aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside><main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600\">Panel Admin</h1><div style=\"display:flex;gap:12px;margin-top:12px\"><a href=\"/admin/login\" style=\"padding:10px 14px;border-radius:6px;background:#444;color:#fff;text-decoration:none\">Cambiar cuenta</a></div><h2 style=\"font-size:18px;margin-top:16px\">Crear gimnasio</h2><div style=\"color:#9ca3af;margin-top:6px\">Los campos marcados con * son obligatorios</div><form id=\"create-form\" method=\"post\" action=\"/admin/gyms\" style=\"display:grid;gap:8px;margin-top:8px;max-width:640px\"><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Nombre *</span><input id=\"create-name\" name=\"nombre\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><div style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Subdominio (opcional)</span><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"create-sub\" name=\"subdominio\" placeholder=\"Subdominio (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /><span id=\"create-sub-status\" style=\"color:#9ca3af;font-size:12px\"></span></div></div><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Teléfono dueño (opcional)</span><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Phone ID (opcional)</span><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Access Token (opcional)</span><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Business Account ID (opcional)</span><input name=\"whatsapp_business_account_id\" placeholder=\"WhatsApp Business Account ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Verify Token (opcional)</span><input name=\"whatsapp_verify_token\" placeholder=\"WhatsApp Verify Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp App Secret (opcional)</span><input name=\"whatsapp_app_secret\" placeholder=\"WhatsApp App Secret (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" name=\"whatsapp_nonblocking\" value=\"true\"/> WhatsApp no bloqueante</label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Timeout envío WhatsApp (seg) (opcional)</span><input type=\"number\" step=\"0.1\" name=\"whatsapp_send_timeout_seconds\" placeholder=\"Timeout envío WhatsApp (seg) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Crear gimnasio</button></form></main></div></div>
     """
     try:
         html = html.replace("/admin/subscriptions/upcoming?ui=1", "/admin/subscriptions/dashboard?ui=1")
@@ -168,7 +168,7 @@ async def admin_home(request: Request):
         pass
     extra = """
     <div class=\"dark\"><style>@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}.skeleton{background:#1f2937;background-image:linear-gradient(90deg,#1f2937 0,#374151 50%,#1f2937 100%);background-size:200px 100%;animation:shimmer 1.2s infinite linear}</style><button id=\"open-k\" style=\"position:fixed;bottom:16px;right:16px;padding:10px 12px;border-radius:999px;background:#374151;color:#fff\">Ctrl+K</button><div id=\"k-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:40\"><div style=\"width:90%;max-width:720px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600\">Búsqueda</div><button id=\"k-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div style=\"padding:12px\"><input id=\"k-input\" placeholder=\"Buscar gimnasios o templates\" style=\"padding:8px;border:1px solid #333;border-radius:8px;width:100%\"/><div id=\"k-results\" style=\"margin-top:12px;display:grid;gap:8px\"></div></div></div></div></div>
-    <script>function _slugify(v){v=String(v||'').toLowerCase();v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'');v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}function _updateSubFromName(){var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');if(!n||!s)return;var base=_slugify(n.value);if(!base){s.value='';if(st){st.textContent=''}return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent=''}})}document.addEventListener('DOMContentLoaded',function(){var n=document.getElementById('create-name');if(n){n.addEventListener('input',_updateSubFromName);_updateSubFromName()}});</script>
+    <script>function _slugify(v){v=String(v||'').toLowerCase();v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'');v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}function _updateSubFromName(){var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');if(!n||!s)return;var base=_slugify(n.value);if(!base){s.value='';if(st){st.textContent=''}return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent=''}})}function _handleCreateSubmit(e){e.preventDefault();var f=document.getElementById('create-form');if(!f)return;var btn=f.querySelector('button[type="submit"]');if(btn){btn.disabled=true;btn.textContent='Creando...'}var fd=new FormData(f);fetch('/admin/gyms',{method:'POST',headers:{'accept':'application/json'},body:fd}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.id){window.location.href='/admin/gyms?ui=1'}else{alert('Error al crear gimnasio')}}).catch(function(){alert('Error de red al crear gimnasio')}).finally(function(){if(btn){btn.disabled=false;btn.textContent='Crear gimnasio'}})}document.addEventListener('DOMContentLoaded',function(){var n=document.getElementById('create-name');if(n){n.addEventListener('input',_updateSubFromName);_updateSubFromName()}var f=document.getElementById('create-form');if(f){f.addEventListener('submit',_handleCreateSubmit)}});</script>
     """
     warnings_html = ""
     try:
@@ -241,7 +241,11 @@ async def listar_gimnasios(request: Request):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse(payload, status_code=200)
-    items: List[Dict[str, Any]] = list(payload.get("items") or [])
+    try:
+        payload_grid = adm.listar_gimnasios_con_resumen(page, page_size, q or None, status_q or None, order_by or None, order_dir or None)
+    except Exception:
+        payload_grid = payload
+    items: List[Dict[str, Any]] = list((payload_grid or {}).get("items") or [])
     total = int(payload.get("total") or 0)
     p = int(payload.get("page") or page)
     ps = int(payload.get("page_size") or page_size)
@@ -271,7 +275,7 @@ async def listar_gimnasios(request: Request):
         bname = str(g.get("b2_bucket_name") or "")
         salud = f"<div id=\"health-{gid}\" style=\"display:flex;gap:10px;align-items:center\"><div class=\"skeleton\" style=\"width:96px;height:14px;border-radius:6px\"></div></div>"
         status_html = chip(status)
-        actions = f"<form method=\"post\" action=\"/admin/gyms/{gid}/contact\" style=\"display:inline\"><input name=\"owner_phone\" value=\"{owner_phone}\" placeholder=\"+54...\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:160px\"/><button type=\"submit\" style=\"margin-left:6px\">Guardar</button></form> <a href=\"/admin/gyms/{gid}/owner?ui=1\" style=\"margin-left:6px\">Contraseña dueño</a> <a href=\"/admin/gyms/{gid}/branding?ui=1\" style=\"margin-left:6px\">Branding</a> <a href=\"#\" data-edit=\"{gid}\" style=\"margin-left:6px\">Editar</a> <form method=\"post\" action=\"/admin/gyms/{gid}/suspend\" style=\"display:inline;margin-left:6px\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\">Suspender</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/unsuspend\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Reactivar</button></form> <a href=\"/admin/gyms/{gid}/subscription?ui=1\" style=\"margin-left:6px\">Suscripción</a> <a href=\"/admin/gyms/{gid}/payments?ui=1\" style=\"margin-left:6px\">Pagos</a> <a href=\"/admin/gyms/{gid}/maintenance?ui=1\" style=\"margin-left:6px\">Mantenimiento</a> <a href=\"/admin/gyms/{gid}/whatsapp?ui=1\" style=\"margin-left:6px\">WhatsApp</a> <a href=\"/admin/gyms/{gid}/health?ui=1\" style=\"margin-left:6px\">Salud</a> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/regenerate-key\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Regenerar clave B2</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/delete-bucket\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Eliminar bucket B2</button></form>"
+        actions = f"<form method=\"post\" action=\"/admin/gyms/{gid}/contact\" style=\"display:inline\"><input name=\"owner_phone\" value=\"{owner_phone}\" placeholder=\"+54...\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:160px\"/><button type=\"submit\" style=\"margin-left:6px\">Guardar</button></form> <a href=\"/admin/gyms/{gid}/owner?ui=1\" style=\"margin-left:6px\">Contraseña dueño</a> <a href=\"/admin/gyms/{gid}/branding?ui=1\" style=\"margin-left:6px\">Branding</a> <a href=\"#\" data-edit=\"{gid}\" style=\"margin-left:6px\">Editar</a> <form method=\"post\" action=\"/admin/gyms/{gid}/provision\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Provisionar</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/suspend\" style=\"display:inline;margin-left:6px\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\">Suspender</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/unsuspend\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Reactivar</button></form> <a href=\"/admin/gyms/{gid}/subscription?ui=1\" style=\"margin-left:6px\">Suscripción</a> <a href=\"/admin/gyms/{gid}/payments?ui=1\" style=\"margin-left:6px\">Pagos</a> <a href=\"/admin/gyms/{gid}/maintenance?ui=1\" style=\"margin-left:6px\">Mantenimiento</a> <a href=\"/admin/gyms/{gid}/whatsapp?ui=1\" style=\"margin-left:6px\">WhatsApp</a> <a href=\"/admin/gyms/{gid}/health?ui=1\" style=\"margin-left:6px\">Salud</a> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/regenerate-key\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Regenerar clave B2</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/delete-bucket\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Eliminar bucket B2</button></form>"
         created = str(g.get("created_at") or "")
         rows.append(f"<tr data-gym-id=\"{gid}\"><td>{gid}</td><td>{nombre}</td><td>{sub}</td><td>{created}</td><td>{owner_phone}</td><td>{status_html}</td><td>{salud}</td><td>{hard}</td><td>{until}</td><td>{bname}</td><td>{actions}</td></tr>")
     def link_for(col: str) -> str:
@@ -282,16 +286,63 @@ async def listar_gimnasios(request: Request):
     last_page = max((total + ps - 1) // ps, 1)
     if p >= last_page:
         next_link = prev_link
+    style = "<style>@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}.skeleton{background:#1f2937;background-image:linear-gradient(90deg,#1f2937 0,#374151 50%,#1f2937 100%);background-size:200px 100%;animation:shimmer 1.2s infinite linear}</style>"
+    def _card_for(g: Dict[str, Any]) -> str:
+        gid = str(g.get("id") or "")
+        nombre = str(g.get("nombre") or "")
+        sub = str(g.get("subdominio") or "")
+        status_html = chip(str(g.get("status") or ""))
+        created = str(g.get("created_at") or "")
+        owner_phone = str(g.get("owner_phone") or "")
+        salud = f"<div id=\"health-{gid}\" style=\"display:flex;gap:10px;align-items:center\"><div class=\"skeleton\" style=\"width:96px;height:14px;border-radius:6px\"></div></div>"
+        next_due = str(g.get("next_due_date") or "")
+        last_amt = g.get("last_payment_amount")
+        last_cur = str(g.get("last_payment_currency") or "")
+        last_at = str(g.get("last_payment_at") or "")
+        resumen = ""
+        if next_due or last_amt:
+            resumen = f"<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div style=\"color:#9ca3af\">Vence</div><div style=\"color:#fff\">{next_due}</div><div style=\"color:#9ca3af\">Último pago</div><div style=\"color:#fff\">{str(last_amt or '')} {last_cur} {('<span style=\"color:#9ca3af\">· ' + last_at + '</span>') if last_at else ''}</div></div>"
+        quick = f"<div style=\"display:flex;gap:6px\"><a href=\"/admin/gyms/{gid}/subscription?ui=1\" style=\"padding:6px 8px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">Subs</a><a href=\"/admin/gyms/{gid}/whatsapp?ui=1\" style=\"padding:6px 8px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">WA</a><a href=\"/admin/gyms/{gid}/maintenance?ui=1\" style=\"padding:6px 8px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">Mant.</a><a href=\"/admin/gyms/{gid}/health?ui=1\" style=\"padding:6px 8px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">Salud</a></div>"
+        return f"<div data-gym-id=\"{gid}\" style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222;display:grid;gap:8px\"><div style=\"display:flex;justify-content:space-between;align-items:center\"><div style=\"display:flex;gap:8px;align-items:center\"><input type=\"checkbox\" data-select=\"{gid}\"/><div style=\"font-weight:700;color:#fff\">{nombre}</div><div style=\"color:#9ca3af;cursor:copy\" data-sub=\"{sub}\">{sub}</div></div><div>{status_html}</div></div><div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div style=\"color:#9ca3af\">Creado</div><div style=\"color:#fff\">{created}</div><div style=\"color:#9ca3af\">Teléfono</div><div style=\"color:#fff\">{owner_phone}</div></div>{resumen}<div style=\"display:flex;justify-content:space-between;align-items:center\"><div style=\"display:flex;gap:8px;align-items:center\"><div style=\"color:#9ca3af\">Salud</div>{salud}</div><div style=\"display:flex;gap:8px\"><button data-open=\"{gid}\" style=\"padding:6px 10px;border-radius:6px;background:#1e40af;color:#fff\">Ver detalles</button>{quick}</div></div></div>"
+    _cards_html = "".join([_card_for(g) for g in items])
+    html_grid = (
+        "<div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\">"
+        + "<aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><div style=\"margin-top:10px\"><input id=\"sb-search\" placeholder=\"Buscar...\" style=\"padding:8px;border:1px solid #333;border-radius:8px;width:100%\"/><div id=\"sb-results\" style=\"margin-top:8px;display:grid;gap:6px\"></div></div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside>"
+        + "<main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600;color:#fff\">Gimnasios</h1>"
+        + "<div style=\"margin:12px 0;display:flex;gap:12px;flex-wrap:wrap\"><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px;flex-wrap:wrap\"><input name=\"q\" value=\"" + q + "\" placeholder=\"Buscar por nombre o subdominio\" style=\"padding:8px;border:1px solid #333;border-radius:6px;min-width:240px\"/><select name=\"status\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"><option value=\"\">Todos</option><option value=\"active\"" + (" selected\"" if status_q == "active" else "\"") + ">Activos</option><option value=\"suspended\"" + (" selected\"" if status_q == "suspended" else "\"") + ">Suspendidos</option><option value=\"maintenance\"" + (" selected\"" if status_q == "maintenance" else "\"") + ">Mantenimiento</option></select><input type=\"hidden\" name=\"ui\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Filtrar</button></form><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px\"><input name=\"page_size\" value=\"" + str(ps) + "\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:80px\"/><input type=\"hidden\" name=\"ui\" value=\"1\"/><input type=\"hidden\" name=\"page\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Tamaño página</button></form></div>"
+        + style
+        + "<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px\">" + _cards_html + "</div><div style=\"margin-top:12px;display:flex;gap:8px;align-items:center\"><a id=\"prev-link\" href=\"" + prev_link + "\" style=\"padding:8px 12px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">Anterior</a><a id=\"next-link\" href=\"" + next_link + "\" style=\"padding:8px 12px;border-radius:6px;background:#1f2937;color:#fff;text-decoration:none\">Siguiente</a><div style=\"color:#9ca3af\">Página " + str(p) + " de " + str(last_page) + " · " + str(total) + " resultados</div><div id=\"sel-count\" style=\"color:#9ca3af;margin-left:auto\">Seleccionados: 0</div><div style=\"display:flex;gap:8px\"><button id=\"batch-prov\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Provisionar</button><button id=\"batch-sus\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Suspender</button><button id=\"batch-uns\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Reactivar</button></div><div id=\"toast-container\" style=\"display:grid;gap:8px;position:fixed;top:16px;right:16px\"></div></div><div id=\"details-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:50\"><div style=\"width:92%;max-width:920px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600;color:#fff\">Detalles del gimnasio</div><button id=\"details-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div id=\"details-content\" style=\"padding:12px\"></div></div></div><button id=\"open-k-float\" style=\"position:fixed;bottom:16px;right:16px;padding:10px 12px;border-radius:999px;background:#374151;color:#fff\">Ctrl+K</button></main></div></div>"
+    )
+    js_grid = """
+    <script>
+    function toast(msg, type){var c=document.getElementById('toast-container');if(!c){var t=document.createElement('div');t.id='toast-container';t.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(t);c=t}var bg=type==='error'?'#ef4444':(type==='info'?'#374151':'#16a34a');var el=document.createElement('div');el.setAttribute('style','background:'+bg+';color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent=msg;c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}
+    function _slugify(v){v=String(v||'').toLowerCase();v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'');v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}
+    function loadHealth(gid){var el=document.getElementById('health-'+gid);if(!el)return;fetch('/admin/gyms/'+gid+'/health',{headers:{'accept':'application/json'}}).then(function(r){if(!r.ok){throw new Error('HTTP '+r.status)}return r.json()}).then(function(j){var d=j&&j.db&&j.db.ok;var w=j&&j.whatsapp&&j.whatsapp.ok;var s=j&&j.storage&&j.storage.ok;var html='';html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(d?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">DB</span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(w?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">WA</span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(s?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">ST</span></div>";el.innerHTML=html}).catch(function(e){})}
+    function initHealth(){var cards=document.querySelectorAll('[data-gym-id]');var ids=[];for(var i=0;i<cards.length;i++){ids.push(cards[i].getAttribute('data-gym-id'))}var idx=0;var conc=3;function runOne(){if(idx>=ids.length)return;var gid=ids[idx++];loadHealth(gid);setTimeout(runOne,400)}for(var k=0;k<conc;k++){runOne()}}
+    function openK(){var o=document.getElementById('k-overlay');if(o){o.style.display='flex';var inp=document.getElementById('k-input');if(inp){setTimeout(function(){inp.focus()},50)}}}
+    function closeK(){var o=document.getElementById('k-overlay');if(o){o.style.display='none'}}
+    var _kTimer=null;function searchK(q){var res=document.getElementById('k-results');if(!res)return;clearTimeout(_kTimer);_kTimer=setTimeout(function(){res.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?('/admin/gyms/'+it.id+'/health?ui=1'):('/admin/templates?ui=1');html+="<a href=\""+href+"\" style=\"display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#0b1222;color:#fff;text-decoration:none\"><span>"+it.label+"</span><span style=\"color:#9ca3af;font-size:12px\">"+it.t+"</span></a>"}if(!html){html='<div style=\"color:#9ca3af\">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div style=\"color:#ef4444\">Error en búsqueda</div>'})},300)}
+    function openDetails(gid){var o=document.getElementById('details-overlay');var c=document.getElementById('details-content');if(o&&c){o.style.display='flex';c.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(!res.ok){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>';return}var d=res.body||{};var g=d.gym||{};var h=d.health||{};var s=d.subscription||{};var pays=d.payments||[];var ok=function(v){return v?'<span style=\"color:#16a34a\">OK</span>':'<span style=\"color:#ef4444\">Fallo</span>'};var html='';html+='<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px\">';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"color:#9ca3af\">ID</div><div style=\"color:#fff\">'+String(g.id||'')+'</div><div style=\"color:#9ca3af\">Nombre</div><div style=\"color:#fff\">'+String(g.nombre||'')+'</div><div style=\"color:#9ca3af\">Subdominio</div><div style=\"color:#fff\">'+String(g.subdominio||'')+'</div><div style=\"color:#9ca3af\">Estado</div><div>'+String(g.status||'')+'</div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Salud</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>DB</div><div>'+ok(h.db&&h.db.ok)+'</div><div>WhatsApp</div><div>'+ok(h.whatsapp&&h.whatsapp.ok)+'</div><div>Storage</div><div>'+ok(h.storage&&h.storage.ok)+'</div></div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Suscripción</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>Plan</div><div>'+String((s&&s.plan_name)||'')+'</div><div>Estado</div><div>'+String((s&&s.status)||'')+'</div><div>Vence</div><div>'+String((s&&s.next_due_date)||'')+'</div></div></div>';var plist='';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];plist+='<tr><td>'+String(p.paid_at||'')+'</td><td>'+String(p.amount||'')+' '+String(p.currency||'')+'</td><td>'+String(p.status||'')+'</td></tr>'}html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Pagos recientes</div><div style=\"overflow-x:auto;margin-top:8px\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Fecha</th><th>Monto</th><th>Estado</th></tr></thead><tbody>'+plist+'</tbody></table></div></div>';html+='</div>';html+='<div style=\"margin-top:12px;display:flex;gap:8px;flex-wrap:wrap\"><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/provision\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Provisionar</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/suspend\" style=\"display:inline\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Suspender</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/unsuspend\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Reactivar</button></form><a href=\"/admin/gyms/'+String(g.id||'')+'/branding?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Branding</a><a href=\"/admin/gyms/'+String(g.id||'')+'/owner?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Contraseña dueño</a><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/b2/regenerate-key\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Regenerar clave B2</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/b2/delete-bucket\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Eliminar bucket B2</button></form></div>';c.innerHTML=html;}).catch(function(){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>'})}}
+    var dc=document.getElementById('details-close');if(dc){dc.addEventListener('click',function(){var o=document.getElementById('details-overlay');if(o){o.style.display='none'}})}
+    document.addEventListener('DOMContentLoaded',function(){initHealth();var ok=document.getElementById('open-k');if(ok){ok.addEventListener('click',openK)}var okf=document.getElementById('open-k-float');if(okf){okf.addEventListener('click',openK)}var kc=document.getElementById('k-close');if(kc){kc.addEventListener('click',closeK)}var ki=document.getElementById('k-input');if(ki){ki.addEventListener('input',function(){searchK(ki.value)})}var toolbar=document.querySelector('h1').parentNode;try{var inp=document.createElement('input');inp.id='page-jump';inp.placeholder='Ir a página';inp.setAttribute('style','padding:8px;border:1px solid #333;border-radius:6px;width:100px');var btn=document.createElement('button');btn.id='go-page';btn.textContent='Ir';btn.setAttribute('style','padding:8px 12px;border-radius:6px;background:#374151;color:#fff;margin-left:8px');var rng=document.createElement('div');rng.textContent='Rango: 1–{LP}';rng.setAttribute('style','color:#9ca3af;margin-left:8px');toolbar.appendChild(inp);toolbar.appendChild(btn);toolbar.appendChild(rng);}catch(e){}var cards=document.querySelectorAll('[data-gym-id]');var stored=(localStorage.getItem('admin_selected_gym_ids')||'').split(',').filter(function(x){return !!x});var selected=new Set(stored);function updateSel(){var c=document.getElementById('sel-count');if(c){c.textContent='Seleccionados: '+selected.size;localStorage.setItem('admin_selected_gym_ids',Array.from(selected).join(','))}}for(var i=0;i<cards.length;i++){(function(r){var gid=r.getAttribute('data-gym-id');var btn=r.querySelector('button[data-open]');var chk=r.querySelector('input[type="checkbox"][data-select]');var sub=r.querySelector('[data-sub]');if(btn){btn.addEventListener('click',function(){openDetails(gid)})}if(chk){chk.checked=selected.has(gid);chk.addEventListener('change',function(){if(chk.checked){selected.add(gid)}else{selected.delete(gid)}updateSel()})}if(sub){sub.addEventListener('click',function(){var tx=sub.textContent||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')})}else{toast(tx,'info')}})}})(cards[i])}updateSel();var sbs=document.getElementById('sb-search');if(sbs){sbs.addEventListener('input',function(){sbSearch(sbs.value)})}var bp=document.getElementById('batch-prov');if(bp){bp.addEventListener('click',function(){runBatch('provision',selected)})}var bs=document.getElementById('batch-sus');if(bs){bs.addEventListener('click',function(){runBatch('suspend',selected)})}var bu=document.getElementById('batch-uns');if(bu){bu.addEventListener('click',function(){runBatch('unsuspend',selected)})}var bui=document.getElementById('batch-uns');var parent= bui?bui.parentNode:null;if(parent){var im=document.createElement('input');im.id='batch-msg';im.placeholder='Mensaje';im.setAttribute('style','padding:8px;border:1px solid #333;border-radius:6px;min-width:240px');var br=document.createElement('button');br.id='batch-remind';br.textContent='Recordar';br.setAttribute('style','padding:8px 12px;border-radius:6px;background:#9333ea;color:#fff;margin-left:8px');parent.appendChild(im);parent.appendChild(br);br.addEventListener('click',function(){var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));var msg=document.getElementById('batch-msg');form.append('message',msg?String(msg.value||''):'');fetch('/admin/gyms/remind/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Recordatorios enviados','success')}else{if(res.status===429){toast('Rate limit excedido','error')}else{toast('Error al recordar','error')}}}).catch(function(){toast('Error de red','error')})})}});
+    document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openK()}if(e.key==='['){var link=document.getElementById('prev-link');if(link){link.click()}}if(e.key===']'){var link2=document.getElementById('next-link');if(link2){link2.click()}}});
+    var gp=document.getElementById('go-page');if(gp){gp.addEventListener('click',function(){var inp=document.getElementById('page-jump');var v=inp&&inp.value?parseInt(inp.value,10):NaN;if(!isNaN(v)&&v>0){var url='/admin/gyms?ui=1&page='+v+'&page_size={PS}&q='+encodeURIComponent("{Q}")+'&status={STATUS}&order_by={ORDER_BY}&order_dir={ORDER_DIR}';window.location.href=url}})}
+    function runBatch(action, selected){if(!selected||selected.size===0){toast('No hay seleccionados','info');return}var form=new URLSearchParams();form.append('action',action);form.append('gym_ids',Array.from(selected).join(','));fetch('/admin/gyms/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Acción '+action+' aplicada','success');setTimeout(function(){window.location.reload()},600)}else{toast('Error en lote','error')}}).catch(function(){toast('Error de red','error')})}
+    var _sbTimer=null;function sbSearch(q){var res=document.getElementById('sb-results');if(!res)return;var list=[];if(!q||q.length<2){res.innerHTML='';return}clearTimeout(_sbTimer);_sbTimer=setTimeout(function(){res.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=5',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];var html='';for(var i=0;i<items.length;i++){var g=items[i];html+='<button data-open="'+String(g.id||'')+'" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#0b1222;color:#fff">'+String(g.nombre||'')+' · '+String(g.subdominio||'')+'<span style="color:#9ca3af;font-size:12px">Ver</span></button>'}if(!html){html='<div style="color:#9ca3af">Sin resultados</div>'}res.innerHTML=html;var btns=res.querySelectorAll('button[data-open]');for(var k=0;k<btns.length;k++){(function(b){b.addEventListener('click',function(){openDetails(b.getAttribute('data-open'))})})(btns[k])}}).catch(function(){res.innerHTML='<div style="color:#ef4444">Error</div>'})},300)}
+    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete-bucket')>=0||a.indexOf('/b2/regenerate-key')>=0||a.match(/\\/admin\\/gyms\\/[0-9]+$/)){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
+    </script>
+    """.replace("{LP}", str(last_page)).replace("{PS}", str(ps)).replace("{Q}", q).replace("{STATUS}", status_q).replace("{ORDER_BY}", order_by).replace("{ORDER_DIR}", order_dir)
+    use_grid = True
     html = """
-    <div class=\"dark\"><div style=\"max-width:1200px;margin:0 auto;padding:20px;font-family:system-ui\"><style>@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}.skeleton{background:#1f2937;background-image:linear-gradient(90deg,#1f2937 0,#374151 50%,#1f2937 100%);background-size:200px 100%;animation:shimmer 1.2s infinite linear}</style><h1 style=\"font-size:24px;font-weight:600\">Gimnasios</h1><div style=\"margin:12px 0;display:flex;gap:12px;flex-wrap:wrap\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a><button id=\"open-k\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Ctrl+K</button><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px;flex-wrap:wrap\"><input name=\"q\" value=\"{q}\" placeholder=\"Buscar por nombre o subdominio\" style=\"padding:8px;border:1px solid #333;border-radius:6px;min-width:240px\"/><select name=\"status\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"><option value=\"\">Todos</option><option value=\"active\"{act_sel}>Activos</option><option value=\"suspended\"{sus_sel}>Suspendidos</option><option value=\"maintenance\"{mnt_sel}>Mantenimiento</option></select><input type=\"hidden\" name=\"ui\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Filtrar</button></form><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px\"><input name=\"page_size\" value=\"{ps}\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:80px\"/><input type=\"hidden\" name=\"ui\" value=\"1\"/><input type=\"hidden\" name=\"page\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Tamaño página</button></form></div><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th><a href=\"{link_id}\" style=\"color:#9ca3af\">ID</a></th><th><a href=\"{link_nombre}\" style=\"color:#9ca3af\">Nombre</a></th><th><a href=\"{link_sub}\" style=\"color:#9ca3af\">Subdominio</a></th><th><a href=\"{link_created}\" style=\"color:#9ca3af\">Creado</a></th><th>Teléfono</th><th>Status</th><th>Salud</th><th>Hard</th><th>Hasta</th><th>Bucket</th><th>Acciones</th></tr></thead><tbody>{rows}</tbody></table></div><div style=\"margin-top:12px;display:flex;gap:8px;align-items:center\"><a href=\"{prev}\" id=\"prev-link\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Anterior</a><div style=\"color:#9ca3af\">Página {p} de {lp} • {total} resultados</div><a href=\"{next}\" id=\"next-link\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Siguiente</a></div><h2 style=\"font-size:18px;margin-top:16px\">Crear gimnasio</h2><form method=\"post\" action=\"/admin/gyms\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px\"><input id=\"list-create-name\" name=\"nombre\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"list-create-sub\" name=\"subdominio\" placeholder=\"subdominio\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><span id=\"list-create-status\" style=\"color:#9ca3af;font-size:12px\"></span></div><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#16a34a;color:#fff\">Crear</button></form><div id=\"toast-container\" style=\"position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:50\"></div><div id=\"k-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:40\"><div style=\"width:90%;max-width:720px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600\">Búsqueda</div><button id=\"k-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div style=\"padding:12px\"><input id=\"k-input\" placeholder=\"Buscar gimnasios o templates\" style=\"padding:8px;border:1px solid #333;border-radius:8px;width:100%\"/><div id=\"k-results\" style=\"margin-top:12px;display:grid;gap:8px\"></div></div></div></div><div id=\"edit-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:50\"><div style=\"width:90%;max-width:520px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600\">Editar gimnasio</div><button id=\"edit-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div style=\"padding:12px;display:grid;gap:8px\"><input id=\"edit-name\" placeholder=\"Nombre\" style=\"padding:8px;border:1px solid #333;border-radius:8px\"/><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"edit-sub\" placeholder=\"Subdominio\" style=\"padding:8px;border:1px solid #333;border-radius:8px\"/><span id=\"edit-status\" style=\"color:#9ca3af;font-size:12px\"></span></div><div style=\"display:flex;gap:8px\"><button id=\"edit-save\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Guardar</button><button id=\"edit-cancel\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Cancelar</button></div><input id=\"edit-id\" type=\"hidden\"/></div></div><button id=\"open-k-float\" style=\"position:fixed;bottom:16px;right:16px;padding:10px 12px;border-radius:999px;background:#374151;color:#fff\">Ctrl+K</button></div>
+    <div class=\"dark\"><div style=\"max-width:1200px;margin:0 auto;padding:20px;font-family:system-ui\"><style>@keyframes shimmer{0%{background-position:-200px 0}100%{background-position:200px 0}}.skeleton{background:#1f2937;background-image:linear-gradient(90deg,#1f2937 0,#374151 50%,#1f2937 100%);background-size:200px 100%;animation:shimmer 1.2s infinite linear}</style><h1 style=\"font-size:24px;font-weight:600\">Gimnasios</h1><div style=\"margin:12px 0;display:flex;gap:12px;flex-wrap:wrap\"><a href=\"/admin/\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Inicio</a><button id=\"open-k\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Ctrl+K</button><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px;flex-wrap:wrap\"><input name=\"q\" value=\"{q}\" placeholder=\"Buscar por nombre o subdominio\" style=\"padding:8px;border:1px solid #333;border-radius:6px;min-width:240px\"/><select name=\"status\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"><option value=\"\">Todos</option><option value=\"active\"{act_sel}>Activos</option><option value=\"suspended\"{sus_sel}>Suspendidos</option><option value=\"maintenance\"{mnt_sel}>Mantenimiento</option></select><input type=\"hidden\" name=\"ui\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Filtrar</button></form><form method=\"get\" action=\"/admin/gyms\" style=\"display:flex;gap:8px\"><input name=\"page_size\" value=\"{ps}\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:80px\"/><input type=\"hidden\" name=\"ui\" value=\"1\"/><input type=\"hidden\" name=\"page\" value=\"1\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Tamaño página</button></form></div><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th><a href=\"{link_id}\" style=\"color:#9ca3af\">ID</a></th><th><a href=\"{link_nombre}\" style=\"color:#9ca3af\">Nombre</a></th><th><a href=\"{link_sub}\" style=\"color:#9ca3af\">Subdominio</a></th><th><a href=\"{link_created}\" style=\"color:#9ca3af\">Creado</a></th><th>Teléfono</th><th>Status</th><th>Salud</th><th>Hard</th><th>Hasta</th><th>Bucket</th><th>Acciones</th></tr></thead><tbody>{rows}</tbody></table></div><div style=\"margin-top:12px;display:flex;gap:8px;align-items:center\"><a href=\"{prev}\" id=\"prev-link\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Anterior</a><div style=\"color:#9ca3af\">Página {p} de {lp} • {total} resultados</div><a href=\"{next}\" id=\"next-link\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Siguiente</a></div><h2 style=\"font-size:18px;margin-top:16px\">Crear gimnasio</h2><div style=\"color:#9ca3af;margin-top:6px\">Los campos marcados con * son obligatorios</div><form method=\"post\" action=\"/admin/gyms\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px\"><input id=\"list-create-name\" name=\"nombre\" placeholder=\"Nombre *\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"list-create-sub\" name=\"subdominio\" placeholder=\"Subdominio (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><span id=\"list-create-status\" style=\"color:#9ca3af;font-size:12px\"></span></div><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\"/><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#16a34a;color:#fff\">Crear</button></form><div id=\"toast-container\" style=\"position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:50\"></div><div id=\"k-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:40\"><div style=\"width:90%;max-width:720px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600\">Búsqueda</div><button id=\"k-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div style=\"padding:12px\"><input id=\"k-input\" placeholder=\"Buscar gimnasios o templates\" style=\"padding:8px;border:1px solid #333;border-radius:8px;width:100%\"/><div id=\"k-results\" style=\"margin-top:12px;display:grid;gap:8px\"></div></div></div></div><div id=\"edit-overlay\" style=\"position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:50\"><div style=\"width:90%;max-width:520px;background:#111827;border:1px solid #333;border-radius:12px\"><div style=\"padding:12px;border-bottom:1px solid #333;display:flex;justify-content:space-between;align-items:center\"><div style=\"font-weight:600\">Editar gimnasio</div><button id=\"edit-close\" style=\"background:#1f2937;color:#fff;border-radius:6px;padding:6px 8px\">Cerrar</button></div><div style=\"padding:12px;display:grid;gap:8px\"><input id=\"edit-name\" placeholder=\"Nombre *\" style=\"padding:8px;border:1px solid #333;border-radius:8px\"/><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"edit-sub\" placeholder=\"Subdominio (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:8px\"/><span id=\"edit-status\" style=\"color:#9ca3af;font-size:12px\"></span></div><div style=\"display:flex;gap:8px\"><button id=\"edit-save\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Guardar</button><button id=\"edit-cancel\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff\">Cancelar</button></div><input id=\"edit-id\" type=\"hidden\"/></div></div><button id=\"open-k-float\" style=\"position:fixed;bottom:16px;right:16px;padding:10px 12px;border-radius:999px;background:#374151;color:#fff\">Ctrl+K</button></div>
     """.replace("{rows}", "".join(rows)).replace("{prev}", prev_link).replace("{next}", next_link).replace("{p}", str(p)).replace("{lp}", str(last_page)).replace("{total}", str(total)).replace("{link_id}", link_for("id")).replace("{link_nombre}", link_for("nombre")).replace("{link_sub}", link_for("subdominio")).replace("{link_created}", link_for("created_at")).replace("{q}", q).replace("{act_sel}", " selected\"" if status_q == "active" else "\"").replace("{sus_sel}", " selected\"" if status_q == "suspended" else "\"").replace("{mnt_sel}", " selected\"" if status_q == "maintenance" else "\"")
     js = """
     <script>
     function toast(msg, type){var c=document.getElementById('toast-container');if(!c)return;var bg=type==='error'?'#ef4444':(type==='info'?'#374151':'#16a34a');var el=document.createElement('div');el.setAttribute('style','background:'+bg+';color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent=msg;c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}
     function _slugify(v){v=String(v||'').toLowerCase();v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'');v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}
     function _updateListSub(){var n=document.getElementById('list-create-name');var s=document.getElementById('list-create-sub');var st=document.getElementById('list-create-status');if(!n||!s)return;var base=_slugify(n.value);if(!base){s.value='';if(st){st.textContent=''}return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent=''}})}
-    function loadHealth(gid){var el=document.getElementById('health-'+gid);if(!el)return;fetch('/admin/gyms/'+gid+'/health',{headers:{'accept':'application/json'}}).then(function(r){if(!r.ok){throw new Error('HTTP '+r.status)}return r.json()}).then(function(j){var d=j&&j.db&&j.db.ok;var w=j&&j.whatsapp&&j.whatsapp.ok;var s=j&&j.storage&&j.storage.ok;var html='';html+="<div style=\"display:flex;align-items:center;gap:4px\"><img src=\"https://img.icons8.com/ios-filled/18/database.png\" width=\"18\" height=\"18\" alt=\"DB\"/><span style=\"width:8px;height:8px;border-radius:999px;background:"+(d?'#16a34a':'#ef4444')+"\"></span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><img src=\"https://img.icons8.com/color/18/whatsapp--v1.png\" width=\"18\" height=\"18\" alt=\"WA\"/><span style=\"width:8px;height:8px;border-radius:999px;background:"+(w?'#16a34a':'#ef4444')+"\"></span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><img src=\"https://img.icons8.com/ios-filled/18/cloud.png\" width=\"18\" height=\"18\" alt=\"ST\"/><span style=\"width:8px;height:8px;border-radius:999px;background:"+(s?'#16a34a':'#ef4444')+"\"></span></div>";el.innerHTML=html}).catch(function(e){toast('No se pudo cargar salud #'+gid,'error')})}
-    function initHealth(){var rows=document.querySelectorAll('tr[data-gym-id]');for(var i=0;i<rows.length;i++){var gid=rows[i].getAttribute('data-gym-id');loadHealth(gid)}}
+    function loadHealth(gid){var el=document.getElementById('health-'+gid);if(!el)return;fetch('/admin/gyms/'+gid+'/health',{headers:{'accept':'application/json'}}).then(function(r){if(!r.ok){throw new Error('HTTP '+r.status)}return r.json()}).then(function(j){var d=j&&j.db&&j.db.ok;var w=j&&j.whatsapp&&j.whatsapp.ok;var s=j&&j.storage&&j.storage.ok;var html='';html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(d?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">DB</span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(w?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">WA</span></div>";html+="<div style=\"display:flex;align-items:center;gap:4px\"><span style=\"width:8px;height:8px;border-radius:999px;background:"+(s?'#16a34a':'#ef4444')+"\"></span><span style=\"color:#9ca3af\">ST</span></div>";el.innerHTML=html}).catch(function(e){})}
+    function initHealth(){var rows=document.querySelectorAll('tr[data-gym-id]');var ids=[];for(var i=0;i<rows.length;i++){ids.push(rows[i].getAttribute('data-gym-id'))}var idx=0;var conc=3;function runOne(){if(idx>=ids.length)return;var gid=ids[idx++];loadHealth(gid);setTimeout(runOne,400)}for(var k=0;k<conc;k++){runOne()}}
     function openK(){var o=document.getElementById('k-overlay');if(o){o.style.display='flex';var inp=document.getElementById('k-input');if(inp){setTimeout(function(){inp.focus()},50)}}}
     function closeK(){var o=document.getElementById('k-overlay');if(o){o.style.display='none'}}
     function searchK(q){var res=document.getElementById('k-results');if(!res)return;res.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?('/admin/gyms/'+it.id+'/health?ui=1'):('/admin/templates?ui=1');html+="<a href=\""+href+"\" style=\"display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#0b1222;color:#fff;text-decoration:none\"><span>"+it.label+"</span><span style=\"color:#9ca3af;font-size:12px\">"+it.t+"</span></a>"}if(!html){html='<div style="color:#9ca3af">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div style="color:#ef4444">Error en búsqueda</div>'})}
@@ -305,16 +356,18 @@ async def listar_gimnasios(request: Request):
     if(su){su.addEventListener('input',_updateEditStatus);_updateEditStatus()}
     if(es){es.addEventListener('click',function(){var gid=ei?ei.value:'';var form=new URLSearchParams();if(en&&en.value){form.append('nombre',en.value)}if(su&&su.value){form.append('subdominio',su.value)}fetch('/admin/gyms/'+gid+'/update',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Actualizado','success');if(eo){eo.style.display='none'}var row=document.querySelector('tr[data-gym-id="'+gid+'"]');if(row){if(en&&en.value){row.children[1].textContent=en.value}if(su&&su.value){row.children[2].textContent=su.value}}}else{toast('Error al actualizar','error')}}).catch(function(){toast('Error al actualizar','error')})})}
     var gp=document.getElementById('go-page');if(gp){gp.addEventListener('click',function(){var inp=document.getElementById('page-jump');var v=inp&&inp.value?parseInt(inp.value,10):NaN;if(!isNaN(v)&&v>0){var url='/admin/gyms?ui=1&page='+v+'&page_size='+"{ps}"+'&q='+encodeURIComponent("{q}")+'&status='+'"+"{status_q}"+"'+'&order_by='+'"+"{order_by}"+"'+'&order_dir='+'"+"{order_dir}"+"';window.location.href=url}})}
-    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete-bucket')>=0||a.indexOf('/b2/regenerate-key')>=0||a.match(/\\/admin\\/gyms\\/[0-9]+$/)){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
+    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete-bucket')>=0||a.indexOf('/b2/regenerate-key')>=0||a.match(/\\/admin\\/gyms\\/[0-9]+$/)){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
     var rows=document.querySelectorAll('tr[data-gym-id]');for(var i=0;i<rows.length;i++){(function(r){var sub=r.children[2];if(sub){sub.style.cursor='copy';sub.addEventListener('click',function(){var tx=sub.textContent||'';navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')}):toast(tx,'info')})}})(rows[i])}
     });
     </script>
     """
     html = html + js
+    if use_grid:
+        html = html_grid + js_grid
     return Response(content=html, media_type="text/html")
 
 @admin_app.post("/gyms")
-async def crear_gimnasio(request: Request, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[float] = Form(None)):
+async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[float] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_create", 20, 60)
     if rl:
@@ -337,7 +390,15 @@ async def crear_gimnasio(request: Request, nombre: str = Form(...), subdominio: 
         pass
     if "error" in res:
         return JSONResponse(res, status_code=400)
-    return JSONResponse(res, status_code=201)
+    try:
+        gid = int(res.get("id")) if isinstance(res, dict) else None
+        if gid:
+            background_tasks.add_task(adm.provisionar_recursos, gid)
+    except Exception:
+        pass
+    out = dict(res)
+    out["provisioning"] = True
+    return JSONResponse(out, status_code=201)
 
 @admin_app.get("/subdomains/check")
 async def check_subdomain(request: Request, sub: Optional[str] = None, name: Optional[str] = None):
@@ -786,6 +847,22 @@ async def subs_upcoming(request: Request, days: Optional[int] = None):
     <div class="dark"><div style="max-width:800px;margin:0 auto;padding:20px;font-family:system-ui"><h1 style="font-size:24px;font-weight:600">Próximos vencimientos</h1><div style="margin:12px 0"><a href="/admin/" style="padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none">Inicio</a> <form method="post" action="/admin/subscriptions/remind" style="display:inline;margin-left:12px"><input name="days" value="{days}" style="padding:6px;border:1px solid #333;border-radius:6px;width:80px"/><button type="submit" style="margin-left:6px;padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff">Enviar recordatorios</button></form></div><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Gym ID</th><th>Nombre</th><th>Subdominio</th><th>Próximo vencimiento</th><th>Acciones</th></tr></thead><tbody>{rows}</tbody></table></div></div></div>
     """.replace("{rows}", "".join(rows)).replace("{days}", str(int(d)))
     return Response(content=html, media_type="text/html")
+
+@admin_app.post("/subscriptions/auto-suspend")
+async def auto_suspend_overdue(request: Request, grace_days: int = Form(...)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "auto_suspend_overdue", 10, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    cnt = adm.auto_suspend_overdue(int(grace_days))
+    try:
+        adm.log_action("owner", "auto_suspend_overdue", None, {"grace_days": int(grace_days), "suspended": int(cnt)})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "suspended": int(cnt)}, status_code=200)
 
 @admin_app.post("/subscriptions/remind")
 async def enviar_recordatorios_batch(request: Request, days: Optional[int] = Form(None)):
@@ -1268,6 +1345,22 @@ async def health_check(request: Request, gym_id: int):
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        cache = getattr(admin_app.state, "health_cache", {})
+    except Exception:
+        cache = {}
+    try:
+        now = int(datetime.utcnow().timestamp())
+    except Exception:
+        now = 0
+    wants_html_cache_bypass = ((request.headers.get("accept") or "").lower().find("text/html") >= 0) or (request.query_params.get("ui") == "1")
+    if not wants_html_cache_bypass:
+        try:
+            ent = cache.get(int(gym_id)) if isinstance(cache, dict) else None
+            if ent and (now - int(ent.get("ts") or 0) < 120):
+                return JSONResponse(ent.get("val") or {}, status_code=200)
+        except Exception:
+            pass
     g = adm.obtener_gimnasio(int(gym_id))
     if not g:
         return JSONResponse({"error": "gym_not_found"}, status_code=404)
@@ -1312,11 +1405,167 @@ async def health_check(request: Request, gym_id: int):
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     res = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
+    try:
+        cache[int(gym_id)] = {"ts": int(now), "val": res}
+        setattr(admin_app.state, "health_cache", cache)
+    except Exception:
+        pass
     if not wants_html:
         return JSONResponse(res, status_code=200)
     ok = lambda v: "<span style=\"color:#16a34a\">OK</span>" if v else "<span style=\"color:#ef4444\">Fallo</span>"
     html = f"<div class=\"dark\"><div style=\"max-width:640px;margin:0 auto;padding:20px;font-family:system-ui\"><h1 style=\"font-size:24px;font-weight:600\">Salud del gimnasio #{int(gym_id)}</h1><div style=\"margin:12px 0\"><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#111;color:#fff;text-decoration:none\">Volver</a> <a href=\"/admin/gyms/{int(gym_id)}/health?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none;margin-left:8px\">Reverificar</a></div><div class=\"cards\" style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px\"><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">Base de datos</div><div>{ok(db_ok)}</div><div style=\"color:#9ca3af\">{(db_err or '')}</div></div><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">WhatsApp</div><div>{ok(wa_ok)}</div><div style=\"color:#9ca3af\">HTTP {str(wa_status or '')}</div></div><div style=\"padding:12px;border-radius:12px;border:1px solid #333;background:#111827\"><div style=\"font-weight:600\">Almacenamiento</div><div>{ok(st_ok)}</div><div style=\"color:#9ca3af\">Configurado: {('Sí' if st_cfg else 'No')}</div></div></div></div>"
     return Response(content=html, media_type="text/html")
+
+@admin_app.get("/gyms/{gym_id}/details")
+async def gym_details(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    g = adm.obtener_gimnasio(int(gym_id))
+    if not g:
+        return JSONResponse({"error": "gym_not_found"}, status_code=404)
+    db_ok = False
+    db_err = None
+    try:
+        base = _resolve_admin_db_params()
+    except Exception:
+        base = None
+    try:
+        dbn = str(g.get("db_name") or "").strip()
+        if base and dbn:
+            params = dict(base)
+            params["database"] = dbn
+            db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+    except Exception as e:
+        db_ok = False
+        db_err = str(e)
+    wa_ok = False
+    wa_status = None
+    try:
+        pid = str(g.get("whatsapp_phone_id") or "").strip()
+        tok = str(g.get("whatsapp_access_token") or "").strip()
+        if pid and tok and requests is not None:
+            url = f"https://graph.facebook.com/v17.0/{pid}"
+            r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
+            wa_status = int(r.status_code)
+            wa_ok = 200 <= r.status_code < 300
+    except Exception:
+        wa_ok = False
+        wa_status = None
+    st_ok = False
+    st_cfg = False
+    try:
+        bname = str(g.get("b2_bucket_name") or "").strip()
+        bid = str(g.get("b2_bucket_id") or "").strip()
+        st_cfg = bool(bname and bid)
+        st_ok = st_cfg
+    except Exception:
+        st_ok = False
+        st_cfg = False
+    sub = adm.obtener_subscription(int(gym_id))
+    pays = adm.listar_pagos(int(gym_id))
+    safe = {
+        "id": int(g.get("id") or int(gym_id)),
+        "nombre": str(g.get("nombre") or ""),
+        "subdominio": str(g.get("subdominio") or ""),
+        "status": str(g.get("status") or ""),
+        "created_at": str(g.get("created_at") or ""),
+        "owner_phone": str(g.get("owner_phone") or ""),
+        "db_name": str(g.get("db_name") or ""),
+        "b2_bucket_name": str(g.get("b2_bucket_name") or ""),
+        "b2_bucket_id": str(g.get("b2_bucket_id") or ""),
+        "hard_suspend": bool(g.get("hard_suspend") or False),
+        "suspended_until": str(g.get("suspended_until") or ""),
+    }
+    health = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
+    return JSONResponse({"gym": safe, "health": health, "subscription": sub, "payments": (pays or [])[:8]}, status_code=200)
+
+@admin_app.post("/gyms/batch")
+async def gyms_batch(request: Request, action: str = Form(...), gym_ids: str = Form(...)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "gyms_batch", 40, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ids: List[int] = []
+    for part in str(gym_ids or "").split(","):
+        try:
+            v = int(part.strip())
+            if v:
+                ids.append(v)
+        except Exception:
+            continue
+    okc = 0
+    errs = []
+    for gid in ids:
+        try:
+            if action == "provision":
+                res = adm.provisionar_recursos(int(gid))
+                if res and res.get("ok"):
+                    okc += 1
+                else:
+                    errs.append({"id": gid, "error": res.get("error") if isinstance(res, dict) else "unknown"})
+            elif action == "suspend":
+                if adm.set_estado_gimnasio(int(gid), "suspended", False, None, "batch"):
+                    okc += 1
+                else:
+                    errs.append({"id": gid, "error": "set_estado_failed"})
+            elif action == "unsuspend":
+                if adm.set_estado_gimnasio(int(gid), "active", False, None, "batch"):
+                    okc += 1
+                else:
+                    errs.append({"id": gid, "error": "set_estado_failed"})
+            else:
+                errs.append({"id": gid, "error": "unknown_action"})
+        except Exception as e:
+            errs.append({"id": gid, "error": str(e)})
+    try:
+        adm.log_action("system", "gyms_batch_" + str(action or ""), None, {"ids": ids, "ok": okc, "errs": len(errs)})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "action": action, "processed": okc, "errors": errs}, status_code=200)
+
+@admin_app.post("/gyms/remind/batch")
+async def gyms_remind_batch(request: Request, gym_ids: str = Form(...), message: Optional[str] = Form(None)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "gyms_remind_batch", 40, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ids: List[int] = []
+    for part in str(gym_ids or "").split(","):
+        try:
+            v = int(part.strip())
+            if v:
+                ids.append(v)
+        except Exception:
+            continue
+    okc = 0
+    errs = []
+    for gid in ids:
+        try:
+            sub = adm.obtener_subscription(int(gid))
+            g = adm.obtener_gimnasio(int(gid))
+            nombre = str((g or {}).get("nombre") or "")
+            nd = str((sub or {}).get("next_due_date") or "")
+            msg = message or (f"Hola {nombre}, tu suscripción vence el {nd}.")
+            res = _send_whatsapp_text_for_gym(adm, int(gid), msg)
+            if res.get("ok"):
+                okc += 1
+            else:
+                errs.append({"id": gid, "error": res.get("error") or "send_failed"})
+        except Exception as e:
+            errs.append({"id": gid, "error": str(e)})
+    try:
+        adm.log_action("owner", "gyms_remind_batch", None, {"ids": ids, "ok": okc, "errs": len(errs)})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "processed": okc, "errors": errs}, status_code=200)
 
 @admin_app.get("/audit")
 async def ver_auditoria(request: Request):
@@ -1381,12 +1630,15 @@ async def ver_metricas(request: Request):
     sub = m.get("subscriptions") or {}
     pay = m.get("payments") or {}
     cards = []
-    def card(title, value):
-        return f"<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"color:#9ca3af\">{title}</div><div style=\"font-size:22px;font-weight:700;color:#fff\">{value}</div></div>"
-    cards.append(card("Gimnasios", int(g.get("total") or 0)))
-    cards.append(card("Activos", int(g.get("active") or 0)))
-    cards.append(card("Suspendidos", int(g.get("suspended") or 0)))
-    cards.append(card("Mantenimiento", int(g.get("maintenance") or 0)))
+    def card(title, value, href=None):
+        inner = f"<div style=\"color:#9ca3af\">{title}</div><div style=\"font-size:22px;font-weight:700;color:#fff\">{value}</div>"
+        if href:
+            return f"<a href=\"{href}\" style=\"display:block;padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222;color:#fff;text-decoration:none\">{inner}</a>"
+        return f"<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\">{inner}</div>"
+    cards.append(card("Gimnasios", int(g.get("total") or 0), "/admin/gyms?ui=1"))
+    cards.append(card("Activos", int(g.get("active") or 0), "/admin/gyms?ui=1&status=active"))
+    cards.append(card("Suspendidos", int(g.get("suspended") or 0), "/admin/gyms?ui=1&status=suspended"))
+    cards.append(card("Mantenimiento", int(g.get("maintenance") or 0), "/admin/gyms?ui=1&status=maintenance"))
     cards.append(card("Nuevos 7d", int(g.get("last_7") or 0)))
     cards.append(card("Nuevos 30d", int(g.get("last_30") or 0)))
     cards.append(card("WhatsApp configurado", int(w.get("configured") or 0)))
@@ -1419,3 +1671,62 @@ async def invalidate_sessions(request: Request):
     except Exception:
         pass
     return JSONResponse({"ok": True, "new_version": int(getattr(admin_app.state, "session_version", 1))}, status_code=200)
+@admin_app.post("/gyms/{gym_id}/provision")
+async def provision_gym(request: Request, gym_id: int):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "gym_provision", 20, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        res = adm.provisionar_recursos(int(gym_id))
+    except Exception as e:
+        res = {"ok": False, "error": str(e)}
+    try:
+        adm.log_action("owner", "provision_gym", int(gym_id), None)
+    except Exception:
+        pass
+    sc = 200 if bool(res.get("ok")) else 400
+    return JSONResponse(res, status_code=sc)
+@admin_app.get("/dashboard")
+async def unified_dashboard(request: Request):
+    _require_admin(request)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    m = adm.obtener_metricas_agregadas()
+    upcoming = adm.listar_proximos_vencimientos(14)
+    accept = (request.headers.get("accept") or "").lower()
+    wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    if not wants_html:
+        return JSONResponse({"metrics": m, "upcoming": upcoming}, status_code=200)
+    g = m.get("gyms") or {}
+    sub = m.get("subscriptions") or {}
+    pay = m.get("payments") or {}
+    cards = []
+    def card(title, value, href=None):
+        inner = f"<div style=\"color:#9ca3af\">{title}</div><div style=\"font-size:22px;font-weight:700;color:#fff\">{value}</div>"
+        if href:
+            return f"<a href=\"{href}\" style=\"display:block;padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222;color:#fff;text-decoration:none\">{inner}</a>"
+        return f"<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\">{inner}</div>"
+    cards.append(card("Gimnasios", int(g.get("total") or 0), "/admin/gyms?ui=1"))
+    cards.append(card("Activos", int(g.get("active") or 0), "/admin/gyms?ui=1&status=active"))
+    cards.append(card("Suspendidos", int(g.get("suspended") or 0), "/admin/gyms?ui=1&status=suspended"))
+    cards.append(card("Mantenimiento", int(g.get("maintenance") or 0), "/admin/gyms?ui=1&status=maintenance"))
+    cards.append(card("Subs activas", int(sub.get("active") or 0)))
+    cards.append(card("Subs vencidas", int(sub.get("overdue") or 0)))
+    cards.append(card("Pagos 30d", float(pay.get("last_30_sum") or 0.0)))
+    rows = []
+    for it in (upcoming or [])[:8]:
+        rows.append(f"<tr><td>{int(it.get('gym_id') or 0)}</td><td>{str(it.get('nombre') or '')}</td><td>{str(it.get('subdominio') or '')}</td><td>{str(it.get('next_due_date') or '')}</td></tr>")
+    series = list((g.get("series_30") or []))
+    trend_dates = [str(it.get("date") or "") for it in series]
+    trend_counts = [int(it.get("count") or 0) for it in series]
+    html = """
+    <div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\"><aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside><main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600;color:#fff\">Dashboard</h1><div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px\">{cards}</div><div style=\"margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px\"><div id=\"dash-gyms\" style=\"height:280px\"></div><div id=\"dash-subs\" style=\"height:280px\"></div><div id=\"dash-pay\" style=\"height:280px\"></div><div id=\"dash-gyms-trend\" style=\"height:280px\"></div><div id=\"dash-audit-act\" style=\"height:280px\"></div><div id=\"dash-audit-usr\" style=\"height:280px\"></div></div><h2 style=\"font-size:18px;margin-top:16px;color:#fff\">Próximos vencimientos</h2><div style=\"margin:8px 0\"><form id=\"auto-sus-form\" method=\"post\" action=\"/admin/subscriptions/auto-suspend\" style=\"display:flex;gap:8px;align-items:center\"><input name=\"grace_days\" value=\"7\" style=\"padding:8px;border:1px solid #333;border-radius:6px;width:80px\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Auto-suspender vencidos</button></form></div><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Gym</th><th>Nombre</th><th>Subdominio</th><th>Vence</th></tr></thead><tbody>{rows}</tbody></table></div></main></div></div>
+    <script src=\"https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js\"></script>
+    <script>var m={gyms:{active:{val:%a},suspended:{val:%b},maintenance:{val:%c}},subscriptions:{active:{val:%d},overdue:{val:%e}},payments:{sum30:{val:%f}}};function pie(id,data){var el=document.getElementById(id);if(!el)return;var c=echarts.init(el);var t={text:'#fff'};c.setOption({backgroundColor:'transparent',tooltip:{trigger:'item'},legend:{textStyle:{color:t.text}},series:[{type:'pie',radius:['40%','70%'],label:{color:t.text},data:data}]});window.addEventListener('resize',function(){c.resize()})}pie('dash-gyms',[{name:'Activos',value:m.gyms.active.val},{name:'Suspendidos',value:m.gyms.suspended.val},{name:'Mantenimiento',value:m.gyms.maintenance.val}]);pie('dash-subs',[{name:'Activas',value:m.subscriptions.active.val},{name:'Vencidas',value:m.subscriptions.overdue.val}]);var el=document.getElementById('dash-pay');if(el){var c=echarts.init(el);var t={text:'#fff',muted:'#9ca3af',border:'#374151'};c.setOption({backgroundColor:'transparent',xAxis:{type:'category',data:['Total 30d'],axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:[m.payments.sum30.val],itemStyle:{color:'#1e40af'}}]});window.addEventListener('resize',function(){c.resize()})}var el2=document.getElementById('dash-gyms-trend');if(el2){var c2=echarts.init(el2);var tt={text:'#fff',muted:'#9ca3af',border:'#374151'};var tdates=%trend_dates%;var tcounts=%trend_counts%;c2.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:tdates,axisLabel:{color:tt.muted}},yAxis:{type:'value',axisLabel:{color:tt.muted},splitLine:{lineStyle:{color:tt.border}}},series:[{type:'line',data:tcounts,smooth:true,itemStyle:{color:'#22c55e'}}]});window.addEventListener('resize',function(){c2.resize()})}var aa=document.getElementById('dash-audit-act');var au=document.getElementById('dash-audit-usr');if(aa||au){fetch('/admin/audit',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var t={text:'#fff',muted:'#9ca3af',border:'#374151'};if(aa){var c4=echarts.init(aa);var dataA=(j&&j.summary&&j.summary.by_action)||[];var labelsA=[];var valuesA=[];for(var i=0;i<dataA.length&&i<6;i++){labelsA.push(String(dataA[i].action||''));valuesA.push(parseInt(dataA[i].c||0))}c4.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:labelsA,axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:valuesA,itemStyle:{color:'#22c55e'}}]});window.addEventListener('resize',function(){c4.resize()})}if(au){var c5=echarts.init(au);var dataU=(j&&j.summary&&j.summary.by_actor)||[];var labelsU=[];var valuesU=[];for(var k=0;k<dataU.length&&k<6;k++){labelsU.push(String(dataU[k].actor_username||''));valuesU.push(parseInt(dataU[k].c||0))}c5.setOption({backgroundColor:'transparent',tooltip:{trigger:'axis'},xAxis:{type:'category',data:labelsU,axisLabel:{color:t.muted}},yAxis:{type:'value',axisLabel:{color:t.muted},splitLine:{lineStyle:{color:t.border}}},series:[{type:'bar',data:valuesU,itemStyle:{color:'#1e40af'}}]});window.addEventListener('resize',function(){c5.resize()})}}).catch(function(){})}</script>
+    """.replace("{cards}", "".join(cards)).replace("{rows}", "".join(rows)).replace("%a", str(int(g.get("active") or 0))).replace("%b", str(int(g.get("suspended") or 0))).replace("%c", str(int(g.get("maintenance") or 0))).replace("%d", str(int(sub.get("active") or 0))).replace("%e", str(int(sub.get("overdue") or 0))).replace("%f", str(float(pay.get("last_30_sum") or 0.0))).replace("%trend_dates%", str(trend_dates).replace("'", "\"")).replace("%trend_counts%", str(trend_counts))
+    return Response(content=html, media_type="text/html")
