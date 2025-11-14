@@ -259,6 +259,11 @@ class AdminDatabaseManager:
         import hashlib, base64
         try:
             s, h = stored.split(":", 1)
+            try:
+                s = s.strip().strip('"').strip("'")
+                h = h.strip().strip('"').strip("'")
+            except Exception:
+                pass
             salt = base64.b64decode(s.encode("ascii"))
             expected = base64.b64decode(h.encode("ascii"))
             dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120000)
@@ -294,7 +299,10 @@ class AdminDatabaseManager:
                 row = cur.fetchone()
                 if not row:
                     return False
-                stored = row[0]
+                try:
+                    stored = str(row[0] or "").strip()
+                except Exception:
+                    stored = row[0]
                 return self._verify_password(password, stored)
         except Exception:
             return False
