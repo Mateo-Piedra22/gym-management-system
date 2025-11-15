@@ -34,13 +34,19 @@
       <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] mt-2">
         <div class="text-gray-400">Texto</div>
         <div class="text-base">{{ text }}</div>
+        <div class="mt-2">
+          <button id="copy-template" class="px-3 py-2 rounded-md bg-gray-900">Copiar texto</button>
+        </div>
       </div>
       <h3 class="text-lg mt-3">Enviar prueba</h3>
       <form method="post" action="/admin/gyms/test-send" class="flex flex-wrap gap-2 items-center">
-        <input name="gym_id" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-32" />
+        <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-32" />
         <input name="name" value="{{ name }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
         {{ ui.btn('Enviar','primary', None, 'type="submit"') }}
       </form>
+      <script>
+      (function(){var btn=document.getElementById('copy-template');if(btn){btn.addEventListener('click',function(){var tx='{{ text }}';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){var c=document.getElementById('toast-container');if(!c){var d=document.createElement('div');d.id='toast-container';d.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(d);c=d}var el=document.createElement('div');el.setAttribute('style','background:#16a34a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent='Copiado';c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}).catch(function(){})}})}})();
+      </script>
       {% endif %}
     </div>
   </div>

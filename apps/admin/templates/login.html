@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="max-w-sm mx-auto">
+<div class="max-w-sm mx-auto" x-data="{ show: false }">
   <div class="rounded-xl border border-gray-800 bg-gray-900 p-6">
     <div class="flex items-center gap-2 text-xl font-semibold"><i class="fa-solid fa-lock"></i><span>Acceso admin</span></div>
     <form method="post" action="/admin/login" class="mt-4 grid gap-3">
       <label class="grid gap-1">
         <span class="text-sm text-gray-300">Contraseña</span>
-        <input name="password" type="password" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 focus:outline-none focus:ring-2 focus:ring-primary" />
+        <div class="flex items-center gap-2">
+          <input name="password" x-bind:type="show ? 'text' : 'password'" autocomplete="current-password" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 focus:outline-none focus:ring-2 focus:ring-primary w-full" />
+          <button type="button" x-on:click="show=!show" class="px-2 py-2 rounded-md bg-gray-800"><i class="fa-solid" x-bind:class="show ? 'fa-eye-slash' : 'fa-eye'"></i></button>
+        </div>
       </label>
       <button type="submit" class="px-4 py-2 rounded-md bg-primary text-primary-foreground">Entrar</button>
     </form>

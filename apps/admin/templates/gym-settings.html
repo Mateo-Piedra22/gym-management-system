@@ -8,9 +8,19 @@
     </h1>
     {{ ui.btn('Volver','default','/admin/gyms?ui=1') }}
   </div>
+  <div class="flex flex-wrap gap-2">
+    {% set base = '/admin/gyms/' ~ gid %}
+    <a href="{{ base }}/subscription?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='subscription' else 'bg-gray-900' }}">Suscripción</a>
+    <a href="{{ base }}/payments?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='payments' else 'bg-gray-900' }}">Pagos</a>
+    <a href="{{ base }}/whatsapp?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='whatsapp' else 'bg-gray-900' }}">WhatsApp</a>
+    <a href="{{ base }}/maintenance?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
+    <a href="{{ base }}/branding?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='branding' else 'bg-gray-900' }}">Branding</a>
+    <a href="{{ base }}/health?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='health' else 'bg-gray-900' }}">Salud</a>
+    <a href="{{ base }}/owner?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='owner' else 'bg-gray-900' }}">Contraseña dueño</a>
+  </div>
 
   {% if section=='whatsapp' %}
-  <form method="post" action="/admin/gyms/{{ gid }}/whatsapp" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  <form method="post" action="/admin/gyms/{{ gid }}/whatsapp" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
     <input name="phone_id" value="{{ phone_id }}" placeholder="Phone ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input name="access_token" value="{{ access_token }}" placeholder="Access Token" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input name="waba_id" value="{{ waba_id }}" placeholder="WABA ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -21,15 +31,25 @@
     <div class="sm:col-span-2">{{ ui.btn('Guardar','primary', None, 'type="submit"') }}</div>
   </form>
   {% elif section=='maintenance' %}
-  <form method="post" action="/admin/gyms/{{ gid }}/maintenance" class="space-y-3">
+  <form method="post" action="/admin/gyms/{{ gid }}/maintenance" class="space-y-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
     <textarea name="message" placeholder="Mensaje para usuarios" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 h-32"></textarea>
     {{ ui.btn('Activar mantenimiento','warning', None, 'type="submit"') }}
   </form>
-  <form method="post" action="/admin/gyms/{{ gid }}/maintenance/clear" class="mt-2">
+  <form method="post" action="/admin/gyms/{{ gid }}/maintenance/schedule" class="space-y-3 mt-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <textarea name="message" placeholder="Mensaje para usuarios (opcional)" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 h-24"></textarea>
+    <input name="until" type="datetime-local" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    {{ ui.btn('Programar mantenimiento','warning', None, 'type="submit"') }}
+  </form>
+  <form method="post" action="/admin/gyms/{{ gid }}/maintenance/clear" class="mt-2" hx-headers='{"accept":"application/json"}' hx-swap="none">
     {{ ui.btn('Desactivar mantenimiento','success', None, 'type="submit"') }}
   </form>
+  <h2 class="text-lg font-medium mt-4">Avisos a dueño</h2>
+  <form method="post" action="/admin/gyms/{{ gid }}/maintenance/notify" class="flex flex-wrap gap-2 items-center" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <input name="message" placeholder="Mensaje de mantenimiento (opcional)" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[320px]" />
+    {{ ui.btn('Enviar aviso','primary', None, 'type="submit"') }}
+  </form>
   {% elif section=='branding' %}
-  <form method="post" action="/admin/gyms/{{ gid }}/branding" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+  <form method="post" action="/admin/gyms/{{ gid }}/branding" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
     <input id="gym_name" name="gym_name" placeholder="Nombre público" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input id="gym_address" name="gym_address" placeholder="Dirección" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input id="logo_url" name="logo_url" placeholder="Logo URL" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -63,14 +83,19 @@
       <div class="text-gray-400">Válido hasta</div><div>{{ (subscription.valid_until or '') }}</div>
     </div>
     <h2 class="text-lg font-medium">Cambiar suscripción</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/subscription" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <select name="plan_id" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
+    <form method="post" action="/admin/gyms/{{ gid }}/subscription" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
+      <select name="plan_id" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
         {% for p in plans %}
           <option value="{{ p.id }}">{{ p.name }} · {{ p.amount }} {{ p.currency }}</option>
         {% endfor %}
       </select>
-      <input name="start_date" placeholder="YYYY-MM-DD" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+      <input name="start_date" type="date" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <div class="sm:col-span-2">{{ ui.btn('Guardar','primary', None, 'type="submit"') }}</div>
+    </form>
+    <h2 class="text-lg font-medium mt-4">Recordatorio de vencimiento</h2>
+    <form method="post" action="/admin/gyms/{{ gid }}/subscription/remind" class="flex flex-wrap gap-2 items-center" hx-headers='{"accept":"application/json"}' hx-swap="none">
+      <input name="message" placeholder="Mensaje opcional" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[320px]" />
+      {{ ui.btn('Enviar recordatorio','primary', None, 'type="submit"') }}
     </form>
   </div>
   {% elif section=='payments' %}
@@ -106,11 +131,11 @@
   </div>
   <div>
     <h2 class="text-lg font-medium">Registrar pago</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/payments" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-2">
+    <form method="post" action="/admin/gyms/{{ gid }}/payments" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mt-2" hx-headers='{"accept":"application/json"}' hx-swap="none">
       <input name="plan" placeholder="Plan" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-      <input name="amount" type="number" step="0.01" placeholder="Monto" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-      <input name="currency" placeholder="Moneda" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-      <input name="valid_until" placeholder="YYYY-MM-DD" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+      <input name="amount" type="number" min="0.01" step="0.01" placeholder="Monto" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+      <input name="currency" placeholder="Moneda" pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+      <input name="valid_until" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <input name="status" placeholder="Status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <input name="notes" placeholder="Notas" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <div class="sm:col-span-2 md:col-span-3">
@@ -136,3 +161,8 @@
   {% endif %}
 </div>
 {% endblock %}
+  <script>
+  (function(){
+    document.body.addEventListener('htmx:afterOnLoad', function(evt){try{var xhr=evt.detail.xhr;var j=xhr&&JSON.parse(xhr.responseText);if(j&&j.ok){var t='Operación exitosa';if(j.action){t='Acción '+String(j.action)+' exitosa'}var c=document.getElementById('toast-container');if(!c){var d=document.createElement('div');d.id='toast-container';d.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(d);c=d}var el=document.createElement('div');el.setAttribute('style','background:#16a34a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent=t;c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)} else {var c2=document.getElementById('toast-container');if(!c2){var d2=document.createElement('div');d2.id='toast-container';d2.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(d2);c2=d2}var el2=document.createElement('div');el2.setAttribute('style','background:#ef4444;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el2.textContent='Error en operación';c2.appendChild(el2);setTimeout(function(){if(el2&&el2.parentNode){el2.parentNode.removeChild(el2)}},3000)}}catch(e){} });
+  })();
+  </script>

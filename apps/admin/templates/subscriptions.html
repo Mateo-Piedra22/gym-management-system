@@ -8,7 +8,7 @@
   </div>
   <div class="flex flex-wrap gap-3 items-center">
     <form method="get" action="{% if mode=='dashboard' %}/admin/subscriptions/dashboard{% else %}/admin/subscriptions/upcoming{% endif %}" class="flex gap-2">
-      <input name="days" value="{{ days }}" placeholder="Días" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
+      <input name="days" type="number" min="1" value="{{ days }}" placeholder="Días" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       {% if mode=='dashboard' %}
       <input name="q" value="{{ q }}" placeholder="Buscar nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
       {% endif %}
@@ -17,7 +17,7 @@
     </form>
     {% if mode=='dashboard' %}
     <form method="post" action="/admin/subscriptions/remind" class="flex items-center gap-2">
-      <input name="days" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
+      <input name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       {{ ui.btn('Recordar por ventana','primary', None, 'type="submit"') }}
     </form>
     {% endif %}

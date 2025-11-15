@@ -35,7 +35,7 @@
               <input name="amount" value="{{ p.amount }}" type="number" step="0.01" class="px-2 py-1 w-28 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
-              <input name="currency" value="{{ p.currency }}" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
+              <input name="currency" value="{{ p.currency }}" pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
               <input name="period_days" value="{{ p.period_days }}" type="number" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
@@ -62,7 +62,7 @@
   <form method="post" action="/admin/plans" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
     <input name="name" placeholder="Nombre" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <input name="amount" type="number" step="0.01" placeholder="Monto" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-    <input name="currency" placeholder="Moneda (e.g. ARS)" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <input name="currency" placeholder="Moneda (e.g. ARS)" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <input name="period_days" type="number" placeholder="Días" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <div class="sm:col-span-2 md:col-span-4">
       {{ ui.btn('Crear','primary', None, 'type="submit"') }}

@@ -532,6 +532,19 @@ class AdminDatabaseManager:
         except Exception:
             return False
 
+    def schedule_mantenimiento(self, gym_id: int, until: Optional[str], message: Optional[str]) -> bool:
+        try:
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE gyms SET status = %s, hard_suspend = false, suspended_until = %s, suspended_reason = %s WHERE id = %s",
+                    ("maintenance", until, message, int(gym_id)),
+                )
+                conn.commit()
+                return True
+        except Exception:
+            return False
+
     def get_mantenimiento(self, subdominio: str) -> Optional[str]:
         try:
             with self.db.get_connection_context() as conn:  # type: ignore

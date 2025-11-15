@@ -318,6 +318,7 @@ async def listar_gimnasios(request: Request):
     status_q = (request.query_params.get("status") or "").strip()
     order_by = (request.query_params.get("order_by") or "id").strip()
     order_dir = (request.query_params.get("order_dir") or "DESC").strip()
+    view = (request.query_params.get("view") or "cards").strip()
     payload = adm.listar_gimnasios_avanzado(page, page_size, q or None, status_q or None, order_by or None, order_dir or None)
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
@@ -332,8 +333,8 @@ async def listar_gimnasios(request: Request):
     total = int((payload or {}).get("total") or 0)
     p = int((payload or {}).get("page") or page)
     ps = int((payload or {}).get("page_size") or page_size)
-    prev_link = f"/admin/gyms?ui=1&page={max(p-1,1)}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}"
-    next_link = f"/admin/gyms?ui=1&page={p+1}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}"
+    prev_link = f"/admin/gyms?ui=1&page={max(p-1,1)}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}&view={view}"
+    next_link = f"/admin/gyms?ui=1&page={p+1}&page_size={ps}&q={q}&status={status_q}&order_by={order_by}&order_dir={order_dir}&view={view}"
     last_page = max((total + ps - 1) // ps, 1)
     if p >= last_page:
         next_link = prev_link
@@ -350,6 +351,9 @@ async def listar_gimnasios(request: Request):
             "next_link": next_link,
             "last_page": last_page,
             "total": total,
+            "order_by": order_by,
+            "order_dir": order_dir,
+            "view": view,
         },
     )
     def chip(s: str) -> str:
@@ -767,6 +771,71 @@ async def desactivar_mantenimiento(request: Request, gym_id: int):
     except Exception:
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200)
+
+@admin_app.post("/gyms/{gym_id}/maintenance/schedule")
+async def programar_mantenimiento(request: Request, gym_id: int, until: Optional[str] = Form(None), message: Optional[str] = Form(None)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "maintenance_schedule", 20, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ok = adm.schedule_mantenimiento(int(gym_id), until, message)
+    try:
+        adm.log_action("owner", "maintenance_schedule", int(gym_id), {"until": until, "message": message})
+    except Exception:
+        pass
+    return JSONResponse({"ok": bool(ok)}, status_code=200)
+
+@admin_app.post("/gyms/{gym_id}/maintenance/notify")
+async def avisar_mantenimiento_gym(request: Request, gym_id: int, message: Optional[str] = Form(None)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "maintenance_notify_one", 40, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    g = adm.obtener_gimnasio(int(gym_id))
+    if not g:
+        return JSONResponse({"error": "gym_not_found"}, status_code=404)
+    nombre = str(g.get("nombre") or "")
+    razon = str(g.get("suspended_reason") or "")
+    hasta = str(g.get("suspended_until") or "")
+    base_msg = message or (f"Hola {nombre}, el gimnasio está en mantenimiento. {razon}" + (f" Hasta: {hasta}" if hasta else ""))
+    res = _send_whatsapp_text_for_gym(adm, int(gym_id), base_msg)
+    try:
+        adm.log_action("owner", "send_maintenance_notice", int(gym_id), base_msg)
+    except Exception:
+        pass
+    sc = 200 if res.get("ok") else 400
+    return JSONResponse(res, status_code=sc)
+
+@admin_app.post("/admin/gyms/maintenance/notify/batch")
+async def avisar_mantenimiento_batch(request: Request, gym_ids: str = Form(...), message: Optional[str] = Form(None)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "maintenance_notify_batch", 60, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ids = [int(x) for x in (gym_ids or "").split(",") if x.strip()]
+    results = []
+    for gid in ids:
+        g = adm.obtener_gimnasio(int(gid))
+        nombre = str((g or {}).get("nombre") or "")
+        razon = str((g or {}).get("suspended_reason") or "")
+        hasta = str((g or {}).get("suspended_until") or "")
+        base_msg = message or (f"Hola {nombre}, el gimnasio está en mantenimiento. {razon}" + (f" Hasta: {hasta}" if hasta else ""))
+        res = _send_whatsapp_text_for_gym(adm, int(gid), base_msg)
+        try:
+            adm.log_action("owner", "send_maintenance_notice", int(gid), base_msg)
+        except Exception:
+            pass
+        results.append({"gym_id": gid, "ok": bool(res.get("ok")), "status": res.get("status")})
+    return JSONResponse({"ok": True, "count": len(results), "results": results}, status_code=200)
 
 @admin_app.get("/gyms/{gym_id}/payments")
 async def listar_pagos_gym(request: Request, gym_id: int):
