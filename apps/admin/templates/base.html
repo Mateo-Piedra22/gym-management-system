@@ -22,10 +22,10 @@
     .htmx-indicator.htmx-request { display: block }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: false }" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
-  <div class="{{ 'min-h-screen' if hide_sidebar else 'grid grid-cols-[240px,1fr] min-h-screen' }}">
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: {{ 'false' if hide_sidebar else 'true' }} }" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
+  <div x-bind:class="open ? 'grid grid-cols-[240px,1fr] min-h-screen' : 'min-h-screen'" class="{{ 'min-h-screen' if hide_sidebar else 'grid grid-cols-[240px,1fr] min-h-screen' }}">
     {% if not hide_sidebar %}
-    <aside class="bg-[#0b1222] border-r border-gray-800 p-4">
+    <aside x-show="open" class="bg-[#0b1222] border-r border-gray-800 p-4">
       <div class="text-lg font-bold flex items-center gap-2">
         <i class="fa-solid fa-dumbbell"></i>
         <span>GymMS Admin</span>
@@ -45,6 +45,7 @@
       {% if not hide_sidebar %}
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
+          <button id="sidebar-toggle" class="px-3 py-2 rounded-md bg-gray-900" x-on:click="open = !open"><i class="fa-solid fa-bars"></i><span class="ml-2">Menú</span></button>
           <button id="global-open-k" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-magnifying-glass"></i><span class="ml-2">Buscar</span></button>
         </div>
         <div class="flex items-center gap-2">

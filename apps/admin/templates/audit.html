@@ -8,11 +8,16 @@
   </div>
   <form method="get" action="/admin/audit" class="flex flex-wrap gap-2 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
-    <input name="actor" value="{{ actor or '' }}" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-    <input name="action" value="{{ action or '' }}" placeholder="Acción" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-    <input name="gym_id" type="number" min="1" value="{{ gym_id or '' }}" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-28" />
-    <input name="from" type="date" value="{{ from or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-    <input name="to" type="date" value="{{ to or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <label for="audit-actor" class="text-sm text-gray-300">Actor</label>
+    <input id="audit-actor" name="actor" value="{{ actor or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <label for="audit-action" class="text-sm text-gray-300">Acción</label>
+    <input id="audit-action" name="action" value="{{ action or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <label for="audit-gym-id" class="text-sm text-gray-300">Gym ID</label>
+    <input id="audit-gym-id" name="gym_id" type="number" min="1" value="{{ gym_id or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-28" />
+    <label for="audit-from" class="text-sm text-gray-300">Desde</label>
+    <input id="audit-from" name="from" type="date" value="{{ from or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <label for="audit-to" class="text-sm text-gray-300">Hasta</label>
+    <input id="audit-to" name="to" type="date" value="{{ to or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input type="hidden" name="ui" value="1" />
     <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
   </form>
@@ -25,11 +30,16 @@
       </div>
       <div class="p-3 grid gap-3">
           <form method="get" action="/admin/audit" class="grid gap-2">
-            <input name="actor" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input name="action" placeholder="Acción" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input name="from" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input name="to" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-actor" class="text-sm text-gray-300">Actor</label>
+            <input id="side-actor" name="actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-action" class="text-sm text-gray-300">Acción</label>
+            <input id="side-action" name="action" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-gym-id" class="text-sm text-gray-300">Gym ID</label>
+            <input id="side-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-from" class="text-sm text-gray-300">Desde</label>
+            <input id="side-from" name="from" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-to" class="text-sm text-gray-300">Hasta</label>
+            <input id="side-to" name="to" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
             <input type="hidden" name="ui" value="1" />
             <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
           </form>

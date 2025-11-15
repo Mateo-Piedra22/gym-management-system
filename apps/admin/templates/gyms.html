@@ -321,19 +321,29 @@
           <button id="create-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <form hx-post="/admin/gyms" hx-headers='{"accept":"application/json"}' hx-swap="none" class="p-3 grid gap-2">
-          <input id="create-name" name="nombre" placeholder="Nombre" required minlength="2" maxlength="80" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input id="create-sub" name="subdominio" placeholder="Subdominio" pattern="^[a-z0-9-]{1,63}$" title="Solo letras minúsculas, números y guiones" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"
+          <label for="create-name" class="text-sm text-gray-300">Nombre</label>
+          <input id="create-name" name="nombre" required minlength="2" maxlength="80" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-sub" class="text-sm text-gray-300">Subdominio</label>
+          <input id="create-sub" name="subdominio" pattern="^[a-z0-9-]{1,63}$" title="Solo letras minúsculas, números y guiones" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"
                  hx-get="/admin/subdomains/check" hx-trigger="input changed" hx-target="#create-sub-status" hx-headers='{"accept":"text/html"}' />
           <span id="create-sub-status" class="text-xs text-gray-400"></span>
-          <input id="create-bucket" name="b2_bucket_name" placeholder="Bucket Name" pattern="^[a-z0-9-]{1,63}$" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="owner_phone" placeholder="Teléfono dueño (+54...)" pattern="^\+?[0-9]{7,15}$" inputmode="tel" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="whatsapp_phone_id" placeholder="WhatsApp Phone ID" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="whatsapp_access_token" placeholder="WhatsApp Access Token" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="whatsapp_business_account_id" placeholder="WABA ID" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="whatsapp_verify_token" placeholder="Verify Token" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <input name="whatsapp_app_secret" placeholder="App Secret" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-bucket" class="text-sm text-gray-300">Bucket Name</label>
+          <input id="create-bucket" name="b2_bucket_name" pattern="^[a-z0-9-]{1,63}$" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-owner-phone" class="text-sm text-gray-300">Teléfono dueño</label>
+          <input id="create-owner-phone" name="owner_phone" pattern="^\+?[0-9]{7,15}$" inputmode="tel" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-whatsapp-phone-id" class="text-sm text-gray-300">WhatsApp Phone ID</label>
+          <input id="create-whatsapp-phone-id" name="whatsapp_phone_id" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-whatsapp-access-token" class="text-sm text-gray-300">WhatsApp Access Token</label>
+          <input id="create-whatsapp-access-token" name="whatsapp_access_token" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-waba-id" class="text-sm text-gray-300">WABA ID</label>
+          <input id="create-waba-id" name="whatsapp_business_account_id" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-whatsapp-verify-token" class="text-sm text-gray-300">Verify Token</label>
+          <input id="create-whatsapp-verify-token" name="whatsapp_verify_token" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-app-secret" class="text-sm text-gray-300">App Secret</label>
+          <input id="create-app-secret" name="whatsapp_app_secret" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
           <label class="flex items-center gap-2"><input type="checkbox" name="whatsapp_nonblocking" /><span class="text-sm text-gray-300">Envío no bloqueante</span></label>
-          <input name="whatsapp_send_timeout_seconds" type="number" min="1" max="120" step="1" value="25" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="create-whatsapp-timeout" class="text-sm text-gray-300">Timeout de envío (segundos)</label>
+          <input id="create-whatsapp-timeout" name="whatsapp_send_timeout_seconds" type="number" min="1" max="120" step="1" value="25" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
           <div class="flex justify-end gap-2">
             <button type="button" id="create-cancel-2" class="px-3 py-2 rounded-md bg-gray-900">Cancelar</button>
             <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear</button>
@@ -353,7 +363,9 @@
           <button id="suspend-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div class="p-3 grid gap-2">
-          <input id="suspend-reason" placeholder="Razón (opcional)" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="suspend-reason" class="text-sm text-gray-300">Razón</label>
+          <input id="suspend-reason" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <label for="suspend-until" class="text-sm text-gray-300">Hasta</label>
           <input id="suspend-until" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
           <label class="flex items-center gap-2"><input id="suspend-hard" type="checkbox" /><span class="text-gray-300 text-sm">Hard suspend</span></label>
         </div>
@@ -373,7 +385,8 @@
         <button x-on:click="open=false" id="k-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
       </div>
       <div class="p-3">
-        <input id="k-input" x-model="q" placeholder="Buscar gimnasios o templates" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full" />
+        <label for="k-input" class="text-sm text-gray-300">Buscar</label>
+        <input id="k-input" x-model="q" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full" />
         <div id="k-results" class="mt-3 grid gap-2"></div>
       </div>
     </div>

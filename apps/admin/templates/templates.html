@@ -19,15 +19,18 @@
       </div>
       <div class="p-3 grid gap-3">
           <form method="get" action="/admin/templates" class="grid gap-2">
-            <select name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
+            <label for="side-t-name" class="text-sm text-gray-300">Template</label>
+            <select id="side-t-name" name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
               {% for n in names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
             </select>
             <input type="hidden" name="ui" value="1" />
             <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Ver</button>
           </form>
           <form method="post" action="/admin/gyms/test-send" class="grid gap-2">
-            <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input name="name" placeholder="Template" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-gym-id" class="text-sm text-gray-300">Gym ID</label>
+            <input id="side-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <label for="side-t-name2" class="text-sm text-gray-300">Template</label>
+            <input id="side-t-name2" name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
             <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar prueba</button>
           </form>
       </div>
@@ -51,7 +54,8 @@
     <div>
       <h2 class="text-lg font-medium">Previsualización</h2>
       <form method="get" action="/admin/templates" class="flex flex-wrap gap-2 items-center">
-        <select name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]">
+        <label for="t-name" class="text-sm text-gray-300">Template</label>
+        <select id="t-name" name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]">
           {% for n in names %}
           <option value="{{ n }}"{% if n==name %} selected{% endif %}>{{ n }}</option>
           {% endfor %}
@@ -69,8 +73,10 @@
       </div>
       <h3 class="text-lg mt-3">Enviar prueba</h3>
       <form method="post" action="/admin/gyms/test-send" class="flex flex-wrap gap-2 items-center">
-        <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-32" />
-        <input name="name" value="{{ name }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
+        <label for="t-gym-id" class="text-sm text-gray-300">Gym ID</label>
+        <input id="t-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-32" />
+        <label for="t-name2" class="text-sm text-gray-300">Template</label>
+        <input id="t-name2" name="name" value="{{ name }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
         <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar</button>
       </form>
       <script>

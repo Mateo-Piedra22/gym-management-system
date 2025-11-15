@@ -20,10 +20,14 @@
       </div>
       <div class="p-3 grid gap-3">
           <form method="post" action="/admin/plans" class="grid grid-cols-2 gap-2">
-            <input name="name" placeholder="Nombre" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-            <input name="amount" type="number" step="0.01" placeholder="Monto" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-            <input name="currency" placeholder="Moneda (e.g. ARS)" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-            <input name="period_days" type="number" placeholder="Días" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+            <label for="side-plan-name" class="text-sm text-gray-300">Nombre</label>
+            <input id="side-plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+            <label for="side-plan-amount" class="text-sm text-gray-300">Monto</label>
+            <input id="side-plan-amount" name="amount" type="number" step="0.01" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+            <label for="side-plan-currency" class="text-sm text-gray-300">Moneda</label>
+            <input id="side-plan-currency" name="currency" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+            <label for="side-plan-days" class="text-sm text-gray-300">Días</label>
+            <input id="side-plan-days" name="period_days" type="number" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
             <div class="col-span-2"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear</button></div>
           </form>
       </div>
@@ -51,16 +55,20 @@
           <td class="p-2">{{ p.id }}</td>
           <td class="p-2">
             <form hx-post="/admin/plans/{{ p.id }}" hx-swap="none" class="flex items-center gap-2">
-              <input name="name" value="{{ p.name }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="row-plan-name-{{ p.id }}" class="sr-only">Nombre</label>
+              <input id="row-plan-name-{{ p.id }}" name="name" value="{{ p.name }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
-              <input name="amount" value="{{ p.amount }}" type="number" step="0.01" class="px-2 py-1 w-28 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="row-plan-amount-{{ p.id }}" class="sr-only">Monto</label>
+              <input id="row-plan-amount-{{ p.id }}" name="amount" value="{{ p.amount }}" type="number" step="0.01" class="px-2 py-1 w-28 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
-              <input name="currency" value="{{ p.currency }}" pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="row-plan-currency-{{ p.id }}" class="sr-only">Moneda</label>
+              <input id="row-plan-currency-{{ p.id }}" name="currency" value="{{ p.currency }}" pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
-              <input name="period_days" value="{{ p.period_days }}" type="number" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="row-plan-days-{{ p.id }}" class="sr-only">Días</label>
+              <input id="row-plan-days-{{ p.id }}" name="period_days" value="{{ p.period_days }}" type="number" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
               <button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-floppy-disk"></i><span class="ml-2">Guardar</span></button>
@@ -82,10 +90,14 @@
   <div x-show="tab==='create'">
   <h2 class="text-lg mt-6">Crear plan</h2>
   <form method="post" action="/admin/plans" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-    <input name="name" placeholder="Nombre" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-    <input name="amount" type="number" step="0.01" placeholder="Monto" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-    <input name="currency" placeholder="Moneda (e.g. ARS)" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
-    <input name="period_days" type="number" placeholder="Días" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <label for="plan-name" class="text-sm text-gray-300">Nombre</label>
+    <input id="plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <label for="plan-amount" class="text-sm text-gray-300">Monto</label>
+    <input id="plan-amount" name="amount" type="number" step="0.01" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <label for="plan-currency" class="text-sm text-gray-300">Moneda</label>
+    <input id="plan-currency" name="currency" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
+    <label for="plan-days" class="text-sm text-gray-300">Días</label>
+    <input id="plan-days" name="period_days" type="number" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <div class="sm:col-span-2 md:col-span-4">
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground"><i class="fa-solid fa-plus"></i><span class="ml-2">Crear</span></button>
     </div>
