@@ -87,6 +87,10 @@ async def admin_login(request: Request, password: str = Form(...)):
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        adm._ensure_owner_user()
+    except Exception:
+        pass
     ok = adm.verificar_owner_password(password)
     if not ok:
         try:
@@ -98,10 +102,14 @@ async def admin_login(request: Request, password: str = Form(...)):
         except Exception:
             candidate2 = ""
         try:
+            candidate3 = (os.getenv("DEV_PASSWORD", "").strip())
+        except Exception:
+            candidate3 = ""
+        try:
             provided = (password or "").strip()
         except Exception:
             provided = password
-        if provided and (provided == candidate1 or provided == candidate2):
+        if provided and (provided == candidate1 or provided == candidate2 or provided == candidate3):
             try:
                 adm._ensure_owner_user()
             except Exception:

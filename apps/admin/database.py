@@ -267,7 +267,18 @@ class AdminDatabaseManager:
     def _verify_password(self, password: str, stored: str) -> bool:
         import hashlib, base64
         try:
-            s, h = stored.split(":", 1)
+            hs = str(stored or "").strip()
+        except Exception:
+            hs = stored
+        if not hs:
+            return False
+        try:
+            if hs.startswith("$2"):
+                return SecurityUtils.verify_password(password, hs)
+        except Exception:
+            pass
+        try:
+            s, h = hs.split(":", 1)
             try:
                 s = s.strip().strip('"').strip("'")
                 h = h.strip().strip('"').strip("'")
@@ -278,7 +289,10 @@ class AdminDatabaseManager:
             dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 120000)
             return dk == expected
         except Exception:
-            return False
+            try:
+                return SecurityUtils.verify_password(password, hs)
+            except Exception:
+                return False
 
     def _ensure_owner_user(self) -> None:
         try:
