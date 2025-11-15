@@ -202,9 +202,9 @@
               <a href="/admin/gyms/{{ g.id }}/branding?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i></a>
               <a href="/admin/gyms/{{ g.id }}/owner?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i></a>
               <a href="/admin/gyms/{{ g.id }}/health?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i></a>
-              <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?">{{ ui.btn('','default', None, 'type="submit" title="Regenerar clave B2"', 'fa-solid fa-key') }}</form>
-              <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?">{{ ui.btn('','default', None, 'type="submit" title="Eliminar bucket B2"', 'fa-solid fa-trash') }}</form>
-              <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?">{{ ui.btn('','default', None, 'type="submit" title="Eliminar gimnasio"', 'fa-solid fa-trash') }}</form>
+              <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i></button></form>
+              <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i></button></form>
+              <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Eliminar gimnasio"><i class="fa-solid fa-trash"></i></button></form>
             </div>
           </td>
         </tr>
@@ -220,9 +220,9 @@
       <div class="ml-auto text-gray-400">Seleccionados: <span id="sel-count">0</span></div>
       <div class="flex gap-2">
         <input type="hidden" id="selected-ids" />
-        {{ ui.btn('Provisionar','primary', None, 'id="batch-prov"') }}
-        {{ ui.btn('Suspender','danger', None, 'id="batch-sus"') }}
-        {{ ui.btn('Reactivar','success', None, 'id="batch-uns"') }}
+        <button id="batch-prov" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Provisionar</button>
+        <button id="batch-sus" class="px-3 py-2 rounded-md bg-red-600 text-white">Suspender</button>
+        <button id="batch-uns" class="px-3 py-2 rounded-md bg-green-600 text-white">Reactivar</button>
         <input id="batch-message" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
         <button id="batch-remind" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar</button>
         <input id="batch-maint-message" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
@@ -239,7 +239,7 @@
       <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
         <div class="flex items-center justify-between p-3 border-b border-gray-800">
           <h3 id="details-title" class="text-base font-semibold text-white">Detalles del gimnasio</h3>
-          {{ ui.btn('Cerrar','default', None, 'id="details-close"') }}
+          <button id="details-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div id="details-content" class="p-3 text-gray-200 text-sm"></div>
       </div>
@@ -250,14 +250,14 @@
       <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
         <div class="flex items-center justify-between p-3 border-b border-gray-800">
           <h3 id="confirm-title" class="text-base font-semibold text-white">Confirmar acción</h3>
-          {{ ui.btn('Cerrar','default', None, 'id="confirm-cancel"') }}
+          <button id="confirm-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div class="p-3">
           <p id="confirm-message" class="text-gray-300">¿Confirmar?</p>
         </div>
         <div class="p-3 flex justify-end gap-2">
-          {{ ui.btn('Cancelar','default', None, 'id="confirm-cancel-2"') }}
-          {{ ui.btn('Confirmar','primary', None, 'id="confirm-yes"') }}
+          <button id="confirm-cancel-2" class="px-2 py-1 rounded-md bg-gray-800">Cancelar</button>
+          <button id="confirm-yes" class="px-2 py-1 rounded-md bg-primary text-primary-foreground">Confirmar</button>
         </div>
       </div>
     </div>
@@ -267,7 +267,7 @@
       <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
         <div class="flex items-center justify-between p-3 border-b border-gray-800">
           <h3 id="create-title" class="text-base font-semibold text-white">Crear gimnasio</h3>
-          {{ ui.btn('Cerrar','default', None, 'id="create-cancel"') }}
+          <button id="create-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <form hx-post="/admin/gyms" hx-headers='{"accept":"application/json"}' hx-swap="none" class="p-3 grid gap-2">
           <input name="nombre" placeholder="Nombre" required minlength="2" maxlength="80" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -278,8 +278,8 @@
           <label class="flex items-center gap-2"><input type="checkbox" name="nonblocking" /><span class="text-sm text-gray-300">Provisionar en background</span></label>
           <input name="send_timeout_seconds" type="number" min="1" max="120" step="1" value="25" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
           <div class="flex justify-end gap-2">
-            {{ ui.btn('Cancelar','default', None, 'type="button" id="create-cancel-2"') }}
-            {{ ui.btn('Crear','primary', None, 'type="submit"') }}
+            <button type="button" id="create-cancel-2" class="px-3 py-2 rounded-md bg-gray-900">Cancelar</button>
+            <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear</button>
           </div>
         </form>
       </div>
@@ -290,7 +290,7 @@
       <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
         <div class="flex items-center justify-between p-3 border-b border-gray-800">
           <h3 id="suspend-title" class="text-base font-semibold text-white">Suspender gimnasio</h3>
-          {{ ui.btn('Cerrar','default', None, 'id="suspend-cancel"') }}
+          <button id="suspend-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div class="p-3 grid gap-2">
           <input id="suspend-reason" placeholder="Razón (opcional)" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -298,8 +298,8 @@
           <label class="flex items-center gap-2"><input id="suspend-hard" type="checkbox" /><span class="text-gray-300 text-sm">Hard suspend</span></label>
         </div>
         <div class="p-3 flex justify-end gap-2">
-          {{ ui.btn('Cancelar','default', None, 'id="suspend-cancel-2"') }}
-          {{ ui.btn('Suspender','danger', None, 'id="suspend-yes"') }}
+          <button id="suspend-cancel-2" class="px-2 py-1 rounded-md bg-gray-800">Cancelar</button>
+          <button id="suspend-yes" class="px-2 py-1 rounded-md bg-red-600 text-white">Suspender</button>
         </div>
       </div>
     </div>
