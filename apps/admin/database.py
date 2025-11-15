@@ -18,61 +18,20 @@ from core.security_utils import SecurityUtils  # type: ignore
 
 
 def _resolve_admin_db_params() -> Dict[str, Any]:
-    host = os.getenv("ADMIN_DB_HOST", os.getenv("DB_HOST", os.getenv("PGHOST", ""))).strip()
+    host = os.getenv("ADMIN_DB_HOST", "").strip()
     try:
-        port = int(os.getenv("ADMIN_DB_PORT", os.getenv("DB_PORT", os.getenv("PGPORT", "5432"))))
+        port = int(os.getenv("ADMIN_DB_PORT", "5432"))
     except Exception:
         port = 5432
-    user = os.getenv("ADMIN_DB_USER", os.getenv("DB_USER", os.getenv("PGUSER", "postgres"))).strip()
-    password = os.getenv("ADMIN_DB_PASSWORD", os.getenv("DB_PASSWORD", os.getenv("PGPASSWORD", "")))
-    sslmode = os.getenv("ADMIN_DB_SSLMODE", os.getenv("DB_SSLMODE", os.getenv("PGSSLMODE", "prefer"))).strip()
+    user = os.getenv("ADMIN_DB_USER", "").strip()
+    password = os.getenv("ADMIN_DB_PASSWORD", "")
+    sslmode = os.getenv("ADMIN_DB_SSLMODE", "require").strip()
     try:
-        connect_timeout = int(os.getenv("ADMIN_DB_CONNECT_TIMEOUT", os.getenv("DB_CONNECT_TIMEOUT", os.getenv("PGCONNECT_TIMEOUT", "10"))))
+        connect_timeout = int(os.getenv("ADMIN_DB_CONNECT_TIMEOUT", "4"))
     except Exception:
-        connect_timeout = 10
-    application_name = os.getenv("ADMIN_DB_APPLICATION_NAME", os.getenv("DB_APPLICATION_NAME", "gym_management_admin")).strip()
-    database = os.getenv("ADMIN_DB_NAME", os.getenv("DB_NAME", os.getenv("PGDATABASE", "gymms_admin"))).strip()
-
-    try:
-        url = (
-            os.getenv("DATABASE_URL")
-            or os.getenv("POSTGRES_URL")
-            or os.getenv("PGURL")
-            or os.getenv("NEON_DATABASE_URL")
-            or ""
-        ).strip()
-        if url:
-            import urllib.parse as _u
-            pr = _u.urlparse(url)
-            if pr.scheme.startswith("postgres"):
-                if not host:
-                    host = pr.hostname or host
-                try:
-                    if not port:
-                        port = int(pr.port or port)
-                except Exception:
-                    pass
-                if not user:
-                    user = (pr.username or user) or user
-                if not password:
-                    password = (pr.password or password) or password
-                try:
-                    dbp = (pr.path or "").strip()
-                    if dbp.startswith("/"):
-                        dbp = dbp[1:]
-                    if dbp and not database:
-                        database = dbp
-                except Exception:
-                    pass
-                try:
-                    qs = _u.parse_qs(pr.query or "")
-                    sm = (qs.get("sslmode", [""])[0] or "").strip()
-                    if sm:
-                        sslmode = sm
-                except Exception:
-                    pass
-    except Exception:
-        pass
+        connect_timeout = 4
+    application_name = os.getenv("ADMIN_DB_APPLICATION_NAME", "gym_management_admin").strip()
+    database = os.getenv("ADMIN_DB_NAME", "gymms_admin").strip()
 
     try:
         h = host.lower()
@@ -81,11 +40,6 @@ def _resolve_admin_db_params() -> Dict[str, Any]:
                 sslmode = "require"
     except Exception:
         pass
-    try:
-        if not connect_timeout or connect_timeout > 10:
-            connect_timeout = 4
-    except Exception:
-        connect_timeout = 4
     return {
         "host": host or "localhost",
         "port": port,
