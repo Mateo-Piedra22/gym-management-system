@@ -664,6 +664,7 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
         except Exception:
             pass
     out = dict(res)
+    out["ok"] = True
     out["provisioning"] = bool(provisioning_ok)
     if provision is not None:
         out["provision"] = provision
