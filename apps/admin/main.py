@@ -83,14 +83,33 @@ async def admin_login_form(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 @admin_app.post("/login")
-async def admin_login(request: Request, password: str = Form(...)):
+async def admin_login(request: Request):
     try:
         adm = _get_admin_db()
         if adm is None:
             try:
-                provided = (password or "").strip()
+                provided = ""
+                try:
+                    form = await request.form()
+                    provided = str((form.get("password") or "").strip())
+                except Exception:
+                    pass
+                if not provided:
+                    try:
+                        import urllib.parse as _u
+                        body = (await request.body()) or b""
+                        qs = _u.parse_qs(body.decode("utf-8"))
+                        provided = str((qs.get("password", [""])[0]) or "").strip()
+                    except Exception:
+                        pass
+                if not provided:
+                    try:
+                        js = await request.json()
+                        provided = str((js.get("password") or "").strip())
+                    except Exception:
+                        pass
             except Exception:
-                provided = password
+                provided = ""
             secret = os.getenv("ADMIN_SECRET", "").strip()
             if secret and provided and provided == secret:
                 try:
@@ -116,10 +135,38 @@ async def admin_login(request: Request, password: str = Form(...)):
                 return RedirectResponse(url="/admin/login?error=Temporalmente no disponible", status_code=303)
             return JSONResponse({"ok": False, "error": "db_unavailable"}, status_code=503)
         try:
+            form = None
+            try:
+                form = await request.form()
+            except Exception:
+                form = None
+            pwd = ""
+            try:
+                if form:
+                    pwd = str((form.get("password") or "").strip())
+            except Exception:
+                pwd = ""
+            if not pwd:
+                try:
+                    import urllib.parse as _u
+                    body = (await request.body()) or b""
+                    qs = _u.parse_qs(body.decode("utf-8"))
+                    pwd = str((qs.get("password", [""])[0]) or "").strip()
+                except Exception:
+                    pwd = ""
+            if not pwd:
+                try:
+                    js = await request.json()
+                    pwd = str((js.get("password") or "").strip())
+                except Exception:
+                    pass
+        except Exception:
+            pwd = ""
+        try:
             adm._ensure_owner_user()
         except Exception:
             pass
-        ok = adm.verificar_owner_password(password)
+        ok = adm.verificar_owner_password(pwd)
         if not ok:
             try:
                 candidate1 = (os.getenv("ADMIN_INITIAL_PASSWORD", "").strip())
@@ -134,9 +181,9 @@ async def admin_login(request: Request, password: str = Form(...)):
             except Exception:
                 candidate3 = ""
             try:
-                provided = (password or "").strip()
+                provided = (pwd or "").strip()
             except Exception:
-                provided = password
+                provided = pwd
             if provided and (provided == candidate1 or provided == candidate2 or provided == candidate3):
                 try:
                     adm._ensure_owner_user()
@@ -188,74 +235,6 @@ async def admin_login(request: Request, password: str = Form(...)):
         if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
             return RedirectResponse(url="/admin/login?error=Error interno", status_code=303)
         return JSONResponse({"ok": False, "error": "internal"}, status_code=500)
-    try:
-        adm._ensure_owner_user()
-    except Exception:
-        pass
-    ok = adm.verificar_owner_password(password)
-    if not ok:
-        try:
-            candidate1 = (os.getenv("ADMIN_INITIAL_PASSWORD", "").strip())
-        except Exception:
-            candidate1 = ""
-        try:
-            candidate2 = (os.getenv("ADMIN_SECRET", "").strip())
-        except Exception:
-            candidate2 = ""
-        try:
-            candidate3 = (os.getenv("DEV_PASSWORD", "").strip())
-        except Exception:
-            candidate3 = ""
-        try:
-            provided = (password or "").strip()
-        except Exception:
-            provided = password
-        if provided and (provided == candidate1 or provided == candidate2 or provided == candidate3):
-            try:
-                adm._ensure_owner_user()
-            except Exception:
-                pass
-            ok2 = adm.set_admin_owner_password(provided)
-            if ok2:
-                ok = True
-            else:
-                try:
-                    request.session["admin_logged_in"] = True
-                    try:
-                        request.session["session_version"] = int(getattr(admin_app.state, "session_version", 1))
-                    except Exception:
-                        request.session["session_version"] = 1
-                except Exception:
-                    pass
-                try:
-                    adm.log_action("owner", "login_via_secret_password", None, None)
-                except Exception:
-                    pass
-                acc = (request.headers.get("accept") or "").lower()
-                if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
-                    return RedirectResponse(url="/admin", status_code=303)
-                return JSONResponse({"ok": True}, status_code=200)
-    if not ok:
-        acc = (request.headers.get("accept") or "").lower()
-        if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
-            return RedirectResponse(url="/admin/login?error=Credenciales", status_code=303)
-        return JSONResponse({"ok": False}, status_code=401)
-    try:
-        request.session["admin_logged_in"] = True
-        try:
-            request.session["session_version"] = int(getattr(admin_app.state, "session_version", 1))
-        except Exception:
-            request.session["session_version"] = 1
-    except Exception:
-        pass
-    try:
-        adm.log_action("owner", "login", None, None)
-    except Exception:
-        pass
-    acc = (request.headers.get("accept") or "").lower()
-    if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
-        return RedirectResponse(url="/admin", status_code=303)
-    return JSONResponse({"ok": True}, status_code=200)
 
 @admin_app.post("/logout")
 async def admin_logout(request: Request):
