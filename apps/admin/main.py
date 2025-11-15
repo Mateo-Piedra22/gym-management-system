@@ -256,32 +256,37 @@ async def admin_logout(request: Request):
 @admin_app.get("/")
 async def admin_home(request: Request):
     acc = (request.headers.get("accept") or "").lower()
-    if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
-        try:
-            v = int(request.session.get("session_version") or 0)
-            cur = int(getattr(admin_app.state, "session_version", 1))
-            logged = bool(request.session.get("admin_logged_in")) and v == cur
-        except Exception:
-            logged = False
-        if not logged:
-            secret = os.getenv("ADMIN_SECRET", "").strip()
-            hdr = request.headers.get("x-admin-secret") or ""
-            if not secret or hdr.strip() != secret:
-                return RedirectResponse(url="/admin/login", status_code=303)
-    _require_admin(request)
+    wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
     try:
-        adm = _get_admin_db()
+        v = int(request.session.get("session_version") or 0)
+        cur = int(getattr(admin_app.state, "session_version", 1))
+        logged = bool(request.session.get("admin_logged_in")) and v == cur
     except Exception:
-        adm = None
+        logged = False
+    if not logged:
+        secret = os.getenv("ADMIN_SECRET", "").strip()
+        hdr = request.headers.get("x-admin-secret") or ""
+        if secret and hdr.strip() == secret:
+            logged = True
+    if not logged:
+        if wants_html:
+            return RedirectResponse(url="/admin/login", status_code=303)
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     warnings: List[str] = []
     try:
+        adm = _get_admin_db()
         if adm is not None:
             ws = adm.obtener_warnings_admin()
             if ws:
                 warnings = list(ws)
     except Exception:
         warnings = []
-    return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings})
+    try:
+        return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings})
+    except Exception:
+        if wants_html:
+            return RedirectResponse(url="/admin/login?error=Temporalmente no disponible", status_code=303)
+        return JSONResponse({"ok": False, "error": "internal"}, status_code=500)
     html = """
     <div class=\"dark\"><div style=\"display:grid;grid-template-columns:240px 1fr;min-height:100vh;font-family:system-ui\"><aside style=\"background:#0b1222;border-right:1px solid #333;padding:16px\"><div style=\"font-size:18px;font-weight:700;color:#fff\">GymMS Admin</div><nav style=\"margin-top:12px;display:grid;gap:8px\"><a href=\"/admin/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Dashboard</a><a href=\"/admin/gyms?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Gimnasios</a><a href=\"/admin/metrics?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Métricas</a><a href=\"/admin/audit?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Auditoría</a><a href=\"/admin/subscriptions/dashboard?ui=1\" style=\"padding:8px 10px;border-radius:8px;background:#111827;color:#fff;text-decoration:none\">Suscripciones</a></nav></aside><main style=\"padding:20px\"><h1 style=\"font-size:24px;font-weight:600\">Panel Admin</h1><div style=\"display:flex;gap:12px;margin-top:12px\"><a href=\"/admin/login\" style=\"padding:10px 14px;border-radius:6px;background:#444;color:#fff;text-decoration:none\">Cambiar cuenta</a></div><h2 style=\"font-size:18px;margin-top:16px\">Crear gimnasio</h2><div style=\"color:#9ca3af;margin-top:6px\">Los campos marcados con * son obligatorios</div><form id=\"create-form\" method=\"post\" action=\"/admin/gyms\" style=\"display:grid;gap:8px;margin-top:8px;max-width:640px\"><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Nombre *</span><input id=\"create-name\" name=\"nombre\" placeholder=\"Nombre\" required style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><div style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Subdominio (opcional)</span><div style=\"display:flex;gap:8px;align-items:center\"><input id=\"create-sub\" name=\"subdominio\" placeholder=\"Subdominio (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /><span id=\"create-sub-status\" style=\"color:#9ca3af;font-size:12px\"></span></div></div><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Teléfono dueño (opcional)</span><input name=\"owner_phone\" placeholder=\"Teléfono dueño (+54...) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Phone ID (opcional)</span><input name=\"whatsapp_phone_id\" placeholder=\"WhatsApp Phone ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Access Token (opcional)</span><input name=\"whatsapp_access_token\" placeholder=\"WhatsApp Access Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Business Account ID (opcional)</span><input name=\"whatsapp_business_account_id\" placeholder=\"WhatsApp Business Account ID (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp Verify Token (opcional)</span><input name=\"whatsapp_verify_token\" placeholder=\"WhatsApp Verify Token (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">WhatsApp App Secret (opcional)</span><input name=\"whatsapp_app_secret\" placeholder=\"WhatsApp App Secret (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><label style=\"display:flex;align-items:center;gap:8px\"><input type=\"checkbox\" name=\"whatsapp_nonblocking\" value=\"true\"/> WhatsApp no bloqueante</label><label style=\"display:grid;gap:4px\"><span style=\"color:#fff\">Timeout envío WhatsApp (seg) (opcional)</span><input type=\"number\" step=\"0.1\" name=\"whatsapp_send_timeout_seconds\" placeholder=\"Timeout envío WhatsApp (seg) (opcional)\" style=\"padding:8px;border:1px solid #333;border-radius:6px\" /></label><button type=\"submit\" style=\"padding:10px 14px;border-radius:6px;background:#111;color:#fff\">Crear gimnasio</button></form></main></div></div>
     """
