@@ -83,7 +83,12 @@ def _admin_wrap(content: str) -> str:
 
 @admin_app.get("/login")
 async def admin_login_form(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+    try:
+        if _is_logged_in(request):
+            return RedirectResponse(url="/admin", status_code=303)
+    except Exception:
+        pass
+    return templates.TemplateResponse("login.html", {"request": request, "hide_sidebar": True})
 
 @admin_app.post("/login")
 async def admin_login(request: Request):
@@ -129,13 +134,13 @@ async def admin_login(request: Request):
                         adm2.log_action("owner", "login_without_db_bootstrap", None, None)
                 except Exception:
                     pass
-                acc = (request.headers.get("accept") or "").lower()
-                if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+                is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+                if not is_hx:
                     return RedirectResponse(url="/admin", status_code=303)
                 return JSONResponse({"ok": True}, status_code=200)
-            acc = (request.headers.get("accept") or "").lower()
-            if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
-                return RedirectResponse(url="/admin/login?error=Temporalmente no disponible", status_code=303)
+            is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+            if not is_hx:
+                return RedirectResponse(url="/admin/login", status_code=303)
             return JSONResponse({"ok": False, "error": "db_unavailable"}, status_code=503)
         try:
             form = None
@@ -208,13 +213,13 @@ async def admin_login(request: Request):
                         adm.log_action("owner", "login_via_secret_password", None, None)
                     except Exception:
                         pass
-                    acc = (request.headers.get("accept") or "").lower()
-                    if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+                    is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+                    if not is_hx:
                         return RedirectResponse(url="/admin", status_code=303)
                     return JSONResponse({"ok": True}, status_code=200)
         if not ok:
-            acc = (request.headers.get("accept") or "").lower()
-            if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+            is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+            if not is_hx:
                 return RedirectResponse(url="/admin/login?error=Credenciales", status_code=303)
             return JSONResponse({"ok": False}, status_code=401)
         try:
@@ -229,13 +234,13 @@ async def admin_login(request: Request):
             adm.log_action("owner", "login", None, None)
         except Exception:
             pass
-        acc = (request.headers.get("accept") or "").lower()
-        if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+        is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+        if not is_hx:
             return RedirectResponse(url="/admin", status_code=303)
         return JSONResponse({"ok": True}, status_code=200)
     except Exception:
-        acc = (request.headers.get("accept") or "").lower()
-        if ("text/html" in acc) or (request.query_params.get("ui") == "1"):
+        is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+        if not is_hx:
             return RedirectResponse(url="/admin/login?error=Error interno", status_code=303)
         return JSONResponse({"ok": False, "error": "internal"}, status_code=500)
 
