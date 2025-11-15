@@ -4,6 +4,7 @@
 <div class="space-y-4">
   <h1 class="text-2xl font-semibold">Gimnasios</h1>
   <div class="flex flex-wrap gap-3 items-center">
+    <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <form method="get" action="/admin/gyms" class="flex flex-wrap gap-2">
       <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
       <select name="status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
@@ -54,6 +55,36 @@
     <button id="open-create" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
     <button id="open-k" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-keyboard"></i><span class="ml-2">Ctrl+K</span></button>
   </div>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-[380px] bg-gray-900 border-l border-gray-800 shadow">
+      <div class="flex items-center justify-between p-3 border-b border-gray-800">
+        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+      </div>
+      <div class="p-3 grid gap-3">
+        <button id="open-create-quick" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
+        <div class="grid gap-2">
+          <div class="text-sm text-gray-400">Acciones por lote</div>
+          <div class="grid grid-cols-2 gap-2">
+            <button id="batch-prov-side" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Provisionar</button>
+            <button id="batch-uns-side" class="px-3 py-2 rounded-md bg-green-600 text-white">Reactivar</button>
+            <button id="batch-sus-side" class="px-3 py-2 rounded-md bg-red-600 text-white">Suspender</button>
+          </div>
+          <input id="batch-message-side" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <button id="batch-remind-side" class="px-3 py-2 rounded-md bg-gray-900">Recordar</button>
+        </div>
+        <div class="grid gap-2">
+          <div class="text-sm text-gray-400">Aviso mantenimiento</div>
+          <input id="batch-maint-message-side" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+          <button id="batch-maint-side" class="px-3 py-2 rounded-md bg-yellow-500 text-black">Enviar aviso</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}});var ocq=document.getElementById('open-create-quick');if(ocq){ocq.addEventListener('click',function(){close();var btn=document.getElementById('open-create');if(btn){btn.click()}})}function proxy(id,fn){var b=document.getElementById(id);if(b){b.addEventListener('click',fn)}}proxy('batch-prov-side',function(){document.getElementById('batch-prov').click()});proxy('batch-uns-side',function(){document.getElementById('batch-uns').click()});proxy('batch-sus-side',function(){document.getElementById('batch-sus').click()});proxy('batch-remind-side',function(){var src=document.getElementById('batch-message');var dst=document.getElementById('batch-message-side');if(src&&dst){src.value=dst.value}document.getElementById('batch-remind').click()});proxy('batch-maint-side',function(){var src=document.getElementById('batch-maint-message');var dst=document.getElementById('batch-maint-message-side');if(src&&dst){src.value=dst.value}document.getElementById('batch-maint').click()});})();
+  </script>
   {% if items|length == 0 %}
   <div class="p-6 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-2 text-center">
     <div class="text-lg font-semibold">Sin resultados</div>

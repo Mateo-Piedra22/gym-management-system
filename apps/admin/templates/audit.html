@@ -7,6 +7,7 @@
     <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <form method="get" action="/admin/audit" class="flex flex-wrap gap-2 items-center">
+    <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <input name="actor" value="{{ actor or '' }}" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input name="action" value="{{ action or '' }}" placeholder="Acción" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input name="gym_id" type="number" min="1" value="{{ gym_id or '' }}" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-28" />
@@ -15,6 +16,29 @@
     <input type="hidden" name="ui" value="1" />
     <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
   </form>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-[360px] bg-gray-900 border-l border-gray-800 shadow">
+      <div class="flex items-center justify-between p-3 border-b border-gray-800">
+        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+      </div>
+      <div class="p-3 grid gap-3">
+          <form method="get" action="/admin/audit" class="grid gap-2">
+            <input name="actor" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input name="action" placeholder="Acción" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input name="from" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input name="to" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input type="hidden" name="ui" value="1" />
+            <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
+          </form>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
+  </script>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">
       <div class="font-semibold mb-2">Top acciones</div>

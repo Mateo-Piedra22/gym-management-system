@@ -7,6 +7,7 @@
     <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <div class="flex flex-wrap gap-3 items-center">
+    <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <form method="get" action="{% if mode=='dashboard' %}/admin/subscriptions/dashboard{% else %}/admin/subscriptions/upcoming{% endif %}" class="flex gap-2">
       <input name="days" type="number" min="1" value="{{ days }}" placeholder="Días" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       {% if mode=='dashboard' %}
@@ -22,6 +23,28 @@
     </form>
     {% endif %}
   </div>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-[360px] bg-gray-900 border-l border-gray-800 shadow">
+      <div class="flex items-center justify-between p-3 border-b border-gray-800">
+        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+      </div>
+      <div class="p-3 grid gap-3">
+          <form method="post" action="/admin/subscriptions/remind" class="grid gap-2">
+            <input name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar por ventana</button>
+          </form>
+          <form method="post" action="/admin/subscriptions/auto-suspend" class="grid gap-2">
+            <input name="grace_days" type="number" min="0" value="7" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Auto-suspender vencidos</button>
+          </form>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
+  </script>
   <div class="overflow-x-auto">
     <form method="post" action="/admin/subscriptions/remind-selected">
       <table class="w-full text-sm">

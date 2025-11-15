@@ -610,6 +610,20 @@ class AdminDatabaseManager:
         except Exception:
             return []
 
+    def listar_pagos_recientes(self, limit: int = 10) -> List[Dict[str, Any]]:
+        try:
+            lim = max(int(limit or 10), 1)
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    "SELECT gp.id, gp.gym_id, g.nombre, g.subdominio, gp.plan, gp.amount, gp.currency, gp.paid_at, gp.valid_until, gp.status FROM gym_payments gp JOIN gyms g ON g.id = gp.gym_id ORDER BY gp.paid_at DESC LIMIT %s",
+                    (lim,)
+                )
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
     def crear_gimnasio(self, nombre: str, subdominio: str, whatsapp_phone_id: str | None = None, whatsapp_access_token: str | None = None, owner_phone: str | None = None, whatsapp_business_account_id: str | None = None, whatsapp_verify_token: str | None = None, whatsapp_app_secret: str | None = None, whatsapp_nonblocking: bool | None = None, whatsapp_send_timeout_seconds: float | None = None) -> Dict[str, Any]:
         try:
             self._ensure_schema()

@@ -283,7 +283,16 @@ async def admin_home(request: Request):
     except Exception:
         warnings = []
     try:
-        return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings})
+        adm = _get_admin_db()
+        metrics = adm.obtener_metricas_agregadas() if adm else {"gyms": {"total": 0, "active": 0, "suspended": 0, "maintenance": 0, "last_7": 0, "last_30": 0, "series_30": []}, "whatsapp": {"configured": 0}, "storage": {"configured": 0}, "subscriptions": {"active": 0, "overdue": 0}, "payments": {"last_30_sum": 0.0}}
+        series = list((metrics.get("gyms") or {}).get("series_30") or [])
+        series_max = max([int(it.get("count") or 0) for it in series] or [1])
+        upcoming = adm.listar_proximos_vencimientos(14) if adm else []
+        recent_payload = adm.listar_gimnasios_con_resumen(1, 8, None, None, "created_at", "DESC") if adm else {"items": []}
+        recent_gyms = list((recent_payload or {}).get("items") or [])
+        recent_payments = adm.listar_pagos_recientes(10) if adm else []
+        audit = adm.resumen_auditoria(7) if adm else {"by_action": [], "by_actor": [], "days": 7}
+        return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings, "metrics": metrics, "series_max": int(series_max), "upcoming": upcoming, "recent_gyms": recent_gyms, "recent_payments": recent_payments, "audit": audit})
     except Exception:
         if wants_html:
             return Response(content="<div class=\"p-6 text-red-300\">Error interno del panel</div>", media_type="text/html", status_code=500)

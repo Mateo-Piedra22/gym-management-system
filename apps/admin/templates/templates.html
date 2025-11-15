@@ -7,6 +7,35 @@
     <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <p class="text-gray-400">Se usan de forma estándar y no se personalizan por gimnasio.</p>
+  <div class="flex items-center gap-2">
+    <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
+  </div>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-[360px] bg-gray-900 border-l border-gray-800 shadow">
+      <div class="flex items-center justify-between p-3 border-b border-gray-800">
+        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+      </div>
+      <div class="p-3 grid gap-3">
+          <form method="get" action="/admin/templates" class="grid gap-2">
+            <select name="name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
+              {% for n in names %}<option value="{{ n }}">{{ n }}</option>{% endfor %}
+            </select>
+            <input type="hidden" name="ui" value="1" />
+            <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Ver</button>
+          </form>
+          <form method="post" action="/admin/gyms/test-send" class="grid gap-2">
+            <input name="gym_id" type="number" min="1" placeholder="Gym ID" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <input name="name" placeholder="Template" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar prueba</button>
+          </form>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
+  </script>
   <div class="grid gap-3 md:grid-cols-2">
     <div>
       <h2 class="text-lg font-medium">Listado</h2>
