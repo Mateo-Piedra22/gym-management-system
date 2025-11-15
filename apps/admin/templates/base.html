@@ -23,7 +23,7 @@
   </style>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: {{ 'false' if hide_sidebar else 'true' }} }" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
-  <div x-bind:class="open ? 'grid grid-cols-[240px,1fr] min-h-screen' : 'min-h-screen'" class="{{ 'min-h-screen' if hide_sidebar else 'grid grid-cols-[240px,1fr] min-h-screen' }}">
+  <div x-bind:class="open ? 'grid grid-cols-[240px,1fr] min-h-screen' : 'grid grid-cols-[0px,1fr] min-h-screen'" class="{{ 'min-h-screen' if hide_sidebar else 'grid grid-cols-[240px,1fr] min-h-screen' }}">
     {% if not hide_sidebar %}
     <aside x-show="open" class="bg-[#0b1222] border-r border-gray-800 p-4">
       <div class="text-lg font-bold flex items-center gap-2">
@@ -41,7 +41,7 @@
       </nav>
     </aside>
     {% endif %}
-    <main id="main" hx-history-elt class="p-5">
+    <main id="main" hx-history-elt class="p-5 w-full min-w-0">
       {% if not hide_sidebar %}
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -114,7 +114,7 @@
     document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openK()}});
     document.addEventListener('htmx:responseError', function(ev){ try { var s = ev && ev.detail && ev.detail.xhr ? ev.detail.xhr.status : 0; toast('Error '+s+' cargando contenido','error'); var p = ev && ev.detail && ev.detail.pathInfo ? ev.detail.pathInfo.path : null; if (p && typeof p === 'string') { window.location.href = p; } } catch(_){ } });
     document.addEventListener('htmx:send', function(){ try { var ind = document.querySelector('#main-indicator'); if (ind){ ind.classList.add('htmx-request'); } } catch(_){ } });
-    document.addEventListener('htmx:afterOnLoad', function(){ try { var ind = document.querySelector('#main-indicator'); if (ind){ ind.classList.remove('htmx-request'); } } catch(_){ } });
+    document.addEventListener('htmx:afterOnLoad', function(ev){ try { var ind = document.querySelector('#main-indicator'); if (ind){ ind.classList.remove('htmx-request'); } var xhr = ev && ev.detail ? ev.detail.xhr : null; var ct = xhr && xhr.getResponseHeader ? (xhr.getResponseHeader('content-type')||'') : ''; var p = window.location && window.location.pathname ? window.location.pathname : ''; var skip = ['/admin/gyms','/admin/audit','/admin/subscriptions','/admin/plans','/admin/templates','/admin/passwords','/admin/owner']; for (var i=0;i<skip.length;i++){ if (p.indexOf(skip[i])===0) { return } } if (ct.indexOf('application/json')!==-1){ var txt = xhr && xhr.responseText || ''; var j = null; try { j = JSON.parse(txt); } catch(_){ j = null } if (j && j.ok){ var url = new URL(window.location.href); url.searchParams.set('ui','1'); fetch(url.toString(), { headers: { 'accept':'text/html' } }).then(function(r){ return r.text() }).then(function(html){ try { var doc = new DOMParser().parseFromString(html,'text/html'); var next = doc.querySelector('main'); var cur = document.querySelector('main'); if (next && cur) { cur.innerHTML = next.innerHTML; } } catch(_){ } }).catch(function(){ }); } } } catch(_){ } });
   })();
   </script>
 </body>

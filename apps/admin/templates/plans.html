@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set _ = '' %}
 {% block content %}
-<div class="max-w-5xl mx-auto" x-data="{ tab: 'list' }">
+<div id="plans-section" class="max-w-5xl mx-auto" x-data="{ tab: 'list' }">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold">Planes</h1>
     <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
@@ -19,7 +19,7 @@
         <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
       </div>
       <div class="p-3 grid gap-3">
-          <form method="post" action="/admin/plans" class="grid grid-cols-2 gap-2">
+          <form hx-post="/admin/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-2 gap-2">
             <label for="side-plan-name" class="text-sm text-gray-300">Nombre</label>
             <input id="side-plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
             <label for="side-plan-amount" class="text-sm text-gray-300">Monto</label>
@@ -89,7 +89,7 @@
   </div>
   <div x-show="tab==='create'">
   <h2 class="text-lg mt-6">Crear plan</h2>
-  <form method="post" action="/admin/plans" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+  <form hx-post="/admin/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
     <label for="plan-name" class="text-sm text-gray-300">Nombre</label>
     <input id="plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <label for="plan-amount" class="text-sm text-gray-300">Monto</label>
@@ -105,3 +105,6 @@
   </div>
 </div>
 {% endblock %}
+<script>
+(function(){document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var el=evt.target;var act=el&&el.getAttribute('action')||el&&el.getAttribute('hx-post')||'';if(j&&j.ok){var m=act.match(/\/admin\/plans(\/\d+)?/);if(m){var url=new URL(window.location.href);url.searchParams.set('ui','1');fetch(url.toString(),{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){try{var doc=new DOMParser().parseFromString(html,'text/html');var next=doc.querySelector('#plans-section');var cur=document.querySelector('#plans-section');if(next&&cur){cur.innerHTML=next.innerHTML}}catch(_){}})}}}catch(_){}})})();
+</script>

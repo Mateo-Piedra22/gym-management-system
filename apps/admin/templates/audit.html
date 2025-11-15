@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% set _ = '' %}
 {% block content %}
-<div class="max-w-6xl mx-auto space-y-4">
+<div id="audit-section" class="max-w-6xl mx-auto space-y-4">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold">Auditoría</h1>
     <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
-  <form method="get" action="/admin/audit" class="flex flex-wrap gap-2 items-center">
+  <form hx-get="/admin/audit" hx-target="#audit-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="flex flex-wrap gap-2 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <label for="audit-actor" class="text-sm text-gray-300">Actor</label>
     <input id="audit-actor" name="actor" value="{{ actor or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -29,7 +29,7 @@
         <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
       </div>
       <div class="p-3 grid gap-3">
-          <form method="get" action="/admin/audit" class="grid gap-2">
+          <form hx-get="/admin/audit" hx-target="#audit-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="grid gap-2">
             <label for="side-actor" class="text-sm text-gray-300">Actor</label>
             <input id="side-actor" name="actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
             <label for="side-action" class="text-sm text-gray-300">Acción</label>

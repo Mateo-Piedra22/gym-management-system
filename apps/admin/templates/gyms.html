@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% set _ = '' %}
 {% block content %}
-<div class="space-y-4">
-  <h1 class="text-2xl font-semibold">Gimnasios</h1>
-  <div class="flex flex-wrap gap-3 items-center">
+  <div class="space-y-4">
+    <h1 class="text-2xl font-semibold">Gimnasios</h1>
+    <span id="bucket-prefix" data-value="{{ b2_bucket_prefix or 'motiona-assets' }}" style="display:none"></span>
+    <div class="flex flex-wrap gap-3 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <form method="get" action="/admin/gyms" class="flex flex-wrap gap-2">
       <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
@@ -83,7 +84,9 @@
     </div>
   </div>
   <script>
+  window.addEventListener('DOMContentLoaded', function(){
   (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}});var ocq=document.getElementById('open-create-quick');if(ocq){ocq.addEventListener('click',function(){close();var btn=document.getElementById('open-create');if(btn){btn.click()}})}function proxy(id,fn){var b=document.getElementById(id);if(b){b.addEventListener('click',fn)}}proxy('batch-prov-side',function(){document.getElementById('batch-prov').click()});proxy('batch-uns-side',function(){document.getElementById('batch-uns').click()});proxy('batch-sus-side',function(){document.getElementById('batch-sus').click()});proxy('batch-remind-side',function(){var src=document.getElementById('batch-message');var dst=document.getElementById('batch-message-side');if(src&&dst){src.value=dst.value}document.getElementById('batch-remind').click()});proxy('batch-maint-side',function(){var src=document.getElementById('batch-maint-message');var dst=document.getElementById('batch-maint-message-side');if(src&&dst){src.value=dst.value}document.getElementById('batch-maint').click()});})();
+  });
   </script>
   {% if items|length == 0 %}
   <div class="p-6 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-2 text-center">
@@ -91,20 +94,20 @@
     <div class="text-gray-400">Ajusta filtros u <button id="open-create-2" class="px-3 py-1 rounded-md bg-primary text-primary-foreground">crea un gimnasio</button></div>
   </div>
   {% elif (view or 'cards')=='cards' %}
-  <div class="grid [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))] gap-3">
+  <div id="gyms-section" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
     {% for g in items %}
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ edit: false }">
       <div class="flex justify-between items-center">
         <div class="flex items-center gap-2">
           <input type="checkbox" class="select-gym" value="{{ g.id }}" />
-          <div class="font-semibold">{{ g.nombre }}</div>
-          <button type="button" class="text-gray-400 text-sm" data-sub="{{ g.subdominio }}">{{ g.subdominio }}</button>
+          <div id="gym-name-{{ g.id }}" class="font-semibold">{{ g.nombre }}</div>
+          <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm" data-sub="{{ g.subdominio }}">{{ g.subdominio }}</button>
         </div>
         <div class="flex items-center gap-2">
           <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-swap="innerHTML" class="hidden sm:flex gap-1 items-center">
             <div class="skeleton w-16 h-3 rounded-md"></div>
           </div>
-          <span class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
+          <span id="status-badge-{{ g.id }}" class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-2 text-sm">
@@ -116,7 +119,7 @@
             <button type="submit" class="px-2 py-1 rounded-md bg-gray-900">Guardar</button>
           </form>
         </div>
-        <div class="text-gray-400">B2 Bucket</div><div>{{ g.b2_bucket_name }}</div>
+        <div class="text-gray-400">B2 Bucket</div><div id="gym-bucket-{{ g.id }}">{{ g.b2_bucket_name }}</div>
         <div class="text-gray-400">B2 ID</div><div class="truncate" title="{{ g.b2_bucket_id }}">{{ g.b2_bucket_id }}</div>
       </div>
       <div class="grid gap-2" x-show="edit">
@@ -129,6 +132,7 @@
                    x-on:input="document.getElementById('edit-sub-hidden-{{ g.id }}').value = $event.target.value" />
             <input type="hidden" id="edit-sub-hidden-{{ g.id }}" name="sub" />
             <span id="edit-sub-status-{{ g.id }}" class="text-xs text-gray-400"></span>
+            <div id="edit-bucket-preview-{{ g.id }}" class="text-xs text-gray-400">{{ (b2_bucket_prefix or 'motiona-assets') ~ '-' ~ g.subdominio }}</div>
           </div>
           <label class="flex items-center gap-2"><input type="checkbox" name="disable_sync" /> <span class="text-sm text-gray-300">Desactivar sincronización obligatoria en esta edición</span></label>
           <div class="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -173,18 +177,18 @@
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
+        <form hx-post="/admin/gyms/{{ g.id }}/provision" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
         <button type="button" class="px-3 py-2 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}" title="Suspender"><i class="fa-solid fa-pause"></i><span class="ml-2">Suspender</span></button>
-        <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i><span class="ml-2">Regenerar clave B2</span></button></form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar bucket B2</span></button></form>
+        <form hx-post="/admin/gyms/{{ g.id }}/unsuspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
+        <form hx-post="/admin/gyms/{{ g.id }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i><span class="ml-2">Regenerar clave B2</span></button></form>
+        <form hx-post="/admin/gyms/{{ g.id }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar bucket B2</span></button></form>
         <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Eliminar gimnasio"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar</span></button></form>
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="overflow-x-auto rounded-xl border border-gray-800">
+  <div id="gyms-section" class="overflow-x-auto rounded-xl border border-gray-800">
     <table class="w-full text-sm">
       <thead>
         <tr class="bg-gray-900">
@@ -205,17 +209,18 @@
           <td class="px-3 py-2"><input type="checkbox" class="select-gym" value="{{ g.id }}" /></td>
           <td class="px-3 py-2">{{ g.id }}</td>
           <td class="px-3 py-2">
-            <div x-show="!editRow">{{ g.nombre }}</div>
+            <div id="row-name-{{ g.id }}" x-show="!editRow">{{ g.nombre }}</div>
             <input x-show="editRow" id="t-name-{{ g.id }}" name="nombre" value="{{ g.nombre }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="px-3 py-2">
-            <div x-show="!editRow">{{ g.subdominio }}</div>
+            <div id="row-sub-{{ g.id }}" x-show="!editRow">{{ g.subdominio }}</div>
             <div x-show="editRow" class="grid gap-2">
               <input id="t-sub-{{ g.id }}" name="subdominio" value="{{ g.subdominio }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950"
                      hx-get="/admin/subdomains/check" hx-trigger="input changed" hx-target="#t-sub-status-{{ g.id }}" hx-headers='{"accept":"text/html"}' hx-include="#t-name-{{ g.id }}, #t-sub-hidden-{{ g.id }}"
                      x-on:input="document.getElementById('t-sub-hidden-{{ g.id }}').value = $event.target.value" />
               <input type="hidden" id="t-sub-hidden-{{ g.id }}" name="sub" />
               <span id="t-sub-status-{{ g.id }}" class="text-xs text-gray-400"></span>
+              <div id="t-bucket-preview-{{ g.id }}" class="text-xs text-gray-400">{{ (b2_bucket_prefix or 'motiona-assets') ~ '-' ~ g.subdominio }}</div>
               <label class="flex items-center gap-2"><input type="checkbox" name="disable_sync" /> <span class="text-xs text-gray-300">Desactivar sincronización obligatoria</span></label>
               <div class="grid grid-cols-2 gap-2">
                 <label class="flex items-center gap-2"><input type="checkbox" name="update_bucket" /> <span class="text-xs text-gray-300">Actualizar bucket</span></label>
@@ -245,9 +250,9 @@
           <td class="px-3 py-2">
             <div class="flex flex-wrap gap-2">
               <button type="button" class="px-2 py-1 rounded-md bg-gray-900" x-on:click="editRow=!editRow" title="Editar"><i class="fa-solid fa-pen"></i></button>
-              <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i></button></form>
+              <form hx-post="/admin/gyms/{{ g.id }}/provision" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i></button></form>
               <button type="button" class="px-2 py-1 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}" title="Suspender"><i class="fa-solid fa-pause"></i></button>
-              <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-green-600 text-white" title="Reactivar"><i class="fa-solid fa-play"></i></button></form>
+              <form hx-post="/admin/gyms/{{ g.id }}/unsuspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-green-600 text-white" title="Reactivar"><i class="fa-solid fa-play"></i></button></form>
               <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i></a>
               <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i></a>
               <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>
@@ -255,8 +260,8 @@
               <a href="/admin/gyms/{{ g.id }}/branding?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i></a>
               <a href="/admin/gyms/{{ g.id }}/owner?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i></a>
               <a href="/admin/gyms/{{ g.id }}/health?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i></a>
-              <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i></button></form>
-              <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i></button></form>
+              <form hx-post="/admin/gyms/{{ g.id }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i></button></form>
+              <form hx-post="/admin/gyms/{{ g.id }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i></button></form>
               <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="px-2 py-1 rounded-md bg-gray-900" title="Eliminar gimnasio"><i class="fa-solid fa-trash"></i></button></form>
             </div>
           </td>
@@ -353,7 +358,7 @@
           </div>
         </form>
         <script>
-          (function(){function slug(v){v=String(v||'').toLowerCase();try{v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch(e){}v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}var name=document.getElementById('create-name');var sub=document.getElementById('create-sub');var status=document.getElementById('create-sub-status');var bucket=document.getElementById('create-bucket');var pref='{{ b2_bucket_prefix or "motiona-assets" }}';function updateBucket(){if(!bucket)return;var s=(sub&&sub.value)?String(sub.value||''):slug(name?name.value:'');if(!s){bucket.placeholder=pref+'-<slug>';return}bucket.value=pref+'-'+s}function updateSub(){if(!sub||!name)return;var base=slug(name.value);if(!base){sub.value='';if(status){status.textContent='';status.removeAttribute('style')}updateBucket();return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(name.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);sub.value=sug;if(status){if(j&&j.available){status.textContent='Disponible';status.style.color='#16a34a'}else{status.textContent='Sugerido: '+sug;status.style.color='#f59e0b'}}updateBucket()}).catch(function(){sub.value=base;if(status){status.textContent='';status.removeAttribute('style')}updateBucket()})}if(name){name.addEventListener('input',function(){if(!(sub&&sub.value))updateSub();else updateBucket()})}if(sub){sub.addEventListener('input',updateBucket)}updateSub()})();
+          (function(){function slug(v){v=String(v||'').toLowerCase();try{v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch(e){}v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}var name=document.getElementById('create-name');var sub=document.getElementById('create-sub');var status=document.getElementById('create-sub-status');var bucket=document.getElementById('create-bucket');var pref=(function(){var el=document.getElementById('bucket-prefix');return el?String(el.getAttribute('data-value')||'motiona-assets'):'motiona-assets'})();function updateBucket(){if(!bucket)return;var s=(sub&&sub.value)?String(sub.value||''):slug(name?name.value:'');if(!s){bucket.placeholder=pref+'-<slug>';return}bucket.value=pref+'-'+s}function updateSub(){if(!sub||!name)return;var base=slug(name.value);if(!base){sub.value='';if(status){status.textContent='';status.removeAttribute('style')}updateBucket();return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(name.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);sub.value=sug;if(status){if(j&&j.available){status.textContent='Disponible';status.style.color='#16a34a'}else{status.textContent='Sugerido: '+sug;status.style.color='#f59e0b'}}updateBucket()}).catch(function(){sub.value=base;if(status){status.textContent='';status.removeAttribute('style')}updateBucket()})}if(name){name.addEventListener('input',function(){if(!(sub&&sub.value))updateSub();else updateBucket()})}if(sub){sub.addEventListener('input',updateBucket)}updateSub()})();
         </script>
       </div>
     </div>
@@ -395,7 +400,7 @@
     </div>
   </div>
   <script>
-  (function(){
+    (function(){
     var confirmOverlay=document.getElementById('confirm-modal');
     var confirmMsg=document.getElementById('confirm-message');
     var confirmYes=document.getElementById('confirm-yes');
@@ -417,21 +422,38 @@
     var bsa=document.getElementById('batch-select-all');if(bsa){bsa.addEventListener('click',selectAll)}var bcl=document.getElementById('batch-clear');if(bcl){bcl.addEventListener('click',clearSel)}
     var subs=document.querySelectorAll('[data-sub]');for(var j=0;j<subs.length;j++){subs[j].addEventListener('click',function(){var tx=this.getAttribute('data-sub')||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')})}else{toast(tx,'info')}})}
     function _slugify(v){v=String(v||'').toLowerCase();try{v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch(_){}v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}
-    var _timers={};
-    function _updateEditSub(id){var n=document.getElementById('edit-name-'+id);var s=document.getElementById('edit-sub-'+id);var st=document.getElementById('edit-sub-status-'+id);if(!n||!s)return;var base=_slugify(n.value);if(!base){if(!s.value){s.value='';if(st){st.textContent='';st.removeAttribute('style')}}return}if(s.value){return}clearTimeout(_timers['e'+id]);_timers['e'+id]=setTimeout(function(){fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent='';st.removeAttribute('style')}})},250)}
-    function _updateTableSub(id){var n=document.getElementById('t-name-'+id);var s=document.getElementById('t-sub-'+id);var st=document.getElementById('t-sub-status-'+id);if(!n||!s)return;var base=_slugify(n.value);if(!base){if(!s.value){s.value='';if(st){st.textContent='';st.removeAttribute('style')}}return}if(s.value){return}clearTimeout(_timers['t'+id]);_timers['t'+id]=setTimeout(function(){fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent='';st.removeAttribute('style')}})},250)}
-    function _bindAutoFill(){var es=document.querySelectorAll('[id^="edit-name-"]');for(var i=0;i<es.length;i++){(function(el){var id=String(el.id||'').replace('edit-name-','');el.addEventListener('input',function(){_updateEditSub(id)});_updateEditSub(id)})(es[i])}var ts=document.querySelectorAll('[id^="t-name-"]');for(var k=0;k<ts.length;k++){(function(el){var id=String(el.id||'').replace('t-name-','');el.addEventListener('input',function(){_updateTableSub(id)});_updateTableSub(id)})(ts[k])}}
+    var _timers={};var _pref=(function(){var el=document.getElementById('bucket-prefix');return el?String(el.getAttribute('data-value')||'motiona-assets'):'motiona-assets'})();
+    function _updateEditSub(id){var n=document.getElementById('edit-name-'+id);var s=document.getElementById('edit-sub-'+id);var st=document.getElementById('edit-sub-status-'+id);var bp=document.getElementById('edit-bucket-preview-'+id);if(!n||!s)return;var base=_slugify(n.value);if(!base){if(!s.value){s.value='';if(st){st.textContent='';st.removeAttribute('style')}if(bp){bp.textContent=_pref+'-'}}return}if(s.value){if(bp){bp.textContent=_pref+'-'+String(s.value||'')}return}clearTimeout(_timers['e'+id]);_timers['e'+id]=setTimeout(function(){fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}if(bp){bp.textContent=_pref+'-'+sug}}).catch(function(){s.value=base;if(st){st.textContent='';st.removeAttribute('style')}if(bp){bp.textContent=_pref+'-'+base}})},250)}
+    function _updateTableSub(id){var n=document.getElementById('t-name-'+id);var s=document.getElementById('t-sub-'+id);var st=document.getElementById('t-sub-status-'+id);var bp=document.getElementById('t-bucket-preview-'+id);if(!n||!s)return;var base=_slugify(n.value);if(!base){if(!s.value){s.value='';if(st){st.textContent='';st.removeAttribute('style')}if(bp){bp.textContent=_pref+'-'}}return}if(s.value){if(bp){bp.textContent=_pref+'-'+String(s.value||'')}return}clearTimeout(_timers['t'+id]);_timers['t'+id]=setTimeout(function(){fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}if(bp){bp.textContent=_pref+'-'+sug}}).catch(function(){s.value=base;if(st){st.textContent='';st.removeAttribute('style')}if(bp){bp.textContent=_pref+'-'+base}})},250)}
+    function _bindAutoFill(){
+      var es=document.querySelectorAll('[id^="edit-name-"]');
+      for(var i=0;i<es.length;i++){
+        (function(el){
+          var id=String(el.id||'').replace('edit-name-','');
+          el.addEventListener('input',function(){_updateEditSub(id)});
+          _updateEditSub(id)
+        })(es[i])
+      }
+      var ts=document.querySelectorAll('[id^="t-name-"]');
+      for(var k=0;k<ts.length;k++){
+        (function(el){
+          var id=String(el.id||'').replace('t-name-','');
+          el.addEventListener('input',function(){_updateTableSub(id)});
+          _updateTableSub(id)
+        })(ts[k])
+      }
+    }
     _bindAutoFill()
-    function runBatch(action){if(selected.size===0){toast('No hay seleccionados','info');return}var form=new URLSearchParams();form.append('action',action);form.append('gym_ids',Array.from(selected).join(','));fetch('/admin/gyms/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Acción '+action+' aplicada','success');setTimeout(function(){window.location.reload()},600)}else{toast('Error en lote','error')}}).catch(function(){toast('Error de red','error')})}
-    function runRemindBatch(){if(selected.size===0){toast('No hay seleccionados','info');return}var msgEl=document.getElementById('batch-message');var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));form.append('message',msgEl?String(msgEl.value||''):'');fetch('/admin/gyms/remind/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Recordatorios enviados','success')}else{toast('Error al enviar recordatorios','error')}}).catch(function(){toast('Error de red','error')})}
-    function runMaintBatch(){if(selected.size===0){toast('No hay seleccionados','info');return}var msgEl=document.getElementById('batch-maint-message');var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));form.append('message',msgEl?String(msgEl.value||''):'');fetch('/admin/gyms/maintenance/notify/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Avisos de mantenimiento enviados','success')}else{toast('Error al enviar avisos','error')}}).catch(function(){toast('Error de red','error')})}
+    function runBatch(action){if(selected.size===0){toast('No hay seleccionados','info');return}var form=new URLSearchParams();form.append('action',action);form.append('gym_ids',Array.from(selected).join(','));fetch('/admin/gyms/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Acción '+action+' aplicada','success');refreshGymsList()}else{toast('Error en lote','error')}}).catch(function(){toast('Error de red','error')})}
+    function runRemindBatch(){if(selected.size===0){toast('No hay seleccionados','info');return}var msgEl=document.getElementById('batch-message');var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));form.append('message',msgEl?String(msgEl.value||''):'');fetch('/admin/gyms/remind/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Recordatorios enviados','success');refreshGymsList()}else{toast('Error al enviar recordatorios','error')}}).catch(function(){toast('Error de red','error')})}
+    function runMaintBatch(){if(selected.size===0){toast('No hay seleccionados','info');return}var msgEl=document.getElementById('batch-maint-message');var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));form.append('message',msgEl?String(msgEl.value||''):'');fetch('/admin/gyms/maintenance/notify/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Avisos de mantenimiento enviados','success');refreshGymsList()}else{toast('Error al enviar avisos','error')}}).catch(function(){toast('Error de red','error')})}
     var detailsOverlay=document.getElementById('details-overlay');var detailsContent=document.getElementById('details-content');var detailsClose=document.getElementById('details-close');function openDetails(gid){if(!detailsOverlay||!detailsContent)return;detailsOverlay.classList.remove('hidden');fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var h=(j&&j.health)||{};var pays=(j&&j.payments)||[];var sub=(j&&j.subscription)||{};var wurl=String((j&&j.webapp_url)||'');var html='';html+='<div class="grid grid-cols-2 gap-2">';html+='<div class="text-gray-400">ID</div><div>'+String(d.id||'')+'</div>';html+='<div class="text-gray-400">Nombre</div><div>'+String(d.nombre||'')+'</div>';html+='<div class="text-gray-400">Subdominio</div><div>'+String(d.subdominio||'')+'</div>';html+='<div class="text-gray-400">Estado</div><div>'+String(d.status||'')+'</div>';html+='<div class="text-gray-400">Creado</div><div>'+String(d.created_at||'')+'</div>';html+='<div class="text-gray-400">Teléfono</div><div>'+String(d.owner_phone||'')+'</div>';html+='<div class="text-gray-400">DB</div><div>'+String(d.db_name||'')+'</div>';html+='<div class="text-gray-400">Motivo suspensión</div><div>'+String(d.suspended_reason||'')+'</div>';html+='<div class="text-gray-400">Suspendido hasta</div><div>'+String(d.suspended_until||'')+'</div>';html+='<div class="text-gray-400">Suspensión dura</div><div>'+String(d.hard_suspend?('sí'):'no')+'</div>';html+='</div>';html+='<div class="mt-3 grid grid-cols-3 gap-2">';html+='<div class="px-2 py-1 rounded-md '+((h.db&&h.db.ok)?'bg-green-600 text-white':'bg-red-600 text-white')+'">DB</div>';html+='<div class="px-2 py-1 rounded-md '+((h.whatsapp&&h.whatsapp.ok)?'bg-green-600 text-white':'bg-red-600 text-white')+'">WA</div>';html+='<div class="px-2 py-1 rounded-md '+((h.storage&&h.storage.ok)?'bg-green-600 text-white':'bg-red-600 text-white')+'">ST</div>';html+='</div>';html+='<div class="mt-3 grid grid-cols-2 gap-2"><div class="text-gray-400">B2 Bucket</div><div>'+String(d.b2_bucket_name||'')+'</div><div class="text-gray-400">Bucket ID</div><div>'+String(d.b2_bucket_id||'')+'</div><div class="text-gray-400">Key ID</div><div>'+String(d.b2_key_id||'')+'</div><div class="text-gray-400">Application Key</div><div>'+(d.b2_application_key?('••••••••••••••'):'')+'</div></div>';html+='<div class="mt-3 grid grid-cols-2 gap-2"><div class="text-gray-400">WA Phone ID</div><div>'+String(d.whatsapp_phone_id||'')+'</div><div class="text-gray-400">WABA ID</div><div>'+String(d.whatsapp_business_account_id||'')+'</div><div class="text-gray-400">Token configurado</div><div>'+(d.whatsapp_access_token_configured?('sí'):'no')+'</div><div class="text-gray-400">Verify token configurado</div><div>'+(d.whatsapp_verify_token_configured?('sí'):'no')+'</div><div class="text-gray-400">App secret configurado</div><div>'+(d.whatsapp_app_secret_configured?('sí'):'no')+'</div><div class="text-gray-400">WA no bloqueante</div><div>'+(d.whatsapp_nonblocking?('sí'):'no')+'</div><div class="text-gray-400">Timeout envío (s)</div><div>'+String(d.whatsapp_send_timeout_seconds||'')+'</div></div>';html+='<div class="mt-3"><div class="text-gray-300">Suscripción</div><div class="text-sm">Plan: '+String(sub.plan||'')+' · Válido hasta: '+String(sub.valid_until||'')+'</div></div>';html+='<div class="mt-3"><div class="text-gray-300">Pagos recientes</div>';if(pays.length){html+='<div class="grid gap-1">';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];html+='<div class="flex justify-between text-sm"><span>'+(String(p.plan||'')+' · '+String(p.amount||'')+' '+String(p.currency||''))+'</span><span class="text-gray-400">'+String(p.paid_at||'')+'</span></div>'}html+='</div>'}else{html+='<div class="text-gray-400 text-sm">Sin pagos</div>'}html+='</div>';if(wurl){html+='<div class="mt-3"><div class="text-gray-300">Vista previa</div><div class="rounded-md border border-gray-800 overflow-hidden"><iframe src="'+wurl+'" title="Vista previa webapp" class="w-full h-[420px] bg-black"></iframe></div></div>'}detailsContent.innerHTML=html}).catch(function(){detailsContent.innerHTML='<div class="text-red-600">Error al cargar detalles</div>'})}
     function haloDue(){var cards=document.querySelectorAll('[data-next-due]');var now=new Date();for(var i=0;i<cards.length;i++){var nd=cards[i].getAttribute('data-next-due')||'';if(!nd)continue;var d=new Date(nd);if(isNaN(d.getTime()))continue;var diff=Math.round((d.getTime()-now.getTime())/86400000);if(diff<=3){cards[i].classList.remove('border-gray-800');cards[i].classList.add('border-red-600')}else if(diff<=7){cards[i].classList.remove('border-gray-800');cards[i].classList.add('border-yellow-500')}}}
     haloDue()
-    var createOverlay=document.getElementById('create-modal');var createOpen=document.getElementById('open-create');var createOpen2=document.getElementById('open-create-2');var createCancel=document.getElementById('create-cancel');var createCancel2=document.getElementById('create-cancel-2');function openCreate(){if(createOverlay){createOverlay.classList.remove('hidden');var nm=document.querySelector('#create-modal [name="nombre"]');if(nm){setTimeout(function(){nm.focus()},10)}}}function closeCreate(){if(createOverlay){createOverlay.classList.add('hidden')}}if(createOpen){createOpen.addEventListener('click',openCreate)}if(createOpen2){createOpen2.addEventListener('click',openCreate)}if(createCancel){createCancel.addEventListener('click',closeCreate)}if(createCancel2){createCancel2.addEventListener('click',closeCreate)}document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var j=xhr&&JSON.parse(xhr.responseText);if(j&&j.ok){var formEl=evt.target;if(formEl&&formEl.getAttribute('hx-post')==='/admin/gyms'){toast('Gimnasio creado','success');setTimeout(function(){window.location.reload()},600)}else{toast('Guardado','success')}}else{toast('Error','error')}}catch(e){}})
+    var createOverlay=document.getElementById('create-modal');var createOpen=document.getElementById('open-create');var createOpen2=document.getElementById('open-create-2');var createCancel=document.getElementById('create-cancel');var createCancel2=document.getElementById('create-cancel-2');function openCreate(){if(createOverlay){createOverlay.classList.remove('hidden');var nm=document.querySelector('#create-modal [name="nombre"]');if(nm){setTimeout(function(){nm.focus()},10)}}}function closeCreate(){if(createOverlay){createOverlay.classList.add('hidden')}}if(createOpen){createOpen.addEventListener('click',openCreate)}if(createOpen2){createOpen2.addEventListener('click',openCreate)}if(createCancel){createCancel.addEventListener('click',closeCreate)}if(createCancel2){createCancel2.addEventListener('click',closeCreate)}
     if(detailsClose){detailsClose.addEventListener('click',function(){if(detailsOverlay){detailsOverlay.classList.add('hidden')}})}
     var od=document.querySelectorAll('[data-open-details]');for(var i=0;i<od.length;i++){od[i].addEventListener('click',function(){var gid=this.getAttribute('data-open-details');openDetails(gid)})}
-    var suspendOverlay=document.getElementById('suspend-modal');var suspendCancel=document.getElementById('suspend-cancel');var suspendCancel2=document.getElementById('suspend-cancel-2');var suspendYes=document.getElementById('suspend-yes');var suspendReason=document.getElementById('suspend-reason');var suspendUntil=document.getElementById('suspend-until');var suspendHard=document.getElementById('suspend-hard');var suspendGymId=null;function openSuspend(gid){suspendGymId=gid;if(suspendOverlay){suspendOverlay.classList.remove('hidden');if(suspendReason){setTimeout(function(){suspendReason.focus()},10)}}}function closeSuspend(){suspendGymId=null;if(suspendOverlay){suspendOverlay.classList.add('hidden')}}function submitSuspend(){if(!suspendGymId){closeSuspend();return}var form=new URLSearchParams();form.append('reason',String(suspendReason.value||''));form.append('until',String(suspendUntil.value||''));form.append('hard',suspendHard.checked?'true':'false');fetch('/admin/gyms/'+suspendGymId+'/suspend',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Gimnasio suspendido','success');setTimeout(function(){window.location.reload()},600)}else{toast('Error al suspender','error')}}).catch(function(){toast('Error de red','error')}).finally(function(){closeSuspend()})}
+    var suspendOverlay=document.getElementById('suspend-modal');var suspendCancel=document.getElementById('suspend-cancel');var suspendCancel2=document.getElementById('suspend-cancel-2');var suspendYes=document.getElementById('suspend-yes');var suspendReason=document.getElementById('suspend-reason');var suspendUntil=document.getElementById('suspend-until');var suspendHard=document.getElementById('suspend-hard');var suspendGymId=null;function openSuspend(gid){suspendGymId=gid;if(suspendOverlay){suspendOverlay.classList.remove('hidden');if(suspendReason){setTimeout(function(){suspendReason.focus()},10)}}}function closeSuspend(){suspendGymId=null;if(suspendOverlay){suspendOverlay.classList.add('hidden')}}function submitSuspend(){if(!suspendGymId){closeSuspend();return}var form=new URLSearchParams();form.append('reason',String(suspendReason.value||''));form.append('until',String(suspendUntil.value||''));form.append('hard',suspendHard.checked?'true':'false');fetch('/admin/gyms/'+suspendGymId+'/suspend',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Gimnasio suspendido','success');refreshGymUI(suspendGymId);refreshHealth(suspendGymId)}else{toast('Error al suspender','error')}}).catch(function(){toast('Error de red','error')}).finally(function(){closeSuspend()})}
     if(suspendCancel){suspendCancel.addEventListener('click',closeSuspend)}if(suspendCancel2){suspendCancel2.addEventListener('click',closeSuspend)}if(suspendYes){suspendYes.addEventListener('click',submitSuspend)}var os=document.querySelectorAll('[data-open-suspend]');for(var i=0;i<os.length;i++){os[i].addEventListener('click',function(){var gid=this.getAttribute('data-open-suspend');openSuspend(gid)})}
     var bp=document.getElementById('batch-prov');if(bp){bp.addEventListener('click',function(){runBatch('provision')})}
     var bs=document.getElementById('batch-sus');if(bs){bs.addEventListener('click',function(){runBatch('suspend')})}
@@ -444,10 +466,42 @@
     if(ok){ok.addEventListener('click',openK)}if(okf){okf.addEventListener('click',openK)}
     var kc=document.getElementById('k-close');if(kc){kc.addEventListener('click',closeK)}
     var _kTimer=null;function searchK(q){if(!res)return;clearTimeout(_kTimer);_kTimer=setTimeout(function(){res.innerHTML='<div class="skeleton w-full h-4 rounded-md"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?('/admin/gyms/'+it.id+'/health?ui=1'):('/admin/templates?ui=1');html+='<a href="'+href+'" class="flex justify-between items-center px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] text-white"><span>'+it.label+'</span><span class="text-gray-400 text-xs">'+it.t+'</span></a>'}if(!html){html='<div class="text-gray-400">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div class="text-red-600">Error en búsqueda</div>'})},300)}
+    function refreshHealth(gid){var mini=document.getElementById('health-mini-'+gid);if(mini){fetch('/admin/gyms/'+gid+'/health?snippet=1',{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){mini.innerHTML=html}).catch(function(){})}var full=document.getElementById('health-'+gid);if(full){fetch('/admin/gyms/'+gid+'/health?snippet=1',{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){full.innerHTML=html}).catch(function(){})}
+    }
+    function refreshGymUI(gid){fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var nameEl=document.getElementById('gym-name-'+gid);if(nameEl){nameEl.textContent=String(d.nombre||'')}var subBtn=document.getElementById('gym-sub-'+gid);if(subBtn){subBtn.textContent=String(d.subdominio||'');subBtn.setAttribute('data-sub',String(d.subdominio||''))}var bEl=document.getElementById('gym-bucket-'+gid);if(bEl){bEl.textContent=String(d.b2_bucket_name||'')}var st=document.getElementById('status-badge-'+gid);if(st){var s=String(d.status||'');st.textContent=s;st.className='px-2 py-1 rounded-full text-xs '+(s==='active'?'bg-green-600 text-white':(s==='suspended'?'bg-red-600 text-white':(s==='maintenance'?'bg-yellow-500 text-black':'bg-gray-700 text-white')))}var rn=document.getElementById('row-name-'+gid);if(rn){rn.textContent=String(d.nombre||'')}var rs=document.getElementById('row-sub-'+gid);if(rs){rs.textContent=String(d.subdominio||'')}}).catch(function(){})}
+    function refreshGymsList(){var url=new URL(window.location.href);url.searchParams.set('ui','1');url.searchParams.set('snippet','1');fetch(url.toString(),{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){try{var doc=new DOMParser().parseFromString(html,'text/html');var next=doc.querySelector('#gyms-section');var cur=document.querySelector('#gyms-section');if(next&&cur){cur.innerHTML=next.innerHTML;rebindGymsInteractions();haloDue()}}catch(_){}}).catch(function(){})}
+    function rebindGymsInteractions(){
+      var boxes=document.querySelectorAll('.select-gym');
+      for(var i=0;i<boxes.length;i++){
+        boxes[i].addEventListener('change',function(){
+          var v=this.value;
+          if(this.checked){selected.add(v)}else{selected.delete(v)}
+          updateSel()
+        })
+      }
+      var od=document.querySelectorAll('[data-open-details]');
+      for(var j=0;j<od.length;j++){
+        od[j].addEventListener('click',function(){
+          var gid=this.getAttribute('data-open-details');
+          openDetails(gid)
+        })
+      }
+      var bp=document.getElementById('batch-prov');
+      if(bp){bp.addEventListener('click',function(){runBatch('provision')})}
+      var bs=document.getElementById('batch-sus');
+      if(bs){bs.addEventListener('click',function(){runBatch('suspend')})}
+      var bu=document.getElementById('batch-uns');
+      if(bu){bu.addEventListener('click',function(){runBatch('unsuspend')})}
+      var br=document.getElementById('batch-remind');
+      if(br){br.addEventListener('click',function(){runRemindBatch()})}
+      var bm=document.getElementById('batch-maint');
+      if(bm){bm.addEventListener('click',function(){runMaintBatch()})}
+    }
+    document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var el=evt.target;var act=el&&el.getAttribute('action')||el&&el.getAttribute('hx-post')||'';if(j&&j.ok){if(act==='/admin/gyms'){toast('Gimnasio creado','success');closeCreate();refreshGymsList()}else{var m=act.match(/\/admin\/gyms\/(\d+)(\/\w+)?/);if(m&&m[1]){var gid=m[1];toast('Guardado','success');var op=m[2]||'';if(op.indexOf('/update')===0){refreshGymsList()}else{refreshGymUI(gid);refreshHealth(gid)}}else{toast('Guardado','success')}}}else{toast('Error','error')}}catch(_){}});
     if(inp){inp.addEventListener('input',function(){searchK(inp.value)})}
-    document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(confirmOverlay&&!confirmOverlay.classList.contains('hidden')){closeConfirm()}var det=document.getElementById('details-overlay');if(det&&!det.classList.contains('hidden')){var dc=document.getElementById('details-close');if(dc){dc.click()}}if(createOverlay&&!createOverlay.classList.contains('hidden')){var cc=document.getElementById('create-cancel');if(cc){cc.click()}}if(suspendOverlay&&!suspendOverlay.classList.contains('hidden')){var sc=document.getElementById('suspend-cancel');if(sc){sc.click()}}}})
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(confirmOverlay&&!confirmOverlay.classList.contains('hidden')){closeConfirm()}var det=document.getElementById('details-overlay');if(det&&!det.classList.contains('hidden')){var dc=document.getElementById('details-close');if(dc){dc.click()}}if(createOverlay&&!createOverlay.classList.contains('hidden')){var cc=document.getElementById('create-cancel');if(cc){cc.click()}}if(suspendOverlay&&!suspendOverlay.classList.contains('hidden')){var sc=document.getElementById('suspend-cancel');if(sc){sc.click()}}}});
     document.addEventListener('keydown',function(e){var k=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&k==='k'){var o=document.getElementById('global-open-k');if(o){e.preventDefault();o.click();return}}if(k==='['){var link=document.getElementById('prev-link');if(link){link.click()}}if(k===']'){var link2=document.getElementById('next-link');if(link2){link2.click()}}if(k==='a'){e.preventDefault();var bsa=document.getElementById('batch-select-all');if(bsa){bsa.click()}}if(k==='c'){e.preventDefault();var bcl=document.getElementById('batch-clear');if(bcl){bcl.click()}}if(k==='r'){e.preventDefault();var br=document.getElementById('batch-remind');if(br){br.click()}}if(k==='p'){e.preventDefault();var bp=document.getElementById('batch-prov');if(bp){bp.click()}}if(k==='s'){e.preventDefault();var bs=document.getElementById('batch-sus');if(bs){bs.click()}}if(k==='u'){e.preventDefault();var bu=document.getElementById('batch-uns');if(bu){bu.click()}}if(k==='m'){e.preventDefault();var bm=document.getElementById('batch-maint');if(bm){bm.click()}}});
-  })();
+    })();
   </script>
 </div>
 {% endblock %}
