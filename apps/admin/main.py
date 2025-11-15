@@ -396,7 +396,9 @@ def _check_rate_limit(request: Request, bucket: str, limit: int = 30, window_sec
 
 @admin_app.get("/gyms")
 async def listar_gimnasios(request: Request):
-    _require_admin(request)
+    gr = _guard_html_login_redirect(request)
+    if gr:
+        return gr
     rl = _check_rate_limit(request, "gyms_list", 120, 60)
     if rl:
         return rl
@@ -976,7 +978,9 @@ async def registrar_pago_gym(request: Request, gym_id: int, plan: Optional[str] 
 
 @admin_app.get("/plans")
 async def listar_planes(request: Request):
-    _require_admin(request)
+    gr = _guard_html_login_redirect(request)
+    if gr:
+        return gr
     rl = _check_rate_limit(request, "plans_list", 60, 60)
     if rl:
         return rl
@@ -1602,7 +1606,9 @@ async def branding_save(request: Request, gym_id: int, gym_name: Optional[str] =
 
 @admin_app.get("/templates")
 async def listar_templates(request: Request):
-    _require_admin(request)
+    gr = _guard_html_login_redirect(request)
+    if gr:
+        return gr
     names = [
         "aviso_de_confirmacion_de_pago_de_cuota_gimnasio_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
         "aviso_de_vencimiento_de_cuota_gimnasio_para_usuario_especifico_en_sistema_de_management_de_gimnasios_profesional",
@@ -2080,7 +2086,9 @@ async def provision_gym(request: Request, gym_id: int):
     return JSONResponse(res, status_code=sc)
 @admin_app.get("/dashboard")
 async def unified_dashboard(request: Request):
-    _require_admin(request)
+    gr = _guard_html_login_redirect(request)
+    if gr:
+        return gr
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
@@ -2103,3 +2111,29 @@ async def unified_dashboard(request: Request):
             "trend_counts": trend_counts,
         },
     )
+def _guard_html_login_redirect(request: Request):
+    if _is_logged_in(request):
+        return None
+    try:
+        acc = (request.headers.get("accept") or "").lower()
+    except Exception:
+        acc = ""
+    try:
+        wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
+    except Exception:
+        wants_html = False
+    if wants_html:
+        from urllib.parse import quote
+        try:
+            p = str(request.url.path or "/admin")
+        except Exception:
+            p = "/admin"
+        try:
+            q = str(request.url.query or "")
+            if q:
+                p = f"{p}?{q}"
+        except Exception:
+            pass
+        return RedirectResponse(url=f"/admin/login?next={quote(p)}", status_code=302)
+    _require_admin(request)
+    return None
