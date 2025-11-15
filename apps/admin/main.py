@@ -11,6 +11,7 @@ try:
 except Exception:
     requests = None  # type: ignore
 from datetime import datetime
+from core.secure_config import SecureConfig
 
 from .database import AdminDatabaseManager, _resolve_admin_db_params
 try:
@@ -462,6 +463,7 @@ async def listar_gimnasios(request: Request):
             "order_by": order_by,
             "order_dir": order_dir,
             "view": view,
+            "b2_bucket_prefix": os.getenv("B2_BUCKET_PREFIX", "motiona-assets"),
         },
     )
     def chip(s: str) -> str:
@@ -595,7 +597,7 @@ async def listar_gimnasios(request: Request):
         html = _admin_wrap(html)
 
 @admin_app.post("/gyms")
-async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None)):
+async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None), b2_bucket_name: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_create", 20, 60)
     if rl:
@@ -632,7 +634,16 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
                 wsts = None
     except Exception:
         wsts = None
-    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, wsts)
+    try:
+        bn_in = (b2_bucket_name or "").strip().lower()
+    except Exception:
+        bn_in = ""
+    if not bn_in:
+        try:
+            bn_in = f"{os.getenv('B2_BUCKET_PREFIX', 'motiona-assets')}-{sd_in}"
+        except Exception:
+            bn_in = f"motiona-assets-{sd_in}"
+    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, wsts, b2_bucket_name=bn_in)
     try:
         adm.log_action("owner", "create_gym", res.get("id") if isinstance(res, dict) else None, f"{nombre}|{sd_in}")
     except Exception:
@@ -692,7 +703,7 @@ async def check_subdomain(request: Request, sub: Optional[str] = None, name: Opt
     return JSONResponse({"ok": True, "available": av, "suggestion": sug, "sub": s}, status_code=200)
 
 @admin_app.post("/gyms/{gym_id}/update")
-async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form(None), subdominio: Optional[str] = Form(None)):
+async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form(None), subdominio: Optional[str] = Form(None), auto_subdomain: Optional[bool] = Form(False), update_bucket: Optional[bool] = Form(False), bucket_action: Optional[str] = Form(None), disable_sync: Optional[bool] = Form(False), no_migrate_bucket: Optional[bool] = Form(False)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_update", 60, 60)
     if rl:
@@ -701,7 +712,24 @@ async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
     nm = (nombre or "").strip()
-    sd = (subdominio or "").strip().lower()
+    sd_in = (subdominio or "").strip().lower()
+    sd = sd_in
+    try:
+        gcur = adm.obtener_gimnasio(int(gym_id))
+    except Exception:
+        gcur = None
+    try:
+        old_sub = str((gcur or {}).get("subdominio") or "").strip().lower()
+    except Exception:
+        old_sub = ""
+    try:
+        if nm:
+            if not bool(disable_sync):
+                sd = adm.sugerir_subdominio_unico(nm or "")
+            else:
+                sd = sd_in or old_sub
+    except Exception:
+        sd = sd_in or old_sub
     if sd:
         try:
             av = bool(adm.subdominio_disponible(sd))
@@ -709,9 +737,29 @@ async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form
             av = False
         if not av:
             return JSONResponse({"ok": False, "error": "subdominio_in_use"}, status_code=400)
-    res = adm.actualizar_gimnasio(int(gym_id), nm or None, sd or None)
+    do_bucket = bool(update_bucket)
+    act = (bucket_action or "").strip().lower()
     try:
-        adm.log_action("owner", "update_gym", int(gym_id), f"{nm}|{sd}")
+        if (not update_bucket) and nm and sd and old_sub and (sd != old_sub) and (not bool(disable_sync)):
+            do_bucket = True
+            if not act:
+                act = "migrate"
+    except Exception:
+        pass
+    if bool(no_migrate_bucket):
+        do_bucket = False
+        act = ""
+    if bool(disable_sync):
+        do_bucket = False
+        act = ""
+    if do_bucket and (act in ("recreate", "migrate") or (not act)):
+        if not act:
+            act = "migrate"
+        res = adm.renombrar_gimnasio_y_bucket(int(gym_id), nm or None, sd or None, act)
+    else:
+        res = adm.actualizar_gimnasio(int(gym_id), nm or None, sd or None)
+    try:
+        adm.log_action("owner", "update_gym", int(gym_id), {"nombre": nm, "subdominio": sd, "bucket_action": act if do_bucket else None})
     except Exception:
         pass
     sc = 200 if bool(res.get("ok")) else 400
@@ -835,6 +883,53 @@ async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] =
     except Exception:
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200)
+
+@admin_app.get("/gyms/{gym_id}/storage")
+async def storage_form(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    g = adm.obtener_gimnasio(int(gym_id))
+    if not g:
+        return JSONResponse({"error": "gym_not_found"}, status_code=404)
+    return templates.TemplateResponse(
+        "gym-settings.html",
+        {
+            "request": request,
+            "section": "storage",
+            "gid": int(gym_id),
+            "bucket_name": str(g.get("b2_bucket_name") or ""),
+            "bucket_id": str(g.get("b2_bucket_id") or ""),
+            "key_id": str(g.get("b2_key_id") or ""),
+            "application_key": str(g.get("b2_application_key") or ""),
+        },
+    )
+
+@admin_app.post("/gyms/{gym_id}/storage")
+async def storage_save(request: Request, gym_id: int, bucket_name: Optional[str] = Form(None), provision: Optional[bool] = Form(False)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "storage_save", 20, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ok = adm.set_gym_b2_bucket_name(int(gym_id), bucket_name)
+    prov = None
+    if ok and bool(provision or False):
+        try:
+            prov = adm.provisionar_recursos(int(gym_id))
+        except Exception as e:
+            prov = {"ok": False, "error": str(e)}
+    try:
+        adm.log_action("owner", "set_storage", int(gym_id), str(bucket_name or ""))
+    except Exception:
+        pass
+    out = {"ok": bool(ok)}
+    if prov is not None:
+        out["provision"] = prov
+    return JSONResponse(out, status_code=200 if ok else 400)
 
 @admin_app.get("/gyms/{gym_id}/maintenance")
 async def mantenimiento_form(request: Request, gym_id: int):
@@ -1891,13 +1986,43 @@ async def gym_details(request: Request, gym_id: int):
         "created_at": str(g.get("created_at") or ""),
         "owner_phone": str(g.get("owner_phone") or ""),
         "db_name": str(g.get("db_name") or ""),
+        "suspended_reason": str(g.get("suspended_reason") or ""),
         "b2_bucket_name": str(g.get("b2_bucket_name") or ""),
         "b2_bucket_id": str(g.get("b2_bucket_id") or ""),
+        "b2_key_id": str(g.get("b2_key_id") or ""),
+        "b2_application_key": str(g.get("b2_application_key") or ""),
         "hard_suspend": bool(g.get("hard_suspend") or False),
         "suspended_until": str(g.get("suspended_until") or ""),
+        "whatsapp_phone_id": str(g.get("whatsapp_phone_id") or ""),
+        "whatsapp_business_account_id": str(g.get("whatsapp_business_account_id") or ""),
+        "whatsapp_access_token_configured": bool(str(g.get("whatsapp_access_token") or "").strip()),
+        "whatsapp_verify_token_configured": bool(str(g.get("whatsapp_verify_token") or "").strip()),
+        "whatsapp_app_secret_configured": bool(str(g.get("whatsapp_app_secret") or "").strip()),
+        "whatsapp_nonblocking": bool(g.get("whatsapp_nonblocking") or False),
+        "whatsapp_send_timeout_seconds": str(g.get("whatsapp_send_timeout_seconds") or ""),
     }
     health = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
-    return JSONResponse({"gym": safe, "health": health, "subscription": sub, "payments": (pays or [])[:8]}, status_code=200)
+    try:
+        base_url = SecureConfig.get_webapp_base_url()
+    except Exception:
+        base_url = ""
+    try:
+        subdom = str((g or {}).get("subdominio") or "").strip().lower()
+    except Exception:
+        subdom = ""
+    try:
+        dom = os.getenv("TENANT_BASE_DOMAIN", "").strip().lstrip(".")
+    except Exception:
+        dom = ""
+    preview_url = ""
+    try:
+        if dom and subdom:
+            preview_url = f"https://{subdom}.{dom}"
+        elif base_url:
+            preview_url = base_url
+    except Exception:
+        preview_url = base_url or ""
+    return JSONResponse({"gym": safe, "health": health, "subscription": sub, "payments": (pays or [])[:8], "webapp_url": preview_url}, status_code=200)
 
 @admin_app.post("/gyms/batch")
 async def gyms_batch(request: Request, action: str = Form(...), gym_ids: str = Form(...)):

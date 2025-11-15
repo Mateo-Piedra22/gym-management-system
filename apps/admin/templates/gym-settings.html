@@ -13,6 +13,7 @@
     <a href="{{ base }}/subscription?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='subscription' else 'bg-gray-900' }}">Suscripción</a>
     <a href="{{ base }}/payments?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='payments' else 'bg-gray-900' }}">Pagos</a>
     <a href="{{ base }}/whatsapp?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='whatsapp' else 'bg-gray-900' }}">WhatsApp</a>
+    <a href="{{ base }}/storage?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='storage' else 'bg-gray-900' }}">Storage</a>
     <a href="{{ base }}/maintenance?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
     <a href="{{ base }}/branding?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='branding' else 'bg-gray-900' }}">Branding</a>
     <a href="{{ base }}/health?ui=1" class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='health' else 'bg-gray-900' }}">Salud</a>
@@ -90,7 +91,7 @@
         {% endfor %}
       </select>
       <input name="start_date" type="date" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-      <div class="sm:col-span-2">{{ ui.btn('Guardar','primary', None, 'type="submit"') }}</div>
+      <div class="sm:col-span-2"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
     </form>
     <h2 class="text-lg font-medium mt-4">Recordatorio de vencimiento</h2>
     <form method="post" action="/admin/gyms/{{ gid }}/subscription/remind" class="flex flex-wrap gap-2 items-center" hx-headers='{"accept":"application/json"}' hx-swap="none">
@@ -139,10 +140,27 @@
       <input name="status" placeholder="Status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <input name="notes" placeholder="Notas" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
       <div class="sm:col-span-2 md:col-span-3">
-        {{ ui.btn('Guardar','primary', None, 'type="submit"') }}
+        <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button>
       </div>
     </form>
   </div>
+  {% elif section=='storage' %}
+  <form method="post" action="/admin/gyms/{{ gid }}/storage" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <input name="bucket_name" value="{{ bucket_name }}" placeholder="Bucket Name" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <label class="flex items-center gap-2"><input type="checkbox" name="provision" /> Crear/Actualizar recursos ahora</label>
+    <div class="sm:col-span-2"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
+  </form>
+  <div class="grid gap-3 mt-3">
+    <div class="grid grid-cols-2 gap-2 text-sm"><div class="text-gray-400">Bucket ID</div><div>{{ bucket_id }}</div></div>
+    <div class="grid grid-cols-2 gap-2 text-sm"><div class="text-gray-400">Key ID</div><div>{{ key_id }}</div></div>
+    <div class="grid grid-cols-2 gap-2 items-center text-sm"><div class="text-gray-400">Application Key</div><div id="appkey">{{ application_key and '••••••••••••••' or '' }}</div></div>
+    <div class="flex flex-wrap gap-2">
+      <form method="post" action="/admin/gyms/{{ gid }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Regenerar clave</button></form>
+      <form method="post" action="/admin/gyms/{{ gid }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Eliminar bucket</button></form>
+    </div>
+    <button id="reveal" class="px-3 py-2 rounded-md bg-gray-900">Mostrar clave</button>
+  </div>
+  <script>(function(){var b=document.getElementById('reveal');if(!b)return;var s=document.getElementById('appkey');var shown=false;b.addEventListener('click',function(){if(!s)return;shown=!shown;s.textContent=shown?"{{ application_key }}":"{{ application_key and '••••••••••••••' or '' }}"})})();</script>
   {% elif section=='health' %}
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">

@@ -2601,6 +2601,16 @@ def _get_db() -> Optional[DatabaseManager]:
         try:
             logging.debug("_get_db: inicializando DatabaseManager (lazy, locked)")
             _db = DatabaseManager()
+            try:
+                ok = False
+                try:
+                    ok = bool(DatabaseManager.test_connection(timeout_seconds=3))
+                except Exception:
+                    ok = False
+                if not ok:
+                    _db = None
+            except Exception:
+                _db = None
             # Opcional: crear índices de rendimiento de forma diferida y no bloqueante
             try:
                 is_serverless = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV") or os.getenv("RAILWAY"))
@@ -2610,12 +2620,14 @@ def _get_db() -> Optional[DatabaseManager]:
                 try:
                     if hasattr(_db, 'ensure_indexes'):
                         import threading
+                        db_local = _db
                         def _defer_ensure_indexes():
                             try:
                                 import time, random, logging as _logging
                                 time.sleep(random.uniform(1.5, 4.0))
                                 try:
-                                    _db.ensure_indexes()  # type: ignore
+                                    if db_local is not None and hasattr(db_local, 'ensure_indexes'):
+                                        db_local.ensure_indexes()  # type: ignore
                                 except Exception as ie:
                                     try:
                                         _logging.exception(f"ensure_indexes diferido falló: {ie}")
@@ -2626,28 +2638,26 @@ def _get_db() -> Optional[DatabaseManager]:
                         threading.Thread(target=_defer_ensure_indexes, daemon=True).start()
                 except Exception:
                     pass
-            try:
-                # Verificación ligera para asegurar que la conexión está saludable (con timeouts de lectura)
-                with _db.get_connection_context() as conn:  # type: ignore
-                    cur = conn.cursor()
-                    try:
-                        if hasattr(_db, '_apply_readonly_timeouts'):
-                            _db._apply_readonly_timeouts(cur, lock_ms=500, statement_ms=1200, idle_s=2)  # type: ignore
-                    except Exception:
-                        pass
-                    try:
-                        cur.execute("SELECT 1")
-                        _ = cur.fetchone()
-                    except Exception:
+            if _db is not None:
+                try:
+                    with _db.get_connection_context() as conn:  # type: ignore
+                        cur = conn.cursor()
                         try:
-                            conn.rollback()
+                            if hasattr(_db, '_apply_readonly_timeouts'):
+                                _db._apply_readonly_timeouts(cur, lock_ms=500, statement_ms=1200, idle_s=2)  # type: ignore
                         except Exception:
                             pass
-                logging.debug("_get_db: verificación SELECT 1 OK")
-            except Exception as e:
-                logging.exception(f"_get_db: verificación de conexión falló tras init: {e}")
-                # Invalidar si la verificación falla para permitir reintentos controlados
-                _db = None
+                        try:
+                            cur.execute("SELECT 1")
+                            _ = cur.fetchone()
+                        except Exception:
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                    logging.debug("_get_db: verificación SELECT 1 OK")
+                except Exception:
+                    _db = None
             # Prefetch asíncrono de credenciales del dueño para respuesta más rápida
             try:
                 if _db is not None and hasattr(_db, 'prefetch_owner_credentials_async'):
@@ -2770,8 +2780,9 @@ def _force_db_init() -> Optional[DatabaseManager]:
             else:
                 _db = DatabaseManager()
             try:
-                if hasattr(_db, 'ensure_indexes'):
-                    _db.ensure_indexes()  # type: ignore
+                db_local = _db
+                if db_local is not None and hasattr(db_local, 'ensure_indexes'):
+                    db_local.ensure_indexes()  # type: ignore
             except Exception:
                 pass
             # Verificación ligera de conexión para evitar estados a medio inicializar
@@ -2815,7 +2826,12 @@ async def _startup_init_db():
         # Evitar inicializar DB base en modo multi‑tenant
         if not _get_multi_tenant_mode():
             if _get_db() is None:
-                _force_db_init()
+                try:
+                    ok = bool(DatabaseManager.test_connection(timeout_seconds=3))
+                except Exception:
+                    ok = False
+                if ok:
+                    _force_db_init()
         # Bootstrap de DB de Admin en primer acceso (creación automática si falta)
         try:
             from apps.admin.main import _get_admin_db  # type: ignore

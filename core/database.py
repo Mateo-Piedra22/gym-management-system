@@ -16933,7 +16933,7 @@ class DatabaseManager:
                 except Exception:
                     pass
         except Exception as e:
-            logging.error(f"Error asegurando índices: {e}")
+            logging.warning(f"Error asegurando índices: {e}")
 
     def generar_reporte_optimizacion(self) -> Dict[str, Any]:
         """Genera un reporte completo del estado de optimización de la base de datos PostgreSQL"""
