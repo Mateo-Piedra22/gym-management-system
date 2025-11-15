@@ -13,7 +13,10 @@ except Exception:
 from datetime import datetime
 
 from .database import AdminDatabaseManager, _resolve_admin_db_params
-from core.database import DatabaseManager  # type: ignore
+try:
+    from core.database import DatabaseManager  # type: ignore
+except Exception:
+    DatabaseManager = None  # type: ignore
 
 
 admin_app = FastAPI(title="GymMS Admin", version="1.0")
@@ -1706,7 +1709,14 @@ async def health_check(request: Request, gym_id: int):
         if base and dbn:
             params = dict(base)
             params["database"] = dbn
-            db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+            try:
+                if DatabaseManager is not None:
+                    db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+                else:
+                    db_ok = False
+            except Exception as _e:
+                db_ok = False
+                db_err = str(_e)
     except Exception as e:
         db_ok = False
         db_err = str(e)
@@ -1789,7 +1799,14 @@ async def gym_details(request: Request, gym_id: int):
         if base and dbn:
             params = dict(base)
             params["database"] = dbn
-            db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+            try:
+                if DatabaseManager is not None:
+                    db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+                else:
+                    db_ok = False
+            except Exception as _e:
+                db_ok = False
+                db_err = str(_e)
     except Exception as e:
         db_ok = False
         db_err = str(e)
