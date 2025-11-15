@@ -45,9 +45,7 @@ def _get_admin_db() -> Optional[AdminDatabaseManager]:
 
 def _is_logged_in(request: Request) -> bool:
     try:
-        v = int(request.session.get("session_version") or 0)
-        cur = int(getattr(admin_app.state, "session_version", 1))
-        return bool(request.session.get("admin_logged_in")) and v == cur
+        return bool(request.session.get("admin_logged_in"))
     except Exception:
         return False
 
@@ -263,16 +261,9 @@ async def admin_home(request: Request):
     acc = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
     try:
-        v = int(request.session.get("session_version") or 0)
-        cur = int(getattr(admin_app.state, "session_version", 1))
-        logged = bool(request.session.get("admin_logged_in")) and v == cur
+        logged = _is_logged_in(request)
     except Exception:
         logged = False
-    if not logged:
-        secret = os.getenv("ADMIN_SECRET", "").strip()
-        hdr = request.headers.get("x-admin-secret") or ""
-        if secret and hdr.strip() == secret:
-            logged = True
     if not logged:
         if wants_html:
             return RedirectResponse(url="/admin/login", status_code=303)
