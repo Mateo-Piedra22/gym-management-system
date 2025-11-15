@@ -265,9 +265,14 @@ async def admin_home(request: Request):
     except Exception:
         logged = False
     if not logged:
-        if wants_html:
-            return RedirectResponse(url="/admin/login", status_code=303)
-        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        try:
+            if wants_html:
+                return templates.TemplateResponse("login.html", {"request": request, "hide_sidebar": True})
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+        except Exception:
+            if wants_html:
+                return RedirectResponse(url="/admin/login", status_code=303)
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     warnings: List[str] = []
     try:
         adm = _get_admin_db()
