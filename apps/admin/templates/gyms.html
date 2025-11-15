@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "base.html" as ui %}
+{% set _ = '' %}
 {% block content %}
 <div class="space-y-4">
   <h1 class="text-2xl font-semibold">Gimnasios</h1>
@@ -52,7 +52,7 @@
       <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by={{ order_by }}&order_dir={{ order_dir }}&view=table" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if (view or 'cards')=='table' else 'bg-gray-900' }}">Tabla</a>
     </div>
     <button id="open-create" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
-    {{ ui.btn('Ctrl+K','default', None, 'id="open-k"') }}
+    <button id="open-k" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-keyboard"></i><span class="ml-2">Ctrl+K</span></button>
   </div>
   {% if items|length == 0 %}
   <div class="p-6 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-2 text-center">
@@ -73,7 +73,7 @@
           <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-swap="innerHTML" class="hidden sm:flex gap-1 items-center">
             <div class="skeleton w-16 h-3 rounded-md"></div>
           </div>
-          {{ ui.status_badge(g.status) }}
+          <span class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-2 text-sm">
@@ -119,24 +119,24 @@
           </div>
         </div>
         <div class="flex gap-2">
-          {{ ui.btn('Subs','default','/admin/gyms/' ~ g.id ~ '/subscription?ui=1', 'title="Suscripción"', 'fa-solid fa-ticket') }}
-          {{ ui.btn('Pagos','default','/admin/gyms/' ~ g.id ~ '/payments?ui=1', 'title="Pagos"', 'fa-solid fa-dollar-sign') }}
-          {{ ui.btn('WA','default','/admin/gyms/' ~ g.id ~ '/whatsapp?ui=1', 'title="WhatsApp"', 'fa-brands fa-whatsapp') }}
-          {{ ui.btn('Mant.','default','/admin/gyms/' ~ g.id ~ '/maintenance?ui=1', 'title="Mantenimiento"', 'fa-solid fa-wrench') }}
-          {{ ui.btn('Branding','default','/admin/gyms/' ~ g.id ~ '/branding?ui=1', 'title="Branding"', 'fa-solid fa-palette') }}
-          {{ ui.btn('Contraseña','default','/admin/gyms/' ~ g.id ~ '/owner?ui=1', 'title="Contraseña dueño"', 'fa-solid fa-key') }}
-          {{ ui.btn('Salud','default','/admin/gyms/' ~ g.id ~ '/health?ui=1', 'title="Salud"', 'fa-solid fa-stethoscope') }}
+          <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
+          <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
+          <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">WA</span></a>
+          <a href="/admin/gyms/{{ g.id }}/maintenance?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Mantenimiento"><i class="fa-solid fa-wrench"></i><span class="ml-2">Mant.</span></a>
+          <a href="/admin/gyms/{{ g.id }}/branding?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i><span class="ml-2">Branding</span></a>
+          <a href="/admin/gyms/{{ g.id }}/owner?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i><span class="ml-2">Contraseña</span></a>
+          <a href="/admin/gyms/{{ g.id }}/health?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
           <button type="button" class="px-3 py-2 rounded-md bg-gray-900" data-open-details="{{ g.id }}" title="Ver detalles"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
           <button type="button" class="px-3 py-2 rounded-md bg-gray-900" x-on:click="edit=!edit" title="Editar"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline">{{ ui.btn('Provisionar','primary', None, 'type="submit" title="Provisionar"', 'fa-solid fa-cloud') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
         <button type="button" class="px-3 py-2 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}" title="Suspender"><i class="fa-solid fa-pause"></i><span class="ml-2">Suspender</span></button>
-        <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline">{{ ui.btn('Reactivar','success', None, 'type="submit"', 'fa-solid fa-play') }}</form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?">{{ ui.btn('Regenerar clave B2','default', None, 'type="submit" title="Regenerar clave B2"', 'fa-solid fa-key') }}</form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?">{{ ui.btn('Eliminar bucket B2','default', None, 'type="submit" title="Eliminar bucket B2"', 'fa-solid fa-trash') }}</form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?">{{ ui.btn('Eliminar','default', None, 'type="submit" title="Eliminar gimnasio"', 'fa-solid fa-trash') }}</form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/b2/regenerate-key" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i><span class="ml-2">Regenerar clave B2</span></button></form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/b2/delete-bucket" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar bucket B2</span></button></form>
+        <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Eliminar gimnasio"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar</span></button></form>
       </div>
     </div>
     {% endfor %}
@@ -192,9 +192,9 @@
           <td class="px-3 py-2">
             <div class="flex flex-wrap gap-2">
               <button type="button" class="px-2 py-1 rounded-md bg-gray-900" x-on:click="editRow=!editRow" title="Editar"><i class="fa-solid fa-pen"></i></button>
-              <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline">{{ ui.btn('','primary', None, 'type="submit" title="Provisionar"', 'fa-solid fa-cloud') }}</form>
+              <form method="post" action="/admin/gyms/{{ g.id }}/provision" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i></button></form>
               <button type="button" class="px-2 py-1 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}" title="Suspender"><i class="fa-solid fa-pause"></i></button>
-              <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline">{{ ui.btn('','success', None, 'type="submit" title="Reactivar"', 'fa-solid fa-play') }}</form>
+              <form method="post" action="/admin/gyms/{{ g.id }}/unsuspend" class="inline"><button type="submit" class="px-2 py-1 rounded-md bg-green-600 text-white" title="Reactivar"><i class="fa-solid fa-play"></i></button></form>
               <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i></a>
               <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i></a>
               <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="px-2 py-1 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i></a>

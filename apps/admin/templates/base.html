@@ -22,7 +22,7 @@
     .htmx-indicator.htmx-request { display: block }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: false }" hx-boost="true" hx-target="#main" hx-select="main" hx-push-url="true" hx-indicator="#main-indicator">
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: false }" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
   <div class="{{ 'min-h-screen' if hide_sidebar else 'grid grid-cols-[240px,1fr] min-h-screen' }}">
     {% if not hide_sidebar %}
     <aside class="bg-[#0b1222] border-r border-gray-800 p-4">
@@ -30,7 +30,7 @@
         <i class="fa-solid fa-dumbbell"></i>
         <span>GymMS Admin</span>
       </div>
-      <nav class="mt-3 space-y-2" hx-boost="true" hx-target="#main" hx-select="main" hx-push-url="true" hx-indicator="#main-indicator" hx-headers='{"accept":"text/html"}'>
+      <nav class="mt-3 space-y-2" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator" hx-headers='{"accept":"text/html"}'>
         {% set p = request.url.path %}
         <a href="/admin/dashboard?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/dashboard') else 'bg-gray-900' }}'><i class="fa-solid fa-chart-line"></i><span>Dashboard</span></a>
         <a href="/admin/gyms?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/gyms') else 'bg-gray-900' }}'><i class="fa-solid fa-building"></i><span>Gimnasios</span></a>

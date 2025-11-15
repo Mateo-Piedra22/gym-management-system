@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% import "base.html" as ui %}
+{% set _ = '' %}
 {% block content %}
 <div class="max-w-5xl mx-auto" x-data="{ tab: 'list' }">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold">Planes</h1>
-    {{ ui.btn('Inicio','default','/admin/') }}
+    <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <div class="mt-4 flex gap-2">
     <button x-on:click="tab='list'" x-bind:class="tab==='list' ? 'bg-primary text-primary-foreground' : 'bg-gray-900'" class="px-3 py-2 rounded-md">Listado</button>
@@ -41,14 +41,14 @@
               <input name="period_days" value="{{ p.period_days }}" type="number" class="px-2 py-1 w-24 rounded-md border border-gray-700 bg-gray-950" />
           </td>
           <td class="p-2">
-              {{ ui.btn('Guardar','success', None, 'type="submit"') }}
+              <button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-floppy-disk"></i><span class="ml-2">Guardar</span></button>
             </form>
           </td>
           <td class="p-2">
             <div class="flex items-center gap-2">
-              {{ ui.status_badge(p.active and 'active' or 'inactive') }}
+              <span class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if p.active else 'bg-gray-700 text-white' }}">{{ p.active and 'active' or 'inactive' }}</span>
               <form hx-post="/admin/plans/{{ p.id }}/toggle" hx-vals='{"active": {{ (not p.active)|string|lower }} }' hx-swap="none" class="inline">
-                {{ ui.btn(p.active and 'Desactivar' or 'Activar','default', None, 'type="submit"') }}
+                <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">{{ p.active and 'Desactivar' or 'Activar' }}</button>
               </form>
             </div>
           </td>
@@ -65,7 +65,7 @@
     <input name="currency" placeholder="Moneda (e.g. ARS)" required pattern="^[A-Z]{3,4}$" oninput="this.value=this.value.toUpperCase()" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <input name="period_days" type="number" placeholder="Días" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <div class="sm:col-span-2 md:col-span-4">
-      {{ ui.btn('Crear','primary', None, 'type="submit"') }}
+      <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground"><i class="fa-solid fa-plus"></i><span class="ml-2">Crear</span></button>
     </div>
   </form>
   </div>

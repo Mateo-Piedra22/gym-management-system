@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% import "base.html" as ui %}
+{% set _ = '' %}
 {% block content %}
 <div class="flex items-center justify-between">
   <h1 class="text-2xl font-semibold">Dashboard</h1>
-  {{ ui.btn('Inicio','default','/admin/') }}
+  <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
 </div>
 
 <div class="grid gap-4 mt-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -52,7 +52,7 @@
 <h2 class="text-lg mt-6">Próximos vencimientos</h2>
 <div class="mt-2">
   <form hx-post="/admin/subscriptions/auto-suspend" hx-vals='{"grace_days": 7}' hx-swap="none" class="inline-flex items-center gap-2">
-    {{ ui.btn('Auto-suspender vencidos','danger', None, 'type="submit"') }}
+    <button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Auto-suspender vencidos</button>
   </form>
 </div>
 <div class="mt-3 overflow-x-auto">

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% import "base.html" as ui %}
+{% set _ = '' %}
 {% block content %}
 <div class="max-w-6xl mx-auto space-y-4">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold">Auditoría</h1>
-    {{ ui.btn('Inicio','default','/admin/') }}
+    <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <form method="get" action="/admin/audit" class="flex flex-wrap gap-2 items-center">
     <input name="actor" value="{{ actor or '' }}" placeholder="Actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
@@ -13,7 +13,7 @@
     <input name="from" type="date" value="{{ from or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input name="to" type="date" value="{{ to or '' }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
     <input type="hidden" name="ui" value="1" />
-    {{ ui.btn('Filtrar','default', None, 'type="submit"') }}
+    <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
   </form>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">
