@@ -1673,7 +1673,7 @@ async def send_template_test(request: Request, gym_id: int = Form(...), name: st
 @admin_app.get("/gyms/{gym_id}/health")
 async def health_check(request: Request, gym_id: int):
     _require_admin(request)
-    rl = _check_rate_limit(request, "health_check", 200, 60)
+    rl = _check_rate_limit(request, "health_check", 60, 60)
     if rl:
         return rl
     adm = _get_admin_db()
@@ -1687,14 +1687,31 @@ async def health_check(request: Request, gym_id: int):
         now = int(datetime.utcnow().timestamp())
     except Exception:
         now = 0
-    wants_html_cache_bypass = ((request.headers.get("accept") or "").lower().find("text/html") >= 0) or (request.query_params.get("ui") == "1")
-    if not wants_html_cache_bypass:
-        try:
-            ent = cache.get(int(gym_id)) if isinstance(cache, dict) else None
-            if ent and (now - int(ent.get("ts") or 0) < 120):
-                return JSONResponse(ent.get("val") or {}, status_code=200)
-        except Exception:
-            pass
+    try:
+        ttl = int(os.getenv("ADMIN_HEALTH_TTL_SECONDS", "600"))
+    except Exception:
+        ttl = 600
+    acc0 = (request.headers.get("accept") or "").lower()
+    is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+    wants_html0 = ("text/html" in acc0) or (request.query_params.get("ui") == "1")
+    try:
+        ent = cache.get(int(gym_id)) if isinstance(cache, dict) else None
+        if ent and (now - int(ent.get("ts") or 0) < ttl):
+            res_cached = ent.get("val") or {}
+            if wants_html0 and is_hx:
+                return templates.TemplateResponse(
+                    "health-snippet.html",
+                    {
+                        "request": request,
+                        "db_ok": bool((res_cached.get("db") or {}).get("ok")),
+                        "wa_ok": bool((res_cached.get("whatsapp") or {}).get("ok")),
+                        "st_ok": bool((res_cached.get("storage") or {}).get("ok")),
+                    },
+                )
+            if not wants_html0:
+                return JSONResponse(res_cached, status_code=200)
+    except Exception:
+        pass
     g = adm.obtener_gimnasio(int(gym_id))
     if not g:
         return JSONResponse({"error": "gym_not_found"}, status_code=404)
@@ -1709,6 +1726,11 @@ async def health_check(request: Request, gym_id: int):
         if base and dbn:
             params = dict(base)
             params["database"] = dbn
+            try:
+                ct = int(os.getenv("ADMIN_DB_CONNECT_TIMEOUT", "4"))
+            except Exception:
+                ct = 4
+            params["connect_timeout"] = ct
             try:
                 if DatabaseManager is not None:
                     db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
@@ -1799,6 +1821,11 @@ async def gym_details(request: Request, gym_id: int):
         if base and dbn:
             params = dict(base)
             params["database"] = dbn
+            try:
+                ct = int(os.getenv("ADMIN_DB_CONNECT_TIMEOUT", "4"))
+            except Exception:
+                ct = 4
+            params["connect_timeout"] = ct
             try:
                 if DatabaseManager is not None:
                     db_ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)

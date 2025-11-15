@@ -54,6 +54,11 @@ def _resolve_admin_db_params() -> Dict[str, Any]:
 class AdminDatabaseManager:
     def __init__(self, connection_params: Dict[str, Any] | None = None):
         params = connection_params or _resolve_admin_db_params()
+        try:
+            ct = int(os.getenv("ADMIN_DB_CONNECT_TIMEOUT", str(params.get("connect_timeout", 4))))
+        except Exception:
+            ct = int(params.get("connect_timeout", 4) or 4)
+        params["connect_timeout"] = ct
         created_admin_db = False
         try:
             try:
@@ -62,33 +67,48 @@ class AdminDatabaseManager:
             except Exception:
                 created_admin_db = False
             self.db = DatabaseManager(connection_params=params)  # type: ignore
-            ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
-            if not ok:
-                try:
-                    created_admin_db = bool(self._ensure_admin_database())
-                except Exception:
-                    created_admin_db = False
-                self.db = DatabaseManager(connection_params=params)  # type: ignore
+            try:
+                boot_tc = str(os.getenv("ADMIN_TEST_CONN_ON_BOOT", "0")).strip().lower() in ("1", "true", "yes", "on")
+            except Exception:
+                boot_tc = False
+            if boot_tc:
+                ok = DatabaseManager.test_connection(params=params, timeout_seconds=6)
+                if not ok:
+                    try:
+                        created_admin_db = bool(self._ensure_admin_database())
+                    except Exception:
+                        created_admin_db = False
+                    self.db = DatabaseManager(connection_params=params)  # type: ignore
         except Exception:
             try:
                 created_admin_db = bool(self._ensure_admin_database())
             except Exception:
                 created_admin_db = False
             self.db = DatabaseManager(connection_params=params)  # type: ignore
-        self._ensure_schema()
         try:
-            if created_admin_db:
+            boot_schema = str(os.getenv("ADMIN_BOOTSTRAP_SCHEMA_ON_BOOT", "0")).strip().lower() in ("1", "true", "yes", "on")
+        except Exception:
+            boot_schema = False
+        if boot_schema:
+            self._ensure_schema()
+            try:
+                if created_admin_db:
+                    try:
+                        self.log_action("system", "bootstrap_admin_database", None, str(params.get("database") or "gymms_admin"))
+                    except Exception:
+                        pass
                 try:
-                    self.log_action("system", "bootstrap_admin_database", None, str(params.get("database") or "gymms_admin"))
+                    self.log_action("system", "bootstrap_admin_schema", None, None)
                 except Exception:
                     pass
-            try:
-                self.log_action("system", "bootstrap_admin_schema", None, None)
             except Exception:
                 pass
+        try:
+            boot_owner = str(os.getenv("ADMIN_BOOTSTRAP_OWNER_ON_BOOT", "0")).strip().lower() in ("1", "true", "yes", "on")
         except Exception:
-            pass
-        self._ensure_owner_user()
+            boot_owner = False
+        if boot_owner:
+            self._ensure_owner_user()
 
     def _ensure_admin_database(self) -> bool:
         try:
