@@ -664,23 +664,13 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
     if "error" in res:
         return JSONResponse(res, status_code=400)
     gid = int(res.get("id")) if isinstance(res, dict) else None
-    provision = None
-    provisioning_ok = False
     if gid:
-        try:
-            provision = adm.provisionar_recursos(int(gid))
-            provisioning_ok = bool((provision or {}).get("ok"))
-        except Exception:
-            provisioning_ok = False
         try:
             adm._push_whatsapp_to_gym_db(int(gid))
         except Exception:
             pass
     out = dict(res)
     out["ok"] = True
-    out["provisioning"] = bool(provisioning_ok)
-    if provision is not None:
-        out["provision"] = provision
     return JSONResponse(out, status_code=201)
 
 @admin_app.get("/subdomains/check")
@@ -921,7 +911,7 @@ async def storage_form(request: Request, gym_id: int):
     )
 
 @admin_app.post("/gyms/{gym_id}/storage")
-async def storage_save(request: Request, gym_id: int, bucket_name: Optional[str] = Form(None), provision: Optional[bool] = Form(False)):
+async def storage_save(request: Request, gym_id: int, bucket_name: Optional[str] = Form(None), bucket_id: Optional[str] = Form(None), key_id: Optional[str] = Form(None), application_key: Optional[str] = Form(None), provision: Optional[bool] = Form(False)):
     _require_admin(request)
     rl = _check_rate_limit(request, "storage_save", 20, 60)
     if rl:
@@ -929,13 +919,32 @@ async def storage_save(request: Request, gym_id: int, bucket_name: Optional[str]
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = adm.set_gym_b2_bucket_name(int(gym_id), bucket_name)
+    ok = False
+    try:
+        ok = adm.set_gym_b2_settings(int(gym_id), bucket_name, bucket_id, key_id, application_key)
+    except Exception:
+        ok = False
     prov = None
-    if ok and bool(provision or False):
-        try:
-            prov = adm.provisionar_recursos(int(gym_id))
-        except Exception as e:
-            prov = {"ok": False, "error": str(e)}
+    if ok:
+        if bool(provision or False):
+            try:
+                prov = adm.provisionar_recursos(int(gym_id))
+            except Exception as e:
+                prov = {"ok": False, "error": str(e)}
+        else:
+            try:
+                gcur = adm.obtener_gimnasio(int(gym_id))
+            except Exception:
+                gcur = None
+            try:
+                missing_bid = not bool(str((gcur or {}).get("b2_bucket_id") or "").strip())
+            except Exception:
+                missing_bid = True
+            if missing_bid:
+                try:
+                    prov = adm.provisionar_recursos(int(gym_id))
+                except Exception as e:
+                    prov = {"ok": False, "error": str(e)}
     try:
         adm.log_action("owner", "set_storage", int(gym_id), str(bucket_name or ""))
     except Exception:

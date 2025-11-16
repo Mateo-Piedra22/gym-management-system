@@ -644,7 +644,9 @@ class AdminDatabaseManager:
         try:
             bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
         except Exception:
-            bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
+            return {"error": "b2_bucket_creation_failed"}
+        if not bucket_info.get("bucket_id"):
+            return {"error": "b2_bucket_creation_failed"}
         try:
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
@@ -668,7 +670,7 @@ class AdminDatabaseManager:
                         self._push_whatsapp_to_gym_db(int(rid))
                 except Exception:
                     pass
-                return {"id": int(rid), "nombre": nombre.strip(), "subdominio": sub, "db_name": db_name, "db_created": bool(created_db), "b2_bucket_name": bucket_info.get("bucket_name") or bucket_name, "b2_bucket_id": bucket_info.get("bucket_id") or None}
+                return {"id": int(rid), "nombre": nombre.strip(), "subdominio": sub, "db_name": db_name, "db_created": bool(created_db), "b2_bucket_name": bucket_info.get("bucket_name") or bucket_name, "b2_bucket_id": bucket_info.get("bucket_id") or None, "b2_key_id": bucket_info.get("key_id") or None, "b2_application_key": bucket_info.get("application_key") or None}
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"error": str(e)}
@@ -1543,6 +1545,40 @@ class AdminDatabaseManager:
                 cur.execute(
                     "UPDATE gyms SET b2_bucket_name = %s, b2_bucket_id = NULL, b2_key_id = NULL, b2_application_key = NULL WHERE id = %s",
                     (name or None, int(gym_id)),
+                )
+                conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def set_gym_b2_settings(self, gym_id: int, bucket_name: Optional[str], bucket_id: Optional[str], key_id: Optional[str], application_key: Optional[str]) -> bool:
+        try:
+            name_raw = (bucket_name or "").strip()
+            bid_raw = (bucket_id or "").strip()
+            kid_raw = (key_id or "").strip()
+            akey_raw = (application_key or "").strip()
+            name = name_raw or None
+            bid = bid_raw or None
+            kid = kid_raw or None
+            akey = akey_raw or None
+            if name_raw and (not bid_raw or not kid_raw or not akey_raw):
+                try:
+                    info = self._crear_bucket_b2_con_reintentos(name_raw, intentos=3, espera=2.0)
+                except Exception:
+                    info = {"bucket_name": name_raw, "bucket_id": None, "key_id": None, "application_key": None}
+                if not bid:
+                    bid = info.get("bucket_id") or bid
+                if not kid:
+                    kid = info.get("key_id") or kid
+                if not akey:
+                    akey = info.get("application_key") or akey
+                if not name:
+                    name = info.get("bucket_name") or name
+            with self.db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE gyms SET b2_bucket_name = %s, b2_bucket_id = %s, b2_key_id = %s, b2_application_key = %s WHERE id = %s",
+                    (name, bid, kid, akey, int(gym_id)),
                 )
                 conn.commit()
             return True

@@ -179,7 +179,17 @@
   {% elif section=='storage' %}
   <form method="post" action="/admin/gyms/{{ gid }}/storage" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none">
     <label for="storage-bucket" class="text-sm text-gray-300">Bucket Name</label>
-    <input id="storage-bucket" name="bucket_name" value="{{ bucket_name }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+    <input id="storage-bucket" name="bucket_name" value="{{ bucket_name }}" placeholder="ej: motiona-assets-mi-gimnasio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" aria-describedby="help-bucket-name" title="Nombre del bucket, no el ID" />
+    <span id="help-bucket-name" class="text-xs text-gray-400 sm:col-span-2">Nombre público del bucket en Backblaze B2. No es el ID. Ejemplo: motiona-assets-mi-gimnasio.</span>
+    <label for="storage-bucket-id" class="text-sm text-gray-300">Bucket ID</label>
+    <input id="storage-bucket-id" name="bucket_id" value="{{ bucket_id }}" placeholder="ej: 4d6f..." class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" aria-describedby="help-bucket-id" title="Identificador único interno del bucket (bucketId)" />
+    <span id="help-bucket-id" class="text-xs text-gray-400 sm:col-span-2">Identificador único interno del bucket (bucketId). Se obtiene en la consola/API de B2. No es el nombre.</span>
+    <label for="storage-key-id" class="text-sm text-gray-300">Key ID</label>
+    <input id="storage-key-id" name="key_id" value="{{ key_id }}" placeholder="ej: 002..." class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" aria-describedby="help-key-id" title="ID público de la clave de aplicación (keyId)" />
+    <span id="help-key-id" class="text-xs text-gray-400 sm:col-span-2">ID público de la clave de aplicación (keyId). Se muestra junto a la clave al crearla.</span>
+    <label for="storage-app-key" class="text-sm text-gray-300">Application Key</label>
+    <input id="storage-app-key" name="application_key" value="{{ application_key }}" placeholder="valor secreto de la clave" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" aria-describedby="help-app-key" title="Valor secreto de la clave de aplicación" />
+    <span id="help-app-key" class="text-xs text-gray-400 sm:col-span-2">Valor secreto de la clave de aplicación. Si no la guardaste, debes regenerarla: no se puede volver a visualizar en B2.</span>
     <label class="flex items-center gap-2"><input type="checkbox" name="provision" /> Crear/Actualizar recursos ahora</label>
     <div class="sm:col-span-2"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
   </form>
@@ -188,8 +198,8 @@
     <div class="grid grid-cols-2 gap-2 text-sm"><div class="text-gray-400">Key ID</div><div>{{ key_id }}</div></div>
     <div class="grid grid-cols-2 gap-2 items-center text-sm"><div class="text-gray-400">Application Key</div><div id="appkey">{{ application_key and '••••••••••••••' or '' }}</div></div>
     <div class="flex flex-wrap gap-2">
-      <form method="post" action="/admin/gyms/{{ gid }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Regenerar clave</button></form>
-      <form method="post" action="/admin/gyms/{{ gid }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Eliminar bucket</button></form>
+      <form method="post" action="/admin/gyms/{{ gid }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none" class="needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Regenerar clave</button></form>
+      <form method="post" action="/admin/gyms/{{ gid }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none" class="needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Eliminar bucket</button></form>
     </div>
     <button id="reveal" class="px-3 py-2 rounded-md bg-gray-900">Mostrar clave</button>
   </div>

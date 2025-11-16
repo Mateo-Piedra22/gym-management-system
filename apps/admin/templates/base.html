@@ -92,6 +92,14 @@
       <span class="text-sm">Cargando...</span>
     </div>
   </div>
+  <div id="busy-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60" tabindex="-1">
+    <div class="p-4 w-[92%] max-w-md bg-gray-900 border border-gray-800 rounded-xl">
+      <div class="flex items-center gap-3">
+        <div class="w-5 h-5 rounded-full border-2 border-gray-500 border-t-transparent animate-spin"></div>
+        <div id="busy-message" class="text-sm">Procesando...</div>
+      </div>
+    </div>
+  </div>
   <div id="global-k-overlay" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50" tabindex="-1">
     <div class="w-[92%] max-w-[720px] bg-gray-900 border border-gray-800 rounded-xl">
       <div class="p-3 border-b border-gray-800 flex justify-between items-center">
@@ -169,8 +177,75 @@
     };
     document.body.addEventListener('htmx:configRequest',function(ev){try{var pref=window.apiPref?window.apiPref():'';var pi=ev&&ev.detail&&ev.detail.pathInfo?ev.detail.pathInfo:null;var path=pi?pi.path:'';if(pref&&path&&path.indexOf('/admin/')===0){pi.path=pref+path}}catch(_){}});
     document.body.addEventListener('htmx:load',function(){try{var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');var b=document.getElementById('create-bucket');var prefEl=document.getElementById('bucket-prefix');var pref=prefEl?String(prefEl.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(n&&s&&window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub',st?'create-sub-status':null,b?'create-bucket':null,pref)}}catch(_){}});
-    (function(){var ov=document.getElementById('global-confirm-overlay');var msg=document.getElementById('global-confirm-message');var yes=document.getElementById('global-confirm-yes');var cancel=document.getElementById('global-confirm-cancel');var cancel2=document.getElementById('global-confirm-cancel-2');var pending=null;function open(m,formOrFn){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');msg.textContent=m||'¿Confirmar?';pending=formOrFn}}function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden');pending=null}}window.openGlobalConfirm=open;window.closeGlobalConfirm=close;window.confirmAction=function(m,fn){open(m,typeof fn==='function'?fn:null)};document.addEventListener('submit',function(e){var f=e&&e.target;if(!f||!f.classList||!f.classList.contains('needs-confirm'))return;e.preventDefault();var m=f.getAttribute('data-confirm')||'¿Confirmar?';open(m,f)});if(yes){yes.addEventListener('click',function(){try{if(typeof pending==='function'){pending()}else if(pending&&pending.submit){pending.submit()}}catch(_){ }close()})}if(cancel){cancel.addEventListener('click',close)}if(cancel2){cancel2.addEventListener('click',close)}if(ov){ov.addEventListener('click',function(e){if(e.target===ov){close()}})}document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(ov&&!ov.classList.contains('hidden')){close()}}})})();
+    (function(){var ov=document.getElementById('global-confirm-overlay');var msg=document.getElementById('global-confirm-message');var yes=document.getElementById('global-confirm-yes');var cancel=document.getElementById('global-confirm-cancel');var cancel2=document.getElementById('global-confirm-cancel-2');var pending=null;function open(m,formOrFn){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');msg.textContent=m||'¿Confirmar?';pending=formOrFn}}function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden');pending=null}}window.openGlobalConfirm=open;window.closeGlobalConfirm=close;window.confirmAction=function(m,fn){open(m,typeof fn==='function'?fn:null)};document.addEventListener('submit',function(e){var f=e&&e.target;if(!f||!f.classList||!f.classList.contains('needs-confirm'))return;e.preventDefault();var m=f.getAttribute('data-confirm')||'¿Confirmar?';open(m,f)},true);if(yes){yes.addEventListener('click',function(){try{if(typeof pending==='function'){pending()}else if(pending&&pending.submit){pending.submit();yes.setAttribute('disabled','disabled')}}catch(_){ }close();setTimeout(function(){try{yes.removeAttribute('disabled')}catch(_){}},1200)})}if(cancel){cancel.addEventListener('click',close)}if(cancel2){cancel2.addEventListener('click',close)}if(ov){ov.addEventListener('click',function(e){if(e.target===ov){close()}})}document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(ov&&!ov.classList.contains('hidden')){close()}}})})();
     document.body.addEventListener('htmx:afterSwap',function(ev){try{var main=document.getElementById('main');var tgt=ev&&ev.detail&&ev.detail.target?ev.detail.target:null;if(tgt&&main&&tgt===main){var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');var b=document.getElementById('create-bucket');var prefEl=document.getElementById('bucket-prefix');var pref=prefEl?String(prefEl.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(n&&s&&window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub',st?'create-sub-status':null,b?'create-bucket':null,pref)}}}catch(_){}});
+    (function(){
+      var bo=document.getElementById('busy-overlay');
+      var bm=document.getElementById('busy-message');
+      function msgForPath(elt,path){
+        var p=String(path||'');
+        if(p.indexOf('/admin/gyms')===0){
+          if(p.indexOf('/b2/regenerate-key')>0){return 'Regenerando clave B2'}
+          if(p.indexOf('/b2/delete-bucket')>0){return 'Eliminando bucket B2'}
+          if(p.match(/\/gyms\/\d+\/update/)){
+            var f=(elt&&elt.tagName==='FORM')?elt:null;
+            var ub=f?f.querySelector('input[name="update_bucket"]'):null;
+            return (ub&&ub.checked)?'Actualizando bucket y datos':'Actualizando gimnasio'
+          }
+          if(p.match(/\/gyms$/)){return 'Creando gimnasio · DB y bucket'}
+          if(p.indexOf('/storage')>0){
+            var f2=(elt&&elt.tagName==='FORM')?elt:null;
+            var pv=f2?f2.querySelector('input[name="provision"]'):null;
+            return pv&&pv.checked?'Guardando y creando recursos':'Guardando · creando bucket si falta'
+          }
+          if(p.indexOf('/subscription')>0){return 'Procesando suscripción'}
+          return 'Procesando'
+        }
+        if(p.indexOf('/admin/templates')===0){return 'Procesando templates'}
+        if(p.indexOf('/admin/subscriptions')===0){return 'Procesando suscripciones'}
+        return 'Procesando'
+      }
+      function showBusy(txt){
+        if(!bo)return;
+        bm.textContent=txt||'Procesando...';
+        bo.classList.remove('hidden');
+        bo.classList.add('flex');
+        document.body.classList.add('overflow-hidden')
+      }
+      function hideBusy(){
+        if(!bo)return;
+        bo.classList.add('hidden');
+        bo.classList.remove('flex');
+        document.body.classList.remove('overflow-hidden')
+      }
+      document.addEventListener('htmx:beforeRequest',function(ev){
+        try{
+          var path=ev&&ev.detail&&ev.detail.pathInfo?ev.detail.pathInfo.path:'';
+          var elt=ev&&ev.detail?ev.detail.elt:null;
+          var msg=msgForPath(elt,path);
+          showBusy(msg);
+          if(elt&&elt.tagName==='FORM'){
+            var btn=elt.querySelector('button[type="submit"]');
+            if(btn){btn.setAttribute('disabled','disabled')}
+          }
+        }catch(_){}
+      });
+      document.addEventListener('htmx:afterRequest',function(){
+        try{hideBusy()}catch(_){}
+      });
+      document.addEventListener('htmx:responseError',function(){
+        try{hideBusy()}catch(_){}
+      });
+      document.addEventListener('submit',function(e){
+        var f=e&&e.target;
+        var a=(f&&f.getAttribute)?(f.getAttribute('action')||''):'';
+        if(a&&a.indexOf('/admin/')===0){
+          showBusy(msgForPath(f,a));
+          var btn=f.querySelector('button[type="submit"]');
+          if(btn){btn.setAttribute('disabled','disabled')}
+        }
+      },true);
+    })();
   })();
   </script>
 </body>
