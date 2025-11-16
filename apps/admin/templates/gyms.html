@@ -42,7 +42,7 @@
       <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Tamaño página</button>
     </form>
     {% set dir_next = 'ASC' if (order_dir or 'DESC')=='DESC' else 'DESC' %}
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <span class="text-sm text-gray-400">Ordenar por:</span>
       <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=id&order_dir={{ dir_next }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='id' else 'bg-gray-900' }}">ID</a>
       <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=created_at&order_dir={{ dir_next }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='created_at' else 'bg-gray-900' }}">Creado</a>
@@ -170,7 +170,7 @@
             <div class="skeleton w-24 h-3 rounded-md"></div>
           </div>
         </div>
-        <div class="flex gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
           <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
           <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">WA</span></a>
@@ -277,7 +277,7 @@
     </table>
   </div>
   {% endif %}
-    <div class="mt-3 flex items-center gap-3">
+    <div class="mt-3 flex flex-wrap items-center gap-3">
       <a id="prev-link" href="{{ prev_link }}" class="px-3 py-2 rounded-md bg-gray-900">Anterior</a>
       <a id="next-link" href="{{ next_link }}" class="px-3 py-2 rounded-md bg-gray-900">Siguiente</a>
       <div class="text-gray-400">Página {{ page }} de {{ last_page }} · {{ total }} resultados</div>
@@ -382,8 +382,7 @@
   <script>
     (function(){
     
-    var cForms=document.querySelectorAll('form.needs-confirm');
-    for(var i=0;i<cForms.length;i++){cForms[i].addEventListener('submit',function(e){e.preventDefault();var m=this.getAttribute('data-confirm')||'¿Confirmar?';openConfirm(m,this)})}
+    
     var toast = window.toast || function(){};
     var selected=new Set();function updateSel(){var c=document.getElementById('sel-count');if(c){c.textContent=String(selected.size)}var hid=document.getElementById('selected-ids');if(hid){hid.value=Array.from(selected).join(',')}}
     var boxes=document.querySelectorAll('.select-gym');for(var i=0;i<boxes.length;i++){boxes[i].addEventListener('change',function(){var v=this.value;if(this.checked){selected.add(v)}else{selected.delete(v)}updateSel()})}

@@ -44,8 +44,8 @@
       <h2 class="text-lg font-medium">Listado</h2>
       <ul class="space-y-2">
         {% for n in names %}
-        <li class="px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] flex items-center justify-between">
-          <span>{{ n }}</span>
+        <li class="px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] flex items-center justify-between gap-2">
+          <span class="truncate max-w-[75%]" title="{{ n }}">{{ n }}</span>
           <a href="/admin/templates?ui=1&name={{ n }}" class="px-2 py-1 rounded-md bg-gray-800">Ver</a>
         </li>
         {% endfor %}

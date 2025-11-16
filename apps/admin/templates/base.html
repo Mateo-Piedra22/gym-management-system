@@ -22,10 +22,10 @@
     .htmx-indicator.htmx-request { display: block }
   </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: {{ 'false' if hide_sidebar else 'true' }} }" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
-  <div x-bind:class="open ? 'grid grid-cols-[240px,1fr] min-h-screen' : 'grid grid-cols-[0px,1fr] min-h-screen'" class="min-h-screen">
+<body class="bg-gray-950 text-gray-100 min-h-screen" x-data="{ open: {{ 'false' if hide_sidebar else 'true' }}, isMobile: window.innerWidth < 768 }" x-init="(() => { const onResize = () => { isMobile = window.innerWidth < 768; if (!isMobile) { open = true } }; window.addEventListener('resize', onResize); onResize(); })()" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator">
+  <div x-bind:class="(isMobile ? 'grid grid-cols-1' : (open ? 'grid grid-cols-[240px,1fr]' : 'grid grid-cols-1')) + ' min-h-screen'" class="min-h-screen">
     {% if not hide_sidebar %}
-    <aside x-show="open" class="bg-[#0b1222] border-r border-gray-800 p-4">
+    <aside x-show="open" x-bind:class="isMobile ? 'fixed inset-y-0 left-0 w-[240px] z-50 bg-[#0b1222] border-r border-gray-800 p-4' : 'bg-[#0b1222] border-r border-gray-800 p-4'">
       <div class="text-lg font-bold flex items-center gap-2">
         <i class="fa-solid fa-dumbbell"></i>
         <span>GymMS Admin</span>
@@ -40,6 +40,7 @@
         <a href="/admin/templates?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/templates') else 'bg-gray-900' }}'><i class="fa-solid fa-message"></i><span>Templates</span></a>
       </nav>
     </aside>
+    <div x-show="open && isMobile" class="fixed inset-0 bg-black/60 z-40" x-on:click="open=false"></div>
     {% endif %}
     <main id="main" hx-history-elt class="p-5 w-full min-w-0">
       {% if not hide_sidebar %}
@@ -130,7 +131,7 @@
     var _t=null;function runSearch(q){if(!res)return;clearTimeout(_t);_t=setTimeout(function(){res.innerHTML='<div class="skeleton w-full h-4 rounded-md"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var pref='';try{var p=window.location&&window.location.pathname?window.location.pathname:'';pref=(p.indexOf('/api/')===0||p==='/api'||p.indexOf('/api')===0)?'/api':''}catch(_){pref=''}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?(pref+'/admin/gyms/'+it.id+'/health?ui=1'):(pref+'/admin/templates?ui=1');html+='<a href="'+href+'" class="flex justify-between items-center px-3 py-2 rounded-md border border-gray-800 bg-[#0b1222] text-white"><span>'+it.label+'</span><span class="text-gray-400 text-xs">'+it.t+'</span></a>'}if(!html){html='<div class="text-gray-400">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div class="text-red-600">Error en búsqueda</div>'})},300)}
     if(inp){inp.addEventListener('input',function(){runSearch(inp.value)})}
     document.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openK()}});
-    if(window.innerWidth<768){var tb=document.getElementById('sidebar-toggle');if(tb){try{tb.click()}catch(_){}}}
+    
     document.addEventListener('htmx:responseError', function(ev){ try { var s = ev && ev.detail && ev.detail.xhr ? ev.detail.xhr.status : 0; var elt = ev && ev.detail ? ev.detail.elt : null; var tag = elt && elt.tagName ? elt.tagName.toLowerCase() : ''; toast('Error '+s+' cargando contenido','error'); var p = ev && ev.detail && ev.detail.pathInfo ? ev.detail.pathInfo.path : null; if ((tag==='a' || tag==='form') && p && typeof p === 'string') { window.location.href = p; } } catch(_){ } });
     document.addEventListener('htmx:send', function(){ try { var ind = document.querySelector('#main-indicator'); if (ind){ ind.classList.add('htmx-request'); } } catch(_){ } });
     document.addEventListener('htmx:afterOnLoad', function(ev){ try { var ind = document.querySelector('#main-indicator'); if (ind){ ind.classList.remove('htmx-request'); } var xhr = ev && ev.detail ? ev.detail.xhr : null; var ct = xhr && xhr.getResponseHeader ? (xhr.getResponseHeader('content-type')||'') : ''; var p = window.location && window.location.pathname ? window.location.pathname : ''; var skip = ['/admin/gyms','/admin/audit','/admin/subscriptions','/admin/plans','/admin/templates','/admin/passwords','/admin/owner']; for (var i=0;i<skip.length;i++){ if (p.indexOf(skip[i])===0) { return } } if (ct.indexOf('application/json')!==-1){ var txt = xhr && xhr.responseText || ''; var j = null; try { j = JSON.parse(txt); } catch(_){ j = null } if (j && j.ok){ if (window.toast) { window.toast('Operación exitosa','success'); } var url = new URL(window.location.href); url.searchParams.set('ui','1'); fetch(url.toString(), { headers: { 'accept':'text/html' } }).then(function(r){ return r.text() }).then(function(html){ try { var doc = new DOMParser().parseFromString(html,'text/html'); var next = doc.querySelector('main'); var cur = document.querySelector('main'); if (next && cur) { cur.innerHTML = next.innerHTML; } } catch(_){ } }).catch(function(){ }); } else if (j && j.error) { if (window.toast) { window.toast('Error: '+String(j.error||''),'error'); } } } } catch(_){ } });
