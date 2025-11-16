@@ -230,12 +230,26 @@
           }
         }catch(_){}
       });
-      document.addEventListener('htmx:afterRequest',function(){
-        try{hideBusy()}catch(_){}
-      });
-      document.addEventListener('htmx:responseError',function(){
-        try{hideBusy()}catch(_){}
-      });
+    document.addEventListener('htmx:afterRequest',function(ev){
+      try{
+        hideBusy();
+        var elt=ev&&ev.detail?ev.detail.elt:null;
+        if(elt&&elt.tagName==='FORM'){
+          var btn=elt.querySelector('button[type="submit"]');
+          if(btn){btn.removeAttribute('disabled')}
+        }
+      }catch(_){}
+    });
+    document.addEventListener('htmx:responseError',function(ev){
+      try{
+        hideBusy();
+        var elt=ev&&ev.detail?ev.detail.elt:null;
+        if(elt&&elt.tagName==='FORM'){
+          var btn=elt.querySelector('button[type="submit"]');
+          if(btn){btn.removeAttribute('disabled')}
+        }
+      }catch(_){}
+    });
       document.addEventListener('submit',function(e){
         var f=e&&e.target;
         var a=(f&&f.getAttribute)?(f.getAttribute('action')||''):'';

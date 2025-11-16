@@ -639,8 +639,10 @@ class AdminDatabaseManager:
             auth0 = self._b2_authorize_master()
         except Exception:
             auth0 = {}
-        acc_id = str((auth0 or {}).get("accountId") or os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
-        acc_suf = self._slugify(acc_id[-6:] if acc_id else "")
+        acc_id = str((auth0 or {}).get("accountId") or os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+        suffix_env = str(os.getenv("B2_BUCKET_SUFFIX", "")).strip().lower()
+        suffix_slug = self._slugify(suffix_env) if suffix_env else ""
+        acc_suf = suffix_slug or self._slugify(acc_id[-6:] if acc_id else "")
         suffix = f"-{acc_suf}" if acc_suf else ""
         bucket_default = f"{safe_prefix}-{safe_sub_for_bucket}{suffix}"
         bucket_name_input = str(b2_bucket_name or "").strip().lower()
@@ -657,9 +659,17 @@ class AdminDatabaseManager:
             return {"error": "db_creation_failed"}
         try:
             bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
-        except Exception:
+        except Exception as e:
+            try:
+                self._eliminar_db_postgres(db_name)
+            except Exception:
+                pass
             return {"error": "b2_bucket_creation_failed"}
-        if not bucket_info.get("bucket_id"):
+        if not bucket_info.get("bucket_id") or not bucket_info.get("key_id") or not bucket_info.get("application_key"):
+            try:
+                self._eliminar_db_postgres(db_name)
+            except Exception:
+                pass
             return {"error": "b2_bucket_creation_failed"}
         try:
             with self.db.get_connection_context() as conn:  # type: ignore
@@ -907,15 +917,23 @@ class AdminDatabaseManager:
 
     def _b2_authorize_master(self) -> Dict[str, Any]:
         try:
-            acc = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+            acc = (os.getenv("B2_MASTER_KEY_ID") or os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
             key = (os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
             if not acc or not key:
                 return {}
             r = requests.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", auth=(acc, key), timeout=10)
             if r.status_code != 200:
+                try:
+                    logging.getLogger(__name__).error(f"B2 authorize fallo {r.status_code}: {r.text}")
+                except Exception:
+                    pass
                 return {}
             return r.json() or {}
-        except Exception:
+        except Exception as e:
+            try:
+                logging.getLogger(__name__).error(str(e))
+            except Exception:
+                pass
             return {}
 
     def _crear_bucket_b2(self, bucket_name: str) -> Dict[str, Any]:
@@ -929,11 +947,11 @@ class AdminDatabaseManager:
             auth = self._b2_authorize_master()
             api_url = str(auth.get("apiUrl") or "").strip()
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
+            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip() or str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
             headers = {"Authorization": token, "Content-Type": "application/json"}
-            lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id}, timeout=10)
+            lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id, "bucketName": name}, timeout=10)
             bucket_id = None
             bucket_name = name
             if lb.status_code == 200:
@@ -952,12 +970,13 @@ class AdminDatabaseManager:
                 except Exception:
                     pass
             if not bucket_id:
-                btype = "allPublic"
+                btype = "allPrivate"
                 try:
-                    priv = (os.getenv("B2_BUCKET_PRIVATE", "0").strip().lower() in ("1", "true", "yes"))
+                    priv_env = str(os.getenv("B2_BUCKET_PRIVATE", "")).strip().lower()
+                    priv = (priv_env in ("1", "true", "yes"))
                     btype = "allPrivate" if priv else "allPublic"
                 except Exception:
-                    btype = "allPublic"
+                    btype = "allPrivate"
                 cb = requests.post(f"{api_url}/b2api/v2/b2_create_bucket", headers=headers, json={"accountId": account_id, "bucketName": name, "bucketType": btype}, timeout=12)
                 if cb.status_code == 200:
                     bj = cb.json()
@@ -972,10 +991,12 @@ class AdminDatabaseManager:
             application_key = None
             if bucket_id:
                 try:
-                    acc_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+                    acc_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
                 except Exception:
                     acc_id = ""
-                acc_suf = self._slugify(acc_id[-6:] if acc_id else "")
+                suffix_env = str(os.getenv("B2_BUCKET_SUFFIX", "")).strip().lower()
+                suffix_slug = self._slugify(suffix_env) if suffix_env else ""
+                acc_suf = suffix_slug or self._slugify(acc_id[-6:] if acc_id else "")
                 key_name = f"gym-{name}{('-'+acc_suf) if acc_suf else ''}"
                 caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles"]
                 ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
