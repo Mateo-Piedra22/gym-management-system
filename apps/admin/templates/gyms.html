@@ -7,7 +7,7 @@
     <div class="flex flex-wrap gap-3 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
     <form method="get" action="/admin/gyms" class="flex flex-wrap gap-2">
-      <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" />
+      <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full sm:min-w-[240px] sm:w-auto min-w-0" />
       <select name="status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
         <option value="">Todos</option>
         <option value="active"{% if status_q=='active' %} selected{% endif %}>Activos</option>
@@ -28,14 +28,14 @@
       <input type="hidden" name="ui" value="1" />
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Filtrar</button>
     </form>
-    <div class="flex items-center gap-2">
+    <div class="flex flex-wrap items-center gap-2">
       <span class="text-sm text-gray-400">Estado:</span>
       <a href="/admin/gyms?ui=1&q={{ q }}&status=&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if not status_q else 'bg-gray-900' }}">Todos</a>
       <a href="/admin/gyms?ui=1&q={{ q }}&status=active&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='active' else 'bg-gray-900' }}">Activos</a>
       <a href="/admin/gyms?ui=1&q={{ q }}&status=suspended&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='suspended' else 'bg-gray-900' }}">Suspendidos</a>
       <a href="/admin/gyms?ui=1&q={{ q }}&status=maintenance&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
     </div>
-    <form method="get" action="/admin/gyms" class="flex items-center gap-2">
+    <form method="get" action="/admin/gyms" class="flex flex-wrap items-center gap-2">
       <input name="page_size" value="{{ page_size }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       <input type="hidden" name="ui" value="1" />
       <input type="hidden" name="page" value="1" />
@@ -89,7 +89,7 @@
   });
   </script>
   <script>
-  (function(){var det=document.getElementById('details-overlay');var detClose=document.getElementById('details-close');if(det){det.addEventListener('click',function(e){if(e.target===det){det.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(detClose){detClose.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var oc=document.getElementById('open-create');var oc2=document.getElementById('open-create-2');var cm=document.getElementById('create-modal');var cc=document.getElementById('create-cancel');var cc2=document.getElementById('create-cancel-2');if(oc){oc.addEventListener('click',function(){document.body.classList.add('overflow-hidden')})}if(oc2){oc2.addEventListener('click',function(){document.body.classList.add('overflow-hidden')})}if(cm){cm.addEventListener('click',function(e){if(e.target===cm){cm.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(cc){cc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(cc2){cc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var so=document.getElementById('suspend-modal');var sc=document.getElementById('suspend-cancel');var sc2=document.getElementById('suspend-cancel-2');var sy=document.getElementById('suspend-yes');var os=document.querySelectorAll('[data-open-suspend]');for(var i=0;i<os.length;i++){os[i].addEventListener('click',function(){document.body.classList.add('overflow-hidden')})}if(so){so.addEventListener('click',function(e){if(e.target===so){so.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(sc){sc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sc2){sc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sy){sy.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}})();
+  (function(){var det=document.getElementById('details-overlay');var detClose=document.getElementById('details-close');if(det){det.addEventListener('click',function(e){if(e.target===det){det.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(detClose){detClose.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var oc=document.getElementById('open-create');var oc2=document.getElementById('open-create-2');var cm=document.getElementById('create-modal');var cc=document.getElementById('create-cancel');var cc2=document.getElementById('create-cancel-2');function doBind(){var el=document.getElementById('bucket-prefix');var pref=el?String(el.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub','create-sub-status','create-bucket',pref)}}if(oc){oc.addEventListener('click',function(){document.body.classList.add('overflow-hidden');doBind()})}if(oc2){oc2.addEventListener('click',function(){document.body.classList.add('overflow-hidden');doBind()})}if(cm){cm.addEventListener('click',function(e){if(e.target===cm){cm.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(cc){cc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(cc2){cc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var so=document.getElementById('suspend-modal');var sc=document.getElementById('suspend-cancel');var sc2=document.getElementById('suspend-cancel-2');var sy=document.getElementById('suspend-yes');var os=document.querySelectorAll('[data-open-suspend]');for(var i=0;i<os.length;i++){os[i].addEventListener('click',function(){document.body.classList.add('overflow-hidden')})}if(so){so.addEventListener('click',function(e){if(e.target===so){so.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(sc){sc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sc2){sc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sy){sy.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}})();
   </script>
   <script>
   (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');var b=document.getElementById('actions-backdrop');function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden')}}if(o){o.addEventListener('click',function(){document.body.classList.add('overflow-hidden');setTimeout(function(){if(c){c.focus()}},10)})}if(c){c.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(b){b.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){document.body.classList.remove('overflow-hidden')}})})();
@@ -100,14 +100,14 @@
     <div class="text-gray-400">Ajusta filtros u <button id="open-create-2" class="px-3 py-1 rounded-md bg-primary text-primary-foreground">crea un gimnasio</button></div>
   </div>
   {% elif (view or 'cards')=='cards' %}
-  <div id="gyms-section" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+  <div id="gyms-section" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
     {% for g in items %}
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ edit: false }">
-      <div class="flex justify-between items-center">
-        <div class="flex items-center gap-2">
+      <div class="flex flex-wrap justify-between items-center">
+        <div class="flex items-center gap-2 min-w-0">
           <input type="checkbox" class="select-gym" value="{{ g.id }}" />
-          <div id="gym-name-{{ g.id }}" class="font-semibold">{{ g.nombre }}</div>
-          <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm" data-sub="{{ g.subdominio }}">{{ g.subdominio }}</button>
+          <div id="gym-name-{{ g.id }}" class="font-semibold truncate max-w-[60%]" title="{{ g.nombre }}">{{ g.nombre }}</div>
+          <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm truncate max-w-[40%]" data-sub="{{ g.subdominio }}" title="{{ g.subdominio }}">{{ g.subdominio }}</button>
         </div>
         <div class="flex items-center gap-2">
           <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="hidden sm:flex gap-1 items-center">
@@ -120,12 +120,12 @@
         <div class="text-gray-400">Creado</div><div>{{ g.created_at }}</div>
         <div class="text-gray-400">Teléfono</div>
         <div>
-          <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex gap-2">
-            <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-40" />
+          <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex flex-wrap gap-2">
+            <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full sm:w-40" />
             <button type="submit" class="px-2 py-1 rounded-md bg-gray-900">Guardar</button>
           </form>
         </div>
-        <div class="text-gray-400">B2 Bucket</div><div id="gym-bucket-{{ g.id }}">{{ g.b2_bucket_name }}</div>
+        <div class="text-gray-400">B2 Bucket</div><div id="gym-bucket-{{ g.id }}" class="truncate" title="{{ g.b2_bucket_name }}">{{ g.b2_bucket_name }}</div>
         <div class="text-gray-400">B2 ID</div><div class="truncate" title="{{ g.b2_bucket_id }}">{{ g.b2_bucket_id }}</div>
       </div>
       <div class="grid gap-2" x-show="edit">
@@ -163,23 +163,23 @@
         <div>{{ last_amt }} {{ g.last_payment_currency or '' }}{% if g.last_payment_at %} <span class="text-gray-400">· {{ g.last_payment_at }}</span>{% endif %}</div>
       </div>
       {% endif %}
-      <div class="flex justify-between items-center">
+      <div class="flex flex-wrap justify-between items-center">
         <div class="flex items-center gap-2">
           <div class="text-gray-400">Salud</div>
           <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
             <div class="skeleton w-24 h-3 rounded-md"></div>
           </div>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
-          <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
-          <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">WA</span></a>
-          <a href="/admin/gyms/{{ g.id }}/maintenance?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Mantenimiento"><i class="fa-solid fa-wrench"></i><span class="ml-2">Mant.</span></a>
-          <a href="/admin/gyms/{{ g.id }}/branding?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i><span class="ml-2">Branding</span></a>
-          <a href="/admin/gyms/{{ g.id }}/owner?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i><span class="ml-2">Contraseña</span></a>
-          <a href="/admin/gyms/{{ g.id }}/health?ui=1" class="px-3 py-2 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
-          <button type="button" class="px-3 py-2 rounded-md bg-gray-900" data-open-details="{{ g.id }}" title="Ver detalles"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
-          <button type="button" class="px-3 py-2 rounded-md bg-gray-900" x-on:click="edit=!edit" title="Editar"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+          <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
+          <a href="/admin/gyms/{{ g.id }}/payments?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
+          <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">WA</span></a>
+          <a href="/admin/gyms/{{ g.id }}/maintenance?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Mantenimiento"><i class="fa-solid fa-wrench"></i><span class="ml-2">Mant.</span></a>
+          <a href="/admin/gyms/{{ g.id }}/branding?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i><span class="ml-2">Branding</span></a>
+          <a href="/admin/gyms/{{ g.id }}/owner?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i><span class="ml-2">Contraseña</span></a>
+          <a href="/admin/gyms/{{ g.id }}/health?ui=1" class="w-full px-3 py-2 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
+          <button type="button" class="w-full px-3 py-2 rounded-md bg-gray-900" data-open-details="{{ g.id }}" title="Ver detalles"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
+          <button type="button" class="w-full px-3 py-2 rounded-md bg-gray-900" x-on:click="edit=!edit" title="Editar"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -240,8 +240,8 @@
           </td>
           <td class="px-3 py-2">{{ g.created_at }}</td>
           <td class="px-3 py-2">
-            <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex gap-2">
-              <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-40" />
+            <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex flex-wrap gap-2">
+              <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full md:w-40" />
               <button type="submit" class="px-2 py-1 rounded-md bg-gray-900">Guardar</button>
             </form>
           </td>
@@ -282,14 +282,14 @@
       <a id="next-link" href="{{ next_link }}" class="px-3 py-2 rounded-md bg-gray-900">Siguiente</a>
       <div class="text-gray-400">Página {{ page }} de {{ last_page }} · {{ total }} resultados</div>
       <div class="ml-auto text-gray-400">Seleccionados: <span id="sel-count">0</span></div>
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <input type="hidden" id="selected-ids" />
         <button id="batch-prov" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Provisionar</button>
         <button id="batch-sus" class="px-3 py-2 rounded-md bg-red-600 text-white">Suspender</button>
         <button id="batch-uns" class="px-3 py-2 rounded-md bg-green-600 text-white">Reactivar</button>
-        <input id="batch-message" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
+        <input id="batch-message" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full sm:min-w-[280px]" />
         <button id="batch-remind" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar</button>
-        <input id="batch-maint-message" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[280px]" />
+        <input id="batch-maint-message" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full sm:min-w-[280px]" />
         <button id="batch-maint" class="px-3 py-2 rounded-md bg-yellow-500 text-black">Aviso mant.</button>
         <button id="batch-select-all" class="px-3 py-2 rounded-md bg-gray-900" title="Seleccionar todos">Seleccionar todo</button>
         <button id="batch-clear" class="px-3 py-2 rounded-md bg-gray-900" title="Limpiar selección">Limpiar</button>
