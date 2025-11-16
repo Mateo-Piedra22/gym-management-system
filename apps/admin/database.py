@@ -635,9 +635,18 @@ class AdminDatabaseManager:
         bucket_prefix = os.getenv("B2_BUCKET_PREFIX", "motiona-assets")
         safe_prefix = self._slugify(str(bucket_prefix or "").strip().lower()) or "motiona-assets"
         safe_sub_for_bucket = self._slugify(sub) or sub
-        bucket_default = f"{safe_prefix}-{safe_sub_for_bucket}"
+        try:
+            auth0 = self._b2_authorize_master()
+        except Exception:
+            auth0 = {}
+        acc_id = str((auth0 or {}).get("accountId") or os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+        acc_suf = self._slugify(acc_id[-6:] if acc_id else "")
+        suffix = f"-{acc_suf}" if acc_suf else ""
+        bucket_default = f"{safe_prefix}-{safe_sub_for_bucket}{suffix}"
         bucket_name_input = str(b2_bucket_name or "").strip().lower()
         bucket_name = self._slugify(bucket_name_input) or bucket_default
+        if acc_suf and bucket_name and not bucket_name.endswith(acc_suf) and not bucket_name.endswith(f"-{acc_suf}"):
+            bucket_name = f"{bucket_name}-{acc_suf}"
         created_db = False
         bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
@@ -962,7 +971,12 @@ class AdminDatabaseManager:
             key_id = None
             application_key = None
             if bucket_id:
-                key_name = f"gym-{name}"
+                try:
+                    acc_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+                except Exception:
+                    acc_id = ""
+                acc_suf = self._slugify(acc_id[-6:] if acc_id else "")
+                key_name = f"gym-{name}{('-'+acc_suf) if acc_suf else ''}"
                 caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles"]
                 ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
                 if ck.status_code == 200:
