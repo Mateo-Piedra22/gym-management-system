@@ -10,9 +10,9 @@
   <div class="flex items-center gap-2">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
   </div>
-  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-black/60"></div>
-    <div class="absolute right-0 top-0 h-full w-[360px] bg-gray-900 border-l border-gray-800 shadow">
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden" tabindex="-1">
+    <div id="actions-backdrop" class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-gray-900 border-l border-gray-800 shadow">
       <div class="flex items-center justify-between p-3 border-b border-gray-800">
         <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
         <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
@@ -26,7 +26,7 @@
             <input type="hidden" name="ui" value="1" />
             <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Ver</button>
           </form>
-          <form hx-post="/admin/gyms/test-send" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2">
+          <form hx-post="/admin/gyms/test-send" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2 needs-confirm" data-confirm="¿Enviar prueba con template?">
             <label for="side-gym-id" class="text-sm text-gray-300">Gym ID</label>
             <input id="side-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
             <label for="side-t-name2" class="text-sm text-gray-300">Template</label>
@@ -37,7 +37,7 @@
     </div>
   </div>
   <script>
-  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');var b=document.getElementById('actions-backdrop');function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden')}}if(o){o.addEventListener('click',function(){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');setTimeout(function(){if(c){c.focus()}},10)}})}if(c){c.addEventListener('click',close)}if(b){b.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
   </script>
   <div class="grid gap-3 md:grid-cols-2">
     <div>
@@ -80,7 +80,7 @@
         <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar</button>
       </form>
       <script>
-      (function(){var btn=document.getElementById('copy-template');if(btn){btn.addEventListener('click',function(){var tx='{{ text }}';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){var c=document.getElementById('toast-container');if(!c){var d=document.createElement('div');d.id='toast-container';d.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(d);c=d}var el=document.createElement('div');el.setAttribute('style','background:#16a34a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent='Copiado';c.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}).catch(function(){})}})}})();
+      (function(){var btn=document.getElementById('copy-template');if(btn){btn.addEventListener('click',function(){var tx='{{ text }}';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){if(window.toast){window.toast('Copiado','success')}}).catch(function(){if(window.toast){window.toast('Error al copiar','error')}})}})}})();
       </script>
       {% endif %}
     </div>
@@ -88,5 +88,5 @@
 </div>
 {% endblock %}
 <script>
-(function(){document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var el=evt.target;var act=el&&el.getAttribute('action')||el&&el.getAttribute('hx-post')||'';if(j&&j.ok){var m=act.match(/\/admin\/gyms\/test-send/);if(m){var c=document.getElementById('toast-container');if(!c){var d=document.createElement('div');d.id='toast-container';d.setAttribute('style','display:grid;gap:8px;position:fixed;top:16px;right:16px');document.body.appendChild(d);c=d}var eln=document.createElement('div');eln.setAttribute('style','background:#16a34a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');eln.textContent='Enviado';c.appendChild(eln);setTimeout(function(){if(eln&&eln.parentNode){eln.parentNode.removeChild(eln)}},3000)}}}catch(_){}})})();
+(function(){document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var el=evt.target;var act=el&&el.getAttribute('action')||el&&el.getAttribute('hx-post')||'';if(j&&j.ok){var m=act.match(/\/admin\/gyms\/test-send/);if(m){if(window.toast){window.toast('Enviado','success')}}} else {if(j&&j.error){if(window.toast){window.toast('Error','error')}}}}catch(_){}})})();
 </script>

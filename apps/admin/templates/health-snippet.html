@@ -1,3 +1,6 @@
 <span class="px-2 py-1 rounded-full text-xs {% if db_ok %}bg-green-600 text-white{% else %}bg-red-600 text-white{% endif %}">DB</span>
 <span class="px-2 py-1 rounded-full text-xs {% if wa_ok %}bg-green-600 text-white{% else %}bg-red-600 text-white{% endif %}">WA</span>
 <span class="px-2 py-1 rounded-full text-xs {% if st_ok %}bg-green-600 text-white{% else %}bg-red-600 text-white{% endif %}">ST</span>
+{% if webapp_url %}
+<a href="{{ webapp_url }}" target="_blank" rel="noopener" class="ml-2 text-xs px-2 py-1 rounded-md bg-gray-900"><i class="fa-solid fa-up-right-from-square"></i> <span>Web</span></a>
+{% endif %}

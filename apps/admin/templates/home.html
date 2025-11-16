@@ -141,13 +141,12 @@
   <script>
   (function(){
       var bars=document.querySelectorAll('[data-h]');for(var i=0;i<bars.length;i++){var hv=Number(bars[i].getAttribute('data-h')||0);bars[i].style.height=String(hv)+'%'}
-      function _slugify(v){v=String(v||'').toLowerCase();v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'');v=v.replace(/[^a-z0-9]+/g,'-').replace(/-+/g,'-');v=v.replace(/^-|-$/g,'');return v}
-      function _updateSubFromName(){var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');if(!n||!s)return;var base=_slugify(n.value);if(!base){s.value='';if(st){st.textContent=''}return}fetch('/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(n.value),{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var sug=String((j&&j.suggestion)||base);s.value=sug;if(st){if(j&&j.available){st.textContent='Disponible';st.style.color='#16a34a'}else{st.textContent='Sugerido: '+sug;st.style.color='#f59e0b'}}}).catch(function(){s.value=base;if(st){st.textContent=''}})}
-      var n=document.getElementById('create-name');if(n){n.addEventListener('input',function(){_updateSubFromName()})}
-      document.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var j=xhr&&JSON.parse(xhr.responseText);if(j&&j.ok){var tgt=evt.target;var act=tgt&&tgt.getAttribute('hx-post');if(act==='/admin/subscriptions/auto-suspend'){var tc=document.getElementById('toast-container');if(tc){var el=document.createElement('div');el.setAttribute('style','background:#16a34a;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el.textContent='Auto-suspensión aplicada';tc.appendChild(el);setTimeout(function(){if(el&&el.parentNode){el.parentNode.removeChild(el)}},3000)}}if(act==='/admin/subscriptions/remind'){var tc2=document.getElementById('toast-container');if(tc2){var el2=document.createElement('div');el2.setAttribute('style','background:#374151;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 10px 15px rgba(0,0,0,0.2)');el2.textContent='Recordatorios enviados';tc2.appendChild(el2);setTimeout(function(){if(el2&&el2.parentNode){el2.parentNode.removeChild(el2)}},3000)}}}
-      }catch(e){}}
-      )
+      document.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var j=xhr&&JSON.parse(xhr.responseText);if(j&&j.ok){var tgt=evt.target;var act=tgt&&tgt.getAttribute('hx-post');if(act==='/admin/subscriptions/auto-suspend'){if(window.toast){window.toast('Auto-suspensión aplicada','success')}}if(act==='/admin/subscriptions/remind'){if(window.toast){window.toast('Recordatorios enviados','info')}}}
+      }catch(e){}})
     })();
+  </script>
+  <script>
+  (function(){ if(window.bindSubdomainBucket){ window.bindSubdomainBucket('create-name','create-sub','create-sub-status',null,null) } })();
   </script>
 </div>
 {% endblock %}

@@ -21,9 +21,9 @@
     <input type="hidden" name="ui" value="1" />
     <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
   </form>
-  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-black/60"></div>
-    <div class="absolute right-0 top-0 h-full w-[360px] bg-gray-900 border-l border-gray-800 shadow">
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden" tabindex="-1">
+    <div id="actions-backdrop" class="absolute inset-0 bg-black/60"></div>
+    <div class="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-gray-900 border-l border-gray-800 shadow">
       <div class="flex items-center justify-between p-3 border-b border-gray-800">
         <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
         <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
@@ -47,7 +47,7 @@
     </div>
   </div>
   <script>
-  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');function open(){if(ov){ov.classList.remove('hidden')}}function close(){if(ov){ov.classList.add('hidden')}}if(o){o.addEventListener('click',open)}if(c){c.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
+  (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');var b=document.getElementById('actions-backdrop');function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden')}}if(o){o.addEventListener('click',function(){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');setTimeout(function(){if(c){c.focus()}},10)}})}if(c){c.addEventListener('click',close)}if(b){b.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
   </script>
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
     <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222]">

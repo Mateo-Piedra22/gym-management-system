@@ -1811,10 +1811,12 @@ async def health_check(request: Request, gym_id: int):
     acc0 = (request.headers.get("accept") or "").lower()
     is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
     wants_html0 = ("text/html" in acc0) or (request.query_params.get("ui") == "1")
+    preview_url_cached = None
     try:
         ent = cache.get(int(gym_id)) if isinstance(cache, dict) else None
         if ent and (now - int(ent.get("ts") or 0) < ttl):
             res_cached = ent.get("val") or {}
+            preview_url_cached = ent.get("preview_url") or None
             if wants_html0 and is_hx:
                 return templates.TemplateResponse(
                     "health-snippet.html",
@@ -1823,10 +1825,14 @@ async def health_check(request: Request, gym_id: int):
                         "db_ok": bool((res_cached.get("db") or {}).get("ok")),
                         "wa_ok": bool((res_cached.get("whatsapp") or {}).get("ok")),
                         "st_ok": bool((res_cached.get("storage") or {}).get("ok")),
+                        "webapp_url": preview_url_cached or "",
                     },
                 )
             if not wants_html0:
-                return JSONResponse(res_cached, status_code=200)
+                out = dict(res_cached)
+                if preview_url_cached:
+                    out["webapp_url"] = preview_url_cached
+                return JSONResponse(out, status_code=200)
     except Exception:
         pass
     g = adm.obtener_gimnasio(int(gym_id))
@@ -1887,12 +1893,34 @@ async def health_check(request: Request, gym_id: int):
     snippet = (str(request.query_params.get("snippet") or "").strip() == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
     res = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
     try:
-        cache[int(gym_id)] = {"ts": int(now), "val": res}
+        base_url = SecureConfig.get_webapp_base_url()
+    except Exception:
+        base_url = ""
+    try:
+        subdom = str((g or {}).get("subdominio") or "").strip().lower()
+    except Exception:
+        subdom = ""
+    try:
+        dom = os.getenv("TENANT_BASE_DOMAIN", "").strip().lstrip(".")
+    except Exception:
+        dom = ""
+    preview_url = ""
+    try:
+        if dom and subdom:
+            preview_url = f"https://{subdom}.{dom}"
+        elif base_url:
+            preview_url = base_url
+    except Exception:
+        preview_url = base_url or ""
+    try:
+        cache[int(gym_id)] = {"ts": int(now), "val": res, "preview_url": preview_url}
         setattr(admin_app.state, "health_cache", cache)
     except Exception:
         pass
     if not wants_html:
-        return JSONResponse(res, status_code=200)
+        out = dict(res)
+        out["webapp_url"] = preview_url
+        return JSONResponse(out, status_code=200)
     if snippet:
         return templates.TemplateResponse(
             "health-snippet.html",
@@ -1901,6 +1929,7 @@ async def health_check(request: Request, gym_id: int):
                 "db_ok": bool(db_ok),
                 "wa_ok": bool(wa_ok),
                 "st_ok": bool(st_ok),
+                "webapp_url": preview_url,
             },
         )
     return templates.TemplateResponse(
@@ -1915,6 +1944,7 @@ async def health_check(request: Request, gym_id: int):
             "wa_status": wa_status,
             "st_ok": bool(st_ok),
             "st_cfg": bool(st_cfg),
+            "webapp_url": preview_url,
         },
     )
 

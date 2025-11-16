@@ -108,4 +108,8 @@
     .catch(function(){});
 })();
 </script>
+<script>
+(function(){document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var j=xhr&&JSON.parse(xhr.responseText);if(j&&j.ok){var tgt=evt.target;var act=tgt&&tgt.getAttribute('hx-post');if(act==='/admin/subscriptions/auto-suspend'){if(window.toast){window.toast('Auto-suspensión aplicada','success')}}}
+}catch(_){}})})();
+</script>
 {% endblock %}
