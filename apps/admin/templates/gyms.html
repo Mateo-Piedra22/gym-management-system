@@ -463,6 +463,11 @@
           var tbId='t-bucket-preview-'+rgid;
           if(window.bindSubdomainBucket){window.bindSubdomainBucket(tnId,tsId,tstId,tbId,pref)}
         }
+        var cName=document.getElementById('create-name');
+        var cSub=document.getElementById('create-sub');
+        if(cName&&cSub&&window.bindSubdomainBucket){
+          window.bindSubdomainBucket('create-name','create-sub','create-sub-status','create-bucket',pref)
+        }
       }catch(_){}
     }
     document.body.addEventListener('htmx:afterOnLoad',function(evt){try{var xhr=evt.detail.xhr;var ct=(xhr&&xhr.getResponseHeader)?(xhr.getResponseHeader('content-type')||''):'';if(ct.indexOf('application/json')===-1){return}var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var el=evt.target;var act=el&&el.getAttribute('action')||el&&el.getAttribute('hx-post')||'';if(j&&j.ok){if(act==='/admin/gyms'){toast('Gimnasio creado','success');closeCreate();refreshGymsList()}else{var m=act.match(/\/admin\/gyms\/(\d+)(\/\w+)?/);if(m&&m[1]){var gid=m[1];toast('Guardado','success');var op=m[2]||'';if(op.indexOf('/update')===0){refreshGymsList()}else{refreshGymUI(gid);refreshHealth(gid)}}else{toast('Guardado','success')}}}else{toast('Error','error')}}catch(_){}});

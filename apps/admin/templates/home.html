@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="grid gap-6">
+  <span id="bucket-prefix" data-value="{{ b2_bucket_prefix or 'motiona-assets' }}" style="display:none"></span>
   {% if warnings and warnings|length %}
   <div class="rounded-md border border-red-700 bg-red-600/20 text-red-200 p-4">
     <div class="font-semibold">Alertas</div>
@@ -136,6 +137,10 @@
           <span id="create-sub-status" class="text-xs text-gray-400"></span>
         </div>
       </label>
+      <label class="grid gap-1">
+        <span class="text-sm text-gray-300">Bucket Name</span>
+        <input id="create-bucket" name="b2_bucket_name" pattern="^[a-z0-9-]{1,63}$" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+      </label>
       <label class="grid gap-1"><span class="text-sm text-gray-300">Teléfono dueño (opcional)</span><input name="owner_phone" placeholder="+54..." pattern="^\+?[0-9]{7,15}$" inputmode="tel" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" /></label>
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear</button>
     </form>
@@ -148,7 +153,7 @@
     })();
   </script>
   <script>
-  (function(){ if(window.bindSubdomainBucket){ window.bindSubdomainBucket('create-name','create-sub','create-sub-status',null,null) } })();
+  (function(){ var el=document.getElementById('bucket-prefix'); var pref=el?String(el.getAttribute('data-value')||'motiona-assets'):'motiona-assets'; if(window.bindSubdomainBucket){ window.bindSubdomainBucket('create-name','create-sub','create-sub-status','create-bucket',pref) } })();
   </script>
 </div>
 {% endblock %}

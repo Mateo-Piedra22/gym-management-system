@@ -293,7 +293,20 @@ async def admin_home(request: Request):
         recent_gyms = list((recent_payload or {}).get("items") or [])
         recent_payments = adm.listar_pagos_recientes(10) if adm else []
         audit = adm.resumen_auditoria(7) if adm else {"by_action": [], "by_actor": [], "days": 7}
-        return templates.TemplateResponse("home.html", {"request": request, "warnings": warnings, "metrics": metrics, "series_max": int(series_max), "upcoming": upcoming, "recent_gyms": recent_gyms, "recent_payments": recent_payments, "audit": audit})
+        return templates.TemplateResponse(
+            "home.html",
+            {
+                "request": request,
+                "warnings": warnings,
+                "metrics": metrics,
+                "series_max": int(series_max),
+                "upcoming": upcoming,
+                "recent_gyms": recent_gyms,
+                "recent_payments": recent_payments,
+                "audit": audit,
+                "b2_bucket_prefix": os.getenv("B2_BUCKET_PREFIX", "motiona-assets"),
+            },
+        )
     except Exception:
         if wants_html:
             return Response(content="<div class=\"p-6 text-red-300\">Error interno del panel</div>", media_type="text/html", status_code=500)
