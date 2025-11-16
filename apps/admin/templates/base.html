@@ -151,12 +151,13 @@
         var userEdit=(s&&s.dataset&&s.dataset.userEdited==='true');
         if(s&&!userEdit){
           var url=apiPref()+'/admin/subdomains/check?sub='+encodeURIComponent(base)+'&name='+encodeURIComponent(orig);
+          if(s){ s.value = base }
           fetch(url,{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){
             var sug=String((j&&j.suggestion)||base||'');
             if(s){s.value=sug}
             if(st){st.textContent=j&&j.available?'Disponible':'Sugerido: '+sug;st.style.color=j&&j.available?'#16a34a':'#f59e0b'}
             setBucket(sug)
-          }).catch(function(){ setBucket(base) });
+          }).catch(function(){ if(s){ s.value = base } setBucket(base) });
         } else {
           setBucket((s&&s.value)||base)
         }
