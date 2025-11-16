@@ -104,7 +104,7 @@
           <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm" data-sub="{{ g.subdominio }}">{{ g.subdominio }}</button>
         </div>
         <div class="flex items-center gap-2">
-          <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-swap="innerHTML" hx-push-url="false" class="hidden sm:flex gap-1 items-center">
+          <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="hidden sm:flex gap-1 items-center">
             <div class="skeleton w-16 h-3 rounded-md"></div>
           </div>
           <span id="status-badge-{{ g.id }}" class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
@@ -160,7 +160,7 @@
       <div class="flex justify-between items-center">
         <div class="flex items-center gap-2">
           <div class="text-gray-400">Salud</div>
-          <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
+          <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
             <div class="skeleton w-24 h-3 rounded-md"></div>
           </div>
         </div>
@@ -243,7 +243,7 @@
             <span class="px-2 py-1 rounded-md {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
           </td>
           <td class="px-3 py-2">
-            <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
+            <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
               <div class="skeleton w-24 h-3 rounded-md"></div>
             </div>
           </td>
