@@ -641,6 +641,8 @@ class AdminDatabaseManager:
             created_db = bool(self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0))
         except Exception:
             created_db = False
+        if not created_db:
+            return {"error": "db_creation_failed"}
         try:
             bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
         except Exception:
@@ -774,7 +776,7 @@ class AdminDatabaseManager:
                             except Exception:
                                 pass
                             return True
-                    owner = os.getenv("ADMIN_DB_USER", os.getenv("DB_USER", "neondb_owner")).strip() or "neondb_owner"
+                    owner = "neondb_owner"
                     cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}}, timeout=12)
                     if not (200 <= cr.status_code < 300):
                         return False
@@ -825,7 +827,7 @@ class AdminDatabaseManager:
                         except Exception:
                             pass
                         return True
-                owner = os.getenv("ADMIN_DB_USER", os.getenv("DB_USER", "neondb_owner")).strip() or "neondb_owner"
+                owner = "neondb_owner"
                 cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}}, timeout=12)
                 if not (200 <= cr.status_code < 300):
                     return False
@@ -957,7 +959,7 @@ class AdminDatabaseManager:
             application_key = None
             if bucket_id:
                 key_name = f"gym-{name}"
-                caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles", "listBuckets", "readBuckets"]
+                caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles"]
                 ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
                 if ck.status_code == 200:
                     kj = ck.json()
