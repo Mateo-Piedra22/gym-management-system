@@ -57,6 +57,8 @@ status.json
 rutinas_exportadas/
 recibos/
 backups/
+tests/
+scripts/
 
 # Artefactos de build
 build/

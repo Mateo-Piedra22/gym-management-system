@@ -2129,14 +2129,10 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
     if requests is None:
         raise HTTPException(status_code=500, detail="Dependencia 'requests' no instalada para usar B2.")
     try:
-        # 1) Autorizar cuenta (GET + Basic Auth según especificación de B2)
-        import base64 as _b64
-        # Autenticación con applicationKeyId (key_id) si existe; fallback a account_id
         user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
-        basic = _b64.b64encode(f"{user_id}:{settings['application_key']}".encode("ascii")).decode("ascii")
         auth_resp = requests.get(
-            "https://api.backblazeb2.com/b2api/v2/b2_authorize_account",
-            headers={"Authorization": f"Basic {basic}"},
+            "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+            auth=(user_id, settings["application_key"]),
             timeout=8,
         )
         if auth_resp.status_code != 200:
@@ -2146,11 +2142,13 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
                 txt = ""
             raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code} {txt}")
         auth_json = auth_resp.json()
-        api_url = auth_json.get("apiUrl", "")
+        api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
         download_url = auth_json.get("downloadUrl", "")
         auth_token = auth_json.get("authorizationToken", "")
-        if not api_url or not auth_token:
+        if not auth_token:
             raise HTTPException(status_code=502, detail="Respuesta de autorización B2 inválida")
+        if not api_url:
+            raise HTTPException(status_code=502, detail="apiUrl no disponible en autorización B2")
 
         # 1.1) Verificar que bucket_id corresponde al nombre real (evita URLs públicas erróneas)
         bucket_name_eff = (settings.get("bucket_name") or "").strip()

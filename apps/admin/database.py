@@ -639,7 +639,7 @@ class AdminDatabaseManager:
             auth0 = self._b2_authorize_master()
         except Exception:
             auth0 = {}
-        acc_id = str((auth0 or {}).get("accountId") or os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+        acc_id = str((auth0 or {}).get("accountId") or "").strip()
         suffix_env = str(os.getenv("B2_BUCKET_SUFFIX", "")).strip().lower()
         suffix_slug = self._slugify(suffix_env) if suffix_env else ""
         acc_suf = suffix_slug or self._slugify(acc_id[-6:] if acc_id else "")
@@ -917,11 +917,11 @@ class AdminDatabaseManager:
 
     def _b2_authorize_master(self) -> Dict[str, Any]:
         try:
-            acc = (os.getenv("B2_MASTER_KEY_ID") or os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip()
+            acc = (os.getenv("B2_MASTER_KEY_ID") or "").strip()
             key = (os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
             if not acc or not key:
                 return {}
-            r = requests.get("https://api.backblazeb2.com/b2api/v2/b2_authorize_account", auth=(acc, key), timeout=10)
+            r = requests.get("https://api.backblazeb2.com/b2api/v4/b2_authorize_account", auth=(acc, key), timeout=12)
             if r.status_code != 200:
                 try:
                     logging.getLogger(__name__).error(f"B2 authorize fallo {r.status_code}: {r.text}")
@@ -936,6 +936,16 @@ class AdminDatabaseManager:
                 pass
             return {}
 
+    def _b2_api_url(self, auth: Dict[str, Any]) -> str:
+        try:
+            api_url = str((auth or {}).get("apiUrl") or "").strip()
+            if api_url:
+                return api_url
+            api_url = str((((auth or {}).get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "").strip()
+            return api_url
+        except Exception:
+            return ""
+
     def _crear_bucket_b2(self, bucket_name: str) -> Dict[str, Any]:
         try:
             raw_name = str(bucket_name or "").strip().lower()
@@ -945,9 +955,9 @@ class AdminDatabaseManager:
             if requests is None:
                 return {"bucket_name": name, "bucket_id": None}
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip() or str(auth.get("accountId") or "").strip()
+            account_id = str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
             headers = {"Authorization": token, "Content-Type": "application/json"}
@@ -991,7 +1001,7 @@ class AdminDatabaseManager:
             application_key = None
             if bucket_id:
                 try:
-                    acc_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+                    acc_id = str(auth.get("accountId") or "").strip()
                 except Exception:
                     acc_id = ""
                 suffix_env = str(os.getenv("B2_BUCKET_SUFFIX", "")).strip().lower()
@@ -1035,7 +1045,7 @@ class AdminDatabaseManager:
             if not kid:
                 return False
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
             if not api_url or not token:
                 return False
@@ -1057,9 +1067,9 @@ class AdminDatabaseManager:
             if not bid:
                 return False
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
+            account_id = str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return False
             headers = {"Authorization": token}
@@ -1080,7 +1090,7 @@ class AdminDatabaseManager:
             if not bid:
                 return False
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
             if not api_url or not token:
                 return False
@@ -1130,7 +1140,7 @@ class AdminDatabaseManager:
             if not sbid or not dbid:
                 return False
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
             if not api_url or not token:
                 return False
@@ -1530,9 +1540,9 @@ class AdminDatabaseManager:
             if not bid:
                 return {"ok": False}
             auth = self._b2_authorize_master()
-            api_url = str(auth.get("apiUrl") or "").strip()
+            api_url = self._b2_api_url(auth)
             token = str(auth.get("authorizationToken") or "").strip()
-            account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
+            account_id = str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"ok": False}
             headers = {"Authorization": token}
