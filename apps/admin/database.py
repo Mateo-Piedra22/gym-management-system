@@ -633,8 +633,11 @@ class AdminDatabaseManager:
         suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
         db_name = f"{sub}{suffix}"
         bucket_prefix = os.getenv("B2_BUCKET_PREFIX", "motiona-assets")
-        bucket_default = f"{bucket_prefix}-{sub}"
-        bucket_name = (str(b2_bucket_name or "").strip() or bucket_default)
+        safe_prefix = self._slugify(str(bucket_prefix or "").strip().lower()) or "motiona-assets"
+        safe_sub_for_bucket = self._slugify(sub) or sub
+        bucket_default = f"{safe_prefix}-{safe_sub_for_bucket}"
+        bucket_name_input = str(b2_bucket_name or "").strip().lower()
+        bucket_name = self._slugify(bucket_name_input) or bucket_default
         created_db = False
         bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
         try:
@@ -908,7 +911,8 @@ class AdminDatabaseManager:
 
     def _crear_bucket_b2(self, bucket_name: str) -> Dict[str, Any]:
         try:
-            name = str(bucket_name or "").strip()
+            raw_name = str(bucket_name or "").strip().lower()
+            name = self._slugify(raw_name) or raw_name
             if not name:
                 return {"bucket_name": "", "bucket_id": None}
             if requests is None:
@@ -919,7 +923,7 @@ class AdminDatabaseManager:
             account_id = (os.getenv("B2_MASTER_ACCOUNT_ID") or "").strip() or str(auth.get("accountId") or "").strip()
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
-            headers = {"Authorization": token}
+            headers = {"Authorization": token, "Content-Type": "application/json"}
             lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id}, timeout=10)
             bucket_id = None
             bucket_name = name
