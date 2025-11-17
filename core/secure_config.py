@@ -2,8 +2,14 @@ import os
 import logging
 import base64
 import json
+import hashlib
 from typing import Any, Dict
 from .security_utils import SecurityUtils
+try:
+    from cryptography.fernet import Fernet, InvalidToken  # type: ignore
+except Exception:
+    Fernet = None  # type: ignore
+    InvalidToken = Exception  # type: ignore
 
 class SecureConfig:
     @classmethod
@@ -135,5 +141,51 @@ class SecureConfig:
             'enabled': cls.get_env_bool('PUBLIC_TUNNEL_ENABLED', False),
             'subdomain': cls.get_env_variable('PUBLIC_TUNNEL_SUBDOMAIN', '')
         }
+
+    @classmethod
+    def _get_fernet(cls):
+        try:
+            if not Fernet:
+                return None
+            key = cls.get_env_variable('WABA_ENCRYPTION_KEY', required=False)
+            k = (str(key or '')).strip()
+            if not k:
+                return None
+            try:
+                if len(k) == 44:
+                    fk = k.encode('utf-8')
+                else:
+                    digest = hashlib.sha256(k.encode('utf-8')).digest()
+                    fk = base64.urlsafe_b64encode(digest)
+            except Exception:
+                digest = hashlib.sha256(k.encode('utf-8')).digest()
+                fk = base64.urlsafe_b64encode(digest)
+            return Fernet(fk)
+        except Exception:
+            return None
+
+    @classmethod
+    def encrypt_waba_secret(cls, secret: str) -> str:
+        if not secret:
+            return ''
+        f = cls._get_fernet()
+        if not f:
+            return str(secret)
+        try:
+            return f.encrypt(secret.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return str(secret)
+
+    @classmethod
+    def decrypt_waba_secret(cls, encrypted_secret: str) -> str:
+        if not encrypted_secret:
+            return ''
+        f = cls._get_fernet()
+        if not f:
+            return str(encrypted_secret)
+        try:
+            return f.decrypt(encrypted_secret.encode('utf-8')).decode('utf-8')
+        except Exception:
+            return ''
 
 config = SecureConfig

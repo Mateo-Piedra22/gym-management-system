@@ -15,6 +15,7 @@ except Exception:
 
 from core.database import DatabaseManager  # type: ignore
 from core.security_utils import SecurityUtils  # type: ignore
+from core.secure_config import SecureConfig  # type: ignore
 
 
 def _resolve_admin_db_params() -> Dict[str, Any]:
@@ -1567,14 +1568,17 @@ class AdminDatabaseManager:
         try:
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
+                enc_at = SecureConfig.encrypt_waba_secret((access_token or '').strip()) if access_token and str(access_token).strip() else None
+                enc_vt = SecureConfig.encrypt_waba_secret((verify_token or '').strip()) if verify_token and str(verify_token).strip() else None
+                enc_as = SecureConfig.encrypt_waba_secret((app_secret or '').strip()) if app_secret and str(app_secret).strip() else None
                 cur.execute(
                     "UPDATE gyms SET whatsapp_phone_id = %s, whatsapp_access_token = %s, whatsapp_business_account_id = %s, whatsapp_verify_token = %s, whatsapp_app_secret = %s, whatsapp_nonblocking = %s, whatsapp_send_timeout_seconds = %s WHERE id = %s",
                     (
                         (phone_id or "").strip() or None,
-                        (access_token or "").strip() or None,
+                        enc_at,
                         (waba_id or "").strip() or None,
-                        (verify_token or "").strip() or None,
-                        (app_secret or "").strip() or None,
+                        enc_vt,
+                        enc_as,
                         bool(nonblocking or False),
                         send_timeout_seconds,
                         int(gym_id),
@@ -1657,22 +1661,26 @@ class AdminDatabaseManager:
             except Exception:
                 return False
             # Actualizar configuración en DB del gimnasio
+            at_raw = str(row.get("whatsapp_access_token") or "")
+            vt_raw = str(row.get("whatsapp_verify_token") or "")
+            as_raw = str(row.get("whatsapp_app_secret") or "")
+            at = SecureConfig.decrypt_waba_secret(at_raw) if at_raw else None
+            vt = SecureConfig.decrypt_waba_secret(vt_raw) if vt_raw else ""
+            asc = SecureConfig.decrypt_waba_secret(as_raw) if as_raw else ""
             ok1 = dm.actualizar_configuracion_whatsapp(
                 phone_id=str(row.get("whatsapp_phone_id") or "") or None,
                 waba_id=str(row.get("whatsapp_business_account_id") or "") or None,
-                access_token=str(row.get("whatsapp_access_token") or "") or None,
+                access_token=at,
             )
             # Opcional: tokens de verificación en configuracion genérica
-            vt = str(row.get("whatsapp_verify_token") or "")
-            asct = str(row.get("whatsapp_app_secret") or "")
             if vt:
                 try:
                     dm.actualizar_configuracion("WHATSAPP_VERIFY_TOKEN", vt)
                 except Exception:
                     pass
-            if asct:
+            if asc:
                 try:
-                    dm.actualizar_configuracion("WHATSAPP_APP_SECRET", asct)
+                    dm.actualizar_configuracion("WHATSAPP_APP_SECRET", asc)
                 except Exception:
                     pass
             return bool(ok1)

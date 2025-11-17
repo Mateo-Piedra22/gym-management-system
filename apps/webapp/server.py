@@ -21,6 +21,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.cors import CORSMiddleware
 import uuid
 import threading
 import psutil
@@ -1371,6 +1373,19 @@ app = FastAPI(
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
 app.add_middleware(SessionMiddleware, secret_key=_get_session_secret(), https_only=True, same_site="lax")
+try:
+    _base_dom = (os.getenv("TENANT_BASE_DOMAIN") or "").strip().lower()
+    _allow_hosts = [f"*.{_base_dom}", _base_dom, "localhost", "127.0.0.1", "*.vercel.app"] if _base_dom else ["*"]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allow_hosts)
+except Exception:
+    pass
+try:
+    _cors_origins = []
+    if _base_dom:
+        _cors_origins = [f"https://{_base_dom}", f"https://*.{_base_dom}"]
+    app.add_middleware(CORSMiddleware, allow_origins=_cors_origins or ["*"], allow_credentials=True, allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], allow_headers=["*"])
+except Exception:
+    pass
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
@@ -1497,11 +1512,38 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
             resp.headers["X-Content-Type-Options"] = "nosniff"
             resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            csp = "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+            resp.headers["Content-Security-Policy"] = csp
         except Exception:
             pass
         return resp
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+class TenantGuardMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        try:
+            path = request.url.path or "/"
+            if path.startswith("/static/") or path == "/favicon.ico":
+                return await call_next(request)
+            sub = None
+            try:
+                sub = CURRENT_TENANT.get()
+            except Exception:
+                sub = None
+            if not sub:
+                return JSONResponse({"error": "tenant_not_found"}, status_code=404)
+            try:
+                if _is_tenant_suspended(sub):
+                    return JSONResponse({"error": "tenant_suspended"}, status_code=423)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        resp = await call_next(request)
+        return resp
+
+app.add_middleware(TenantGuardMiddleware)
 
 # Redirección amigable de 401 según la sección
 @app.exception_handler(HTTPException)
@@ -2175,6 +2217,13 @@ def _get_b2_settings() -> Dict[str, Any]:
                             application_key = str(row[3] or "").strip()
                 except Exception:
                     pass
+        try:
+            require_tenant_bucket = (os.getenv("REQUIRE_TENANT_BUCKET", "0").strip().lower() in ("1", "true", "yes"))
+        except Exception:
+            require_tenant_bucket = False
+        if require_tenant_bucket and tenant:
+            if not bucket_id or not bucket_name or not key_id or not application_key:
+                raise HTTPException(status_code=503, detail="Configuración de bucket B2 por tenant no disponible")
         if tenant:
             try:
                 prefix = f"{prefix}/{tenant}".strip().strip("/")
@@ -13175,3 +13224,13 @@ async def api_suspension_status(request: Request):
         return JSONResponse(payload)
     except Exception:
         return JSONResponse({"suspended": False})
+class CacheHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        resp = await call_next(request)
+        try:
+            resp.headers["Vary"] = "Host, Cookie, Authorization, Accept"
+        except Exception:
+            pass
+        return resp
+
+app.add_middleware(CacheHeadersMiddleware)
