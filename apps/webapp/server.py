@@ -1370,7 +1370,7 @@ app = FastAPI(
     # Permite servir detrás de reverse proxy con subpath
     root_path=os.getenv("ROOT_PATH", "").strip(),
 )
-app.add_middleware(SessionMiddleware, secret_key=_get_session_secret())
+app.add_middleware(SessionMiddleware, secret_key=_get_session_secret(), https_only=True, same_site="lax")
 
 class TenantMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
@@ -1473,6 +1473,35 @@ class TenantMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(TenantMiddleware)
+
+class ForceHTTPSProtoMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        try:
+            xfproto = (request.headers.get("x-forwarded-proto") or "").strip().lower()
+            if xfproto == "https":
+                try:
+                    request.scope["scheme"] = "https"
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        response = await call_next(request)
+        return response
+
+app.add_middleware(ForceHTTPSProtoMiddleware)
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        resp = await call_next(request)
+        try:
+            resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+            resp.headers["X-Content-Type-Options"] = "nosniff"
+            resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        except Exception:
+            pass
+        return resp
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Redirección amigable de 401 según la sección
 @app.exception_handler(HTTPException)
@@ -2172,6 +2201,9 @@ def _get_b2_settings() -> Dict[str, Any]:
         }
 
 
+_b2_cache_auth: Dict[str, Dict[str, Any]] = {}
+_b2_cache_upload: Dict[str, Dict[str, Any]] = {}
+
 def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optional[str]:
     """Sube el contenido a Backblaze B2 usando su API nativa.
     Devuelve la URL pública resultante o None si B2 no está configurado.
@@ -2183,25 +2215,34 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         raise HTTPException(status_code=500, detail="Dependencia 'requests' no instalada para usar B2.")
     try:
         user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
-        auth_resp = requests.get(
-            "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
-            auth=(user_id, settings["application_key"]),
-            timeout=8,
-        )
-        if auth_resp.status_code != 200:
-            try:
-                txt = auth_resp.text
-            except Exception:
-                txt = ""
-            raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code} {txt}")
-        auth_json = auth_resp.json()
-        api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
-        download_url = auth_json.get("downloadUrl", "")
-        auth_token = auth_json.get("authorizationToken", "")
-        if not auth_token:
-            raise HTTPException(status_code=502, detail="Respuesta de autorización B2 inválida")
-        if not api_url:
-            raise HTTPException(status_code=502, detail="apiUrl no disponible en autorización B2")
+        auth_key = f"{user_id}:{settings['application_key']}"
+        now = int(time.time())
+        auth_info = _b2_cache_auth.get(auth_key)
+        if not auth_info or (now - int(auth_info.get("ts", 0))) > 300:
+            auth_resp = requests.get(
+                "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                auth=(user_id, settings["application_key"]),
+                timeout=8,
+            )
+            if auth_resp.status_code != 200:
+                try:
+                    txt = auth_resp.text
+                except Exception:
+                    txt = ""
+                raise HTTPException(status_code=502, detail=f"b2_authorize_account fallo: {auth_resp.status_code} {txt}")
+            auth_json = auth_resp.json()
+            api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+            download_url = auth_json.get("downloadUrl", "")
+            auth_token = auth_json.get("authorizationToken", "")
+            if not auth_token:
+                raise HTTPException(status_code=502, detail="Respuesta de autorización B2 inválida")
+            if not api_url:
+                raise HTTPException(status_code=502, detail="apiUrl no disponible en autorización B2")
+            _b2_cache_auth[auth_key] = {"api_url": api_url, "download_url": download_url, "auth_token": auth_token, "account_id": (auth_json.get("accountId") or ""), "ts": now}
+        else:
+            api_url = str(auth_info.get("api_url") or "")
+            download_url = str(auth_info.get("download_url") or "")
+            auth_token = str(auth_info.get("auth_token") or "")
 
         # 1.1) Verificar que bucket_id corresponde al nombre real (evita URLs públicas erróneas)
         bucket_name_eff = (settings.get("bucket_name") or "").strip()
@@ -2226,27 +2267,33 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             pass
 
         # 2) Obtener URL de subida
-        up_resp = requests.post(
-            f"{api_url}/b2api/v2/b2_get_upload_url",
-            headers={"Authorization": auth_token},
-            json={"bucketId": settings["bucket_id"]},
-            timeout=8,
-        )
-        if up_resp.status_code != 200:
-            try:
-                txt = up_resp.text
-            except Exception:
-                txt = ""
-            raise HTTPException(status_code=502, detail=f"b2_get_upload_url fallo: {up_resp.status_code} {txt}")
-        up_json = up_resp.json()
-        upload_url = up_json.get("uploadUrl", "")
-        upload_token = up_json.get("authorizationToken", "")
-        if not upload_url or not upload_token:
-            try:
-                dbg = up_resp.text
-            except Exception:
-                dbg = ""
-            raise HTTPException(status_code=502, detail=f"Respuesta de upload URL B2 inválida {dbg}")
+        upl = _b2_cache_upload.get(settings["bucket_id"])
+        if not upl or (now - int(upl.get("ts", 0))) > 300:
+            up_resp = requests.post(
+                f"{api_url}/b2api/v2/b2_get_upload_url",
+                headers={"Authorization": auth_token},
+                json={"bucketId": settings["bucket_id"]},
+                timeout=8,
+            )
+            if up_resp.status_code != 200:
+                try:
+                    txt = up_resp.text
+                except Exception:
+                    txt = ""
+                raise HTTPException(status_code=502, detail=f"b2_get_upload_url fallo: {up_resp.status_code} {txt}")
+            up_json = up_resp.json()
+            upload_url = up_json.get("uploadUrl", "")
+            upload_token = up_json.get("authorizationToken", "")
+            if not upload_url or not upload_token:
+                try:
+                    dbg = up_resp.text
+                except Exception:
+                    dbg = ""
+                raise HTTPException(status_code=502, detail=f"Respuesta de upload URL B2 inválida {dbg}")
+            _b2_cache_upload[settings["bucket_id"]] = {"upload_url": upload_url, "upload_token": upload_token, "ts": now}
+        else:
+            upload_url = str(upl.get("upload_url") or "")
+            upload_token = str(upl.get("upload_token") or "")
 
         # 3) Subir archivo
         file_name = f"{settings['prefix']}/{dest_name}" if settings.get("prefix") else dest_name
@@ -2266,7 +2313,6 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             "Authorization": upload_token,
             "X-Bz-File-Name": file_name_header,
             "Content-Type": (content_type or "application/octet-stream"),
-            # Evita calcular sha1 en servidor (válido para B2)
             "X-Bz-Content-Sha1": "do_not_verify",
         }
         put_resp = requests.post(upload_url, headers=headers, data=data, timeout=30)
@@ -6751,17 +6797,19 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                 raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
 
         content_type = (file.content_type or "").lower()
-        if not content_type or not any(content_type.startswith(prefix) for prefix in ("video/", "image/")):
-            raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
-
-        # Nombre destino seguro
         orig_name = (file.filename or "media").replace("\r", "").replace("\n", "")
-        # Extraer extensión de filename o deducir por MIME
         ext = ""
         if "." in orig_name:
             ext = orig_name.split(".")[-1].lower()
+        if not ext and content_type.startswith("video/"):
+            ext = content_type.split("/")[-1]
+        allowed_ext = {"mp4", "webm", "mov", "gif", "png", "jpg", "jpeg", "svg"}
+        if not content_type or not any(content_type.startswith(p) for p in ("video/", "image/")):
+            if not ext or ext not in allowed_ext:
+                raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+
+        # Nombre destino seguro
         if not ext:
-            # Deducción básica
             if content_type == "image/gif":
                 ext = "gif"
             elif content_type.startswith("video/"):

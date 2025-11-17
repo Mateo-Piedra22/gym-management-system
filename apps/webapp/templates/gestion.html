@@ -3265,8 +3265,7 @@
         if(!sel) return;
         // Mantener opción "Todos"
         sel.innerHTML = '<option value="">Todos</option>';
-        const r = await fetch('/api/usuarios?limit=300', { headers: { 'Accept':'application/json' } });
-        const list = await r.json().catch(()=> []);
+        const list = await fetchJson('/api/usuarios?limit=300', { }, 'supersede');
         if(Array.isArray(list)){
           // Ordenar por nombre para facilitar búsqueda visual
           list.sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')) || Number(a.id||a.usuario_id||0) - Number(b.id||b.usuario_id||0));
@@ -3372,7 +3371,7 @@
     async function loadUsuarioWhatsApp(usuario_id){
       if(!usuario_id){ return; }
       try {
-        const res = await fetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo cargar historial de WhatsApp', 'error', 4500); return; }
         const json = await res.json();
         const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
@@ -3393,7 +3392,7 @@
       else if(t === 'class_reminder') url = `/api/usuarios/${u.id}/whatsapp/recordatorio_clase`;
       else { showToast('Tipo de mensaje no soportado', 'warning', 3800); return; }
       try {
-        const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: Object.keys(body).length ? JSON.stringify(body) : undefined });
+        const res = await apiFetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: Object.keys(body).length ? JSON.stringify(body) : undefined }, 'dedup');
         const data = await res.json().catch(()=>({}));
         if(!res.ok){
           const code = res.status;
@@ -3633,7 +3632,7 @@
         setTimeout(() => closeQRModal(), 1200);
       }
     }
-    function pollTokenStatus(){ if(!qrState.token) return; fetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' } })
+    function pollTokenStatus(){ if(!qrState.token) return; apiFetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
       .then(r => r.json()).then(j => {
         const status = document.getElementById('qr-status-msg');
         if(j && j.exists){
@@ -3675,7 +3674,7 @@
     }
       const expires_minutes = 5;
       try{
-        const res = await fetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) });
+        const res = await apiFetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         const data = await res.json();
         const token = String(data.token || '').trim(); if(!token){ throw new Error('No se generó token'); }
@@ -3725,7 +3724,7 @@
     } catch(_){ }
     async function registrarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       try{
-        const res = await fetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) });
+        const res = await apiFetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         const j = await res.json().catch(() => ({}));
         showToast('Asistencia registrada', 'success', 3000);
@@ -3733,7 +3732,7 @@
       }catch(e){ showToast(`No se pudo registrar asistencia: ${e.message}`, 'error', 4500); }
     }
 
-    async function eliminarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const hoy = fmtDate(new Date()); try{ const res = await fetch('/api/asistencias/eliminar', { method:'DELETE', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, fecha: hoy }) }); if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } await res.json().catch(() => ({})); showToast('Asistencia eliminada', 'success', 3000); await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); }catch(e){ showToast(`No se pudo eliminar asistencia: ${e.message}`, 'error', 4500); } }
+    async function eliminarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const hoy = fmtDate(new Date()); try{ const res = await apiFetch('/api/asistencias/eliminar', { method:'DELETE', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, fecha: hoy }) }, 'dedup'); if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } await res.json().catch(() => ({})); showToast('Asistencia eliminada', 'success', 3000); await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); }catch(e){ showToast(`No se pudo eliminar asistencia: ${e.message}`, 'error', 4500); } }
 
   async function handleAsistenciaClick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const btn = document.getElementById('usuario-side-asistencia'); const hoy = fmtDate(new Date()); const arr = Array.isArray(state.usuarioAsistencias) ? state.usuarioAsistencias : []; const hasHoy = arr.some(a => { const f = a.fecha || a.fecha_asistencia || a.fechaAsistencia || ''; return fmtDate(f) === hoy; }); const prevHTML = btn ? btn.innerHTML : ''; if(btn){ btn.disabled = true; btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span>Procesando…</span>'; } try{ if(hasHoy){ await eliminarAsistenciaQuick(); } else { await registrarAsistenciaQuick(); } } finally { if(btn){ btn.disabled = false; btn.innerHTML = hasHoy ? 'Eliminar asistencia de hoy' : 'Registrar asistencia'; } } }
 
@@ -3782,7 +3781,7 @@
       // Mostrar skeleton mientras se carga
       try { showTableSkeleton('#pagos-table', 7, Math.max(5, limit)); } catch(_){}
       try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
         const data = await res.json().catch(() => ({}));
         const itemsRaw = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.pagos = itemsRaw;
@@ -3834,7 +3833,7 @@
 
     async function loadMetodosPago(){
       try {
-        const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
         const met = await res.json();
         const items = Array.isArray(met) ? met : (Array.isArray(met?.metodos) ? met.metodos : []);
         // Actualiza estado para que el wizard pueda poblar selects por ID
@@ -3857,7 +3856,7 @@
     }
     async function loadConceptosPago(){
       try {
-        const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
         const conc = await res.json();
         const items = Array.isArray(conc?.items) ? conc.items : (Array.isArray(conc) ? conc : []);
         // Actualiza estado para el wizard (map por ID)
@@ -3881,7 +3880,7 @@
 
     async function loadTiposCuotaActivos(){
       try {
-        const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
         const tipos = await res.json();
         const lista = Array.isArray(tipos) ? tipos : [];
         state.tiposCuotaActivos = lista;
@@ -3925,13 +3924,13 @@
       // Mostrar skeleton mientras se carga
       try { showTableSkeleton('#usuarios-table', 8, Math.max(5, limit)); } catch(_){}
       try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
         const rows = await res.json().catch(() => []);
         state.usuarios = Array.isArray(rows) ? rows : [];
         // Obtener set de IDs con asistencia hoy
         const hoySet = await (async () => {
           try {
-            const r = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' } });
+            const r = await apiFetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
             const arr = await r.json().catch(() => []);
             const list = Array.isArray(arr) ? arr : [];
             return new Set(list.map(x => Number(x)));
@@ -3941,7 +3940,7 @@
         // Obtener set de IDs desactivados por morosidad (estado activo)
         const morosSet = await (async () => {
           try {
-            const r = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' } });
+            const r = await apiFetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
             const arr = await r.json().catch(() => []);
             const list = Array.isArray(arr) ? arr : [];
             return new Set(list.map(x => Number(x)));
@@ -4079,7 +4078,7 @@
       try {
         const url = editingUserId ? `/api/usuarios/${editingUserId}` : '/api/usuarios';
         const method = editingUserId ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
+        const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         hideUserForm();
         await loadUsers();
@@ -4089,7 +4088,7 @@
     async function deleteUser(id){
       if(!id) return;
       try {
-        const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+        const res = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         await loadUsers();
       } catch(e){ showToast(`No se pudo eliminar: ${e.message}`, 'error', 4500); }
@@ -4135,7 +4134,7 @@
       document.getElementById('pago-side-id').textContent = id ? `#${id}` : '';
       try {
         if(id){
-          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
+          const res = await apiFetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
           const data = await res.json();
           const pago = data.pago || row;
           const detalles = Array.isArray(data.detalles) ? data.detalles : [];
@@ -4206,7 +4205,7 @@
       try {
         const id = p.id || p.pago_id;
         if(id){
-          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' } });
+          const res = await apiFetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
           let data = null; try{ data = await res.json(); }catch(_){ data = null; }
           if(res.ok && data){
             pago = data.pago || p;
@@ -4251,7 +4250,7 @@
             const row = (state.pagos || [])[idx];
             const id = btn.getAttribute('data-id');
             if(id){
-              fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
+              apiFetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
                 .then(r => r.json())
                 .then(data => showPagoForm(data.pago || row))
                 .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
@@ -4314,7 +4313,7 @@
         const p = state.selectedPago; if(!p) { showToast('Selecciona un pago primero', 'warning', 4000); return; }
         const id = p.id || p.pago_id;
         if(id){
-          fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' } })
+          apiFetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
             .then(r => r.json())
             .then(data => showPagoForm(data.pago || p))
             .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
@@ -4528,7 +4527,7 @@
     async function populatePagoConceptoSelect(selectedId){
       const sel = document.getElementById('pago-concepto'); if(!sel) return;
       try{
-        const res = await fetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
         const data = await res.json();
         const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
         state.conceptosPago = items;
@@ -4551,15 +4550,15 @@
         const items = Array.isArray(conceptos) ? conceptos : [];
         const existing = items.find(c => String(c.nombre || '').trim().toLowerCase() === 'cuota mensual');
         if(!existing){
-          await fetch('/api/conceptos_pago', {
+          await apiFetch('/api/conceptos_pago', {
             method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
             body: JSON.stringify({ nombre: 'Cuota Mensual', descripcion: 'Pago mensual según tipo de cuota del usuario', precio_base: 0, tipo: 'variable', activo: true, categoria: 'cuota' })
-          }).catch(()=>null);
+          }, 'dedup').catch(()=>null);
         } else if(existing && (String(existing.tipo).toLowerCase() !== 'variable' || existing.activo === false)){
-          await fetch(`/api/conceptos_pago/${existing.id}`, {
+          await apiFetch(`/api/conceptos_pago/${existing.id}`, {
             method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
             body: JSON.stringify({ tipo: 'variable', activo: true })
-          }).catch(()=>null);
+          }, 'dedup').catch(()=>null);
         }
       } catch(e){ console.warn('No se pudo asegurar concepto Cuota Mensual variable/activo:', e); }
     }
@@ -4567,7 +4566,7 @@
     async function ensureTiposCuotaCatalogo(){
       try{
         if(Array.isArray(state.tiposCuotaCatalogo) && state.tiposCuotaCatalogo.length > 0){ return; }
-        const res = await fetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
         const full = await res.json();
         const rows = Array.isArray(full.items) ? full.items : (Array.isArray(full) ? full : []);
         state.tiposCuotaCatalogo = rows;
@@ -4979,7 +4978,7 @@
         }
       }
       try{
-        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' });
+        const res = await apiFetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoForm();
@@ -5235,7 +5234,7 @@
       if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
       else { if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); } body['mes'] = mes; body['año'] = año; }
       try{
-        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        const res = await apiFetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoWizard();
@@ -5247,7 +5246,7 @@
     async function deletePago(){
       const id = state.deletePagoId; if(!id){ closeModal('modal-pagos-delete'); return; }
       try{
-        const res = await fetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } }, 'dedup');
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         closeModal('modal-pagos-delete');
@@ -5351,8 +5350,8 @@
       const loader = document.getElementById('usuario-side-loader'); if(loader) loader.classList.add('active');
       try {
         const [detRes, histRes] = await Promise.all([
-          id ? fetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' } }) : Promise.resolve(null),
-          id ? fetch(`/api/usuarios/${id}/pagos?limit=50&offset=0`, { headers: { 'Accept': 'application/json' } }) : Promise.resolve(null),
+          id ? apiFetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede') : Promise.resolve(null),
+          id ? apiFetch(`/api/usuarios/${id}/pagos?limit=50&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede') : Promise.resolve(null),
         ]);
         const det = detRes ? await detRes.json() : u;
         const histJson = histRes ? await histRes.json() : [];
@@ -5368,7 +5367,7 @@
         let hasHoy = false;
         if(id){
           try{
-            const aRes = await fetch(`/api/usuario_asistencias?usuario_id=${id}&limit=200&offset=0`, { headers: { 'Accept': 'application/json' } });
+            const aRes = await apiFetch(`/api/usuario_asistencias?usuario_id=${id}&limit=200&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
             const aData = await aRes.json();
             const arr = Array.isArray(aData) ? aData : (Array.isArray(aData?.items) ? aData.items : []);
             state.usuarioAsistencias = arr;
@@ -5414,7 +5413,7 @@
           const id = btn.getAttribute('data-id');
           const action = btn.getAttribute('data-action');
           if(action === 'edit'){
-            fetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' } })
+            apiFetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
               .then(r => r.json())
               .then(u => showUserForm(u))
               .catch(() => showToast('No se pudo cargar el usuario', 'error', 4500));
@@ -5524,7 +5523,7 @@
         await deleteUser(id);
       });
       const editarQuick = document.getElementById('usuario-side-editar');
-      if(editarQuick){ editarQuick.addEventListener('click', async () => { const u = state.selectedUsuario; if(!u || !u.id) return; try{ const res = await fetch(`/api/usuarios/${u.id}`, { headers:{ 'Accept':'application/json' } }); const full = await res.json().catch(()=>({})); if(full && full.id){ showUserForm(full); } else { showUserForm(u); } }catch(_){ showUserForm(u); } }); }
+      if(editarQuick){ editarQuick.addEventListener('click', async () => { const u = state.selectedUsuario; if(!u || !u.id) return; try{ const res = await apiFetch(`/api/usuarios/${u.id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup'); const full = await res.json().catch(()=>({})); if(full && full.id){ showUserForm(full); } else { showUserForm(u); } }catch(_){ showUserForm(u); } }); }
       const eliminarQuick = document.getElementById('usuario-side-eliminar');
       if(eliminarQuick){ eliminarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(!u || !u.id) return; state.deleteUserId = u.id; openModal('modal-usuarios-delete'); }); }
       const verPagosQuick = document.getElementById('usuario-side-ver-pagos');
@@ -5801,7 +5800,7 @@
       const sel = document.getElementById('usuario-estado-template');
       if(!sel) return;
       try{
-        const res = await fetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
         const data = await res.json().catch(() => ({}));
         const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.estadoPlantillas = items;
@@ -5815,7 +5814,7 @@
       const empty = document.getElementById('usuario-estados-empty');
       if(cont) cont.innerHTML = '';
       try{
-        const res = await fetch(`/api/usuarios/${usuario_id}/estados`, { headers:{ 'Accept':'application/json' } });
+        const res = await apiFetch(`/api/usuarios/${usuario_id}/estados`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
         const data = await res.json();
         const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.usuarioEstados = items;
@@ -6797,7 +6796,7 @@
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
       // Retornar la promesa para permitir await loadEjercicios()
-      return fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store' })
+      return apiFetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' }, 'supersede')
         .then(async (r) => {
           if(!r.ok){
             if(r.status === 401){
@@ -9596,7 +9595,7 @@ function ensurePdfZoomControls(containerId, frameId){
 
     function bindEjerciciosEvents(){
       const btnRefresh = document.getElementById('ejercicios-refresh'); if(btnRefresh) btnRefresh.addEventListener('click', loadEjercicios);
-      const qInput = document.getElementById('ejercicios-q'); if(qInput) qInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') loadEjercicios(); });
+      const qInput = document.getElementById('ejercicios-q'); if(qInput) qInput.addEventListener('input', () => loadEjerciciosDebounced());
       const objSel = document.getElementById('ejercicios-objetivo'); if(objSel) objSel.addEventListener('change', loadEjercicios);
       const grpSel = document.getElementById('ejercicios-grupo'); if(grpSel) grpSel.addEventListener('change', loadEjercicios);
       const btnNew = document.getElementById('ejercicios-new'); if(btnNew) btnNew.addEventListener('click', () => showEjercicioForm(null));
@@ -13270,3 +13269,51 @@ function renderClaseEjerciciosUI(){
   <script src="/static/js/utils.js"></script>
 </body>
 </html>
+    const apiInFlight = {};
+    function getTenantUserKey(url){
+      let host = '';
+      let path = '';
+      try{
+        const u = new URL(url, window.location.href);
+        host = (u.host || '').toLowerCase();
+        path = (u.pathname || '/');
+      }catch(_){ host = (window.location.host||'').toLowerCase(); path = '/'; }
+      const el = document.getElementById('login-current');
+      const role = ((el && el.getAttribute('data-role')) || '').trim().toLowerCase();
+      const profUid = ((el && el.getAttribute('data-prof-uid')) || '').trim();
+      const profId = ((el && el.getAttribute('data-prof-id')) || '').trim();
+      const userKey = role === 'profesor' ? (profUid || profId || 'prof') : (role === 'dueño' ? 'owner' : 'anon');
+      return { host, path, userKey };
+    }
+    function apiFetch(url, init, mode){
+      const m = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
+      const b = (init && init.body) ? String(init.body) : '';
+      const t = getTenantUserKey(url);
+      const base = `${t.host}|${t.userKey}|${m}`;
+      const key = (mode === 'supersede') ? `${base}|${t.path}` : `${base}|${t.path}|${b.length}`;
+      if(mode === 'dedup' && apiInFlight[key]) return apiInFlight[key].p;
+      if(mode === 'supersede' && apiInFlight[key]){ try{ if(apiInFlight[key].c) apiInFlight[key].c.abort(); }catch(_){ } delete apiInFlight[key]; }
+      const hasSignal = !!(init && init.signal);
+      const c = hasSignal ? null : new AbortController();
+      const base = { credentials: 'same-origin', cache: 'no-store' };
+      const opts = Object.assign(base, init || {}, hasSignal ? {} : { signal: (c ? c.signal : undefined) });
+      const p = window.__orig_fetch__(url, opts).finally(() => { if(apiInFlight[key] && apiInFlight[key].p === p) delete apiInFlight[key]; });
+      apiInFlight[key] = { c, p };
+      return p;
+    }
+    if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
+    try{
+      window.fetch = function(url, init){
+        const method = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
+        const mode = method === 'GET' ? 'supersede' : 'dedup';
+        return apiFetch(url, init || {}, mode);
+      };
+    }catch(_){ }
+    function fetchJson(url, init, mode){
+      const opts = Object.assign({}, init || {});
+      const h = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
+      opts.headers = h;
+      return apiFetch(url, opts, mode).then(r => r && r.json ? r.json().catch(() => ({})) : ({}));
+    }
+    function debounce(fn, ms){ let t; return function(){ const a = arguments; clearTimeout(t); t = setTimeout(() => fn.apply(null, a), ms); }; }
+    const loadEjerciciosDebounced = debounce(loadEjercicios, 250);
