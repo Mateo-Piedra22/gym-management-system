@@ -1129,6 +1129,68 @@ async def avisar_mantenimiento_gym(request: Request, gym_id: int, message: Optio
     sc = 200 if res.get("ok") else 400
     return JSONResponse(res, status_code=sc)
 
+@admin_app.post("/gyms/{gym_id}/reminder-webapp")
+async def set_admin_reminder_webapp(request: Request, gym_id: int, message: Optional[str] = Form(None), active: Optional[bool] = Form(True)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "reminder_webapp_set", 20, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
+            row = cur.fetchone() or {}
+            dbn = str(row.get("db_name") or "").strip()
+        if not dbn:
+            return JSONResponse({"ok": False, "error": "gym_db_not_found"}, status_code=404)
+        base = _resolve_admin_db_params()
+        params = dict(base)
+        params["database"] = dbn
+        dm = DatabaseManager(connection_params=params)
+        ok1 = dm.actualizar_configuracion("admin_reminder_message", str(message or ""))
+        ok2 = dm.actualizar_configuracion("admin_reminder_active", "true" if bool(active) else "false")
+        try:
+            adm.log_action("owner", "set_webapp_reminder", int(gym_id), str(message or ""))
+        except Exception:
+            pass
+        return JSONResponse({"ok": bool(ok1 and ok2)}, status_code=200 if (ok1 and ok2) else 400)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+@admin_app.post("/gyms/{gym_id}/reminder-webapp/clear")
+async def clear_admin_reminder_webapp(request: Request, gym_id: int):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "reminder_webapp_clear", 20, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
+            row = cur.fetchone() or {}
+            dbn = str(row.get("db_name") or "").strip()
+        if not dbn:
+            return JSONResponse({"ok": False, "error": "gym_db_not_found"}, status_code=404)
+        base = _resolve_admin_db_params()
+        params = dict(base)
+        params["database"] = dbn
+        dm = DatabaseManager(connection_params=params)
+        ok1 = dm.actualizar_configuracion("admin_reminder_message", "")
+        ok2 = dm.actualizar_configuracion("admin_reminder_active", "false")
+        try:
+            adm.log_action("owner", "clear_webapp_reminder", int(gym_id), None)
+        except Exception:
+            pass
+        return JSONResponse({"ok": bool(ok1 and ok2)}, status_code=200 if (ok1 and ok2) else 400)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 @admin_app.post("/gyms/maintenance/notify/batch")
 async def avisar_mantenimiento_batch(request: Request, gym_ids: str = Form(...), message: Optional[str] = Form(None)):
     _require_admin(request)

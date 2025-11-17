@@ -91,6 +91,19 @@
     (function(){
       window.addEventListener('DOMContentLoaded', async function(){
         try{
+          var r = await fetch('/api/admin/reminder', { credentials: 'same-origin' });
+          if(!r.ok) return; var j = await r.json();
+          if(j && j.active && j.message && typeof window.showToast === 'function'){
+            window.showToast(String(j.message), 'info', 9000, 'Cerrar');
+          }
+        }catch(_){ }
+      });
+    })();
+  </script>
+  <script>
+    (function(){
+      window.addEventListener('DOMContentLoaded', async function(){
+        try{
           var r = await fetch('/api/gym/subscription', { credentials: 'same-origin' });
           if(!r.ok) return; var j = await r.json();
           var s = j && j.subscription; if(!s) return;

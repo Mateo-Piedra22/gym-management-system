@@ -1386,34 +1386,60 @@ class TenantMiddleware(BaseHTTPMiddleware):
             except Exception:
                 pass
             try:
-                msg = _get_tenant_maintenance_message(sub)
                 path = str(getattr(request.url, "path", "/"))
-                if msg and path != "/":
-                    html = (
-                        "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
-                        + "<h1 style=\"font-size:24px;font-weight:600\">Mantenimiento</h1>"
-                        + "<p style=\"margin-top:8px\">" + str(msg) + "</p>"
-                        + "<p style=\"margin-top:12px\" class=\"muted\">Vuelve a intentarlo más tarde.</p>"
-                        + "</div></div>"
-                    )
-                    return Response(content=html, media_type="text/html", status_code=503)
+                adm = _get_admin_db_manager()
+                active_maint = False
+                maint_msg = None
+                maint_until = None
+                if adm is not None:
+                    try:
+                        with adm.db.get_connection_context() as conn:  # type: ignore
+                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur.execute("SELECT status, suspended_reason, suspended_until FROM gyms WHERE subdominio = %s", (str(sub).strip().lower(),))
+                            row = cur.fetchone() or {}
+                            st = str((row.get("status") or "")).lower()
+                            maint_msg = row.get("suspended_reason")
+                            maint_until = row.get("suspended_until")
+                            if st == "maintenance":
+                                try:
+                                    from datetime import datetime, timezone
+                                    if maint_until:
+                                        dt = maint_until if hasattr(maint_until, "tzinfo") else datetime.fromisoformat(str(maint_until))
+                                        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+                                        active_maint = bool(dt <= now)
+                                    else:
+                                        active_maint = True
+                                except Exception:
+                                    active_maint = True
+                    except Exception:
+                        active_maint = False
                 if _is_tenant_suspended(sub):
                     info = _get_tenant_suspension_info(sub) or {}
-                    p = str(getattr(request.url, "path", "/"))
-                    allow = (p == "/") or p.startswith("/api/suspension_status") or p.startswith("/api/maintenance_status") or p.startswith("/static/") or (p == "/favicon.ico")
+                    allow = path.startswith("/static/") or (path == "/favicon.ico")
                     if not allow:
-                        motivo = str(info.get("reason") or "Servicio suspendido").strip()
-                        hasta = str(info.get("until") or "").strip()
-                        extra = ("<p style=\"margin-top:8px\">" + motivo + "</p>")
-                        if hasta:
-                            extra += ("<p style=\"margin-top:8px\">Hasta: " + hasta + "</p>")
-                        html = (
-                            "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
-                            + "<h1 style=\"font-size:24px;font-weight:600\">Servicio suspendido</h1>"
-                            + extra
-                            + "</div></div>"
-                        )
-                        return Response(content=html, media_type="text/html", status_code=403)
+                        theme_vars = _resolve_theme_vars()
+                        ctx = {
+                            "request": request,
+                            "theme": theme_vars,
+                            "gym_name": get_gym_name("Gimnasio"),
+                            "logo_url": _resolve_logo_url(),
+                            "reason": str(info.get("reason") or ""),
+                            "until": str(info.get("until") or ""),
+                        }
+                        return templates.TemplateResponse("suspension.html", ctx, status_code=403)
+                if active_maint and path != "/":
+                    allow = path.startswith("/static/") or (path == "/favicon.ico")
+                    if not allow:
+                        theme_vars = _resolve_theme_vars()
+                        ctx = {
+                            "request": request,
+                            "theme": theme_vars,
+                            "gym_name": get_gym_name("Gimnasio"),
+                            "logo_url": _resolve_logo_url(),
+                            "message": str(maint_msg or ""),
+                            "until": str(maint_until or ""),
+                        }
+                        return templates.TemplateResponse("maintenance.html", ctx, status_code=503)
             except Exception:
                 pass
         try:
@@ -12945,17 +12971,21 @@ async def api_gym_subscription(request: Request):
         return JSONResponse({"ok": True, "subscription": sub, "days_until_due": days})
     except Exception:
         return JSONResponse({"ok": False})
-# Estado de mantenimiento
-@app.get("/api/maintenance_status")
-async def api_maintenance_status(request: Request):
+@app.get("/api/admin/reminder")
+async def api_admin_reminder(request: Request):
     try:
-        sub = CURRENT_TENANT.get() or ""
-        if not sub:
-            return JSONResponse({"active": False})
-        msg = _get_tenant_maintenance_message(sub)
-        return JSONResponse({"active": bool(msg), "message": str(msg or "")})
+        db = _get_db()
     except Exception:
-        return JSONResponse({"active": False})
+        db = None
+    if db is None:
+        return JSONResponse({"active": False, "message": ""})
+    try:
+        msg = db.obtener_configuracion("admin_reminder_message")
+        act = db.obtener_configuracion("admin_reminder_active")
+        active = str(act or "").strip().lower() in ("1", "true", "yes", "on")
+        return JSONResponse({"active": bool(active), "message": str(msg or "")})
+    except Exception:
+        return JSONResponse({"active": False, "message": ""})
 
 # Estado de suspensión
 def _get_tenant_suspension_info(tenant: str) -> Optional[Dict[str, Any]]:

@@ -12,6 +12,7 @@
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script src="/static/js/toast.js"></script>
+  <script src="/static/js/ui.js"></script>
   <script>
       (function () {
         const TODAY_KEY = new Date().toISOString().slice(0, 10);
@@ -54,6 +55,19 @@
         });
       })();
     </script>
+  <script>
+    (function(){
+      window.addEventListener('DOMContentLoaded', async function(){
+        try{
+          var r = await fetch('/api/admin/reminder', { credentials: 'same-origin' });
+          if(!r.ok) return; var j = await r.json();
+          if(j && j.active && j.message && typeof window.showToast === 'function'){
+            window.showToast(String(j.message), 'info', 9000, 'Cerrar');
+          }
+        }catch(_){ }
+      });
+    })();
+  </script>
   <style>
     .layout { display:flex; flex-direction:column; min-height:100vh; }
     header { display:flex; flex-direction:column; gap:8px; padding:16px 24px; border-bottom:1px solid var(--border); backdrop-filter: blur(8px); position: sticky; top:0; z-index:10; background: rgba(17,24,39,0.75); transition: transform 200ms ease; }

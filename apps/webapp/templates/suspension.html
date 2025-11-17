@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Servicio suspendido • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="{{ logo_url }}" />
+</head>
+<body class="dark" style="--page-bg: var(--bg);">
+  <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);">
+    <div style="width:100%;max-width:720px;padding:24px;text-align:center;border:1px solid var(--border);border-radius:16px;background:rgba(17,24,39,0.75);backdrop-filter:blur(8px)">
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px">
+        {% if logo_url %}<img src="{{ logo_url }}" alt="Logo" style="width:40px;height:40px;border-radius:8px" />{% endif %}
+        <h1 style="font-size:24px;font-weight:700;margin:0">{{ gym_name }}</h1>
+      </div>
+      <h2 style="font-size:20px;font-weight:600;margin:8px 0;color:var(--text)">Servicio suspendido</h2>
+      <p style="margin:8px 0;color:var(--muted)">{{ reason }}</p>
+      {% if until %}<div style="margin-top:8px;font-size:14px;color:var(--text)">Hasta: {{ until }}</div>{% endif %}
+      <div style="margin-top:16px;font-size:12px;color:var(--muted)">Para soporte, comunícate con tu administrador.</div>
+    </div>
+  </main>
+</body>
+</html>

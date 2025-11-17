@@ -117,4 +117,76 @@
 
   // Expose helpers
   try { window.UI = { toggleDensity: toggleDensity, openSideSheet: openSideSheet, closeSideSheet: closeSideSheet, setBreadcrumbs: setBreadcrumbs, openCmdk: openCmdk, closeCmdk: closeCmdk, showToast: showToastSafe }; } catch(e){}
+
+  function showMaintenanceModal(data){
+    try {
+      var msg = String((data&&data.message)||'');
+      var until = (data&&data.until)||null;
+      var root = document.createElement('div');
+      root.className = 'modal-backdrop active';
+      root.setAttribute('data-locked','0');
+      root.style.position='fixed';
+      root.style.inset='0';
+      root.style.background='rgba(0,0,0,0.6)';
+      root.style.zIndex='3000';
+      var box = document.createElement('div');
+      box.className = 'box';
+      box.style.maxWidth='640px';
+      box.style.margin='0 auto';
+      box.style.background='rgba(17,24,39,0.9)';
+      box.style.border='1px solid var(--border)';
+      box.style.borderRadius='16px';
+      box.style.padding='20px';
+      box.style.color='var(--text)';
+      box.style.transform='translateY(20vh)';
+      var h = document.createElement('div');
+      h.textContent = 'Mantenimiento programado';
+      h.style.fontWeight='600';
+      h.style.fontSize='18px';
+      var p = document.createElement('div');
+      p.textContent = msg || '';
+      p.style.marginTop='8px';
+      var meta = document.createElement('div');
+      meta.style.marginTop='6px';
+      meta.style.fontSize='12px';
+      meta.style.color='var(--muted)';
+      if(until){ meta.textContent = 'Hasta: '+ String(until); }
+      var actions = document.createElement('div');
+      actions.style.marginTop='12px';
+      actions.style.display='flex';
+      actions.style.justifyContent='flex-end';
+      var ok = document.createElement('button');
+      ok.className = 'btn';
+      ok.textContent = 'Entendido';
+      ok.addEventListener('click', function(){ try { root.classList.remove('active'); root.style.display='none'; root.setAttribute('aria-hidden','true'); } catch(e){} });
+      actions.appendChild(ok);
+      box.appendChild(h); box.appendChild(p); box.appendChild(meta); box.appendChild(actions);
+      root.appendChild(box);
+      document.body.appendChild(root);
+    } catch(e){}
+  }
+
+  function initMaintenanceNotice(){
+    try {
+      fetch('/api/maintenance_status', { credentials: 'same-origin' })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          try {
+            var active = !!(j && j.active);
+            var until = j && j.until;
+            var sched = false;
+            if(active && until){
+              try {
+                var dt = new Date(String(until));
+                sched = (dt.getTime() > Date.now());
+              } catch(e){ sched = false; }
+            }
+            if(sched){ showMaintenanceModal(j); }
+          } catch(e){}
+        })
+        .catch(function(){ });
+    } catch(e){}
+  }
+
+  onReady(initMaintenanceNotice);
 })();

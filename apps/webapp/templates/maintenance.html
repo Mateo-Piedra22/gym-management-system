@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mantenimiento • {{ gym_name }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <meta name="theme-color" content="{{ theme['--primary'] if theme and '--primary' in theme else '#2b8a3e' }}">
+  <meta name="color-scheme" content="dark light">
+  <link rel="icon" href="{{ logo_url }}" />
+</head>
+<body class="dark" style="--page-bg: var(--bg);">
+  <main style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);">
+    <div style="width:100%;max-width:720px;padding:24px;text-align:center;border:1px solid var(--border);border-radius:16px;background:rgba(17,24,39,0.75);backdrop-filter:blur(8px)">
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px">
+        {% if logo_url %}<img src="{{ logo_url }}" alt="Logo" style="width:40px;height:40px;border-radius:8px" />{% endif %}
+        <h1 style="font-size:24px;font-weight:700;margin:0">{{ gym_name }}</h1>
+      </div>
+      <h2 style="font-size:20px;font-weight:600;margin:8px 0;color:var(--text)">Mantenimiento en curso</h2>
+      <p style="margin:8px 0;color:var(--muted)">{{ message }}</p>
+      <div id="countdown" style="margin-top:12px;font-size:14px;color:var(--text)"></div>
+      <div style="margin-top:16px;font-size:12px;color:var(--muted)">Gracias por tu paciencia. Vuelve a intentarlo más tarde.</div>
+    </div>
+  </main>
+  <script>
+    (function(){
+      try{
+        var until = "{{ until }}";
+        if(!until){ return; }
+        var target = null;
+        try{
+          target = new Date(until);
+        }catch(_){ target = null; }
+        if(!target || isNaN(target.getTime())){ return; }
+        var el = document.getElementById('countdown');
+        function fmt(n){ return (n<10?('0'+n):String(n)); }
+        function tick(){
+          var now = new Date();
+          var diff = Math.max(0, target.getTime() - now.getTime());
+          var d = Math.floor(diff/86400000);
+          var h = Math.floor((diff%86400000)/3600000);
+          var m = Math.floor((diff%3600000)/60000);
+          var s = Math.floor((diff%60000)/1000);
+          el.textContent = 'Regreso estimado en: ' + fmt(d) + 'd ' + fmt(h) + 'h ' + fmt(m) + 'm ' + fmt(s) + 's';
+        }
+        tick();
+        setInterval(tick, 1000);
+      }catch(_){ }
+    })();
+  </script>
+</body>
+</html>
