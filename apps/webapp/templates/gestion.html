@@ -3477,6 +3477,7 @@
       try { reorderMobileSubtabs(); } catch(_){}
       // Actualizar etiqueta del peek con el módulo activo
       try { updatePeekLabel(); } catch(_){}
+      try { if(tab === 'ejercicios') { loadEjercicios(); } } catch(_){}
     }
 
     // --- Toggle de barra móvil (usa mismo botón que sidebar) ---
@@ -4978,7 +4979,7 @@
         }
       }
       try{
-        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoForm();
@@ -6796,7 +6797,7 @@
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
       // Retornar la promesa para permitir await loadEjercicios()
-      return fetch(url, { headers: { 'Accept': 'application/json' } })
+      return fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store' })
         .then(async (r) => {
           if(!r.ok){
             if(r.status === 401){
@@ -9710,6 +9711,7 @@ function ensurePdfZoomControls(containerId, frameId){
           const prev3 = document.getElementById('ejercicio-video-preview'); if(prev3){ prev3.innerHTML = ''; const p3 = document.createElement('p'); p3.className = 'muted'; p3.textContent = 'Se eliminará el video actual'; prev3.appendChild(p3); }
         };
       }
+      const btnSaveInline = document.getElementById('save-ejercicio'); if(btnSaveInline) btnSaveInline.onclick = saveEjercicio;
     }
     function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); state.ejercicioVideoFile=null; state.ejercicioVideoRemove=false; state.editingEjercicioOriginalVideoUrl=null; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0'; }
 
@@ -9731,7 +9733,7 @@ function ensurePdfZoomControls(containerId, frameId){
         if(state.ejercicioVideoFile && eid){
           const fd = new FormData(); fd.append('file', state.ejercicioVideoFile); fd.append('overwrite', 'true');
           try{
-            const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd });
+            const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd, credentials: 'same-origin' });
             const jd = await up.json().catch(() => ({}));
             if(!up.ok){
               showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500);
@@ -9749,7 +9751,7 @@ function ensurePdfZoomControls(containerId, frameId){
           }catch(_){ showToast('Error de red al subir el video', 'error', 4500); }
         } else if(state.ejercicioVideoRemove && state.editingEjercicioOriginalVideoUrl && eid){
           try{
-            const up2 = await fetch(`/api/ejercicios/${eid}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ video_url: null, video_mime: null }) });
+            const up2 = await fetch(`/api/ejercicios/${eid}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ video_url: null, video_mime: null }), credentials: 'same-origin' });
             const jd2 = await up2.json().catch(() => ({})); if(!up2.ok){ showToast(jd2.detail || jd2.error || 'No se pudo eliminar el video', 'error', 4500); }
           }catch(_){ showToast('Error de red al eliminar el video', 'error', 4500); }
         }
@@ -9767,7 +9769,7 @@ function ensurePdfZoomControls(containerId, frameId){
     async function confirmDeleteEjercicio(){
       const id = state.deleteEjercicioId; if(!id) return;
       try{
-        const res = await fetch(`/api/ejercicios/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
+        const res = await fetch(`/api/ejercicios/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' }, credentials: 'same-origin' });
         if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
         const data = await res.json().catch(() => ({}));
         if(!res.ok){ showToast(data.detail || data.error || 'No se pudo eliminar', 'error', 4500); return; }
@@ -9823,7 +9825,7 @@ function ensurePdfZoomControls(containerId, frameId){
       const descripcion = composeDescripcionWithExtras(parsed.baseDescripcion || '', equipos, variantes);
       const body = { nombre: e.nombre || '', grupo_muscular: e.grupo_muscular || '', objetivo: e.objetivo || 'general', descripcion };
       try{
-        const res = await fetch(`/api/ejercicios/${e.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        const res = await fetch(`/api/ejercicios/${e.id}`, { method: 'PUT', headers: { 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' });
         if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(_e){} return; }
         const data = await res.json().catch(() => ({}));
         if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar extras', 'error', 4500); return; }

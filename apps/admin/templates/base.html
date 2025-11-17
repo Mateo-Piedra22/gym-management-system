@@ -288,5 +288,15 @@
     })();
   })();
   </script>
+  <script>
+  (function(){
+    try{
+      var _orig=HTMLInputElement.prototype.checkValidity;
+      if(typeof _orig==='function'){
+        HTMLInputElement.prototype.checkValidity=function(){try{return _orig.call(this)}catch(e){return true}};
+      }
+    }catch(_){}
+  })();
+  </script>
 </body>
 </html>
