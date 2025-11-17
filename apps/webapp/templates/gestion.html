@@ -13264,56 +13264,32 @@ function renderClaseEjerciciosUI(){
         }
       }catch(_){}
     });
-    const apiInFlight = {};
-    function getTenantUserKey(url){
-      let host = '';
-      let path = '';
-      let query = '';
+    (function(){
       try{
-        const u = new URL(url, window.location.href);
-        host = (u.host || '').toLowerCase();
-        path = (u.pathname || '/');
-        query = (u.search || '');
-      }catch(_){ host = (window.location.host||'').toLowerCase(); path = '/'; query = ''; }
-      const el = document.getElementById('login-current');
-      const role = ((el && el.getAttribute('data-role')) || '').trim().toLowerCase();
-      const profUid = ((el && el.getAttribute('data-prof-uid')) || '').trim();
-      const profId = ((el && el.getAttribute('data-prof-id')) || '').trim();
-      const userKey = role === 'profesor' ? (profUid || profId || 'prof') : (role === 'dueño' ? 'owner' : 'anon');
-      return { host, path, query, userKey };
-    }
-    if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
-    function apiFetch(url, init, mode){
-      const m = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
-      const b = (init && init.body) ? String(init.body) : '';
-      const t = getTenantUserKey(url);
-      const baseKey = `${t.host}|${t.userKey}|${m}`;
-      const key = (mode === 'supersede') ? `${baseKey}|${t.path}|${t.query}` : `${baseKey}|${t.path}|${t.query}|${b.length}`;
-      if(mode === 'dedup' && apiInFlight[key]) return apiInFlight[key].p;
-      if(mode === 'supersede' && apiInFlight[key]){ try{ if(apiInFlight[key].c) apiInFlight[key].c.abort(); }catch(_){ } delete apiInFlight[key]; }
-      const hasSignal = !!(init && init.signal);
-      const c = hasSignal ? null : new AbortController();
-      const baseOpts = { credentials: 'same-origin', cache: 'no-store' };
-      const opts = Object.assign(baseOpts, init || {}, hasSignal ? {} : { signal: (c ? c.signal : undefined) });
-      const p = window.__orig_fetch__(url, opts).finally(() => { if(apiInFlight[key] && apiInFlight[key].p === p) delete apiInFlight[key]; });
-      apiInFlight[key] = { c, p };
-      return p;
-    }
-    try{
-      window.fetch = function(url, init){
-        const method = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
-        const mode = method === 'GET' ? 'dedup' : 'dedup';
-        return apiFetch(url, init || {}, mode);
-      };
-    }catch(_){ }
-    function fetchJson(url, init, mode){
-      const opts = Object.assign({}, init || {});
-      const h = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
-      opts.headers = h;
-      return apiFetch(url, opts, mode)
-        .then(r => r && r.json ? r.json().catch(() => ({})) : ({}))
-        .catch(e => { try{ if(e && (e.name === 'AbortError' || String(e.message||'').toLowerCase().includes('aborted'))) return {}; }catch(_){} return Promise.reject(e); });
-    }
+        if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
+        const host = (window.location.hostname||'').toLowerCase();
+        const parts = host.split('.');
+        const isSub = parts.length >= 3 && parts[0] && parts[0] !== 'www';
+        const tenantId = isSub ? parts[0] : '';
+        window.__TENANT_ID__ = tenantId;
+        window.fetch = function(url, init){
+          const u0 = String(url||'');
+          let u = u0;
+          const opts = Object.assign({}, init||{});
+          const hdrs = Object.assign({}, opts.headers||{});
+          if(u.startsWith('/api/')){
+            if(tenantId){
+              if(!u.startsWith('/api/'+tenantId+'/')){
+                u = '/api/'+tenantId + (u.startsWith('/api/') ? u.substring(4) : u);
+              }
+              hdrs['X-Tenant-ID'] = tenantId;
+            }
+          }
+          opts.headers = hdrs;
+          return window.__orig_fetch__(u, opts);
+        };
+      }catch(_){ }
+    })();
     function debounce(fn, ms){ let t; return function(){ const a = arguments; try{ if(window && window.__gestion_first_load__){ window.__gestion_first_load__ = false; return fn.apply(null, a); } }catch(_){ } clearTimeout(t); t = setTimeout(() => fn.apply(null, a), ms); }; }
     const loadEjerciciosDebounced = debounce(loadEjercicios, 250);
     try{ if(typeof window !== 'undefined' && window){ if(typeof window.__gestion_first_load__ === 'undefined'){ window.__gestion_first_load__ = true; } } }catch(_){ }

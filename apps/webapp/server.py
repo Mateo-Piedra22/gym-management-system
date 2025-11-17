@@ -1599,6 +1599,60 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
         resp = await call_next(request)
         return resp
 
+class TenantApiPrefixMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        try:
+            if scope.get("type") == "http":
+                path = scope.get("path") or "/"
+                if path.startswith("/api/"):
+                    try:
+                        headers = dict((k.decode('latin1'), v.decode('latin1')) for k, v in (scope.get('headers') or []))
+                    except Exception:
+                        headers = {}
+                    host = (headers.get('host') or headers.get('Host') or '').strip().lower()
+                    sub = _extract_tenant_from_host(host) or ''
+                    parts = path.split('/')
+                    if len(parts) >= 4 and parts[2] and parts[2] == sub:
+                        rest = '/' + '/'.join(['api'] + parts[3:])
+                        try:
+                            scope = dict(scope)
+                            scope['path'] = rest
+                        except Exception:
+                            pass
+                        if sub:
+                            try:
+                                hdrs = list(scope.get('headers') or [])
+                                hdrs.append((b'X-Tenant-ID', sub.encode('latin1')))
+                                scope['headers'] = hdrs
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+        return await self.app(scope, receive, send)
+
+class TenantHeaderEnforcerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: Callable):
+        try:
+            p = request.url.path or "/"
+            if p.startswith("/api/"):
+                expected = None
+                try:
+                    expected = CURRENT_TENANT.get()
+                except Exception:
+                    expected = None
+                try:
+                    provided = request.headers.get('X-Tenant-ID') or request.headers.get('x-tenant-id') or ''
+                except Exception:
+                    provided = ''
+                if not expected or not provided or provided.strip().lower() != str(expected).strip().lower():
+                    return JSONResponse({"error": "invalid_tenant_header"}, status_code=400)
+        except Exception:
+            pass
+        return await call_next(request)
+
 
 # Redirección amigable de 401 según la sección
 @app.exception_handler(HTTPException)
@@ -13298,3 +13352,5 @@ app.add_middleware(TenantGuardMiddleware)
 app.add_middleware(TenantMiddleware)
 app.add_middleware(ForceHTTPSProtoMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(TenantHeaderEnforcerMiddleware)
+app.add_middleware(TenantApiPrefixMiddleware)
