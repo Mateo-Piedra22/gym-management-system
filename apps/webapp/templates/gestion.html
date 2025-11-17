@@ -13263,12 +13263,6 @@ function renderClaseEjerciciosUI(){
         }
       }catch(_){}
     });
-  
-  </script>
-  <script src="/static/js/ui.js"></script>
-  <script src="/static/js/utils.js"></script>
-</body>
-</html>
     const apiInFlight = {};
     function getTenantUserKey(url){
       let host = '';
@@ -13285,23 +13279,23 @@ function renderClaseEjerciciosUI(){
       const userKey = role === 'profesor' ? (profUid || profId || 'prof') : (role === 'dueño' ? 'owner' : 'anon');
       return { host, path, userKey };
     }
+    if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
     function apiFetch(url, init, mode){
       const m = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
       const b = (init && init.body) ? String(init.body) : '';
       const t = getTenantUserKey(url);
-      const base = `${t.host}|${t.userKey}|${m}`;
-      const key = (mode === 'supersede') ? `${base}|${t.path}` : `${base}|${t.path}|${b.length}`;
+      const baseKey = `${t.host}|${t.userKey}|${m}`;
+      const key = (mode === 'supersede') ? `${baseKey}|${t.path}` : `${baseKey}|${t.path}|${b.length}`;
       if(mode === 'dedup' && apiInFlight[key]) return apiInFlight[key].p;
       if(mode === 'supersede' && apiInFlight[key]){ try{ if(apiInFlight[key].c) apiInFlight[key].c.abort(); }catch(_){ } delete apiInFlight[key]; }
       const hasSignal = !!(init && init.signal);
       const c = hasSignal ? null : new AbortController();
-      const base = { credentials: 'same-origin', cache: 'no-store' };
-      const opts = Object.assign(base, init || {}, hasSignal ? {} : { signal: (c ? c.signal : undefined) });
+      const baseOpts = { credentials: 'same-origin', cache: 'no-store' };
+      const opts = Object.assign(baseOpts, init || {}, hasSignal ? {} : { signal: (c ? c.signal : undefined) });
       const p = window.__orig_fetch__(url, opts).finally(() => { if(apiInFlight[key] && apiInFlight[key].p === p) delete apiInFlight[key]; });
       apiInFlight[key] = { c, p };
       return p;
     }
-    if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
     try{
       window.fetch = function(url, init){
         const method = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
@@ -13317,3 +13311,9 @@ function renderClaseEjerciciosUI(){
     }
     function debounce(fn, ms){ let t; return function(){ const a = arguments; clearTimeout(t); t = setTimeout(() => fn.apply(null, a), ms); }; }
     const loadEjerciciosDebounced = debounce(loadEjercicios, 250);
+
+  </script>
+  <script src="/static/js/ui.js"></script>
+  <script src="/static/js/utils.js"></script>
+</body>
+</html>
