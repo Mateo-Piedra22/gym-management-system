@@ -86,7 +86,22 @@
       }
     });
   </script>
-    <script src="/static/js/toast.js"></script>
+  <script src="/static/js/toast.js"></script>
+  <script>
+    (function(){
+      window.addEventListener('DOMContentLoaded', async function(){
+        try{
+          var r = await fetch('/api/gym/subscription', { credentials: 'same-origin' });
+          if(!r.ok) return; var j = await r.json();
+          var s = j && j.subscription; if(!s) return;
+          var nd = s.next_due_date; if(!nd) return;
+          var days = j.days_until_due; if(typeof days !== 'number'){ try{ var d = new Date(nd + 'T00:00:00Z'); var now = new Date(); days = Math.ceil((d - now) / 86400000); }catch(_){ days = null; } }
+          if(days !== null && days <= 7){ if(typeof window.showToast === 'function'){ window.showToast('La suscripción del sistema vence el ' + nd + '.', 'warning', 8000, 'Cerrar'); } }
+          if(days !== null && days < 0){ if(typeof window.showToast === 'function'){ window.showToast('La suscripción del sistema está vencida desde ' + nd + '.', 'error', 9000, 'Cerrar'); } }
+        }catch(_){ }
+      });
+    })();
+  </script>
     <script>
       (function () {
         const TODAY_KEY = new Date().toISOString().slice(0, 10);

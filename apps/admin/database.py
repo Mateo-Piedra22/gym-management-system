@@ -417,7 +417,7 @@ class AdminDatabaseManager:
         try:
             p = max(int(page or 1), 1)
             ps = max(int(page_size or 20), 1)
-            allowed_cols = {"id", "nombre", "subdominio", "status", "created_at"}
+            allowed_cols = {"id", "nombre", "subdominio", "status", "created_at", "next_due_date"}
             ob = (order_by or "id").strip().lower()
             if ob not in allowed_cols:
                 ob = "id"
@@ -443,6 +443,7 @@ class AdminDatabaseManager:
                 total = int(total_row[0]) if total_row else 0
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                order_sql = f"ORDER BY gs.next_due_date {od} NULLS LAST" if ob == "next_due_date" else f"ORDER BY g.{ob} {od}"
                 cur.execute(
                     f"""
                     SELECT g.id, g.nombre, g.subdominio, g.db_name, g.owner_phone, g.status, g.hard_suspend, g.suspended_until,
@@ -454,7 +455,7 @@ class AdminDatabaseManager:
                     FROM gyms g
                     LEFT JOIN gym_subscriptions gs ON gs.gym_id = g.id
                     {where_sql}
-                    ORDER BY g.{ob} {od}
+                    {order_sql}
                     LIMIT %s OFFSET %s
                     """,
                     params + [ps, (p - 1) * ps]

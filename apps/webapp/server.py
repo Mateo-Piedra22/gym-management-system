@@ -1387,7 +1387,8 @@ class TenantMiddleware(BaseHTTPMiddleware):
                 pass
             try:
                 msg = _get_tenant_maintenance_message(sub)
-                if msg:
+                path = str(getattr(request.url, "path", "/"))
+                if msg and path != "/":
                     html = (
                         "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
                         + "<h1 style=\"font-size:24px;font-weight:600\">Mantenimiento</h1>"
@@ -12883,3 +12884,55 @@ async def api_rutina_preview_qr_scan(uuid_rutina: str):
         return Response(content=json.dumps(payload, default=str, separators=(",", ":")), media_type="application/json")
     except Exception:
         return JSONResponse(content=jsonable_encoder({"ok": True, "rutina": out}), status_code=200)
+@app.get("/api/maintenance_status")
+async def api_maintenance_status(request: Request):
+    tenant = None
+    try:
+        tenant = CURRENT_TENANT.get()
+    except Exception:
+        tenant = None
+    adm = _get_admin_db_manager()
+    if adm is None or not tenant:
+        return JSONResponse({"active": False})
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT status, suspended_reason, suspended_until FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
+            row = cur.fetchone() or {}
+            st = str((row.get("status") or "")).lower()
+            active = st == "maintenance"
+            return JSONResponse({"active": active, "message": row.get("suspended_reason"), "until": row.get("suspended_until")})
+    except Exception:
+        return JSONResponse({"active": False})
+
+@app.get("/api/gym/subscription")
+async def api_gym_subscription(request: Request):
+    tenant = None
+    try:
+        tenant = CURRENT_TENANT.get()
+    except Exception:
+        tenant = None
+    adm = _get_admin_db_manager()
+    if adm is None or not tenant:
+        return JSONResponse({"ok": False})
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
+            grow = cur.fetchone()
+            if not grow:
+                return JSONResponse({"ok": False})
+            gid = int(grow["id"])
+        sub = adm.obtener_subscription(gid)
+        days = None
+        try:
+            from datetime import datetime
+            nd = sub.get("next_due_date") if isinstance(sub, dict) else None
+            if nd:
+                d = datetime.strptime(str(nd), "%Y-%m-%d").date()
+                days = (d - datetime.utcnow().date()).days
+        except Exception:
+            days = None
+        return JSONResponse({"ok": True, "subscription": sub, "days_until_due": days})
+    except Exception:
+        return JSONResponse({"ok": False})

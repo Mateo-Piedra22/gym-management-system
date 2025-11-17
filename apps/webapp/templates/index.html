@@ -105,6 +105,16 @@
     }
     /* === FIN DE ESTILOS PARA WHATSAPP === */
   </style>
+  <style>
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+    .modal-backdrop.active{display:flex}
+    .modal{background:#0b1220;color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:12px;max-width:560px;width:calc(100% - 32px);padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+    .modal .title{font-weight:600;font-size:18px}
+    .modal .content{margin-top:8px;color:#cbd5e1}
+    .modal .actions{margin-top:12px;display:flex;justify-content:flex-end;gap:8px}
+    .btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#111827;color:#fff;text-decoration:none}
+    .btn.primary{background:var(--primary);color:var(--text-on-primary)}
+  </style>
 </head>
 <body>
   <main class="screen">
@@ -151,7 +161,7 @@
               <a class="btn" href="/usuario/login" aria-label="Ir al login de Usuarios">Ir a Usuarios</a>
             </div>
           </div>
-          <div class="option-card" data-href="/gestion/login" aria-labelledby="opt-gestion-title" aria-describedby="opt-gestion-desc">
+  <div class="option-card" data-href="/gestion/login" aria-labelledby="opt-gestion-title" aria-describedby="opt-gestion-desc">
             <div>
               <span class="option-icon" aria-hidden="true"><i class="bi bi-people"></i></span>
               <span id="opt-gestion-title" class="option-title">Gestión</span>
@@ -217,7 +227,30 @@
       
       <span class="whatsapp-tooltip">Contactame</span>
   </div>
-  </body>
+  <div class="modal-backdrop" id="maintenance-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="maint-title">
+      <div class="title" id="maint-title">Mantenimiento</div>
+      <div class="content" id="maint-msg"></div>
+      <div class="actions">
+        <button class="btn" id="maint-close">Cerrar</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      function showMaintenance(msg){
+        var b=document.getElementById('maintenance-modal');
+        var m=document.getElementById('maint-msg');
+        if(!b||!m)return; m.textContent=String(msg||'Mantenimiento en curso'); b.classList.add('active');
+      }
+      function hideMaintenance(){ var b=document.getElementById('maintenance-modal'); if(b) b.classList.remove('active'); }
+      try{ var c=document.getElementById('maint-close'); if(c){ c.addEventListener('click', hideMaintenance); } }catch(_){ }
+      try{
+        fetch('/api/maintenance_status',{credentials:'same-origin'}).then(function(r){ if(!r.ok) return null; return r.json(); }).then(function(d){ if(!d) return; if(d.active){ showMaintenance(d.message); } });
+      }catch(_){ }
+    })();
+  </script>
+</body>
 </html>
 
 <!-- Actualización dinámica de nombre del gimnasio en toda la webapp -->

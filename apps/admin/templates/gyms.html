@@ -56,29 +56,30 @@
     <button id="open-create" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
     <button id="open-k" class="px-3 py-2 rounded-md bg-gray-900" onclick="window.openGlobalK && window.openGlobalK()"><i class="fa-solid fa-keyboard"></i><span class="ml-2">Ctrl+K</span></button>
   </div>
-  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden" tabindex="-1">
-    <div id="actions-backdrop" class="absolute inset-0 bg-black/60"></div>
-    <div class="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-gray-900 border-l border-gray-800 shadow">
-      <div class="flex items-center justify-between p-3 border-b border-gray-800">
-        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
-        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
-      </div>
-      <div class="p-3 grid gap-3">
-        <button id="open-create-quick" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
-        <div class="grid gap-2">
-          <div class="text-sm text-gray-400">Acciones por lote</div>
-          <div class="grid grid-cols-2 gap-2">
-            <button id="batch-prov-side" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Provisionar</button>
-            <button id="batch-uns-side" class="px-3 py-2 rounded-md bg-green-600 text-white">Reactivar</button>
-            <button id="batch-sus-side" class="px-3 py-2 rounded-md bg-red-600 text-white">Suspender</button>
-          </div>
-          <input id="batch-message-side" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <button id="batch-remind-side" class="px-3 py-2 rounded-md bg-gray-900">Recordar</button>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60" tabindex="-1">
+    <div class="relative p-4 w-full max-w-md max-h-[85vh] overflow-auto">
+      <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
+        <div class="flex items-center justify-between p-3 border-b border-gray-800">
+          <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+          <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
-        <div class="grid gap-2">
-          <div class="text-sm text-gray-400">Aviso mantenimiento</div>
-          <input id="batch-maint-message-side" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-          <button id="batch-maint-side" class="px-3 py-2 rounded-md bg-yellow-500 text-black">Enviar aviso</button>
+        <div class="p-3 grid gap-3">
+          <button id="open-create-quick" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Crear gimnasio</button>
+          <div class="grid gap-2">
+            <div class="text-sm text-gray-400">Acciones por lote</div>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="batch-prov-side" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Provisionar</button>
+              <button id="batch-uns-side" class="px-3 py-2 rounded-md bg-green-600 text-white">Reactivar</button>
+              <button id="batch-sus-side" class="px-3 py-2 rounded-md bg-red-600 text-white">Suspender</button>
+            </div>
+            <input id="batch-message-side" placeholder="Mensaje recordatorio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <button id="batch-remind-side" class="px-3 py-2 rounded-md bg-gray-900">Recordar</button>
+          </div>
+          <div class="grid gap-2">
+            <div class="text-sm text-gray-400">Aviso mantenimiento</div>
+            <input id="batch-maint-message-side" placeholder="Mensaje mantenimiento" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+            <button id="batch-maint-side" class="px-3 py-2 rounded-md bg-yellow-500 text-black">Enviar aviso</button>
+          </div>
         </div>
       </div>
     </div>
@@ -89,7 +90,7 @@
   });
   </script>
   <script>
-  function openDetails2(gid){var detailsOverlay=document.getElementById('details-overlay');var detailsContent=document.getElementById('details-content');var detailsClose=document.getElementById('details-close');if(!detailsOverlay||!detailsContent)return;detailsOverlay.classList.remove('hidden');document.body.classList.add('overflow-hidden');var url=new URL(window.location.href);url.searchParams.set('modal','details');url.searchParams.set('gid',String(gid||''));history.pushState({},'',url.toString());setTimeout(function(){if(detailsClose){detailsClose.focus()}},10);detailsContent.innerHTML='<div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="skeleton h-24 rounded-md"></div><div class="skeleton h-24 rounded-md"></div><div class="skeleton h-24 rounded-md"></div><div class="skeleton h-24 rounded-md"></div></div>';fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var h=(j&&j.health)||{};var pays=(j&&j.payments)||[];var sub=(j&&j.subscription)||{};var wurl=String((j&&j.webapp_url)||'');var dbo=!!(h&&h.db&&h.db.ok);var wao=!!(h&&h.whatsapp&&h.whatsapp.ok);var sto=!!(h&&h.storage&&h.storage.ok);var html='';html+='<div class="flex gap-3 mb-2">';html+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(dbo?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">DB</span></div>';html+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(wao?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">WA</span></div>';html+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(sto?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">ST</span></div>';html+='</div>';html+='<div class="grid grid-cols-1 md:grid-cols-2 gap-4">';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Información Básica</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">ID</div><div>'+String(d.id||'')+'</div>';html+='<div class="text-gray-400">Nombre</div><div>'+String(d.nombre||'')+'</div>';html+='<div class="text-gray-400">Subdominio</div><div>'+String(d.subdominio||'')+'</div>';html+='<div class="text-gray-400">Estado</div><div>'+String(d.status||'')+'</div>';html+='<div class="text-gray-400">Creado</div><div>'+String(d.created_at||'')+'</div>';html+='<div class="text-gray-400">Teléfono</div><div>'+String(d.owner_phone||'')+'</div>';html+='<div class="text-gray-400">DB</div><div>'+String(d.db_name||'')+'</div>';html+='<div class="text-gray-400">Motivo suspensión</div><div>'+String(d.suspended_reason||'')+'</div>';html+='<div class="text-gray-400">Suspendido hasta</div><div>'+String(d.suspended_until||'')+'</div>';html+='<div class="text-gray-400">Suspensión dura</div><div>'+(d.hard_suspend?('sí'):'no')+'</div>';html+='</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Almacenamiento</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">B2 Bucket</div><div>'+String(d.b2_bucket_name||'')+'</div>';html+='<div class="text-gray-400">Bucket ID</div><div>'+String(d.b2_bucket_id||'')+'</div>';html+='<div class="text-gray-400">Key ID</div><div>'+String(d.b2_key_id||'')+'</div>';html+='<div class="text-gray-400">Application Key</div><div>'+(d.b2_application_key?('••••••••••••••'):'')+'</div>';html+='</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">WhatsApp</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">Phone ID</div><div>'+String(d.whatsapp_phone_id||'')+'</div>';html+='<div class="text-gray-400">WABA ID</div><div>'+String(d.whatsapp_business_account_id||'')+'</div>';html+='<div class="text-gray-400">Token configurado</div><div>'+(d.whatsapp_access_token_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">Verify token configurado</div><div>'+(d.whatsapp_verify_token_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">App secret configurado</div><div>'+(d.whatsapp_app_secret_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">No bloqueante</div><div>'+(d.whatsapp_nonblocking?('sí'):'no')+'</div>';html+='<div class="text-gray-400">Timeout envío (s)</div><div>'+String(d.whatsapp_send_timeout_seconds||'')+'</div>';html+='</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Suscripción</div><div class="mt-2 text-sm">Plan: '+String(sub.plan||'')+' · Válido hasta: '+String(sub.valid_until||'')+'</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Pagos recientes</div>';if(pays.length){html+='<div class="mt-2 grid gap-1">';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];html+='<div class="flex justify-between text-sm"><span>'+(String(p.plan||'')+' · '+String(p.amount||'')+' '+String(p.currency||''))+'</span><span class="text-gray-400">'+String(p.paid_at||'')+'</span></div>'}html+='</div>'}else{html+='<div class="mt-2 text-gray-400 text-sm">Sin pagos</div>'}html+='</div>';if(wurl){html+='<div class="md:col-span-2 bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Vista previa</div><div class="mt-2 rounded-md border border-gray-800 overflow-hidden"><iframe src="'+wurl+'" title="Vista previa webapp" class="w-full h-[420px] bg-black"></iframe></div></div>'}html+='</div>';detailsContent.innerHTML=html}).catch(function(){detailsContent.innerHTML='<div class="text-red-600">Error al cargar detalles</div>'})}
+  function openDetails2(gid){var detailsOverlay=document.getElementById('details-overlay');var detailsContent=document.getElementById('details-content');var detailsClose=document.getElementById('details-close');if(!detailsOverlay||!detailsContent)return;detailsOverlay.classList.remove('hidden');document.body.classList.add('overflow-hidden');var url=new URL(window.location.href);url.searchParams.set('modal','details');url.searchParams.set('gid',String(gid||''));history.pushState({},'',url.toString());setTimeout(function(){if(detailsClose){detailsClose.focus()}},10);detailsContent.innerHTML='<div class="grid grid-cols-1 xl:grid-cols-3 gap-4"><div class="skeleton h-24 rounded-md"></div><div class="skeleton h-24 rounded-md"></div><div class="skeleton h-24 rounded-md"></div></div>';fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var h=(j&&j.health)||{};var pays=(j&&j.payments)||[];var sub=(j&&j.subscription)||{};var wurl=String((j&&j.webapp_url)||'');var dbo=!!(h&&h.db&&h.db.ok);var wao=!!(h&&h.whatsapp&&h.whatsapp.ok);var sto=!!(h&&h.storage&&h.storage.ok);var healthHtml='';healthHtml+='<div class="flex items-center gap-2">';healthHtml+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(dbo?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">DB</span></div>';healthHtml+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(wao?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">WA</span></div>';healthHtml+='<div class="flex items-center gap-2"><span class="w-6 h-6 rounded-full '+(sto?'bg-green-600':'bg-red-600')+'"></span><span class="text-gray-300 text-xs">ST</span></div>';healthHtml+='</div>';var dh=document.getElementById('details-health');if(dh){dh.innerHTML=healthHtml}var html='';html+='<div class="grid grid-cols-1 xl:grid-cols-3 gap-4">';html+='<div class="grid gap-4">';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Información Básica</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">ID</div><div>'+String(d.id||'')+'</div>';html+='<div class="text-gray-400">Nombre</div><div>'+String(d.nombre||'')+'</div>';html+='<div class="text-gray-400">Subdominio</div><div>'+String(d.subdominio||'')+'</div>';html+='<div class="text-gray-400">Estado</div><div>'+String(d.status||'')+'</div>';html+='<div class="text-gray-400">Creado</div><div>'+String(d.created_at||'')+'</div>';html+='<div class="text-gray-400">Teléfono</div><div>'+String(d.owner_phone||'')+'</div>';html+='<div class="text-gray-400">DB</div><div>'+String(d.db_name||'')+'</div>';html+='<div class="text-gray-400">Motivo suspensión</div><div>'+String(d.suspended_reason||'')+'</div>';html+='<div class="text-gray-400">Suspendido hasta</div><div>'+String(d.suspended_until||'')+'</div>';html+='<div class="text-gray-400">Suspensión dura</div><div>'+(d.hard_suspend?('sí'):'no')+'</div>';html+='</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Almacenamiento</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">B2 Bucket</div><div>'+String(d.b2_bucket_name||'')+'</div>';html+='<div class="text-gray-400">Bucket ID</div><div>'+String(d.b2_bucket_id||'')+'</div>';html+='<div class="text-gray-400">Key ID</div><div>'+String(d.b2_key_id||'')+'</div>';html+='<div class="text-gray-400">Application Key</div><div>'+(d.b2_application_key?('••••••••••••••'):'')+'</div>';html+='</div></div>';html+='</div>';html+='<div class="grid gap-4">';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">WhatsApp</div><div class="grid grid-cols-2 gap-2 mt-2">';html+='<div class="text-gray-400">Phone ID</div><div>'+String(d.whatsapp_phone_id||'')+'</div>';html+='<div class="text-gray-400">WABA ID</div><div>'+String(d.whatsapp_business_account_id||'')+'</div>';html+='<div class="text-gray-400">Token configurado</div><div>'+(d.whatsapp_access_token_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">Verify token configurado</div><div>'+(d.whatsapp_verify_token_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">App secret configurado</div><div>'+(d.whatsapp_app_secret_configured?('sí'):'no')+'</div>';html+='<div class="text-gray-400">No bloqueante</div><div>'+(d.whatsapp_nonblocking?('sí'):'no')+'</div>';html+='<div class="text-gray-400">Timeout envío (s)</div><div>'+String(d.whatsapp_send_timeout_seconds||'')+'</div>';html+='</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Suscripción</div><div class="mt-2 text-sm">Plan: '+String(sub.plan||'')+' · Válido hasta: '+String(sub.valid_until||'')+'</div></div>';html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Pagos recientes</div>';if(pays.length){html+='<div class="mt-2 grid gap-1">';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];html+='<div class="flex justify-between text-sm"><span>'+(String(p.plan||'')+' · '+String(p.amount||'')+' '+String(p.currency||''))+'</span><span class="text-gray-400">'+String(p.paid_at||'')+'</span></div>'}html+='</div>'}else{html+='<div class="mt-2 text-gray-400 text-sm">Sin pagos</div>'}html+='</div>';html+='</div>';html+='<div class="grid gap-4">';if(wurl){html+='<div class="bg-gray-800 p-3 rounded-md"><div class="font-semibold text-white">Vista previa</div><div class="mt-2 rounded-md border border-gray-800 overflow-hidden"><iframe src="'+wurl+'" title="Vista previa webapp" class="w-full h-[70vh] bg-black"></iframe></div></div>'}html+='</div>';html+='</div>';detailsContent.innerHTML=html}).catch(function(){detailsContent.innerHTML='<div class="text-red-600">Error al cargar detalles</div>'})}
   </script>
   <script>
   (function(){var det=document.getElementById('details-overlay');var detClose=document.getElementById('details-close');if(det){det.addEventListener('click',function(e){if(e.target===det){det.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(detClose){detClose.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var oc=document.getElementById('open-create');var oc2=document.getElementById('open-create-2');var cm=document.getElementById('create-modal');var cc=document.getElementById('create-cancel');var cc2=document.getElementById('create-cancel-2');function doBind(){var el=document.getElementById('bucket-prefix');var pref=el?String(el.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub','create-sub-status','create-bucket',pref)}}if(oc){oc.addEventListener('click',function(){document.body.classList.add('overflow-hidden');doBind()})}if(oc2){oc2.addEventListener('click',function(){document.body.classList.add('overflow-hidden');doBind()})}if(cm){cm.addEventListener('click',function(e){if(e.target===cm){cm.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(cc){cc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(cc2){cc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}var so=document.getElementById('suspend-modal');var sc=document.getElementById('suspend-cancel');var sc2=document.getElementById('suspend-cancel-2');var sy=document.getElementById('suspend-yes');var os=document.querySelectorAll('[data-open-suspend]');for(var i=0;i<os.length;i++){os[i].addEventListener('click',function(){document.body.classList.add('overflow-hidden')})}if(so){so.addEventListener('click',function(e){if(e.target===so){so.classList.add('hidden');document.body.classList.remove('overflow-hidden')}})}if(sc){sc.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sc2){sc2.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}if(sy){sy.addEventListener('click',function(){document.body.classList.remove('overflow-hidden')})}})();
@@ -105,35 +106,43 @@
   {% elif (view or 'cards')=='cards' %}
   <div id="gyms-section" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
     {% for g in items %}
-    <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ edit: false }">
+    <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ edit:false, showCfg:false, more:false }">
       <div class="flex flex-wrap justify-between items-center">
         <div class="flex items-center gap-2 min-w-0">
           <input type="checkbox" class="select-gym" value="{{ g.id }}" />
           <div id="gym-name-{{ g.id }}" class="font-semibold truncate max-w-[60%]" title="{{ g.nombre }}">{{ g.nombre }}</div>
           <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm truncate max-w-[40%]" data-sub="{{ g.subdominio }}" title="{{ g.subdominio }}">{{ g.subdominio }}</button>
+          {% if g.webapp_url %}
+          <a id="gym-url-{{ g.id }}" href="{{ g.webapp_url }}" target="_blank" rel="noopener" class="text-blue-400 text-xs truncate max-w-[50%]" title="{{ g.webapp_url }}">{{ g.webapp_url }}</a>
+          {% endif %}
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 ml-auto">
           <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="hidden sm:flex gap-1 items-center">
             <div class="skeleton w-16 h-3 rounded-md"></div>
           </div>
           <span id="status-badge-{{ g.id }}" class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
         </div>
       </div>
-      <div class="grid grid-cols-2 gap-2 text-sm">
-        <div class="text-gray-400">Creado</div><div>{{ g.created_at }}</div>
-        <div class="text-gray-400">Teléfono</div>
-        <div>
-          <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex flex-wrap gap-2">
-            <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full sm:w-40" />
-            <button type="submit" class="px-2 py-1 rounded-md bg-gray-900">Guardar</button>
-          </form>
+      {% set next_due = g.next_due_date if g.next_due_date is defined else '' %}
+      {% set last_amt = g.last_payment_amount if g.last_payment_amount is defined else '' %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between"><span class="text-gray-400">Creado</span><span>{{ g.created_at }}</span></div>
+          <div class="flex items-center justify-between"><span class="text-gray-400">Vence</span><span class="flex items-center gap-2"><span>{{ next_due }}</span><span data-due-chip class="px-2 py-1 rounded-full text-xs"></span></span></div>
+          <div class="flex items-center justify-between"><span class="text-gray-400">B2 Bucket</span><span id="gym-bucket-{{ g.id }}" class="truncate" title="{{ g.b2_bucket_name }}">{{ (g.b2_bucket_name or '')[:6] }}</span></div>
         </div>
-        <div class="text-gray-400">B2 Bucket</div><div id="gym-bucket-{{ g.id }}" class="truncate" title="{{ g.b2_bucket_name }}">{{ g.b2_bucket_name }}</div>
-        <div class="text-gray-400">B2 ID</div><div class="truncate" title="{{ g.b2_bucket_id }}">{{ g.b2_bucket_id }}</div>
+        <div class="grid gap-2">
+          <div class="flex items-center justify-between"><span class="text-gray-400">Teléfono</span><span>{% if g.owner_phone and g.owner_phone|trim %}{{ g.owner_phone }}{% else %}No registrado{% endif %}</span></div>
+          <div class="flex items-center justify-between"><span class="text-gray-400">Último pago</span><span>{% if last_amt %}{{ last_amt }} {{ g.last_payment_currency or '' }}{% if g.last_payment_at %} · {{ g.last_payment_at }}{% endif %}{% else %}Sin pagos{% endif %}</span></div>
+          <div class="flex items-center justify-end"><button type="button" class="px-2 py-1 rounded-md bg-gray-900" x-on:click="showCfg=!showCfg">Configuración</button></div>
+        </div>
       </div>
-      <div class="grid gap-2" x-show="edit">
-        <div class="text-sm text-gray-400">Editar gimnasio</div>
-        <form hx-post="/admin/gyms/{{ g.id }}/update" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 gap-2 needs-confirm" data-confirm="Esta acción puede cambiar subdominio y bucket. Podría eliminar/migrar el bucket. ¿Confirmar?">
+      <div class="grid gap-2" x-show="showCfg">
+        <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
+          <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
+        </form>
+        <form hx-post="/admin/gyms/{{ g.id }}/update" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 gap-2 needs-confirm" data-confirm="Esta acción puede cambiar subdominio y bucket. Podría eliminar/migrar el bucket. ¿Confirmar?">
           <input id="edit-name-{{ g.id }}" name="nombre" value="{{ g.nombre }}" placeholder="Nombre" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
           <div>
             <input id="edit-sub-{{ g.id }}" name="subdominio" value="{{ g.subdominio }}" placeholder="Subdominio" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full"
@@ -152,50 +161,38 @@
             </div>
             <label class="flex items-center gap-2"><input type="checkbox" name="no_migrate_bucket" /> <span class="text-sm text-gray-300">No migrar bucket</span></label>
           </div>
-          <div class="sm:col-span-2">
-            <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar cambios</button>
-          </div>
+          <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
         </form>
       </div>
-      {% set next_due = g.next_due_date if g.next_due_date is defined else '' %}
-      {% set last_amt = g.last_payment_amount if g.last_payment_amount is defined else '' %}
-      {% if next_due or last_amt %}
-      <div class="grid grid-cols-2 gap-2 text-sm">
-        <div class="text-gray-400">Vence</div><div>{{ next_due }}</div>
-        <div class="text-gray-400">Último pago</div>
-        <div>{{ last_amt }} {{ g.last_payment_currency or '' }}{% if g.last_payment_at %} <span class="text-gray-400">· {{ g.last_payment_at }}</span>{% endif %}</div>
-      </div>
-      {% endif %}
-      <div class="flex flex-wrap justify-between items-center">
+      <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2">
-          <div class="text-gray-400">Salud</div>
-          <div id="health-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="flex gap-2 items-center">
-            <div class="skeleton w-24 h-3 rounded-md"></div>
+          <form hx-post="/admin/gyms/{{ g.id }}/provision" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
+          <button type="button" class="px-3 py-2 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}"><i class="fa-solid fa-pause"></i><span class="ml-2">Suspender</span></button>
+          <form hx-post="/admin/gyms/{{ g.id }}/unsuspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
+        </div>
+        <div class="relative ml-auto">
+          <button type="button" class="px-3 py-2 rounded-md bg-gray-900" x-on:click="more=!more">⋮ Más acciones</button>
+          <div x-show="more" class="absolute right-0 mt-2 w-48 rounded-md border border-gray-800 bg-[#0b1222] z-10">
+            <button type="button" class="w-full text-left px-3 py-2" data-open-details="{{ g.id }}"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
+            <button type="button" class="w-full text-left px-3 py-2" x-on:click="edit=!edit"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
+            <form hx-post="/admin/gyms/{{ g.id }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none" class="w-full"><button type="submit" class="w-full text-left px-3 py-2"><i class="fa-solid fa-key"></i><span class="ml-2">Regenerar clave B2</span></button></form>
+            <form hx-post="/admin/gyms/{{ g.id }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none" class="w-full needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="w-full text-left px-3 py-2 text-red-500"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar bucket B2</span></button></form>
+            <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="w-full needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="w-full text-left px-3 py-2 text-red-500"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar</span></button></form>
           </div>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-          <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Suscripción"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
-          <a href="/admin/gyms/{{ g.id }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Pagos"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
-          <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="WhatsApp"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">WA</span></a>
-          <a href="/admin/gyms/{{ g.id }}/maintenance?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Mantenimiento"><i class="fa-solid fa-wrench"></i><span class="ml-2">Mant.</span></a>
-          <a href="/admin/gyms/{{ g.id }}/branding?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Branding"><i class="fa-solid fa-palette"></i><span class="ml-2">Branding</span></a>
-          <a href="/admin/gyms/{{ g.id }}/owner?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Contraseña dueño"><i class="fa-solid fa-key"></i><span class="ml-2">Contraseña</span></a>
-          <a href="/admin/gyms/{{ g.id }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="w-full px-3 py-2 rounded-md bg-gray-900" title="Salud"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
-          <button type="button" class="w-full px-3 py-2 rounded-md bg-gray-900" data-open-details="{{ g.id }}" title="Ver detalles"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
-          <button type="button" class="w-full px-3 py-2 rounded-md bg-gray-900" x-on:click="edit=!edit" title="Editar"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
-        </div>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <form hx-post="/admin/gyms/{{ g.id }}/provision" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground" title="Provisionar"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
-        <button type="button" class="px-3 py-2 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}" title="Suspender"><i class="fa-solid fa-pause"></i><span class="ml-2">Suspender</span></button>
-        <form hx-post="/admin/gyms/{{ g.id }}/unsuspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
-        <form hx-post="/admin/gyms/{{ g.id }}/b2/regenerate-key" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Regenerar clave B2?"><button type="submit" class="px-3 py-2 rounded-md bg-gray-900" title="Regenerar clave B2"><i class="fa-solid fa-key"></i><span class="ml-2">Regenerar clave B2</span></button></form>
-        <form hx-post="/admin/gyms/{{ g.id }}/b2/delete-bucket" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline needs-confirm" data-confirm="¿Eliminar bucket B2?"><button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white" title="Eliminar bucket B2"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar bucket B2</span></button></form>
-        <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="inline needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white" title="Eliminar gimnasio"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar</span></button></form>
+      <div class="flex flex-wrap items-center gap-2">
+        <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
+        <a href="/admin/gyms/{{ g.id }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
+        <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">Soporte</span></a>
+        <a href="/admin/gyms/{{ g.id }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
       </div>
     </div>
     {% endfor %}
   </div>
+  <script>
+  (function(){var cards=document.querySelectorAll('#gyms-section [data-gym-id]');for(var i=0;i<cards.length;i++){var nd=String(cards[i].getAttribute('data-next-due')||'').trim();if(!nd)continue;var chip=cards[i].querySelector('[data-due-chip]');if(!chip)continue;var days=null;try{var d=new Date(nd+'T00:00:00Z');var now=new Date();days=Math.ceil((d-now)/86400000)}catch(_){days=null}if(days===null){chip.textContent='';chip.className='px-2 py-1 rounded-full text-xs';continue}if(days<0){chip.textContent='vencido';chip.className='px-2 py-1 rounded-full text-xs bg-red-600 text-white'}else{chip.textContent=String(days)+' días';if(days<=7){chip.className='px-2 py-1 rounded-full text-xs bg-yellow-500 text-black'}else{chip.className='px-2 py-1 rounded-full text-xs bg-gray-700 text-white'}}}})();
+  </script>
   {% else %}
   <div id="gyms-section" class="overflow-x-auto rounded-xl border border-gray-800">
     <table class="w-full text-sm">
@@ -206,6 +203,7 @@
           <th class="px-3 py-2 text-left"><a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=nombre&order_dir={{ dir_next }}&view=table">Nombre</a></th>
           <th class="px-3 py-2 text-left"><a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=subdominio&order_dir={{ dir_next }}&view=table">Subdominio</a></th>
           <th class="px-3 py-2 text-left"><a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=created_at&order_dir={{ dir_next }}&view=table">Creado</a></th>
+          <th class="px-3 py-2 text-left"><a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=next_due_date&order_dir={{ dir_next }}&view=table">Vence</a></th>
           <th class="px-3 py-2 text-left">Teléfono</th>
           <th class="px-3 py-2 text-left"><a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=status&order_dir={{ dir_next }}&view=table">Estado</a></th>
           <th class="px-3 py-2 text-left">Salud</th>
@@ -214,7 +212,7 @@
       </thead>
       <tbody>
         {% for g in items %}
-        <tr class="border-t border-gray-800" data-gym-id="{{ g.id }}" x-data="{ editRow:false }">
+        <tr class="border-t border-gray-800" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ editRow:false }">
           <td class="px-3 py-2"><input type="checkbox" class="select-gym" value="{{ g.id }}" /></td>
           <td class="px-3 py-2">{{ g.id }}</td>
           <td class="px-3 py-2">
@@ -223,6 +221,9 @@
           </td>
           <td class="px-3 py-2">
             <div id="row-sub-{{ g.id }}" x-show="!editRow">{{ g.subdominio }}</div>
+            {% if g.webapp_url %}
+            <div x-show="!editRow"><a id="row-url-{{ g.id }}" href="{{ g.webapp_url }}" target="_blank" rel="noopener" class="text-xs text-blue-400 hover:underline">{{ g.webapp_url }}</a></div>
+            {% endif %}
             <div x-show="editRow" class="grid gap-2">
               <input id="t-sub-{{ g.id }}" name="subdominio" value="{{ g.subdominio }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950"
                      hx-get="/admin/subdomains/check" hx-trigger="input changed" hx-target="#t-sub-status-{{ g.id }}" hx-headers='{"accept":"text/html"}' hx-include="#t-name-{{ g.id }}, #t-sub-hidden-{{ g.id }}"
@@ -242,6 +243,7 @@
             </div>
           </td>
           <td class="px-3 py-2">{{ g.created_at }}</td>
+          <td class="px-3 py-2"><div class="flex items-center gap-2"><span>{{ g.next_due_date }}</span><span data-due-chip class="px-2 py-1 rounded-full text-xs"></span></div></td>
           <td class="px-3 py-2">
             <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-trigger="submit" hx-swap="none" class="flex flex-wrap gap-2">
               <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full md:w-40" />
@@ -279,6 +281,9 @@
       </tbody>
     </table>
   </div>
+  <script>
+  (function(){var rows=document.querySelectorAll('#gyms-section tbody [data-next-due]');for(var i=0;i<rows.length;i++){var nd=String(rows[i].getAttribute('data-next-due')||'').trim();if(!nd)continue;var chip=rows[i].querySelector('[data-due-chip]');if(!chip)continue;var days=null;try{var d=new Date(nd+'T00:00:00Z');var now=new Date();days=Math.ceil((d-now)/86400000)}catch(_){days=null}if(days===null){chip.textContent='';chip.className='px-2 py-1 rounded-full text-xs';continue}if(days<0){chip.textContent='vencido';chip.className='px-2 py-1 rounded-full text-xs bg-red-600 text-white'}else{chip.textContent=String(days)+' días';if(days<=7){chip.className='px-2 py-1 rounded-full text-xs bg-yellow-500 text-black'}else{chip.className='px-2 py-1 rounded-full text-xs bg-gray-700 text-white'}}}})();
+  </script>
   {% endif %}
     <div class="mt-3 flex flex-wrap items-center gap-3">
       <a id="prev-link" href="{{ prev_link }}" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900">Anterior</a>
@@ -302,13 +307,16 @@
     <button id="open-k-float" class="px-3 py-2 rounded-full bg-gray-700 text-white" onclick="window.openGlobalK && window.openGlobalK()">Ctrl+K</button>
   </div>
   <div id="details-overlay" role="dialog" aria-modal="true" aria-labelledby="details-title" aria-describedby="details-content" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60" tabindex="-1">
-    <div class="relative p-4 w-full max-w-5xl max-h-[85vh] overflow-auto">
-      <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
+    <div class="relative p-0 w-full h-full overflow-hidden">
+      <div class="relative bg-gray-900 border border-gray-800 shadow w-full h-full flex flex-col">
         <div class="flex items-center justify-between p-3 border-b border-gray-800">
-          <h3 id="details-title" class="text-base font-semibold text-white">Detalles del gimnasio</h3>
+          <div class="flex items-center gap-4">
+            <h3 id="details-title" class="text-base font-semibold text-white">Detalles del gimnasio</h3>
+            <div id="details-health" class="flex items-center gap-2"></div>
+          </div>
           <button id="details-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
-        <div id="details-content" class="p-3 text-gray-200 text-sm grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        <div id="details-content" class="p-3 text-gray-200 text-sm grid grid-cols-1 xl:grid-cols-3 gap-4 h-full overflow-auto"></div>
       </div>
     </div>
   </div>
@@ -416,7 +424,7 @@
     if(okf){okf.addEventListener('click',function(){if(window.openGlobalK){window.openGlobalK()}})}
     function refreshHealth(gid){var mini=document.getElementById('health-mini-'+gid);if(mini){fetch('/admin/gyms/'+gid+'/health?snippet=1',{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){mini.innerHTML=html}).catch(function(){})}var full=document.getElementById('health-'+gid);if(full){fetch('/admin/gyms/'+gid+'/health?snippet=1',{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){full.innerHTML=html}).catch(function(){})}
     }
-    function refreshGymUI(gid){fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var nameEl=document.getElementById('gym-name-'+gid);if(nameEl){nameEl.textContent=String(d.nombre||'')}var subBtn=document.getElementById('gym-sub-'+gid);if(subBtn){subBtn.textContent=String(d.subdominio||'');subBtn.setAttribute('data-sub',String(d.subdominio||''))}var bEl=document.getElementById('gym-bucket-'+gid);if(bEl){bEl.textContent=String(d.b2_bucket_name||'')}var st=document.getElementById('status-badge-'+gid);if(st){var s=String(d.status||'');st.textContent=s;st.className='px-2 py-1 rounded-full text-xs '+(s==='active'?'bg-green-600 text-white':(s==='suspended'?'bg-red-600 text-white':(s==='maintenance'?'bg-yellow-500 text-black':'bg-gray-700 text-white')))}var rn=document.getElementById('row-name-'+gid);if(rn){rn.textContent=String(d.nombre||'')}var rs=document.getElementById('row-sub-'+gid);if(rs){rs.textContent=String(d.subdominio||'')}}).catch(function(){})}
+    function refreshGymUI(gid){fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var d=(j&&j.gym)||{};var nameEl=document.getElementById('gym-name-'+gid);if(nameEl){nameEl.textContent=String(d.nombre||'')}var subBtn=document.getElementById('gym-sub-'+gid);if(subBtn){subBtn.textContent=String(d.subdominio||'');subBtn.setAttribute('data-sub',String(d.subdominio||''))}var urlEl=document.getElementById('gym-url-'+gid);if(urlEl){var w=String((j&&j.webapp_url)||'');if(w){urlEl.textContent=w;urlEl.setAttribute('href',w);urlEl.style.display=''}else{urlEl.textContent='';urlEl.removeAttribute('href');urlEl.style.display='none'}}var bEl=document.getElementById('gym-bucket-'+gid);if(bEl){bEl.textContent=String(d.b2_bucket_name||'')}var st=document.getElementById('status-badge-'+gid);if(st){var s=String(d.status||'');st.textContent=s;st.className='px-2 py-1 rounded-full text-xs '+(s==='active'?'bg-green-600 text-white':(s==='suspended'?'bg-red-600 text-white':(s==='maintenance'?'bg-yellow-500 text-black':'bg-gray-700 text-white')))}var rn=document.getElementById('row-name-'+gid);if(rn){rn.textContent=String(d.nombre||'')}var rs=document.getElementById('row-sub-'+gid);if(rs){rs.textContent=String(d.subdominio||'')}var rurl=document.getElementById('row-url-'+gid);if(rurl){var w2=String((j&&j.webapp_url)||'');if(w2){rurl.textContent=w2;rurl.setAttribute('href',w2);rurl.style.display=''}else{rurl.textContent='';rurl.removeAttribute('href');rurl.style.display='none'}}}).catch(function(){})}
     function refreshGymsList(){var url=new URL(window.location.href);url.searchParams.set('ui','1');url.searchParams.set('snippet','1');fetch(url.toString(),{headers:{'accept':'text/html'}}).then(function(r){return r.text()}).then(function(html){try{var doc=new DOMParser().parseFromString(html,'text/html');var next=doc.querySelector('#gyms-section');var cur=document.querySelector('#gyms-section');if(next&&cur){cur.innerHTML=next.innerHTML;rebindGymsInteractions();haloDue()}}catch(_){}}).catch(function(){})}
     function rebindGymsInteractions(){
       var boxes=document.querySelectorAll('.select-gym');

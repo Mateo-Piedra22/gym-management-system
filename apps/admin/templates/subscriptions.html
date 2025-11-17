@@ -26,24 +26,25 @@
     </form>
     {% endif %}
   </div>
-  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden" tabindex="-1">
-    <div id="actions-backdrop" class="absolute inset-0 bg-black/60"></div>
-    <div class="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-gray-900 border-l border-gray-800 shadow">
-      <div class="flex items-center justify-between p-3 border-b border-gray-800">
-        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
-        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
-      </div>
-      <div class="p-3 grid gap-3">
-          <form method="post" action="/admin/subscriptions/remind" class="grid gap-2">
-            <label for="side-remind-days" class="text-sm text-gray-300">Días</label>
-            <input id="side-remind-days" name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar por ventana</button>
-          </form>
-          <form method="post" action="/admin/subscriptions/auto-suspend" class="grid gap-2 needs-confirm" data-confirm="¿Auto suspender?">
-            <label for="side-grace-days" class="text-sm text-gray-300">Gracia (días)</label>
-            <input id="side-grace-days" name="grace_days" type="number" min="0" value="7" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Auto-suspender vencidos</button>
-          </form>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60" tabindex="-1">
+    <div class="relative p-4 w-full max-w-md max-h-[85vh] overflow-auto">
+      <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
+        <div class="flex items-center justify-between p-3 border-b border-gray-800">
+          <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+          <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+        </div>
+        <div class="p-3 grid gap-3">
+            <form hx-post="/admin/subscriptions/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2">
+              <label for="side-remind-days" class="text-sm text-gray-300">Días</label>
+              <input id="side-remind-days" name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar por ventana</button>
+            </form>
+            <form hx-post="/admin/subscriptions/auto-suspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2 needs-confirm" data-confirm="¿Auto suspender?">
+              <label for="side-grace-days" class="text-sm text-gray-300">Gracia (días)</label>
+              <input id="side-grace-days" name="grace_days" type="number" min="0" value="7" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Auto-suspender vencidos</button>
+            </form>
+        </div>
       </div>
     </div>
   </div>

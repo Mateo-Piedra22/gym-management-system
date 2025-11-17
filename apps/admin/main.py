@@ -444,7 +444,7 @@ async def listar_gimnasios(request: Request):
     payload = adm.listar_gimnasios_avanzado(page, page_size, q or None, status_q or None, order_by or None, order_dir or None)
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
-    snippet = (str(request.query_params.get("snippet") or "").strip() == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
+    snippet = (str(request.query_params.get("snippet") or "").strip() == "1")
     if not wants_html:
         return JSONResponse(payload, status_code=200)
     try:
@@ -452,6 +452,31 @@ async def listar_gimnasios(request: Request):
     except Exception:
         payload_grid = payload
     items: List[Dict[str, Any]] = list((payload_grid or {}).get("items") or [])
+    try:
+        base_url = SecureConfig.get_webapp_base_url()
+    except Exception:
+        base_url = ""
+    try:
+        dom = os.getenv("TENANT_BASE_DOMAIN", "").strip().lstrip(".")
+    except Exception:
+        dom = ""
+    try:
+        for g in items:
+            try:
+                subdom = str((g or {}).get("subdominio") or "").strip().lower()
+            except Exception:
+                subdom = ""
+            preview_url = ""
+            try:
+                if dom and subdom:
+                    preview_url = f"https://{subdom}.{dom}"
+                elif base_url:
+                    preview_url = base_url
+            except Exception:
+                preview_url = base_url or ""
+            g["webapp_url"] = preview_url
+    except Exception:
+        pass
     total = int((payload or {}).get("total") or 0)
     p = int((payload or {}).get("page") or page)
     ps = int((payload or {}).get("page_size") or page_size)
@@ -1255,7 +1280,13 @@ async def toggle_plan(request: Request, plan_id: int, active: bool = Form(...)):
         adm.log_action("owner", "toggle_plan", None, f"{plan_id}|{active}")
     except Exception:
         pass
-    return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
+    accept = (request.headers.get("accept") or "").lower()
+    is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
+    wants_json = ("application/json" in accept) or is_hx
+    if wants_json:
+        return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/admin/plans?ui=1", status_code=303)
 
 @admin_app.get("/gyms/{gym_id}/subscription")
 async def ver_subscription(request: Request, gym_id: int):
@@ -1876,13 +1907,14 @@ async def health_check(request: Request, gym_id: int):
     acc0 = (request.headers.get("accept") or "").lower()
     is_hx = (str(request.headers.get("hx-request") or "").lower() == "true")
     wants_html0 = ("text/html" in acc0) or (request.query_params.get("ui") == "1")
+    snippet_q = (str(request.query_params.get("snippet") or "").strip() == "1")
     preview_url_cached = None
     try:
         ent = cache.get(int(gym_id)) if isinstance(cache, dict) else None
         if ent and (now - int(ent.get("ts") or 0) < ttl):
             res_cached = ent.get("val") or {}
             preview_url_cached = ent.get("preview_url") or None
-            if wants_html0 and is_hx:
+            if wants_html0 and snippet_q:
                 return templates.TemplateResponse(
                     "health-snippet.html",
                     {

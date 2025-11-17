@@ -21,28 +21,29 @@
     <input type="hidden" name="ui" value="1" />
     <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
   </form>
-  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden" tabindex="-1">
-    <div id="actions-backdrop" class="absolute inset-0 bg-black/60"></div>
-    <div class="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-gray-900 border-l border-gray-800 shadow">
-      <div class="flex items-center justify-between p-3 border-b border-gray-800">
-        <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
-        <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
-      </div>
-      <div class="p-3 grid gap-3">
-          <form hx-get="/admin/audit" hx-target="#audit-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="grid gap-2">
-            <label for="side-actor" class="text-sm text-gray-300">Actor</label>
-            <input id="side-actor" name="actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <label for="side-action" class="text-sm text-gray-300">Acción</label>
-            <input id="side-action" name="action" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <label for="side-gym-id" class="text-sm text-gray-300">Gym ID</label>
-            <input id="side-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <label for="side-from" class="text-sm text-gray-300">Desde</label>
-            <input id="side-from" name="from" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <label for="side-to" class="text-sm text-gray-300">Hasta</label>
-            <input id="side-to" name="to" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
-            <input type="hidden" name="ui" value="1" />
-            <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
-          </form>
+  <div id="actions-overlay" role="dialog" aria-modal="true" aria-labelledby="actions-title" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60" tabindex="-1">
+    <div class="relative p-4 w-full max-w-md max-h-[85vh] overflow-auto">
+      <div class="relative bg-gray-900 rounded-lg border border-gray-800 shadow">
+        <div class="flex items-center justify-between p-3 border-b border-gray-800">
+          <h3 id="actions-title" class="text-base font-semibold text-white">Acciones rápidas</h3>
+          <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
+        </div>
+        <div class="p-3 grid gap-3">
+            <form hx-get="/admin/audit" hx-target="#audit-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="grid gap-2">
+              <label for="side-actor" class="text-sm text-gray-300">Actor</label>
+              <input id="side-actor" name="actor" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="side-action" class="text-sm text-gray-300">Acción</label>
+              <input id="side-action" name="action" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="side-gym-id" class="text-sm text-gray-300">Gym ID</label>
+              <input id="side-gym-id" name="gym_id" type="number" min="1" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="side-from" class="text-sm text-gray-300">Desde</label>
+              <input id="side-from" name="from" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <label for="side-to" class="text-sm text-gray-300">Hasta</label>
+              <input id="side-to" name="to" type="date" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
+              <input type="hidden" name="ui" value="1" />
+              <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
+            </form>
+        </div>
       </div>
     </div>
   </div>
