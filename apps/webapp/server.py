@@ -1574,10 +1574,21 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
                     p = path or "/"
                 except Exception:
                     p = "/"
-                if p == "/":
+                try:
+                    host = _get_request_host(request)
+                except Exception:
+                    host = ""
+                try:
+                    base = (os.getenv("TENANT_BASE_DOMAIN") or "").strip().lower().lstrip(".")
+                except Exception:
+                    base = ""
+                is_base_host = bool(base and (host == base or host == ("www." + base))) or (host in ("localhost", "127.0.0.1"))
+                if p == "/" and is_base_host:
                     return RedirectResponse(url="/admin", status_code=303)
                 if p.startswith("/admin"):
-                    return await call_next(request)
+                    if is_base_host:
+                        return await call_next(request)
+                    return JSONResponse({"error": "tenant_not_found"}, status_code=404)
                 return JSONResponse({"error": "tenant_not_found"}, status_code=404)
             try:
                 if _is_tenant_suspended(sub):
