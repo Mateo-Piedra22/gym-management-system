@@ -1076,26 +1076,46 @@ def _extract_tenant_from_host(host: str) -> Optional[str]:
         return None
     if "localhost" in h or h.endswith(".localhost"):
         return None
-    if not h.endswith(base):
-        return None
-    try:
-        prefix = h[: max(0, len(h) - len(base))].rstrip(".")
-    except Exception:
-        prefix = ""
-    if not prefix:
-        return None
-    try:
-        sub = prefix.split(".")[0].strip()
-    except Exception:
-        sub = prefix
-    if not sub:
-        return None
-    try:
-        if sub.lower() == "www":
+    def _extract_with_base(hh: str, bb: str) -> Optional[str]:
+        if not bb or not hh.endswith(bb):
             return None
+        try:
+            pref = hh[: max(0, len(hh) - len(bb))].rstrip(".")
+        except Exception:
+            pref = ""
+        if not pref:
+            return None
+        try:
+            s = pref.split(".")[0].strip()
+        except Exception:
+            s = pref
+        if not s:
+            return None
+        try:
+            if s.lower() == "www":
+                return None
+        except Exception:
+            pass
+        return s
+    sub = _extract_with_base(h, base)
+    if sub:
+        return sub
+    try:
+        v = (os.getenv("VERCEL_URL") or os.getenv("VERCEL_BRANCH_URL") or os.getenv("VERCEL_PROJECT_PRODUCTION_URL") or "").strip()
+        if v:
+            import urllib.parse as _up
+            try:
+                u = _up.urlparse(v if (v.startswith("http://") or v.startswith("https://")) else ("https://" + v))
+                vb = (u.hostname or "").strip().lower()
+            except Exception:
+                vb = v.split("/")[0].strip().lower()
+            if vb:
+                sub = _extract_with_base(h, vb)
+                if sub:
+                    return sub
     except Exception:
         pass
-    return sub
+    return None
 
 def _resolve_base_db_params() -> Dict[str, Any]:
     host = os.getenv("DB_HOST", "localhost").strip()
@@ -1532,6 +1552,12 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
             except Exception:
                 sub = None
             if not sub:
+                try:
+                    p = path or "/"
+                except Exception:
+                    p = "/"
+                if p == "/" or p.startswith("/admin"):
+                    return RedirectResponse(url="/admin", status_code=303)
                 return JSONResponse({"error": "tenant_not_found"}, status_code=404)
             try:
                 if _is_tenant_suspended(sub):
