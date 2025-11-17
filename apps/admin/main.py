@@ -10,6 +10,12 @@ try:
     import requests  # type: ignore
 except Exception:
     requests = None  # type: ignore
+try:
+    from requests.adapters import HTTPAdapter  # type: ignore
+    from urllib3.util.retry import Retry  # type: ignore
+except Exception:
+    HTTPAdapter = None  # type: ignore
+    Retry = None  # type: ignore
 from datetime import datetime
 from core.secure_config import SecureConfig
 
@@ -79,6 +85,27 @@ def _admin_wrap(content: str) -> str:
         + content
         + "</main></div></div>"
     )
+
+def _get_http_session():
+    if requests is None:
+        return None
+    try:
+        s = getattr(admin_app.state, "http_session", None)
+    except Exception:
+        s = None
+    if s is not None:
+        return s
+    try:
+        sess = requests.Session()
+        if HTTPAdapter is not None and Retry is not None:
+            retry = Retry(total=2, connect=2, read=2, backoff_factor=0.3, status_forcelist=[429, 500, 502, 503, 504], allowed_methods=["GET", "POST"])  # type: ignore
+            adapter = HTTPAdapter(max_retries=retry)  # type: ignore
+            sess.mount("https://", adapter)
+            sess.mount("http://", adapter)
+        setattr(admin_app.state, "http_session", sess)
+        return sess
+    except Exception:
+        return None
 
 @admin_app.get("/login")
 async def admin_login_form(request: Request):
@@ -443,7 +470,7 @@ async def listar_gimnasios(request: Request):
     view = (request.query_params.get("view") or "cards").strip()
     payload = adm.listar_gimnasios_avanzado(page, page_size, q or None, status_q or None, order_by or None, order_dir or None)
     accept = (request.headers.get("accept") or "").lower()
-    wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
+    wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
     snippet = (str(request.query_params.get("snippet") or "").strip() == "1")
     if not wants_html:
         return JSONResponse(payload, status_code=200)
@@ -1102,7 +1129,7 @@ async def avisar_mantenimiento_gym(request: Request, gym_id: int, message: Optio
     sc = 200 if res.get("ok") else 400
     return JSONResponse(res, status_code=sc)
 
-@admin_app.post("/admin/gyms/maintenance/notify/batch")
+@admin_app.post("/gyms/maintenance/notify/batch")
 async def avisar_mantenimiento_batch(request: Request, gym_ids: str = Form(...), message: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "maintenance_notify_batch", 60, 60)
@@ -1300,7 +1327,8 @@ async def ver_subscription(request: Request, gym_id: int):
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     if not wants_html:
         return JSONResponse({"subscription": sub, "plans": planes}, status_code=200)
-    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "subscription", "gid": int(gym_id), "subscription": sub, "plans": planes})
+    sub_safe = {"plan": str(((sub or {}).get("plan_name") or "")), "start_date": str(((sub or {}).get("start_date") or "")), "valid_until": str(((sub or {}).get("next_due_date") or ""))}
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "subscription", "gid": int(gym_id), "subscription": sub_safe, "plans": planes})
 
 @admin_app.post("/gyms/{gym_id}/subscription")
 async def set_subscription(request: Request, gym_id: int, plan_id: int = Form(...), start_date: str = Form(...)):
@@ -1334,7 +1362,11 @@ def _send_whatsapp_text_for_gym(adm: AdminDatabaseManager, gym_id: int, text: st
         url = f"https://graph.facebook.com/{api_ver}/{phone_id}/messages"
         payload = {"messaging_product": "whatsapp", "to": to_number, "type": "text", "text": {"body": text}}
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
-        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        sess = _get_http_session()
+        if sess is not None:
+            r = sess.post(url, json=payload, headers=headers, timeout=10)
+        else:
+            r = requests.post(url, json=payload, headers=headers, timeout=10)
         ok = 200 <= r.status_code < 300
         return {"ok": ok, "status": r.status_code, "response": r.json() if hasattr(r, "json") else None}
     except Exception as e:
@@ -1973,7 +2005,11 @@ async def health_check(request: Request, gym_id: int):
             except Exception:
                 api_ver = "v17.0"
             url = f"https://graph.facebook.com/{api_ver}/{pid}"
-            r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
+            sess = _get_http_session()
+            if sess is not None:
+                r = sess.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
+            else:
+                r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
             wa_status = int(r.status_code)
             wa_ok = 200 <= r.status_code < 300
     except Exception as e:
@@ -2096,7 +2132,11 @@ async def gym_details(request: Request, gym_id: int):
             except Exception:
                 api_ver = "v17.0"
             url = f"https://graph.facebook.com/{api_ver}/{pid}"
-            r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
+            sess = _get_http_session()
+            if sess is not None:
+                r = sess.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
+            else:
+                r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
             wa_status = int(r.status_code)
             wa_ok = 200 <= r.status_code < 300
     except Exception:
@@ -2158,7 +2198,8 @@ async def gym_details(request: Request, gym_id: int):
             preview_url = base_url
     except Exception:
         preview_url = base_url or ""
-    return JSONResponse({"gym": safe, "health": health, "subscription": sub, "payments": (pays or [])[:8], "webapp_url": preview_url}, status_code=200)
+    sub_safe = {"plan": str(((sub or {}).get("plan_name") or "")), "start_date": str(((sub or {}).get("start_date") or "")), "valid_until": str(((sub or {}).get("next_due_date") or ""))}
+    return JSONResponse({"gym": safe, "health": health, "subscription": sub_safe, "payments": (pays or [])[:8], "webapp_url": preview_url}, status_code=200)
 
 @admin_app.post("/gyms/batch")
 async def gyms_batch(request: Request, action: str = Form(...), gym_ids: str = Form(...)):
