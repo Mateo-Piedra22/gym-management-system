@@ -6623,6 +6623,45 @@ async def api_ejercicios_create(request: Request, _=Depends(require_gestion_acce
         raise HTTPException(status_code=503, detail="Modelo Ejercicio no disponible")
     payload = await request.json()
     try:
+        try:
+            cols0 = []
+            try:
+                cols0 = db.get_table_columns('ejercicios')  # type: ignore
+            except Exception:
+                cols0 = []
+            needs_commit = False
+            with db.get_connection_context() as conn:  # type: ignore
+                cur0 = conn.cursor()
+                if 'descripcion' not in cols0:
+                    try:
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN descripcion TEXT")
+                        needs_commit = True
+                    except Exception:
+                        pass
+                if 'grupo_muscular' not in cols0:
+                    try:
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN grupo_muscular VARCHAR(120)")
+                        needs_commit = True
+                    except Exception:
+                        pass
+                if 'objetivo' not in cols0:
+                    try:
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN objetivo VARCHAR(60)")
+                        needs_commit = True
+                    except Exception:
+                        pass
+                if needs_commit:
+                    try:
+                        conn.commit()
+                    except Exception:
+                        pass
+            try:
+                if hasattr(db, 'invalidate_table_columns_cache'):
+                    db.invalidate_table_columns_cache('ejercicios')  # type: ignore
+            except Exception:
+                pass
+        except Exception:
+            pass
         nombre = (payload.get("nombre") or "").strip()
         if not nombre:
             raise HTTPException(status_code=400, detail="'nombre' es obligatorio")
@@ -6653,12 +6692,15 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         raise HTTPException(status_code=503, detail="Modelo Ejercicio no disponible")
     payload = await request.json()
     try:
-        # Obtener columnas disponibles y seleccionar dinámicamente
         try:
             cols = db.get_table_columns('ejercicios')  # type: ignore
         except Exception:
             cols = []
-        base_cols = ["id", "nombre", "grupo_muscular", "descripcion"]
+        base_cols = ["id", "nombre"]
+        if "grupo_muscular" in cols:
+            base_cols.append("grupo_muscular")
+        if "descripcion" in cols:
+            base_cols.append("descripcion")
         opt_cols = []
         if "objetivo" in cols:
             opt_cols.append("objetivo")
@@ -6809,6 +6851,11 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                         except Exception:
                             pass
                         conn.commit()
+                    try:
+                        if hasattr(db, 'invalidate_table_columns_cache'):
+                            db.invalidate_table_columns_cache('ejercicios')  # type: ignore
+                    except Exception:
+                        pass
             except Exception:
                 pass
 

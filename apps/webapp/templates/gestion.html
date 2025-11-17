@@ -9725,15 +9725,21 @@ function ensurePdfZoomControls(containerId, frameId){
       let url = '/api/ejercicios'; let method = 'POST';
       if(state.editingEjercicioId){ url = `/api/ejercicios/${state.editingEjercicioId}`; method = 'PUT'; }
       try{
-        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' });
         if(res.status === 401){ showToast('Acceso restringido; inicie sesión en Gestión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
         const data = await res.json().catch(() => ({}));
         if(!res.ok){ showToast(data.detail || data.error || 'No se pudo guardar', 'error', 4500); return; }
         const eid = Number((data && (data.id || (state.editingEjercicioId||0))) || 0);
+        closeModal('modal-ejercicio-form');
+        showToast('Ejercicio guardado', 'success', 2500);
+        await loadEjercicios();
         if(state.ejercicioVideoFile && eid){
           const fd = new FormData(); fd.append('file', state.ejercicioVideoFile); fd.append('overwrite', 'true');
+          const ctrl = new AbortController();
+          const t = window.setTimeout(() => { try{ ctrl.abort(); }catch(_){} }, 20000);
           try{
-            const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd, credentials: 'same-origin' });
+            const up = await fetch(`/api/ejercicios/${eid}/media`, { method:'POST', body: fd, credentials: 'same-origin', signal: ctrl.signal });
+            window.clearTimeout(t);
             const jd = await up.json().catch(() => ({}));
             if(!up.ok){
               showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500);
@@ -9747,17 +9753,16 @@ function ensurePdfZoomControls(containerId, frameId){
                 const warn = String(jd.warning || '').trim();
                 showToast(warn || 'Subida remota falló; usando almacenamiento local temporal', 'warning', 6000);
               }
+              await loadEjercicios();
             }
-          }catch(_){ showToast('Error de red al subir el video', 'error', 4500); }
+          }catch(_){ window.clearTimeout(t); showToast('Error de red al subir el video', 'error', 4500); }
         } else if(state.ejercicioVideoRemove && state.editingEjercicioOriginalVideoUrl && eid){
           try{
             const up2 = await fetch(`/api/ejercicios/${eid}`, { method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ video_url: null, video_mime: null }), credentials: 'same-origin' });
             const jd2 = await up2.json().catch(() => ({})); if(!up2.ok){ showToast(jd2.detail || jd2.error || 'No se pudo eliminar el video', 'error', 4500); }
+            await loadEjercicios();
           }catch(_){ showToast('Error de red al eliminar el video', 'error', 4500); }
         }
-        closeModal('modal-ejercicio-form');
-        showToast('Ejercicio guardado', 'success', 2500);
-        await loadEjercicios();
       }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
     }
 

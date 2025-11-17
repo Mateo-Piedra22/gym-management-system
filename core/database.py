@@ -1026,6 +1026,17 @@ class DatabaseManager:
                 # Fallback: devolver vacío para evitar romper llamadas; el caller puede usar '*'
                 return []
 
+    def invalidate_table_columns_cache(self, table_name: str) -> None:
+        try:
+            with self._table_columns_lock:
+                if table_name in self._table_columns_cache:
+                    try:
+                        del self._table_columns_cache[table_name]
+                    except Exception:
+                        self._table_columns_cache.pop(table_name, None)
+        except Exception:
+            pass
+
     def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
         """Verifica si existe una columna en una tabla (schema público)."""
         try:
@@ -12562,7 +12573,8 @@ class DatabaseManager:
             # Mapear filas a modelo, tolerando columnas faltantes
             result = [Ejercicio(**dict(r)) for r in cursor.fetchall()]
             try:
-                self.cache.set('ejercicios', cache_key, result)
+                # TTL corto para evitar staleness visible en UI tras crear/editar
+                self.cache.set('ejercicios', cache_key, result, ttl_seconds=3.0)
             except Exception:
                 pass
             return result
