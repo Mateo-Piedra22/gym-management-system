@@ -1556,8 +1556,10 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
                     p = path or "/"
                 except Exception:
                     p = "/"
-                if p == "/" or p.startswith("/admin"):
+                if p == "/":
                     return RedirectResponse(url="/admin", status_code=303)
+                if p.startswith("/admin"):
+                    return await call_next(request)
                 return JSONResponse({"error": "tenant_not_found"}, status_code=404)
             try:
                 if _is_tenant_suspended(sub):
