@@ -3748,7 +3748,8 @@
     }
 
     // Helpers: debounce y skeleton loaders para mejorar UX con latencia
-    function debounce(fn, ms = 300){ let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+    function debounce(fn, ms = 300){ let t; return (...args) => { try{ if(window && window.__gestion_first_load__){ window.__gestion_first_load__ = false; return fn(...args); } }catch(_){ } clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; }
+    try{ if(typeof window !== 'undefined' && window){ if(typeof window.__gestion_first_load__ === 'undefined'){ window.__gestion_first_load__ = true; } } }catch(_){ }
     function showTableSkeleton(selector, colCount, rows = 8){
       try {
         const tbody = document.querySelector(`${selector} tbody`);
@@ -6796,7 +6797,7 @@
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
       // Retornar la promesa para permitir await loadEjercicios()
-      return apiFetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' }, 'supersede')
+      return apiFetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' }, 'dedup')
         .then(async (r) => {
           if(!r.ok){
             if(r.status === 401){
@@ -13267,17 +13268,19 @@ function renderClaseEjerciciosUI(){
     function getTenantUserKey(url){
       let host = '';
       let path = '';
+      let query = '';
       try{
         const u = new URL(url, window.location.href);
         host = (u.host || '').toLowerCase();
         path = (u.pathname || '/');
-      }catch(_){ host = (window.location.host||'').toLowerCase(); path = '/'; }
+        query = (u.search || '');
+      }catch(_){ host = (window.location.host||'').toLowerCase(); path = '/'; query = ''; }
       const el = document.getElementById('login-current');
       const role = ((el && el.getAttribute('data-role')) || '').trim().toLowerCase();
       const profUid = ((el && el.getAttribute('data-prof-uid')) || '').trim();
       const profId = ((el && el.getAttribute('data-prof-id')) || '').trim();
       const userKey = role === 'profesor' ? (profUid || profId || 'prof') : (role === 'dueño' ? 'owner' : 'anon');
-      return { host, path, userKey };
+      return { host, path, query, userKey };
     }
     if(!window.__orig_fetch__){ try{ window.__orig_fetch__ = window.fetch.bind(window); }catch(_){ } }
     function apiFetch(url, init, mode){
@@ -13285,7 +13288,7 @@ function renderClaseEjerciciosUI(){
       const b = (init && init.body) ? String(init.body) : '';
       const t = getTenantUserKey(url);
       const baseKey = `${t.host}|${t.userKey}|${m}`;
-      const key = (mode === 'supersede') ? `${baseKey}|${t.path}` : `${baseKey}|${t.path}|${b.length}`;
+      const key = (mode === 'supersede') ? `${baseKey}|${t.path}|${t.query}` : `${baseKey}|${t.path}|${t.query}|${b.length}`;
       if(mode === 'dedup' && apiInFlight[key]) return apiInFlight[key].p;
       if(mode === 'supersede' && apiInFlight[key]){ try{ if(apiInFlight[key].c) apiInFlight[key].c.abort(); }catch(_){ } delete apiInFlight[key]; }
       const hasSignal = !!(init && init.signal);
@@ -13299,7 +13302,7 @@ function renderClaseEjerciciosUI(){
     try{
       window.fetch = function(url, init){
         const method = (init && init.method) ? String(init.method).toUpperCase() : 'GET';
-        const mode = method === 'GET' ? 'supersede' : 'dedup';
+        const mode = method === 'GET' ? 'dedup' : 'dedup';
         return apiFetch(url, init || {}, mode);
       };
     }catch(_){ }
@@ -13307,10 +13310,13 @@ function renderClaseEjerciciosUI(){
       const opts = Object.assign({}, init || {});
       const h = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
       opts.headers = h;
-      return apiFetch(url, opts, mode).then(r => r && r.json ? r.json().catch(() => ({})) : ({}));
+      return apiFetch(url, opts, mode)
+        .then(r => r && r.json ? r.json().catch(() => ({})) : ({}))
+        .catch(e => { try{ if(e && (e.name === 'AbortError' || String(e.message||'').toLowerCase().includes('aborted'))) return {}; }catch(_){} return Promise.reject(e); });
     }
-    function debounce(fn, ms){ let t; return function(){ const a = arguments; clearTimeout(t); t = setTimeout(() => fn.apply(null, a), ms); }; }
+    function debounce(fn, ms){ let t; return function(){ const a = arguments; try{ if(window && window.__gestion_first_load__){ window.__gestion_first_load__ = false; return fn.apply(null, a); } }catch(_){ } clearTimeout(t); t = setTimeout(() => fn.apply(null, a), ms); }; }
     const loadEjerciciosDebounced = debounce(loadEjercicios, 250);
+    try{ if(typeof window !== 'undefined' && window){ if(typeof window.__gestion_first_load__ === 'undefined'){ window.__gestion_first_load__ = true; } } }catch(_){ }
 
   </script>
   <script src="/static/js/ui.js"></script>

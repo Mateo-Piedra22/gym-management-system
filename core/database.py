@@ -7558,7 +7558,7 @@ class DatabaseManager:
         if cached_result:
             return cached_result
         
-        with self.get_connection_context() as conn:
+        with self.readonly_session(lock_ms=800, statement_ms=2500, idle_s=2, seqscan_off=True) as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
             # Búsqueda optimizada con ILIKE para PostgreSQL (case-insensitive)
@@ -7608,7 +7608,7 @@ class DatabaseManager:
         if cached_result:
             return cached_result
         
-        with self.get_connection_context() as conn:
+        with self.readonly_session(lock_ms=800, statement_ms=2500, idle_s=2, seqscan_off=True) as conn:
             cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
             # Consulta optimizada con una sola pasada por la tabla
@@ -7684,7 +7684,7 @@ class DatabaseManager:
         if new_id is None or int(new_id) <= 0:
             raise ValueError("El nuevo ID debe ser un entero positivo.")
 
-        with self.get_connection_context() as conn:
+        with self.readonly_session(lock_ms=800, statement_ms=2500, idle_s=2, seqscan_off=True) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 # Validaciones previas
                 _cols = self.get_table_columns('usuarios')
@@ -7796,7 +7796,7 @@ class DatabaseManager:
         """
         cambios = []
         skipped_owner_ids = set()
-        with self.get_connection_context() as conn:
+        with self.readonly_session(lock_ms=800, statement_ms=2500, idle_s=2, seqscan_off=True) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                 cursor.execute("SELECT id, rol FROM usuarios ORDER BY id ASC")
                 rows = cursor.fetchall() or []

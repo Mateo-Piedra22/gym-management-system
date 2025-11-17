@@ -1543,11 +1543,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 )
             else:
                 csp = (
-                    "default-src 'self'; "
+                    "default-src 'self' https:; "
                     "img-src 'self' data: https:; "
                     "media-src 'self' https:; "
-                    "style-src 'self' 'unsafe-inline'; "
-                    "script-src 'self' 'unsafe-inline';"
+                    "style-src 'self' https: 'unsafe-inline'; "
+                    "font-src 'self' https:; "
+                    "script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; "
+                    "connect-src 'self' https:;"
                 )
             resp.headers["Content-Security-Policy"] = csp
         except Exception:
