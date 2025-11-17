@@ -888,6 +888,45 @@ async def whatsapp_save(request: Request, gym_id: int, phone_id: Optional[str] =
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200)
 
+@admin_app.post("/gyms/{gym_id}/whatsapp/test")
+async def whatsapp_test(request: Request, gym_id: int, to: str = Form(None), message: str = Form(None)):
+    _require_admin(request)
+    rl = _check_rate_limit(request, "whatsapp_test", 40, 60)
+    if rl:
+        return rl
+    adm = _get_admin_db()
+    if adm is None:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    g = adm.obtener_gimnasio(int(gym_id))
+    if not g:
+        return JSONResponse({"error": "gym_not_found"}, status_code=404)
+    phone_id = (str(g.get("whatsapp_phone_id") or "").strip())
+    access_token = (str(g.get("whatsapp_access_token") or "").strip())
+    owner_phone = (str(g.get("owner_phone") or "").strip())
+    dest = (to or owner_phone or "").strip()
+    if not phone_id or not access_token:
+        return JSONResponse({"ok": False, "error": "whatsapp_not_configured"}, status_code=400)
+    if not dest:
+        return JSONResponse({"ok": False, "error": "no_destination"}, status_code=400)
+    text = (message or "Mensaje de prueba de GymMS").strip()
+    try:
+        import httpx
+        api_version = (os.getenv("WHATSAPP_API_VERSION") or "v19.0").strip()
+        url = f"https://graph.facebook.com/{api_version}/{phone_id}/messages"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        payload = {"messaging_product": "whatsapp", "to": dest, "type": "text", "text": {"body": text}}
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(url, headers=headers, json=payload)
+        if r.status_code >= 300:
+            return JSONResponse({"ok": False, "status": r.status_code, "error": (r.text or "")[:500]}, status_code=400)
+        try:
+            adm.log_action("owner", "whatsapp_test", int(gym_id), None)
+        except Exception:
+            pass
+        return JSONResponse({"ok": True}, status_code=200)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 @admin_app.get("/gyms/{gym_id}/storage")
 async def storage_form(request: Request, gym_id: int):
     _require_admin(request)
@@ -1257,7 +1296,11 @@ def _send_whatsapp_text_for_gym(adm: AdminDatabaseManager, gym_id: int, text: st
     if requests is None:
         return {"ok": False, "error": "requests_not_available"}
     try:
-        url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+        try:
+            api_ver = (os.getenv("WHATSAPP_API_VERSION") or "v17.0").strip()
+        except Exception:
+            api_ver = "v17.0"
+        url = f"https://graph.facebook.com/{api_ver}/{phone_id}/messages"
         payload = {"messaging_product": "whatsapp", "to": to_number, "type": "text", "text": {"body": text}}
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
         r = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -1893,7 +1936,11 @@ async def health_check(request: Request, gym_id: int):
         pid = str(g.get("whatsapp_phone_id") or "").strip()
         tok = str(g.get("whatsapp_access_token") or "").strip()
         if pid and tok and requests is not None:
-            url = f"https://graph.facebook.com/v17.0/{pid}"
+            try:
+                api_ver = (os.getenv("WHATSAPP_API_VERSION") or "v17.0").strip()
+            except Exception:
+                api_ver = "v17.0"
+            url = f"https://graph.facebook.com/{api_ver}/{pid}"
             r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
             wa_status = int(r.status_code)
             wa_ok = 200 <= r.status_code < 300
@@ -2012,7 +2059,11 @@ async def gym_details(request: Request, gym_id: int):
         pid = str(g.get("whatsapp_phone_id") or "").strip()
         tok = str(g.get("whatsapp_access_token") or "").strip()
         if pid and tok and requests is not None:
-            url = f"https://graph.facebook.com/v17.0/{pid}"
+            try:
+                api_ver = (os.getenv("WHATSAPP_API_VERSION") or "v17.0").strip()
+            except Exception:
+                api_ver = "v17.0"
+            url = f"https://graph.facebook.com/{api_ver}/{pid}"
             r = requests.get(url, headers={"Authorization": f"Bearer {tok}"}, timeout=8)
             wa_status = int(r.status_code)
             wa_ok = 200 <= r.status_code < 300

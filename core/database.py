@@ -20753,12 +20753,7 @@ class DatabaseManager:
                         ON CONFLICT (template_name) DO NOTHING
                     """)
                     
-                    # Insertar configuración inicial con access_token real
-                    cursor.execute("""
-                        INSERT INTO whatsapp_config (phone_id, waba_id, access_token, active) VALUES
-                        ('791155924083208', '787533987071685', 'EAFc4zmSDeIcBPSTd8lY9HMFzXmAmHtxZB39KlHKlZBJctVcAZBnHZCTwtl6BxdSvySPwIKRZAZBI9GY4z6c4iS4aACwMjhwkQ1oIoEmUCfSZC62l4aL3aP0y3RIYTzKGZBRZA7k9naEN9O0bZAPbmHJDLLfBDT8BZAY7PxLbmetLAwy2SEqmZCAoZAh1s97ghUD5jKZADCc945nWVpHVPAeisgJPMZBWZBWFdVakVVTO47e3sEpxcalNGwZDZD', TRUE)
-                        ON CONFLICT DO NOTHING
-                    """)
+                    
                     
                     conn.commit()
                     logging.info("Tablas de WhatsApp creadas exitosamente")

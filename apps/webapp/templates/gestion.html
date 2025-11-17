@@ -1543,22 +1543,6 @@
                     </div>
                   </div>
                   <div class="block-body">
-                    <div class="input-row" style="gap:12px; flex-wrap:wrap">
-                      <div style="flex:1 1 280px">
-                        <label class="muted" for="wa-config-phone-number-id">ID de número de teléfono</label>
-                        <input id="wa-config-phone-number-id" type="text" inputmode="numeric" pattern="^[0-9]{5,}$" placeholder="Ej. 123456789" style="width:100%" aria-label="ID de número de teléfono" required />
-                      </div>
-                      <div style="flex:1 1 280px">
-                        <label class="muted" for="wa-config-business-account-id">ID de cuenta de WhatsApp Business</label>
-                        <input id="wa-config-business-account-id" type="text" placeholder="Ej. 987654321" style="width:100%" aria-label="ID de cuenta de WhatsApp Business" required />
-                      </div>
-                    </div>
-                    <div class="input-row" style="gap:12px; flex-wrap:wrap; margin-top:8px">
-                      <div style="flex:1 1 420px">
-                        <label class="muted" for="wa-config-access-token">Access Token (secreto)</label>
-                        <input id="wa-config-access-token" type="password" placeholder="Token de acceso de la aplicación" style="width:100%" aria-label="Access Token" required />
-                      </div>
-                    </div>
                     <div class="input-row" style="gap:12px; flex-wrap:wrap; margin-top:8px">
                       <div style="flex:1 1 420px">
                         <label class="muted" for="wa-config-allowlist-text">Allowlist (teléfonos separados por coma)</label>
@@ -6317,17 +6301,13 @@
           if(btnToggle){
             const cfgValid = Boolean(data?.configuracion_valida);
             btnToggle.disabled = !cfgValid;
-            btnToggle.title = cfgValid ? '' : 'Config. inválida: completa los campos para iniciar.';
+            btnToggle.title = cfgValid ? '' : 'Configuración inválida';
           }
         } catch(_) {}
         // Rellenar inputs si el estado trae config actual (si está disponible)
         try{
           const cfg = (data && data.config) ? data.config : null;
           if(cfg){
-            const phoneEl = document.getElementById('wa-config-phone-number-id'); if(phoneEl && (cfg.phone_number_id != null)) phoneEl.value = String(cfg.phone_number_id || '');
-            const acctEl = document.getElementById('wa-config-business-account-id'); if(acctEl && (cfg.whatsapp_business_account_id != null)) acctEl.value = String(cfg.whatsapp_business_account_id || '');
-            // Por seguridad, el token puede no exponerse; solo rellenar si está presente
-            const tokenEl = document.getElementById('wa-config-access-token'); if(tokenEl && (cfg.access_token != null)) tokenEl.value = String(cfg.access_token || '');
             const allowEl = document.getElementById('wa-config-allowlist-text'); if(allowEl && (cfg.allowlist_numbers != null)){
               const arr = Array.isArray(cfg.allowlist_numbers) ? cfg.allowlist_numbers : String(cfg.allowlist_numbers || '').split(',');
               allowEl.value = (arr || []).map(x => String(x||'').trim()).filter(x => x).join(', ');
@@ -6374,32 +6354,26 @@
     }
 
     function collectWAConfigFromForm(){
-      const phone = (document.getElementById('wa-config-phone-number-id')||{}).value || '';
-      const acct = (document.getElementById('wa-config-business-account-id')||{}).value || '';
-      const token = (document.getElementById('wa-config-access-token')||{}).value || '';
+      const phone = '';
+      const acct = '';
+      const token = '';
       const allowText = (document.getElementById('wa-config-allowlist-text')||{}).value || '';
       const allowEnabled = !!(document.getElementById('wa-config-allowlist-enabled')||{}).checked;
       const hookEnabled = !!(document.getElementById('wa-config-enable-webhook')||{}).checked;
       const allowArr = normalizePhones(allowText);
-      return {
-        phone_number_id: String(phone).trim(),
-        whatsapp_business_account_id: String(acct).trim(),
-        access_token: String(token).trim(),
+      const payload = {
         allowlist_numbers: allowArr.join(', '),
         allowlist_enabled: allowEnabled,
         enable_webhook: hookEnabled
       };
+      return payload;
     }
 
     function validateWAConfig(cfg){
       const errors = [];
       const setInvalid = (id, invalid) => { const el = document.getElementById(id); if(!el) return; if(invalid){ el.setAttribute('aria-invalid','true'); el.classList.add('input-error'); } else { el.removeAttribute('aria-invalid'); el.classList.remove('input-error'); } };
-      const phoneOk = /^\d{5,}$/.test(String(cfg.phone_number_id||'').trim());
-      if(!phoneOk){ errors.push('ID de número de teléfono inválido (mínimo 5 dígitos).'); setInvalid('wa-config-phone-number-id', true); } else { setInvalid('wa-config-phone-number-id', false); }
-      if(!String(cfg.whatsapp_business_account_id||'').trim()){ errors.push('ID de cuenta de WhatsApp Business es requerido.'); setInvalid('wa-config-business-account-id', true); } else { setInvalid('wa-config-business-account-id', false); }
-      if(!String(cfg.access_token||'').trim() || String(cfg.access_token||'').trim().length < 20){ errors.push('Access Token es requerido y debe ser válido.'); setInvalid('wa-config-access-token', true); } else { setInvalid('wa-config-access-token', false); }
-      // allowlist opcional pero normalizado
-      const errsEl = document.getElementById('wa-config-errors'); if(errsEl){ if(errors.length){ errsEl.style.display='block'; errsEl.textContent = errors.join(' '); } else { errsEl.style.display='none'; errsEl.textContent=''; } }
+      const phoneOk = true;
+      const errsEl = document.getElementById('wa-config-errors'); if(errsEl){ errsEl.style.display='none'; errsEl.textContent=''; }
       return { valid: errors.length === 0, errors };
     }
 
@@ -6523,8 +6497,59 @@
             throw new Error(e.error || 'Error guardando nombre');
           }
         }
-        const file = logoInput && logoInput.files ? logoInput.files[0] : undefined;
+        let file = logoInput && logoInput.files ? logoInput.files[0] : undefined;
+        async function maybeCompressLogo(f){
+          try{
+            if(!f || String(f.type).toLowerCase() !== 'image/png') return f;
+            const MAX_BYTES = 1000000;
+            if(f.size <= MAX_BYTES) return f;
+            const imgDataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error('No se pudo leer imagen'));
+              reader.readAsDataURL(f);
+            });
+            const img = await new Promise((resolve, reject) => {
+              const i = new Image();
+              i.onload = () => resolve(i);
+              i.onerror = () => reject(new Error('Imagen inválida'));
+              i.src = String(imgDataUrl);
+            });
+            const w = img.naturalWidth || img.width || 0;
+            const h = img.naturalHeight || img.height || 0;
+            const maxDim = 1024;
+            const scale = Math.min(1, maxDim / Math.max(w, h));
+            const tw = Math.max(1, Math.round(w * scale));
+            const th = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = tw; canvas.height = th;
+            const ctx = canvas.getContext('2d');
+            if(!ctx) return f;
+            ctx.clearRect(0,0,tw,th);
+            ctx.drawImage(img, 0, 0, tw, th);
+            let blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+            if(!blob) return f;
+            if(blob.size >= f.size) return f;
+            if(blob.size > MAX_BYTES){
+              const s = Math.max(0.5, MAX_BYTES / blob.size);
+              const tw2 = Math.max(1, Math.round(tw * Math.sqrt(s)));
+              const th2 = Math.max(1, Math.round(th * Math.sqrt(s)));
+              const c2 = document.createElement('canvas');
+              c2.width = tw2; c2.height = th2;
+              const c2ctx = c2.getContext('2d');
+              if(c2ctx){
+                c2ctx.clearRect(0,0,tw2,th2);
+                c2ctx.drawImage(canvas, 0, 0, tw2, th2);
+                const b2 = await new Promise((resolve) => c2.toBlob(resolve, 'image/png'));
+                if(b2 && b2.size < blob.size) blob = b2;
+              }
+            }
+            const out = new File([blob], String(f.name || 'logo').replace(/\.png$/i,'') + '.png', { type: 'image/png' });
+            return out;
+          }catch(_){ return f; }
+        }
         if (file){
+          file = await maybeCompressLogo(file);
           const fd = new FormData();
           fd.append('file', file);
           const r2 = await fetch('/api/gym/logo', { method: 'POST', body: fd });

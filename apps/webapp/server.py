@@ -2492,7 +2492,6 @@ async def api_gym_update(request: Request):
 async def api_gym_logo(request: Request, file: UploadFile = File(...)):
     """Sube el logo del gimnasio y guarda URL en DB (GCS/B2 o assets)."""
     try:
-        # Verificar acceso de dueño sin depender del orden de definición
         require_owner(request)  # type: ignore[name-defined]
         ctype = str(getattr(file, 'content_type', '') or '').lower()
         if ctype not in ("image/png", "image/svg+xml"):
@@ -2504,6 +2503,12 @@ async def api_gym_logo(request: Request, file: UploadFile = File(...)):
             data = b""
         if not data:
             return JSONResponse({"ok": False, "error": "Archivo vacío"}, status_code=400)
+        try:
+            max_bytes = 1048576
+        except Exception:
+            max_bytes = 1048576
+        if len(data) > max_bytes:
+            return JSONResponse({"ok": False, "error": "Logo demasiado grande (máximo 1MB)"}, status_code=413)
 
         public_url = None
         # Intentar GCS

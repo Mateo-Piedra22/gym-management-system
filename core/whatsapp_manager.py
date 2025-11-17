@@ -39,18 +39,11 @@ class WhatsAppManager:
             cfg = {}
 
         # IDs de WhatsApp Business
-        self.phone_number_id = (cfg.get('phone_id') or os.getenv('WHATSAPP_PHONE_NUMBER_ID') or "")
-        self.whatsapp_business_account_id = (cfg.get('waba_id') or os.getenv('WHATSAPP_BUSINESS_ACCOUNT_ID') or "")
+        self.phone_number_id = str(cfg.get('phone_id') or "")
+        self.whatsapp_business_account_id = str(cfg.get('waba_id') or "")
 
-        # Token de acceso (prefiere configuración completa; fallback a entorno seguro)
-        token = cfg.get('access_token')
-        if not token:
-            try:
-                from .secure_config import config as secure_config
-                token = secure_config.get_whatsapp_access_token()
-            except Exception:
-                token = None
-        self.access_token = token
+        # Token de acceso
+        self.access_token = cfg.get('access_token')
         
         self.template_processor = TemplateProcessor(database_manager)
         self.message_logger = MessageLogger(database_manager)
@@ -61,6 +54,10 @@ class WhatsAppManager:
         self._config = None
         self._init_deferred = defer_init
         self._client_initialized = False
+        try:
+            self._api_version = (os.getenv('WHATSAPP_API_VERSION') or 'v19.0').strip()
+        except Exception:
+            self._api_version = 'v19.0'
         # Non-blocking y timeouts para envíos
         try:
             self._send_timeout_seconds = float(os.getenv("WHATSAPP_SEND_TIMEOUT_SECONDS", "1.5"))
@@ -318,7 +315,7 @@ class WhatsAppManager:
             if not phone_id:
                 return False, {"error": "phone_number_id no configurado"}
 
-            url = f"https://graph.facebook.com/v19.0/{phone_id}/messages"
+            url = f"https://graph.facebook.com/{self._api_version}/{phone_id}/messages"
             headers = {
                 "Authorization": f"Bearer {self.access_token}",
                 "Content-Type": "application/json"
