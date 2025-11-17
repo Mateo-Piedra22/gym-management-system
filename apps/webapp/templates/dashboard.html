@@ -1599,6 +1599,21 @@ async function loadAdvanced() {
     })();
   </script>
   <script src="/static/js/utils.js"></script>
+  <div class="modal-backdrop" id="suspension-modal" data-locked="1" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="susp-title">
+      <div class="modal-header">
+        <h3 id="susp-title" style="margin:0">Servicio suspendido</h3>
+      </div>
+      <div class="modal-body" id="susp-msg"></div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      try{
+        fetch('/api/suspension_status',{credentials:'same-origin'}).then(function(r){ if(!r.ok) return null; return r.json(); }).then(function(d){ if(!d) return; if(d.suspended){ var b=document.getElementById('suspension-modal'); var m=document.getElementById('susp-msg'); if(!b||!m) return; var motivo=String(d.reason||'Servicio suspendido'); var hasta=String(d.until||''); var msg=motivo; if(hasta){ msg += ' Hasta: ' + hasta; } m.textContent=msg; b.classList.add('active'); b.removeAttribute('aria-hidden'); } });
+      }catch(_){ }
+    })();
+  </script>
   <!-- Actualización dinámica de nombre del gimnasio en toda la webapp -->
   <script>
   (function(){

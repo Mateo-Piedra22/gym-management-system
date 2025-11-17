@@ -92,6 +92,8 @@
       var cmdk = qs('.cmdk'); if(cmdk) cmdk.classList.remove('open');
       // Modales básicos con .modal-backdrop
       qsa('.modal-backdrop.active').forEach(function(el){
+        var locked = (el.getAttribute('data-locked') === '1');
+        if(locked) return;
         el.classList.remove('active');
         try { el.style.display = 'none'; el.setAttribute('aria-hidden','true'); } catch(e){}
       });

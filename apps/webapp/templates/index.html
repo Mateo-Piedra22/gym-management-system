@@ -236,6 +236,12 @@
       </div>
     </div>
   </div>
+  <div class="modal-backdrop" id="suspension-modal" data-locked="1" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="susp-title">
+      <div class="title" id="susp-title">Servicio suspendido</div>
+      <div class="content" id="susp-msg"></div>
+    </div>
+  </div>
   <script>
     (function(){
       function showMaintenance(msg){
@@ -247,6 +253,9 @@
       try{ var c=document.getElementById('maint-close'); if(c){ c.addEventListener('click', hideMaintenance); } }catch(_){ }
       try{
         fetch('/api/maintenance_status',{credentials:'same-origin'}).then(function(r){ if(!r.ok) return null; return r.json(); }).then(function(d){ if(!d) return; if(d.active){ showMaintenance(d.message); } });
+      }catch(_){ }
+      try{
+        fetch('/api/suspension_status',{credentials:'same-origin'}).then(function(r){ if(!r.ok) return null; return r.json(); }).then(function(d){ if(!d) return; if(d.suspended){ var b=document.getElementById('suspension-modal'); var m=document.getElementById('susp-msg'); if(!b||!m) return; var motivo=String(d.reason||'Servicio suspendido'); var hasta=String(d.until||''); var msg=motivo; if(hasta){ msg += ' Hasta: ' + hasta; } m.textContent=msg; b.classList.add('active'); b.removeAttribute('aria-hidden'); } });
       }catch(_){ }
     })();
   </script>

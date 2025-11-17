@@ -1398,13 +1398,22 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     )
                     return Response(content=html, media_type="text/html", status_code=503)
                 if _is_tenant_suspended(sub):
-                    html = (
-                        "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
-                        + "<h1 style=\"font-size:24px;font-weight:600\">Servicio suspendido</h1>"
-                        + "<p style=\"margin-top:8px\">Contacta a administración para reactivar el servicio.</p>"
-                        + "</div></div>"
-                    )
-                    return Response(content=html, media_type="text/html", status_code=403)
+                    info = _get_tenant_suspension_info(sub) or {}
+                    p = str(getattr(request.url, "path", "/"))
+                    allow = (p == "/") or p.startswith("/api/suspension_status") or p.startswith("/api/maintenance_status") or p.startswith("/static/") or (p == "/favicon.ico")
+                    if not allow:
+                        motivo = str(info.get("reason") or "Servicio suspendido").strip()
+                        hasta = str(info.get("until") or "").strip()
+                        extra = ("<p style=\"margin-top:8px\">" + motivo + "</p>")
+                        if hasta:
+                            extra += ("<p style=\"margin-top:8px\">Hasta: " + hasta + "</p>")
+                        html = (
+                            "<div class=\"dark\"><div style=\"max-width:720px;margin:0 auto;padding:24px;font-family:system-ui\">"
+                            + "<h1 style=\"font-size:24px;font-weight:600\">Servicio suspendido</h1>"
+                            + extra
+                            + "</div></div>"
+                        )
+                        return Response(content=html, media_type="text/html", status_code=403)
             except Exception:
                 pass
         try:
@@ -12936,3 +12945,53 @@ async def api_gym_subscription(request: Request):
         return JSONResponse({"ok": True, "subscription": sub, "days_until_due": days})
     except Exception:
         return JSONResponse({"ok": False})
+# Estado de mantenimiento
+@app.get("/api/maintenance_status")
+async def api_maintenance_status(request: Request):
+    try:
+        sub = CURRENT_TENANT.get() or ""
+        if not sub:
+            return JSONResponse({"active": False})
+        msg = _get_tenant_maintenance_message(sub)
+        return JSONResponse({"active": bool(msg), "message": str(msg or "")})
+    except Exception:
+        return JSONResponse({"active": False})
+
+# Estado de suspensión
+def _get_tenant_suspension_info(tenant: str) -> Optional[Dict[str, Any]]:
+    adm = _get_admin_db_manager()
+    if adm is None:
+        return None
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT hard_suspend, suspended_until, suspended_reason FROM gyms WHERE subdominio = %s",
+                (tenant.strip().lower(),),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            hard, until, reason = row[0], row[1], row[2]
+            try:
+                u = until.isoformat() if hasattr(until, "isoformat") and until else (str(until or ""))
+            except Exception:
+                u = str(until or "")
+            return {"hard": bool(hard), "until": u, "reason": str(reason or "")}
+    except Exception:
+        return None
+
+@app.get("/api/suspension_status")
+async def api_suspension_status(request: Request):
+    try:
+        sub = CURRENT_TENANT.get() or ""
+        if not sub:
+            return JSONResponse({"suspended": False})
+        sus = bool(_is_tenant_suspended(sub))
+        info = _get_tenant_suspension_info(sub) if sus else None
+        payload: Dict[str, Any] = {"suspended": sus}
+        if info:
+            payload.update({"reason": info.get("reason"), "until": info.get("until"), "hard": info.get("hard")})
+        return JSONResponse(payload)
+    except Exception:
+        return JSONResponse({"suspended": False})
