@@ -173,13 +173,13 @@
         .then(function(j){
           try {
             var active = !!(j && j.active);
+            var activeNow = !!(j && j.active_now);
             var until = j && j.until;
             var sched = false;
-            if(active && until){
-              try {
-                var dt = new Date(String(until));
-                sched = (dt.getTime() > Date.now());
-              } catch(e){ sched = false; }
+            if(active && !activeNow){
+              if(until){
+                try { var dt = new Date(String(until)); sched = (dt.getTime() > Date.now()); } catch(e){ sched = false; }
+              } else { sched = true; }
             }
             if(sched){ showMaintenanceModal(j); }
           } catch(e){}

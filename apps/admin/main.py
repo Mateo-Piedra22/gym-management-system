@@ -1209,12 +1209,28 @@ async def avisar_mantenimiento_batch(request: Request, gym_ids: str = Form(...),
         hasta = str((g or {}).get("suspended_until") or "")
         base_msg = message or (f"Hola {nombre}, el gimnasio está en mantenimiento. {razon}" + (f" Hasta: {hasta}" if hasta else ""))
         res = _send_whatsapp_text_for_gym(adm, int(gid), base_msg)
+        # Activar modal de mantenimiento programado en WebApp (config por-gimnasio)
+        ok_cfg = False
+        try:
+            base = _resolve_admin_db_params()
+            params = dict(base)
+            params["database"] = str((g or {}).get("db_name") or "").strip()
+            if params.get("database") and DatabaseManager is not None:
+                db = DatabaseManager(params=params)
+                a1 = db.actualizar_configuracion("maintenance_modal_active", "1")  # type: ignore
+                a2 = db.actualizar_configuracion("maintenance_modal_message", str(base_msg or ""))  # type: ignore
+                if hasta:
+                    db.actualizar_configuracion("maintenance_modal_until", str(hasta))  # type: ignore
+                ok_cfg = bool(a1 and a2)
+        except Exception:
+            ok_cfg = False
         try:
             adm.log_action("owner", "send_maintenance_notice", int(gid), base_msg)
         except Exception:
             pass
-        results.append({"gym_id": gid, "ok": bool(res.get("ok")), "status": res.get("status")})
+        results.append({"gym_id": gid, "ok": bool(res.get("ok")), "status": res.get("status"), "webapp_modal": bool(ok_cfg)})
     return JSONResponse({"ok": True, "count": len(results), "results": results}, status_code=200)
+
 
 @admin_app.get("/gyms/{gym_id}/payments")
 async def listar_pagos_gym(request: Request, gym_id: int):
@@ -2331,20 +2347,24 @@ async def gyms_remind_batch(request: Request, gym_ids: str = Form(...), message:
     errs = []
     for gid in ids:
         try:
-            sub = adm.obtener_subscription(int(gid))
             g = adm.obtener_gimnasio(int(gid))
-            nombre = str((g or {}).get("nombre") or "")
-            nd = str((sub or {}).get("next_due_date") or "")
-            msg = message or (f"Hola {nombre}, tu suscripción vence el {nd}.")
-            res = _send_whatsapp_text_for_gym(adm, int(gid), msg)
-            if res.get("ok"):
-                okc += 1
+            base = _resolve_admin_db_params()
+            params = dict(base)
+            params["database"] = str((g or {}).get("db_name") or "").strip()
+            if params.get("database") and DatabaseManager is not None:
+                db = DatabaseManager(params=params)
+                a1 = db.actualizar_configuracion("admin_reminder_message", str(message or ""))  # type: ignore
+                a2 = db.actualizar_configuracion("admin_reminder_active", "1")  # type: ignore
+                if a1 and a2:
+                    okc += 1
+                else:
+                    errs.append({"id": gid, "error": "config_update_failed"})
             else:
-                errs.append({"id": gid, "error": res.get("error") or "send_failed"})
+                errs.append({"id": gid, "error": "db_params_invalid"})
         except Exception as e:
             errs.append({"id": gid, "error": str(e)})
     try:
-        adm.log_action("owner", "gyms_remind_batch", None, {"ids": ids, "ok": okc, "errs": len(errs)})
+        adm.log_action("owner", "set_webapp_reminder_batch", None, {"ids": ids, "ok": okc, "errs": len(errs), "message": str(message or "")})
     except Exception:
         pass
     return JSONResponse({"ok": True, "processed": okc, "errors": errs}, status_code=200)

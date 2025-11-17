@@ -1379,6 +1379,26 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if _get_multi_tenant_mode():
             host = _get_request_host(request)
             sub = _extract_tenant_from_host(host)
+        else:
+            try:
+                base = _resolve_base_db_params()
+                dbn = str((base.get("database") or "")).strip()
+            except Exception:
+                dbn = ""
+            if not sub and dbn:
+                try:
+                    adm = _get_admin_db_manager()
+                except Exception:
+                    adm = None
+                if adm is not None:
+                    try:
+                        with adm.db.get_connection_context() as conn:  # type: ignore
+                            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                            cur.execute("SELECT subdominio FROM gyms WHERE db_name = %s", (dbn,))
+                            row = cur.fetchone() or {}
+                            sub = str(row.get("subdominio") or "").strip().lower() or None
+                    except Exception:
+                        sub = None
         if sub:
             token = CURRENT_TENANT.set(sub)
             try:
@@ -1427,7 +1447,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
                             "until": str(info.get("until") or ""),
                         }
                         return templates.TemplateResponse("suspension.html", ctx, status_code=403)
-                if active_maint and path != "/":
+                if active_maint:
                     allow = path.startswith("/static/") or (path == "/favicon.ico")
                     if not allow:
                         theme_vars = _resolve_theme_vars()
@@ -12919,27 +12939,6 @@ async def api_rutina_preview_qr_scan(uuid_rutina: str):
         return Response(content=json.dumps(payload, default=str, separators=(",", ":")), media_type="application/json")
     except Exception:
         return JSONResponse(content=jsonable_encoder({"ok": True, "rutina": out}), status_code=200)
-@app.get("/api/maintenance_status")
-async def api_maintenance_status(request: Request):
-    tenant = None
-    try:
-        tenant = CURRENT_TENANT.get()
-    except Exception:
-        tenant = None
-    adm = _get_admin_db_manager()
-    if adm is None or not tenant:
-        return JSONResponse({"active": False})
-    try:
-        with adm.db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT status, suspended_reason, suspended_until FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
-            row = cur.fetchone() or {}
-            st = str((row.get("status") or "")).lower()
-            active = st == "maintenance"
-            return JSONResponse({"active": active, "message": row.get("suspended_reason"), "until": row.get("suspended_until")})
-    except Exception:
-        return JSONResponse({"active": False})
-
 @app.get("/api/gym/subscription")
 async def api_gym_subscription(request: Request):
     tenant = None
@@ -12986,6 +12985,67 @@ async def api_admin_reminder(request: Request):
         return JSONResponse({"active": bool(active), "message": str(msg or "")})
     except Exception:
         return JSONResponse({"active": False, "message": ""})
+
+@app.get("/api/maintenance_status")
+async def api_maintenance_status(request: Request):
+    try:
+        sub = CURRENT_TENANT.get() or ""
+    except Exception:
+        sub = ""
+    adm = _get_admin_db_manager()
+    if adm is None:
+        return JSONResponse({"active": False})
+    try:
+        with adm.db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT status, suspended_until, suspended_reason FROM gyms WHERE subdominio = %s", (str(sub).strip().lower(),))
+            row = cur.fetchone() or {}
+            st = str((row.get("status") or "")).lower()
+            active = (st == "maintenance")
+            until = row.get("suspended_until")
+            msg = row.get("suspended_reason")
+            try:
+                db = _get_db()
+            except Exception:
+                db = None
+            if db is not None:
+                try:
+                    act = db.obtener_configuracion("maintenance_modal_active")  # type: ignore
+                    if str(act or "").strip().lower() in ("1", "true", "yes", "on") and not active:
+                        active = True
+                        try:
+                            m2 = db.obtener_configuracion("maintenance_modal_message")  # type: ignore
+                            if m2:
+                                msg = m2
+                        except Exception:
+                            pass
+                        try:
+                            u2 = db.obtener_configuracion("maintenance_modal_until")  # type: ignore
+                            if u2:
+                                until = u2
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            active_now = False
+            if active:
+                try:
+                    from datetime import datetime, timezone
+                    if until:
+                        dt = until if hasattr(until, "tzinfo") else datetime.fromisoformat(str(until))
+                        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+                        active_now = bool(dt <= now)
+                    else:
+                        active_now = True
+                except Exception:
+                    active_now = True
+            try:
+                u = until.isoformat() if hasattr(until, "isoformat") and until else (str(until or ""))
+            except Exception:
+                u = str(until or "")
+            return JSONResponse({"active": bool(active), "active_now": bool(active_now), "until": u, "message": str(msg or "")})
+    except Exception:
+        return JSONResponse({"active": False})
 
 # Estado de suspensión
 def _get_tenant_suspension_info(tenant: str) -> Optional[Dict[str, Any]]:
