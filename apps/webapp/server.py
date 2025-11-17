@@ -1532,7 +1532,25 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
             resp.headers["X-Content-Type-Options"] = "nosniff"
             resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-            csp = "default-src 'self'; img-src 'self' data: https:; media-src 'self' https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
+            path = str(getattr(request.url, "path", "/"))
+            if path.startswith("/admin"):
+                csp = (
+                    "default-src 'self' https:; "
+                    "img-src 'self' data: https:; "
+                    "media-src 'self' https:; "
+                    "style-src 'self' https: 'unsafe-inline'; "
+                    "font-src 'self' https:; "
+                    "script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; "
+                    "connect-src 'self' https:;"
+                )
+            else:
+                csp = (
+                    "default-src 'self'; "
+                    "img-src 'self' data: https:; "
+                    "media-src 'self' https:; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "script-src 'self' 'unsafe-inline';"
+                )
             resp.headers["Content-Security-Policy"] = csp
         except Exception:
             pass
