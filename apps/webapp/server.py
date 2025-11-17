@@ -1507,7 +1507,6 @@ class TenantMiddleware(BaseHTTPMiddleware):
                     pass
         return response
 
-app.add_middleware(TenantMiddleware)
 
 class ForceHTTPSProtoMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
@@ -1523,7 +1522,6 @@ class ForceHTTPSProtoMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         return response
 
-app.add_middleware(ForceHTTPSProtoMiddleware)
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
@@ -1556,7 +1554,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             pass
         return resp
 
-app.add_middleware(SecurityHeadersMiddleware)
 
 class TenantGuardMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
@@ -1600,7 +1597,6 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
         resp = await call_next(request)
         return resp
 
-app.add_middleware(TenantGuardMiddleware)
 
 # Redirección amigable de 401 según la sección
 @app.exception_handler(HTTPException)
@@ -13291,3 +13287,12 @@ class CacheHeadersMiddleware(BaseHTTPMiddleware):
         return resp
 
 app.add_middleware(CacheHeadersMiddleware)
+# Orden de middlewares para flujo correcto:
+# 1) TenantGuard (innermost) – valida después de fijar tenant
+# 2) TenantMiddleware – fija CURRENT_TENANT temprano
+# 3) ForceHTTPSProto – ajusta scheme
+# 4) SecurityHeaders – aplica encabezados al final
+app.add_middleware(TenantGuardMiddleware)
+app.add_middleware(TenantMiddleware)
+app.add_middleware(ForceHTTPSProtoMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
