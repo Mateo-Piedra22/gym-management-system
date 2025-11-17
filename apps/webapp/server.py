@@ -2127,10 +2127,10 @@ def _get_b2_settings() -> Dict[str, Any]:
             tenant = CURRENT_TENANT.get()
         except Exception:
             tenant = None
-        bucket_id = ""
-        bucket_name = ""
-        key_id = ""
-        application_key = ""
+        bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
+        bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
+        key_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or "").strip()
+        application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
         if tenant:
             adm = _get_admin_db_manager()
             if adm is not None:
@@ -2145,10 +2145,7 @@ def _get_b2_settings() -> Dict[str, Any]:
                             key_id = str(row[2] or "").strip()
                             application_key = str(row[3] or "").strip()
                 except Exception:
-                    bucket_id = bucket_id
-                    bucket_name = bucket_name
-                    key_id = key_id
-                    application_key = application_key
+                    pass
         if tenant:
             try:
                 prefix = f"{prefix}/{tenant}".strip().strip("/")
@@ -6590,13 +6587,13 @@ async def api_metodos_pago_delete(metodo_id: int, _=Depends(require_gestion_acce
 async def api_ejercicios_get(filtro: str = "", objetivo: str = "", grupo_muscular: str = "", _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
-        return []
+        return JSONResponse([], headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     guard = _circuit_guard_json(db, "/api/ejercicios")
     if guard:
         return guard
     try:
         ejercicios = db.obtener_ejercicios(filtro=filtro or "", objetivo=objetivo or "", grupo_muscular=grupo_muscular or "")  # type: ignore
-        return [
+        payload = [
             {
                 "id": int(e.id) if e.id is not None else None,
                 "nombre": e.nombre,
@@ -6608,8 +6605,9 @@ async def api_ejercicios_get(filtro: str = "", objetivo: str = "", grupo_muscula
             }
             for e in ejercicios
         ]
+        return JSONResponse(payload, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": str(e)}, status_code=500, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
 
 @app.post("/api/ejercicios")
 async def api_ejercicios_create(request: Request, _=Depends(require_gestion_access)):
@@ -6672,7 +6670,7 @@ async def api_ejercicios_create(request: Request, _=Depends(require_gestion_acce
         video_mime = payload.get("video_mime")
         ejercicio = Ejercicio(nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         new_id = db.crear_ejercicio(ejercicio)  # type: ignore
-        return {"ok": True, "id": int(new_id)}
+        return JSONResponse({"ok": True, "id": int(new_id)}, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     except HTTPException:
         raise
     except Exception as e:
@@ -6728,7 +6726,7 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         video_mime = payload.get("video_mime") if ("video_mime" in payload) else (existing.get("video_mime") if existing and ("video_mime" in select_cols) else None)
         ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         db.actualizar_ejercicio(ejercicio)  # type: ignore
-        return {"ok": True, "id": int(ejercicio_id)}
+        return JSONResponse({"ok": True, "id": int(ejercicio_id)}, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     except HTTPException:
         raise
     except Exception as e:
@@ -6883,7 +6881,7 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         resp = {"ok": True, "url": url, "mime": content_type, "filename": dest_name, "storage": storage}
         if storage == "local" and b2_err_detail:
             resp["warning"] = f"Remote upload failed; using local storage. {b2_err_detail}"
-        return resp
+        return JSONResponse(resp, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     except HTTPException:
         raise
     except Exception as e:

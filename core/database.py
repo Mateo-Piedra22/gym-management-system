@@ -12584,31 +12584,45 @@ class DatabaseManager:
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                # Descubrir columnas existentes para construir INSERT dinámico
+                full_cols = ['nombre', 'grupo_muscular', 'descripcion', 'objetivo', 'video_url', 'video_mime']
+                full_vals = [
+                    ejercicio.nombre,
+                    ejercicio.grupo_muscular,
+                    ejercicio.descripcion,
+                    getattr(ejercicio, 'objetivo', 'general'),
+                    getattr(ejercicio, 'video_url', None),
+                    getattr(ejercicio, 'video_mime', None),
+                ]
                 try:
-                    cols = self.get_table_columns('ejercicios') or []
+                    cursor.execute(
+                        f"INSERT INTO ejercicios ({', '.join(full_cols)}) VALUES ({', '.join(['%s'] * len(full_cols))}) RETURNING id",
+                        tuple(full_vals),
+                    )
                 except Exception:
-                    cols = []
-                insert_cols = ['nombre']
-                insert_vals = [ejercicio.nombre]
-                if 'grupo_muscular' in cols:
-                    insert_cols.append('grupo_muscular')
-                    insert_vals.append(ejercicio.grupo_muscular)
-                if 'descripcion' in cols:
-                    insert_cols.append('descripcion')
-                    insert_vals.append(ejercicio.descripcion)
-                if 'objetivo' in cols:
-                    insert_cols.append('objetivo')
-                    insert_vals.append(getattr(ejercicio, 'objetivo', 'general'))
-                if 'video_url' in cols:
-                    insert_cols.append('video_url')
-                    insert_vals.append(getattr(ejercicio, 'video_url', None))
-                if 'video_mime' in cols:
-                    insert_cols.append('video_mime')
-                    insert_vals.append(getattr(ejercicio, 'video_mime', None))
-                placeholders = ', '.join(['%s'] * len(insert_vals))
-                sql = f"INSERT INTO ejercicios ({', '.join(insert_cols)}) VALUES ({placeholders}) RETURNING id"
-                cursor.execute(sql, tuple(insert_vals))
+                    try:
+                        cols = self.get_table_columns('ejercicios') or []
+                    except Exception:
+                        cols = []
+                    insert_cols = ['nombre']
+                    insert_vals = [ejercicio.nombre]
+                    if 'grupo_muscular' in cols:
+                        insert_cols.append('grupo_muscular')
+                        insert_vals.append(ejercicio.grupo_muscular)
+                    if 'descripcion' in cols:
+                        insert_cols.append('descripcion')
+                        insert_vals.append(ejercicio.descripcion)
+                    if 'objetivo' in cols:
+                        insert_cols.append('objetivo')
+                        insert_vals.append(getattr(ejercicio, 'objetivo', 'general'))
+                    if 'video_url' in cols:
+                        insert_cols.append('video_url')
+                        insert_vals.append(getattr(ejercicio, 'video_url', None))
+                    if 'video_mime' in cols:
+                        insert_cols.append('video_mime')
+                        insert_vals.append(getattr(ejercicio, 'video_mime', None))
+                    placeholders = ', '.join(['%s'] * len(insert_vals))
+                    sql = f"INSERT INTO ejercicios ({', '.join(insert_cols)}) VALUES ({placeholders}) RETURNING id"
+                    cursor.execute(sql, tuple(insert_vals))
                 result = cursor.fetchone()
                 if result is None:
                     logging.error(f"Failed to create exercise: {ejercicio.nombre} - fetchone returned None")
