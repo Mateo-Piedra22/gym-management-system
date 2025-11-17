@@ -2093,7 +2093,7 @@ def _upload_media_to_gcs(dest_name: str, data: bytes, content_type: str) -> Opti
     if not bucket_name:
         return None
     if gcs_storage is None:
-        raise HTTPException(status_code=500, detail="Dependencia 'google-cloud-storage' no instalada. Agregue 'google-cloud-storage' al requirements.")
+        return None
     try:
         client = gcs_storage.Client(project=(settings.get("project_id") or None))
         bucket = client.bucket(bucket_name)
@@ -6813,21 +6813,18 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                 pass
 
             # Actualizar usando solo columnas existentes
-            try:
-                cols = db.get_table_columns('ejercicios')  # type: ignore
-            except Exception:
-                cols = []
             with db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
-                if ('video_url' in cols) and ('video_mime' in cols):
+                try:
                     cur.execute("UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s", (url, content_type, int(ejercicio_id)))
-                elif ('video_url' in cols):
-                    cur.execute("UPDATE ejercicios SET video_url = %s WHERE id = %s", (url, int(ejercicio_id)))
-                elif ('video_mime' in cols):
-                    cur.execute("UPDATE ejercicios SET video_mime = %s WHERE id = %s", (content_type, int(ejercicio_id)))
-                else:
-                    # Si no existen columnas de medios, no fallar; el archivo ya está subido
-                    pass
+                except Exception:
+                    try:
+                        cur.execute("UPDATE ejercicios SET video_url = %s WHERE id = %s", (url, int(ejercicio_id)))
+                    except Exception:
+                        try:
+                            cur.execute("UPDATE ejercicios SET video_mime = %s WHERE id = %s", (content_type, int(ejercicio_id)))
+                        except Exception:
+                            pass
                 conn.commit()
                 try:
                     db.cache.invalidate('ejercicios')  # type: ignore

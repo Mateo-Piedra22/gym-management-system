@@ -24,6 +24,11 @@ try:
     from core.database import DatabaseManager  # type: ignore
 except Exception:
     DatabaseManager = None  # type: ignore
+try:
+    import psycopg2  # type: ignore
+    import psycopg2.extras  # type: ignore
+except Exception:
+    psycopg2 = None  # type: ignore
 
 
 admin_app = FastAPI(title="GymMS Admin", version="1.0")
@@ -859,7 +864,7 @@ async def suspender_gimnasio(request: Request, gym_id: int, reason: Optional[str
     adm = _get_admin_db()
     if adm is None:
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = adm.set_estado_gimnasio(int(gym_id), "suspended", bool(hard), until, reason)
+    ok = adm.set_estado_gimnasio(int(gym_id), "suspended", True, until, reason)
     try:
         adm.log_action("owner", "suspend_gym", int(gym_id), f"{reason}|{until}|{bool(hard)}")
     except Exception:
@@ -1140,10 +1145,10 @@ async def set_admin_reminder_webapp(request: Request, gym_id: int, message: Opti
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
     try:
         with adm.db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur = conn.cursor(cursor_factory=(psycopg2.extras.RealDictCursor if psycopg2 else None))
             cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
-            row = cur.fetchone() or {}
-            dbn = str(row.get("db_name") or "").strip()
+            row = cur.fetchone()
+            dbn = str(((row.get("db_name") if isinstance(row, dict) else (row[0] if row else "")))).strip()
         if not dbn:
             return JSONResponse({"ok": False, "error": "gym_db_not_found"}, status_code=404)
         base = _resolve_admin_db_params()
@@ -1171,10 +1176,10 @@ async def clear_admin_reminder_webapp(request: Request, gym_id: int):
         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
     try:
         with adm.db.get_connection_context() as conn:  # type: ignore
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur = conn.cursor(cursor_factory=(psycopg2.extras.RealDictCursor if psycopg2 else None))
             cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
-            row = cur.fetchone() or {}
-            dbn = str(row.get("db_name") or "").strip()
+            row = cur.fetchone()
+            dbn = str(((row.get("db_name") if isinstance(row, dict) else (row[0] if row else "")))).strip()
         if not dbn:
             return JSONResponse({"ok": False, "error": "gym_db_not_found"}, status_code=404)
         base = _resolve_admin_db_params()
@@ -1216,7 +1221,7 @@ async def avisar_mantenimiento_batch(request: Request, gym_ids: str = Form(...),
             params = dict(base)
             params["database"] = str((g or {}).get("db_name") or "").strip()
             if params.get("database") and DatabaseManager is not None:
-                db = DatabaseManager(params=params)
+                db = DatabaseManager(connection_params=params)
                 a1 = db.actualizar_configuracion("maintenance_modal_active", "1")  # type: ignore
                 a2 = db.actualizar_configuracion("maintenance_modal_message", str(base_msg or ""))  # type: ignore
                 if hasta:
@@ -2307,7 +2312,7 @@ async def gyms_batch(request: Request, action: str = Form(...), gym_ids: str = F
                 else:
                     errs.append({"id": gid, "error": res.get("error") if isinstance(res, dict) else "unknown"})
             elif action == "suspend":
-                if adm.set_estado_gimnasio(int(gid), "suspended", False, None, "batch"):
+                if adm.set_estado_gimnasio(int(gid), "suspended", True, None, "batch"):
                     okc += 1
                 else:
                     errs.append({"id": gid, "error": "set_estado_failed"})
@@ -2343,31 +2348,33 @@ async def gyms_remind_batch(request: Request, gym_ids: str = Form(...), message:
                 ids.append(v)
         except Exception:
             continue
-    okc = 0
-    errs = []
+    results = []
     for gid in ids:
+        ok = False
+        err = None
         try:
             g = adm.obtener_gimnasio(int(gid))
             base = _resolve_admin_db_params()
             params = dict(base)
             params["database"] = str((g or {}).get("db_name") or "").strip()
             if params.get("database") and DatabaseManager is not None:
-                db = DatabaseManager(params=params)
+                db = DatabaseManager(connection_params=params)
                 a1 = db.actualizar_configuracion("admin_reminder_message", str(message or ""))  # type: ignore
                 a2 = db.actualizar_configuracion("admin_reminder_active", "1")  # type: ignore
-                if a1 and a2:
-                    okc += 1
-                else:
-                    errs.append({"id": gid, "error": "config_update_failed"})
+                ok = bool(a1 and a2)
+                if not ok:
+                    err = "config_update_failed"
             else:
-                errs.append({"id": gid, "error": "db_params_invalid"})
+                err = "db_params_invalid"
         except Exception as e:
-            errs.append({"id": gid, "error": str(e)})
+            ok = False
+            err = str(e)
+        results.append({"gym_id": gid, "ok": bool(ok), "error": err})
     try:
         adm.log_action("owner", "set_webapp_reminder_batch", None, {"ids": ids, "ok": okc, "errs": len(errs), "message": str(message or "")})
     except Exception:
         pass
-    return JSONResponse({"ok": True, "processed": okc, "errors": errs}, status_code=200)
+    return JSONResponse({"ok": True, "results": results}, status_code=200)
 
 @admin_app.get("/audit")
 async def ver_auditoria(request: Request):
