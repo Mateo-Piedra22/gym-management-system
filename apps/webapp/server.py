@@ -6840,22 +6840,28 @@ async def api_ejercicios_create(request: Request, _=Depends(require_gestion_acce
                 cols0 = []
             needs_commit = False
             with db.get_connection_context() as conn:  # type: ignore
+                prev_ac = None
+                try:
+                    prev_ac = getattr(conn, 'autocommit')
+                    conn.autocommit = True
+                except Exception:
+                    prev_ac = None
                 cur0 = conn.cursor()
                 if 'descripcion' not in cols0:
                     try:
-                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN descripcion TEXT")
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS descripcion TEXT")
                         needs_commit = True
                     except Exception:
                         pass
                 if 'grupo_muscular' not in cols0:
                     try:
-                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN grupo_muscular VARCHAR(120)")
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS grupo_muscular VARCHAR(120)")
                         needs_commit = True
                     except Exception:
                         pass
                 if 'objetivo' not in cols0:
                     try:
-                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN objetivo VARCHAR(60)")
+                        cur0.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS objetivo VARCHAR(60)")
                         needs_commit = True
                     except Exception:
                         pass
@@ -6864,6 +6870,11 @@ async def api_ejercicios_create(request: Request, _=Depends(require_gestion_acce
                         conn.commit()
                     except Exception:
                         pass
+                try:
+                    if prev_ac is not None:
+                        conn.autocommit = prev_ac
+                except Exception:
+                    pass
             try:
                 if hasattr(db, 'invalidate_table_columns_cache'):
                     db.invalidate_table_columns_cache('ejercicios')  # type: ignore
@@ -6969,11 +6980,26 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         if not ext and content_type.startswith("video/"):
             ext = content_type.split("/")[-1]
         allowed_ext = {"mp4", "webm", "mov", "gif", "png", "jpg", "jpeg", "svg"}
-        if not content_type or not any(content_type.startswith(p) for p in ("video/", "image/")):
-            if not ext or ext not in allowed_ext:
-                raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+        is_media_type = bool(content_type) and any(content_type.startswith(p) for p in ("video/", "image/"))
+        valid_ext = bool(ext) and (ext in allowed_ext)
+        if not (is_media_type or valid_ext):
+            raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+        if valid_ext:
+            if ext == "mp4":
+                content_type = "video/mp4"
+            elif ext == "webm":
+                content_type = "video/webm"
+            elif ext == "mov":
+                content_type = "video/quicktime"
+            elif ext == "gif":
+                content_type = "image/gif"
+            elif ext == "png":
+                content_type = "image/png"
+            elif ext == "jpg" or ext == "jpeg":
+                content_type = "image/jpeg"
+            elif ext == "svg":
+                content_type = "image/svg+xml"
 
-        # Nombre destino seguro
         if not ext:
             if content_type == "image/gif":
                 ext = "gif"
@@ -7050,18 +7076,32 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                     cols0 = []
                 if ('video_url' not in cols0) or ('video_mime' not in cols0):
                     with db.get_connection_context() as conn:  # type: ignore
+                        prev_ac = None
+                        try:
+                            prev_ac = getattr(conn, 'autocommit')
+                            conn.autocommit = True
+                        except Exception:
+                            prev_ac = None
                         cur0 = conn.cursor()
                         try:
                             if 'video_url' not in cols0:
-                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN video_url VARCHAR(512)")
+                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_url VARCHAR(512)")
                         except Exception:
                             pass
                         try:
                             if 'video_mime' not in cols0:
-                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN video_mime VARCHAR(50)")
+                                cur0.execute("ALTER TABLE ejercicios ADD COLUMN IF NOT EXISTS video_mime VARCHAR(50)")
                         except Exception:
                             pass
-                        conn.commit()
+                        try:
+                            conn.commit()
+                        except Exception:
+                            pass
+                        try:
+                            if prev_ac is not None:
+                                conn.autocommit = prev_ac
+                        except Exception:
+                            pass
                     try:
                         if hasattr(db, 'invalidate_table_columns_cache'):
                             db.invalidate_table_columns_cache('ejercicios')  # type: ignore

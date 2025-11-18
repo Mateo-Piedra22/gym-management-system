@@ -9775,8 +9775,10 @@ function ensurePdfZoomControls(containerId, frameId){
           if(f){
             const type = (f.type || '').toLowerCase();
             const sizeMB = f.size ? (f.size / (1024*1024)) : 0;
-            const isGif = type === 'image/gif' || /\.gif$/i.test(f.name || '');
-            const isVideo = type.startsWith('video/');
+            const name = String(f.name || '');
+            const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
+            const isGif = type === 'image/gif' || /\.gif$/i.test(name);
+            const isVideo = type.startsWith('video/') || ['mp4','webm','mov'].includes(ext);
             if(!(isGif || isVideo)){
               showToast('Archivo no permitido. Solo video o GIF.', 'warning', 3500);
               try{ fileEl.value = ''; }catch(_){}
@@ -9791,7 +9793,7 @@ function ensurePdfZoomControls(containerId, frameId){
           state.ejercicioVideoFile = f || null; state.ejercicioVideoRemove = false; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0';
           const prev2 = document.getElementById('ejercicio-video-preview'); if(prev2){ prev2.innerHTML = ''; if(f){
             const url2 = URL.createObjectURL(f);
-            if((f.type||'').toLowerCase() === 'image/gif' || /\.gif$/i.test(f.name || '')){
+            if((f.type||'').toLowerCase() === 'image/gif' || /\.gif$/i.test(String(f.name || ''))){
               const img2 = document.createElement('img'); img2.src = url2; img2.alt = 'GIF seleccionado'; img2.className = 'responsive-media'; img2.style.maxHeight = '220px'; prev2.appendChild(img2);
             } else {
               const v2 = document.createElement('video'); v2.src = url2; v2.controls = true; v2.playsInline = true; v2.preload = 'metadata'; v2.setAttribute('controlsList','nodownload noplaybackrate'); v2.className = 'responsive-media'; v2.style.maxHeight = '220px'; prev2.appendChild(v2);
