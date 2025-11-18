@@ -11565,14 +11565,15 @@ async def api_delinquency_alerts_recent(request: Request, _=Depends(require_gest
     try:
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Traer alertas del día para reducir ruido; se filtra luego por título/categoría
+            # Traer alertas del día y resolver nombre del usuario en una sola consulta para evitar N+1
             cur.execute(
                 """
-                SELECT id, user_id, new_values, timestamp
-                FROM audit_logs
-                WHERE table_name = 'alerts' AND action = 'ALERT'
-                  AND timestamp >= date_trunc('day', now())
-                ORDER BY id DESC
+                SELECT a.id, a.user_id, a.new_values, a.timestamp, u.nombre AS usuario_nombre
+                FROM audit_logs a
+                LEFT JOIN usuarios u ON u.id = a.user_id
+                WHERE a.table_name = 'alerts' AND a.action = 'ALERT'
+                  AND a.timestamp >= date_trunc('day', now())
+                ORDER BY a.id DESC
                 LIMIT 200
                 """
             )
@@ -11589,23 +11590,13 @@ async def api_delinquency_alerts_recent(request: Request, _=Depends(require_gest
                 title = (alert.get("title") or "").strip()
                 category = (alert.get("category") or "").strip()
                 message = (alert.get("message") or "").strip()
-                # Match específico por título, con fallback por categoría + palabra clave
                 is_delinquency = (title.lower() == "usuario desactivado por morosidad") or (
                     category.upper() == "PAYMENT" and ("morosidad" in message.lower())
                 )
                 if not is_delinquency:
                     continue
                 uid = r.get("user_id") or alert.get("user_id")
-                nombre = None
-                try:
-                    u = db.obtener_usuario_por_id(int(uid)) if uid is not None else None  # type: ignore
-                    if u:
-                        # Soportar tanto objeto como dict
-                        nombre = getattr(u, "nombre", None)
-                        if nombre is None and isinstance(u, dict):
-                            nombre = u.get("nombre")
-                except Exception:
-                    nombre = None
+                nombre = r.get("usuario_nombre")
                 items.append({
                     "id": r.get("id"),
                     "user_id": uid,
@@ -11615,7 +11606,6 @@ async def api_delinquency_alerts_recent(request: Request, _=Depends(require_gest
                     "timestamp": r.get("timestamp")
                 })
             except Exception:
-                # Ignorar filas mal formateadas
                 continue
         return {"items": items}
     except Exception as e:

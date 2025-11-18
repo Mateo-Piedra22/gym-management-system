@@ -4731,7 +4731,7 @@ class DatabaseManager:
         
         # 3) Consulta endurecida con columnas específicas y timeouts (readonly_session)
         try:
-            with self.readonly_session(lock_ms=8000, statement_ms=6000, idle_s=2, seqscan_off=True) as conn:
+            with self.readonly_session(lock_ms=300, statement_ms=2500, idle_s=1, seqscan_off=True) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
                     try:
                         cursor.execute(

@@ -3936,6 +3936,44 @@
       params.append('limit', String(limit));
       params.append('offset', '0');
       const queryKey = params.toString();
+      const nowTs = Date.now();
+      if(state.usuarios && Array.isArray(state.usuarios) && state.usuarios.length > 0 && (nowTs - (state.usuariosLastTs||0)) < 12000 && state.usuariosLastQuery === queryKey){
+        const tbody = document.querySelector('#usuarios-table tbody');
+        if(tbody){
+          tbody.innerHTML = '';
+          (Array.isArray(state.usuarios) ? state.usuarios : []).forEach((u, idx) => {
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-index', String(idx));
+            const activo = (u.activo === true || u.activo === 'true');
+            const asistioHoy = state.asistenciasHoySet ? state.asistenciasHoySet.has(Number(u.id)) : false;
+            const esMoroso = state.morosidadSet ? state.morosidadSet.has(Number(u.id)) : false;
+            const tipoObj = resolveTipoCuota(u.tipo_cuota ?? (u.tipo_cuota_nombre || u.tipo || ''));
+            const tipoNombre = tipoObj ? (tipoObj.nombre || '') : (u.tipo_cuota_nombre || u.tipo_cuota || '');
+            const activoLabel = esMoroso ? 'No (morosidad)' : (activo ? 'Sí' : 'No');
+            tr.innerHTML = `
+              <td>${u.nombre || ''}</td>
+              <td>${u.dni || ''}</td>
+              <td>${u.telefono || ''}</td>
+              <td>${(u.rol || '').toString().toLowerCase()}</td>
+              <td>${tipoNombre}</td>
+              <td>${activoLabel}</td>
+              <td>${asistioHoy ? '<span style="padding:2px 8px;border-radius:10px;background:#27ae60;color:#fff;">Asistió</span>' : '<span style="padding:2px 8px;border-radius:10px;background:#e74c3c;color:#fff;">No asistió</span>'}</td>
+              <td>
+                <button class="btn neutral" data-action="edit" data-id="${u.id}">Editar</button>
+                <button class="btn danger" data-action="delete" data-id="${u.id}">Borrar</button>
+              </td>
+            `;
+            if (esMoroso) { try { tr.style.borderLeft = '4px solid var(--warning)'; tr.setAttribute('data-moroso', 'true'); } catch(_){ }
+            }
+            tbody.appendChild(tr);
+          });
+        }
+        document.getElementById('usuarios-count').textContent = `${(Array.isArray(state.usuarios) ? state.usuarios.length : 0)} usuarios`;
+        updateUsuariosCards(state.usuarios);
+        try { populatePagosUsuarioSelector(); } catch {}
+        try { renderRutinasUsuarioFilter(); } catch {}
+        return Promise.resolve();
+      }
       if(state.usuariosLoading && state.usuariosLastQuery === queryKey){ return state.usuariosPromise || Promise.resolve(); }
       if(state.usuariosAbort){ try{ state.usuariosAbort.abort(); }catch(_){ } }
       const ctrl = new AbortController();
@@ -3948,16 +3986,19 @@
         const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
         const rows = await res.json().catch(() => []);
         state.usuarios = Array.isArray(rows) ? rows : [];
+        state.usuariosLastTs = Date.now();
         // Obtener set de IDs con asistencia hoy
         const r1 = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
         const arr1 = await r1.json().catch(() => []);
         const hoySet = new Set((Array.isArray(arr1) ? arr1 : []).map(x => Number(x)));
         state.asistenciasHoySet = hoySet;
+        state.asistenciasLastTs = Date.now();
         // Obtener set de IDs desactivados por morosidad (estado activo)
         const r2 = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
         const arr2 = await r2.json().catch(() => []);
         const morosSet = new Set((Array.isArray(arr2) ? arr2 : []).map(x => Number(x)));
         state.morosidadSet = morosSet;
+        state.morosidadLastTs = Date.now();
         const tbody = document.querySelector('#usuarios-table tbody');
         tbody.innerHTML = '';
         (Array.isArray(rows) ? rows : []).forEach((u, idx) => {
