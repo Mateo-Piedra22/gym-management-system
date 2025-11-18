@@ -9870,8 +9870,16 @@ function ensurePdfZoomControls(containerId, frameId){
                 const info = await fetch(`/api/ejercicios/${eid}/media/direct`, { method:'POST', body: infoFd, credentials:'same-origin' });
                 const j2 = await info.json().catch(()=>({}));
                 if(info.ok && j2 && j2.provider === 'b2' && j2.upload_url && j2.upload_token && j2.file_name){
-                  const headers = { 'Authorization': j2.upload_token, 'X-Bz-File-Name': encodeURIComponent(j2.file_name), 'Content-Type': (state.ejercicioVideoFile.type||j2.content_type||'application/octet-stream'), 'X-Bz-Content-Sha1': 'do_not_verify' };
-                  const up2 = await fetch(String(j2.upload_url), { method:'POST', headers, body: state.ejercicioVideoFile });
+                  const headers = { 'Authorization': j2.upload_token, 'X-Bz-File-Name': encodeURIComponent(j2.file_name), 'Content-Type': (state.ejercicioVideoFile.type||j2.content_type||'application/octet-stream'), 'X-Bz-Content-Sha1': 'do_not_verify', 'X-Bz-Info-src_last_modified_millis': String(Date.now()) };
+                  let up2 = await fetch(String(j2.upload_url), { method:'POST', headers, body: state.ejercicioVideoFile, mode:'cors', credentials:'omit' });
+                  if(up2.status === 401){
+                    const info2 = await fetch(`/api/ejercicios/${eid}/media/direct`, { method:'POST', body: infoFd, credentials:'same-origin' });
+                    const j3 = await info2.json().catch(()=>({}));
+                    if(info2.ok && j3 && j3.provider === 'b2' && j3.upload_url && j3.upload_token && j3.file_name){
+                      const headers2 = { 'Authorization': j3.upload_token, 'X-Bz-File-Name': encodeURIComponent(j3.file_name), 'Content-Type': headers['Content-Type'], 'X-Bz-Content-Sha1': 'do_not_verify', 'X-Bz-Info-src_last_modified_millis': String(Date.now()) };
+                      up2 = await fetch(String(j3.upload_url), { method:'POST', headers: headers2, body: state.ejercicioVideoFile, mode:'cors', credentials:'omit' });
+                    }
+                  }
                   if(up2.ok){
                     const commitFd = new FormData(); commitFd.append('dest_name', j2.dest_name||''); commitFd.append('content_type', headers['Content-Type']); commitFd.append('storage','b2'); commitFd.append('overwrite','true');
                     const c = await fetch(`/api/ejercicios/${eid}/media/commit`, { method:'POST', body: commitFd, credentials:'same-origin' });

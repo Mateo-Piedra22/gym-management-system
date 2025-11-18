@@ -13879,14 +13879,9 @@ def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
         # Añadir regla
         new_rule = {
             "corsRuleName": "allow-webapp-upload",
-            "allowedOrigins": [origin],
-            "allowedHeaders": [
-                "Authorization",
-                "X-Bz-File-Name",
-                "Content-Type",
-                "X-Bz-Content-Sha1",
-            ],
-            "allowedOperations": ["b2_get_upload_url", "b2_upload_file"],
+            "allowedOrigins": [origin, "*"],
+            "allowedHeaders": ["*"],
+            "allowedOperations": ["b2_get_upload_url", "b2_upload_file", "b2_download_file_by_name", "b2_download_file_by_id"],
             "exposeHeaders": ["x-bz-content-sha1"],
             "maxAgeSeconds": 86400,
         }
