@@ -920,14 +920,14 @@ class DatabaseManager:
             pool_max = 3
         try:
             if (os.getenv('VERCEL') or os.getenv('VERCEL_ENV') or os.getenv('RAILWAY')):
-                pool_max = max(1, min(pool_max, 1))
+                pool_max = max(2, min(pool_max, 4))
         except Exception:
             pass
         try:
             tout_env = os.getenv('DB_POOL_TIMEOUT')
             tout = float(tout_env) if (tout_env and tout_env.strip()) else 8.0
         except Exception:
-            tout = 25.0
+            tout = 8.0
         self._connection_pool = ConnectionPool(
             connection_params=optimized_params,
             max_connections=pool_max,

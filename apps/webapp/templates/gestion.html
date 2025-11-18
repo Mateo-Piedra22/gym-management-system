@@ -3202,7 +3202,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, ejercicioVideoFile: null, ejercicioVideoRemove: false, editingEjercicioOriginalVideoUrl: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null, usuarios: [], asistenciasHoySet: null, morosidadSet: null, usuariosLoading: false, usuariosAbort: null, usuariosLastQuery: '', usuariosPromise: null, ejerciciosLoading: false, ejerciciosAbort: null, ejerciciosLastQuery: '', ejerciciosPromise: null, rutinasLoading: false, rutinasAbort: null, rutinasLastQuery: '', rutinasPromise: null, plantillasLoading: false, plantillasAbort: null, plantillasLastQuery: '', plantillasPromise: null, pagosLoading: false, pagosAbort: null, pagosLastQuery: '', pagosPromise: null, metodosPagoLoading: false, metodosPagoAbort: null, metodosPagoPromise: null, conceptosPagoLoading: false, conceptosPagoAbort: null, conceptosPagoPromise: null, tiposCuotaActivosLoading: false, tiposCuotaActivosAbort: null, tiposCuotaActivosPromise: null, waPendingsLoading: false, waPendingsAbort: null, waPendingsPromise: null, waStateLoading: false, waStateAbort: null, waStatePromise: null };
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, ejercicioVideoFile: null, ejercicioVideoRemove: false, editingEjercicioOriginalVideoUrl: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null, usuarios: [], asistenciasHoySet: null, morosidadSet: null, usuariosLoading: false, usuariosAbort: null, usuariosLastQuery: '', usuariosPromise: null, ejerciciosLoading: false, ejerciciosAbort: null, ejerciciosLastQuery: '', ejerciciosPromise: null, rutinasLoading: false, rutinasAbort: null, rutinasLastQuery: '', rutinasPromise: null, plantillasLoading: false, plantillasAbort: null, plantillasLastQuery: '', plantillasPromise: null, pagosLoading: false, pagosAbort: null, pagosLastQuery: '', pagosPromise: null, metodosPagoLoading: false, metodosPagoAbort: null, metodosPagoPromise: null, conceptosPagoLoading: false, conceptosPagoAbort: null, conceptosPagoPromise: null, tiposCuotaActivosLoading: false, tiposCuotaActivosAbort: null, tiposCuotaActivosPromise: null, waPendingsLoading: false, waPendingsAbort: null, waPendingsPromise: null, waStateLoading: false, waStateAbort: null, waStatePromise: null, waInit: false, usuarioWAHistLoading: false, usuarioWAHistAbort: null, usuarioWAHistLastQuery: '', usuarioWAHistPromise: null, waLastLoading: false, waLastAbort: null, waLastLastUid: '', waLastPromise: null };
 
     function fmtDate(d){
       if(!d) return '';
@@ -3371,15 +3371,26 @@
     }
     async function loadUsuarioWhatsApp(usuario_id){
       if(!usuario_id){ return; }
-      try {
-        const res = await fetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' }, method:'GET' });
-        if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo cargar historial de WhatsApp', 'error', 4500); return; }
-        const json = await res.json();
-        const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
-        state.usuarioWAHistorial = items;
-        renderUsuarioWACards(items);
-        renderUsuarioWAHistoryTable(items);
-      } catch(e){ showToast('Error de red al cargar historial WA', 'error', 4500); }
+      try{
+        const q = String(usuario_id);
+        if(state.usuarioWAHistLoading && state.usuarioWAHistLastQuery === q){ return state.usuarioWAHistPromise || Promise.resolve([]); }
+        if(state.usuarioWAHistAbort){ try{ state.usuarioWAHistAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.usuarioWAHistAbort = ctrl;
+        state.usuarioWAHistLoading = true;
+        state.usuarioWAHistLastQuery = q;
+        state.usuarioWAHistPromise = (async () => {
+          const res = await fetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' }, method:'GET', signal: ctrl.signal });
+          if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo cargar historial de WhatsApp', 'error', 4500); return []; }
+          const json = await res.json().catch(() => ([]));
+          const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
+          state.usuarioWAHistorial = items;
+          renderUsuarioWACards(items);
+          renderUsuarioWAHistoryTable(items);
+          return items;
+        })();
+        return state.usuarioWAHistPromise.finally(function(){ state.usuarioWAHistLoading = false; state.usuarioWAHistAbort = null; });
+      }catch(e){ showToast('Error de red al cargar historial WA', 'error', 4500); }
     }
     async function forceSendWA(type){
       const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario', 'warning', 4000); return; }
@@ -6520,35 +6531,55 @@
       const u = Number(uid);
       if(!Number.isFinite(u) || u < 1){ setDash(); return; }
       try{
-        const res = await fetch(`/api/usuarios/${encodeURIComponent(u)}/whatsapp/ultimo`, { headers:{ 'Accept':'application/json' } });
-        const data = await res.json().catch(() => null);
-        const item = (data && typeof data === 'object' && 'item' in data) ? data.item : data;
-        if(!item){ setDash(); return; }
-        if(elUser) elUser.textContent = `Usuario #${u}`;
-        if(elType) elType.textContent = mapType(item.message_type ?? item.tipo ?? '—');
-      if(elDate) elDate.textContent = (fmtDateEs(item.fecha_envio ?? item.sent_at) ?? '—');
-        if(elStatus) elStatus.textContent = (item.status ?? '—');
-        if(elDetail){
-          const raw = String(item.message_content || '').trim();
-          let det = '—';
-          const st = String(item.status || '').toLowerCase();
-          if(st === 'failed'){
-            const m = raw.match(/Error:\s*(.+)$/i);
-            det = (m && m[1]) ? m[1].trim() : (raw || '—');
-          } else if(st === 'received'){
-            det = raw || '—';
-          } else if(item.template_name){
-            det = String(item.template_name);
-          } else {
-            det = raw ? raw.slice(0, 200) : '—';
+        const q = String(u);
+        if(state.waLastLoading && state.waLastLastUid === q){ return state.waLastPromise || Promise.resolve(null); }
+        if(state.waLastAbort){ try{ state.waLastAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.waLastAbort = ctrl;
+        state.waLastLoading = true;
+        state.waLastLastUid = q;
+        state.waLastPromise = (async () => {
+          const res = await fetch(`/api/usuarios/${encodeURIComponent(u)}/whatsapp/ultimo`, { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+          const data = await res.json().catch(() => null);
+          const item = (data && typeof data === 'object' && 'item' in data) ? data.item : data;
+          if(!item){ setDash(); return null; }
+          if(elUser) elUser.textContent = `Usuario #${u}`;
+          if(elType) elType.textContent = mapType(item.message_type ?? item.tipo ?? '—');
+          if(elDate) elDate.textContent = (fmtDateEs(item.fecha_envio ?? item.sent_at) ?? '—');
+          if(elStatus) elStatus.textContent = (item.status ?? '—');
+          if(elDetail){
+            const raw = String(item.message_content || '').trim();
+            let det = '—';
+            const st = String(item.status || '').toLowerCase();
+            if(st === 'failed'){
+              const m = raw.match(/Error:\s*(.+)$/i);
+              det = (m && m[1]) ? m[1].trim() : (raw || '—');
+            } else if(st === 'received'){
+              det = raw || '—';
+            } else if(item.template_name){
+              det = String(item.template_name);
+            } else {
+              det = raw ? raw.slice(0, 200) : '—';
+            }
+            elDetail.textContent = det || '—';
           }
-          elDetail.textContent = det || '—';
-        }
+          return item;
+        })();
+        return state.waLastPromise.finally(function(){ state.waLastLoading = false; state.waLastAbort = null; });
       }catch(e){ console.warn('No se pudo cargar último WA:', e); setDash(); }
     }
     async function loadConfigData(){
-      await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin(), loadWAPendings(), loadWAState()]).catch(()=>{});
+      await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin()]).catch(()=>{});
       try{ await loadUsuarioWAUsersOptions((state.selectedUsuario && state.selectedUsuario.id) || null); }catch(_){}
+      try{
+        const blk = document.getElementById('wa-gestion-block');
+        const vis = blk ? (window.getComputedStyle(blk).display !== 'none') : false;
+        if(vis && !state.waInit){
+          state.waInit = true;
+          await loadWAPendings().catch(()=>{});
+          await loadWAState().catch(()=>{});
+        }
+      }catch(_){}
     }
     // ===== Branding del gimnasio =====
     async function refreshBranding(){
