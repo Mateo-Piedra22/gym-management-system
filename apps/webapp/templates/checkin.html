@@ -45,6 +45,7 @@
     @keyframes toast-out { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-6px); opacity: 0; } }
   </style>
   <script src="/static/js/toast.js"></script>
+  <script src="/static/js/utils.js"></script>
 
 </head>
 <body data-autenticado="{{ 'true' if autenticado else 'false' }}"{% if socio %} data-cuotas-vencidas="{{ socio.cuotas_vencidas if socio.cuotas_vencidas is not none else 0 }}" data-fecha-proximo-vencimiento="{{ socio.fecha_proximo_vencimiento if socio.fecha_proximo_vencimiento else '' }}" data-dias-restantes="{{ socio.dias_restantes if socio.dias_restantes is not none else '' }}" data-exento="{{ 'true' if socio.exento else 'false' }}" data-activo="{{ 'true' if socio.activo else 'false' }}"{% endif %}>

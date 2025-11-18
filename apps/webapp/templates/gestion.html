@@ -3371,7 +3371,7 @@
     async function loadUsuarioWhatsApp(usuario_id){
       if(!usuario_id){ return; }
       try {
-        const res = await apiFetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch(`/api/usuarios/${usuario_id}/whatsapp/historial?limit=50`, { headers:{ 'Accept':'application/json' }, method:'GET' });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo cargar historial de WhatsApp', 'error', 4500); return; }
         const json = await res.json();
         const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json) ? json : []);
@@ -3392,7 +3392,7 @@
       else if(t === 'class_reminder') url = `/api/usuarios/${u.id}/whatsapp/recordatorio_clase`;
       else { showToast('Tipo de mensaje no soportado', 'warning', 3800); return; }
       try {
-        const res = await apiFetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: Object.keys(body).length ? JSON.stringify(body) : undefined }, 'dedup');
+        const res = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: Object.keys(body).length ? JSON.stringify(body) : undefined });
         const data = await res.json().catch(()=>({}));
         if(!res.ok){
           const code = res.status;
@@ -3632,7 +3632,7 @@
         setTimeout(() => closeQRModal(), 1200);
       }
     }
-    function pollTokenStatus(){ if(!qrState.token) return; apiFetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
+    function pollTokenStatus(){ if(!qrState.token) return; fetch(`/api/checkin/token_status?token=${encodeURIComponent(qrState.token)}`, { headers:{ 'Accept':'application/json' }, method:'GET' })
       .then(r => r.json()).then(j => {
         const status = document.getElementById('qr-status-msg');
         if(j && j.exists){
@@ -3674,7 +3674,7 @@
     }
       const expires_minutes = 5;
       try{
-        const res = await apiFetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) }, 'dedup');
+        const res = await fetch('/api/checkin/create_token', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, expires_minutes }) });
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         const data = await res.json();
         const token = String(data.token || '').trim(); if(!token){ throw new Error('No se generó token'); }
@@ -3724,7 +3724,7 @@
     } catch(_){ }
     async function registrarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; }
       try{
-        const res = await apiFetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) }, 'dedup');
+        const res = await fetch('/api/asistencias/registrar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id }) });
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         const j = await res.json().catch(() => ({}));
         showToast('Asistencia registrada', 'success', 3000);
@@ -3732,7 +3732,7 @@
       }catch(e){ showToast(`No se pudo registrar asistencia: ${e.message}`, 'error', 4500); }
     }
 
-    async function eliminarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const hoy = fmtDate(new Date()); try{ const res = await apiFetch('/api/asistencias/eliminar', { method:'DELETE', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, fecha: hoy }) }, 'dedup'); if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } await res.json().catch(() => ({})); showToast('Asistencia eliminada', 'success', 3000); await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); }catch(e){ showToast(`No se pudo eliminar asistencia: ${e.message}`, 'error', 4500); } }
+    async function eliminarAsistenciaQuick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const hoy = fmtDate(new Date()); try{ const res = await fetch('/api/asistencias/eliminar', { method:'DELETE', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({ usuario_id: u.id, fecha: hoy }) }); if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); } await res.json().catch(() => ({})); showToast('Asistencia eliminada', 'success', 3000); await loadUsers(); const idx = (state.usuarios || []).findIndex(x => x.id === u.id); if(idx >= 0) selectUsuarioByIndex(idx); }catch(e){ showToast(`No se pudo eliminar asistencia: ${e.message}`, 'error', 4500); } }
 
   async function handleAsistenciaClick(){ const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario primero', 'warning', 4000); return; } const btn = document.getElementById('usuario-side-asistencia'); const hoy = fmtDate(new Date()); const arr = Array.isArray(state.usuarioAsistencias) ? state.usuarioAsistencias : []; const hasHoy = arr.some(a => { const f = a.fecha || a.fecha_asistencia || a.fechaAsistencia || ''; return fmtDate(f) === hoy; }); const prevHTML = btn ? btn.innerHTML : ''; if(btn){ btn.disabled = true; btn.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span><span>Procesando…</span>'; } try{ if(hasHoy){ await eliminarAsistenciaQuick(); } else { await registrarAsistenciaQuick(); } } finally { if(btn){ btn.disabled = false; btn.innerHTML = hasHoy ? 'Eliminar asistencia de hoy' : 'Registrar asistencia'; } } }
 
@@ -3782,7 +3782,7 @@
       // Mostrar skeleton mientras se carga
       try { showTableSkeleton('#pagos-table', 7, Math.max(5, limit)); } catch(_){}
       try {
-        const res = await apiFetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' });
         const data = await res.json().catch(() => ({}));
         const itemsRaw = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.pagos = itemsRaw;
@@ -3834,7 +3834,7 @@
 
     async function loadMetodosPago(){
       try {
-        const res = await apiFetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' });
         const met = await res.json();
         const items = Array.isArray(met) ? met : (Array.isArray(met?.metodos) ? met.metodos : []);
         // Actualiza estado para que el wizard pueda poblar selects por ID
@@ -3857,7 +3857,7 @@
     }
     async function loadConceptosPago(){
       try {
-        const res = await apiFetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' });
         const conc = await res.json();
         const items = Array.isArray(conc?.items) ? conc.items : (Array.isArray(conc) ? conc : []);
         // Actualiza estado para el wizard (map por ID)
@@ -3881,7 +3881,7 @@
 
     async function loadTiposCuotaActivos(){
       try {
-        const res = await apiFetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' }, method:'GET' });
         const tipos = await res.json();
         const lista = Array.isArray(tipos) ? tipos : [];
         state.tiposCuotaActivos = lista;
@@ -3925,13 +3925,13 @@
       // Mostrar skeleton mientras se carga
       try { showTableSkeleton('#usuarios-table', 8, Math.max(5, limit)); } catch(_){}
       try {
-        const res = await apiFetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' });
         const rows = await res.json().catch(() => []);
         state.usuarios = Array.isArray(rows) ? rows : [];
         // Obtener set de IDs con asistencia hoy
         const hoySet = await (async () => {
           try {
-            const r = await apiFetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+            const r = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET' });
             const arr = await r.json().catch(() => []);
             const list = Array.isArray(arr) ? arr : [];
             return new Set(list.map(x => Number(x)));
@@ -3941,7 +3941,7 @@
         // Obtener set de IDs desactivados por morosidad (estado activo)
         const morosSet = await (async () => {
           try {
-            const r = await apiFetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+            const r = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET' });
             const arr = await r.json().catch(() => []);
             const list = Array.isArray(arr) ? arr : [];
             return new Set(list.map(x => Number(x)));
@@ -4079,7 +4079,7 @@
       try {
         const url = editingUserId ? `/api/usuarios/${editingUserId}` : '/api/usuarios';
         const method = editingUserId ? 'PUT' : 'POST';
-        const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) }, 'dedup');
+        const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(payload) });
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         hideUserForm();
         await loadUsers();
@@ -4089,7 +4089,7 @@
     async function deleteUser(id){
       if(!id) return;
       try {
-        const res = await apiFetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } }, 'dedup');
+        const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE', headers: { 'Accept': 'application/json' } });
         if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.detail || err.error || `Error ${res.status}`); }
         await loadUsers();
       } catch(e){ showToast(`No se pudo eliminar: ${e.message}`, 'error', 4500); }
@@ -4135,7 +4135,7 @@
       document.getElementById('pago-side-id').textContent = id ? `#${id}` : '';
       try {
         if(id){
-          const res = await apiFetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' });
           const data = await res.json();
           const pago = data.pago || row;
           const detalles = Array.isArray(data.detalles) ? data.detalles : [];
@@ -4206,7 +4206,7 @@
       try {
         const id = p.id || p.pago_id;
         if(id){
-          const res = await apiFetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+          const res = await fetch(`/api/pagos/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' });
           let data = null; try{ data = await res.json(); }catch(_){ data = null; }
           if(res.ok && data){
             pago = data.pago || p;
@@ -4251,7 +4251,7 @@
             const row = (state.pagos || [])[idx];
             const id = btn.getAttribute('data-id');
             if(id){
-              apiFetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
+              fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' })
                 .then(r => r.json())
                 .then(data => showPagoForm(data.pago || row))
                 .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
@@ -4314,7 +4314,7 @@
         const p = state.selectedPago; if(!p) { showToast('Selecciona un pago primero', 'warning', 4000); return; }
         const id = p.id || p.pago_id;
         if(id){
-          apiFetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
+          fetch(`/api/pagos/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' })
             .then(r => r.json())
             .then(data => showPagoForm(data.pago || p))
             .catch(() => showToast('No se pudo cargar el pago', 'error', 4500));
@@ -4528,7 +4528,7 @@
     async function populatePagoConceptoSelect(selectedId){
       const sel = document.getElementById('pago-concepto'); if(!sel) return;
       try{
-        const res = await apiFetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/conceptos_pago', { headers:{ 'Accept':'application/json' }, method:'GET' });
         const data = await res.json();
         const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
         state.conceptosPago = items;
@@ -4551,15 +4551,15 @@
         const items = Array.isArray(conceptos) ? conceptos : [];
         const existing = items.find(c => String(c.nombre || '').trim().toLowerCase() === 'cuota mensual');
         if(!existing){
-          await apiFetch('/api/conceptos_pago', {
+          await fetch('/api/conceptos_pago', {
             method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
             body: JSON.stringify({ nombre: 'Cuota Mensual', descripcion: 'Pago mensual según tipo de cuota del usuario', precio_base: 0, tipo: 'variable', activo: true, categoria: 'cuota' })
-          }, 'dedup').catch(()=>null);
+          }).catch(()=>null);
         } else if(existing && (String(existing.tipo).toLowerCase() !== 'variable' || existing.activo === false)){
-          await apiFetch(`/api/conceptos_pago/${existing.id}`, {
+          await fetch(`/api/conceptos_pago/${existing.id}`, {
             method:'PUT', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' },
             body: JSON.stringify({ tipo: 'variable', activo: true })
-          }, 'dedup').catch(()=>null);
+          }).catch(()=>null);
         }
       } catch(e){ console.warn('No se pudo asegurar concepto Cuota Mensual variable/activo:', e); }
     }
@@ -4567,7 +4567,7 @@
     async function ensureTiposCuotaCatalogo(){
       try{
         if(Array.isArray(state.tiposCuotaCatalogo) && state.tiposCuotaCatalogo.length > 0){ return; }
-        const res = await apiFetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/tipos_cuota_catalogo', { headers:{ 'Accept':'application/json' }, method:'GET' });
         const full = await res.json();
         const rows = Array.isArray(full.items) ? full.items : (Array.isArray(full) ? full : []);
         state.tiposCuotaCatalogo = rows;
@@ -4979,7 +4979,7 @@
         }
       }
       try{
-        const res = await apiFetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' }, 'dedup');
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body), credentials: 'same-origin' });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoForm();
@@ -5235,7 +5235,7 @@
       if(fecha_str && fecha_str.trim()){ body['fecha_pago'] = fecha_str; }
       else { if(!mes || !año){ const now = new Date(); mes = now.getMonth()+1; año = now.getFullYear(); } body['mes'] = mes; body['año'] = año; }
       try{
-        const res = await apiFetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) }, 'dedup');
+        const res = await fetch(url, { method, headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify(body) });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'Error al guardar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         hidePagoWizard();
@@ -5247,7 +5247,7 @@
     async function deletePago(){
       const id = state.deletePagoId; if(!id){ closeModal('modal-pagos-delete'); return; }
       try{
-        const res = await apiFetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } }, 'dedup');
+        const res = await fetch(`/api/pagos/${id}`, { method:'DELETE', headers:{ 'Accept':'application/json' } });
         if(!res.ok){ const err = await res.json().catch(()=>({})); showToast(err.detail || err.error || 'No se pudo eliminar el pago', 'error', 4500); return; }
         await res.json().catch(()=>null);
         closeModal('modal-pagos-delete');
@@ -5351,8 +5351,8 @@
       const loader = document.getElementById('usuario-side-loader'); if(loader) loader.classList.add('active');
       try {
         const [detRes, histRes] = await Promise.all([
-          id ? apiFetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede') : Promise.resolve(null),
-          id ? apiFetch(`/api/usuarios/${id}/pagos?limit=50&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede') : Promise.resolve(null),
+          id ? fetch(`/api/usuarios/${id}`, { headers: { 'Accept': 'application/json' }, method:'GET' }) : Promise.resolve(null),
+          id ? fetch(`/api/usuarios/${id}/pagos?limit=50&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' }) : Promise.resolve(null),
         ]);
         const det = detRes ? await detRes.json() : u;
         const histJson = histRes ? await histRes.json() : [];
@@ -5368,7 +5368,7 @@
         let hasHoy = false;
         if(id){
           try{
-            const aRes = await apiFetch(`/api/usuario_asistencias?usuario_id=${id}&limit=200&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' }, 'supersede');
+            const aRes = await fetch(`/api/usuario_asistencias?usuario_id=${id}&limit=200&offset=0`, { headers: { 'Accept': 'application/json' }, method:'GET' });
             const aData = await aRes.json();
             const arr = Array.isArray(aData) ? aData : (Array.isArray(aData?.items) ? aData.items : []);
             state.usuarioAsistencias = arr;
@@ -5414,7 +5414,7 @@
           const id = btn.getAttribute('data-id');
           const action = btn.getAttribute('data-action');
           if(action === 'edit'){
-            apiFetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup')
+            fetch(`/api/usuarios/${id}`, { headers:{ 'Accept':'application/json' }, method:'GET' })
               .then(r => r.json())
               .then(u => showUserForm(u))
               .catch(() => showToast('No se pudo cargar el usuario', 'error', 4500));
@@ -5524,7 +5524,7 @@
         await deleteUser(id);
       });
       const editarQuick = document.getElementById('usuario-side-editar');
-      if(editarQuick){ editarQuick.addEventListener('click', async () => { const u = state.selectedUsuario; if(!u || !u.id) return; try{ const res = await apiFetch(`/api/usuarios/${u.id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'dedup'); const full = await res.json().catch(()=>({})); if(full && full.id){ showUserForm(full); } else { showUserForm(u); } }catch(_){ showUserForm(u); } }); }
+      if(editarQuick){ editarQuick.addEventListener('click', async () => { const u = state.selectedUsuario; if(!u || !u.id) return; try{ const res = await fetch(`/api/usuarios/${u.id}`, { headers:{ 'Accept':'application/json' }, method:'GET' }); const full = await res.json().catch(()=>({})); if(full && full.id){ showUserForm(full); } else { showUserForm(u); } }catch(_){ showUserForm(u); } }); }
       const eliminarQuick = document.getElementById('usuario-side-eliminar');
       if(eliminarQuick){ eliminarQuick.addEventListener('click', () => { const u = state.selectedUsuario; if(!u || !u.id) return; state.deleteUserId = u.id; openModal('modal-usuarios-delete'); }); }
       const verPagosQuick = document.getElementById('usuario-side-ver-pagos');
@@ -5801,7 +5801,7 @@
       const sel = document.getElementById('usuario-estado-template');
       if(!sel) return;
       try{
-        const res = await apiFetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch('/api/estados/plantillas', { headers:{ 'Accept':'application/json' }, method:'GET' });
         const data = await res.json().catch(() => ({}));
         const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.estadoPlantillas = items;
@@ -5815,7 +5815,7 @@
       const empty = document.getElementById('usuario-estados-empty');
       if(cont) cont.innerHTML = '';
       try{
-        const res = await apiFetch(`/api/usuarios/${usuario_id}/estados`, { headers:{ 'Accept':'application/json' }, method:'GET' }, 'supersede');
+        const res = await fetch(`/api/usuarios/${usuario_id}/estados`, { headers:{ 'Accept':'application/json' }, method:'GET' });
         const data = await res.json();
         const items = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.usuarioEstados = items;
@@ -6797,7 +6797,7 @@
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
       // Retornar la promesa para permitir await loadEjercicios()
-      return apiFetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' }, 'dedup')
+      return fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' })
         .then(async (r) => {
           if(!r.ok){
             if(r.status === 401){
