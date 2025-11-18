@@ -3261,6 +3261,7 @@
     }
     async function loadUsuarioWAUsersOptions(selectedId){
       try{
+        if(!state.waConfigured) return;
         const sel = document.getElementById('usuario-wa-user-select');
         if(!sel) return;
         // Mantener opción "Todos"
@@ -3371,6 +3372,7 @@
     }
     async function loadUsuarioWhatsApp(usuario_id){
       if(!usuario_id){ return; }
+      if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return []; }
       try{
         const q = String(usuario_id);
         if(state.usuarioWAHistLoading && state.usuarioWAHistLastQuery === q){ return state.usuarioWAHistPromise || Promise.resolve([]); }
@@ -3394,6 +3396,7 @@
     }
     async function forceSendWA(type){
       const u = state.selectedUsuario; if(!u || !u.id){ showToast('Selecciona un usuario', 'warning', 4000); return; }
+      if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
       let url = '';
       let body = {};
       const t = String(type||'').trim();
@@ -5506,8 +5509,8 @@
       document.getElementById('usuarios-cancel').addEventListener('click', hideUserForm);
       document.getElementById('usuarios-modal-close').addEventListener('click', hideUserForm);
       const waCards = document.getElementById('usuario-wa-cards');
-      if(waCards){ waCards.addEventListener('click', (ev) => { const btn = ev.target.closest('button[data-type]'); if(btn){ const type = btn.getAttribute('data-type'); forceSendWA(type); } }); }
-      const waRefresh = document.getElementById('usuario-wa-refresh'); if(waRefresh){ waRefresh.addEventListener('click', () => { const u = state.selectedUsuario; if(u && u.id) loadUsuarioWhatsApp(u.id); }); }
+      if(waCards){ waCards.addEventListener('click', (ev) => { const btn = ev.target.closest('button[data-type]'); if(btn){ const type = btn.getAttribute('data-type'); if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; } forceSendWA(type); } }); }
+      const waRefresh = document.getElementById('usuario-wa-refresh'); if(waRefresh){ waRefresh.addEventListener('click', () => { if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; } const u = state.selectedUsuario; if(u && u.id) loadUsuarioWhatsApp(u.id); }); }
       const waFilter = document.getElementById('usuario-wa-filter'); if(waFilter){ waFilter.addEventListener('change', () => renderUsuarioWAHistoryTable(state.usuarioWAHistorial || [])); }
       const waTbody = document.getElementById('usuario-wa-historial-body');
       if(waTbody){
@@ -6282,6 +6285,7 @@
     // ===== Configuración: Envíos pendientes (WhatsApp) =====
     async function loadWAPendings(){
       try{
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return []; }
         if(state.waPendingsLoading){ return state.waPendingsPromise || Promise.resolve([]); }
         if(state.waPendingsAbort){ try{ state.waPendingsAbort.abort(); }catch(_){ } }
         const ctrl = new AbortController();
@@ -6333,6 +6337,7 @@
     }
     async function retryWAPending(phone, userId){
       try{
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
         const body = {};
         if(phone) body.telefono = phone;
         if(userId != null && String(userId).trim() !== '') body.usuario_id = userId;
@@ -6344,6 +6349,7 @@
       }catch(e){ showToast('Error de red al reintentar', 'error', 4500); }
     }
     async function clearWAPending(phone){
+      if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
       if(!phone){ showToast('Teléfono inválido', 'warning', 3000); return; }
       const conf = confirm('¿Limpiar mensajes fallidos de este teléfono?'); if(!conf) return;
       try{
@@ -6357,6 +6363,7 @@
     async function retryAllWAPendings(){
       const btn = document.getElementById('config-wa-retry-all'); if(btn) btn.disabled = true;
       try{
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
         const items = Array.isArray(state.waPendings) ? state.waPendings : [];
         for(const r of items){
           const tel = r.phone_number || r.telefono || '';
@@ -6371,6 +6378,7 @@
       const conf = confirm('¿Limpiar mensajes fallidos de todos los teléfonos?'); if(!conf) return;
       const btn = document.getElementById('config-wa-clear-all'); if(btn) btn.disabled = true;
       try{
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
         const res = await fetch('/api/whatsapp/clear_failures', { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body: JSON.stringify({}) });
         const data = await res.json().catch(() => ({}));
         if(!res.ok || data.success === false){ showToast(data.detail || data.error || 'No se pudo limpiar', 'error', 4500); return; }
@@ -6383,6 +6391,7 @@
     // ===== WhatsApp: Estado y último envío =====
     async function loadWAState(){
       try{
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return null; }
         if(state.waStateLoading){ return state.waStatePromise || Promise.resolve(null); }
         if(state.waStateAbort){ try{ state.waStateAbort.abort(); }catch(_){ } }
         const ctrl = new AbortController();
@@ -6494,6 +6503,7 @@
     async function toggleWAServer(){
       const btn = document.getElementById('config-wa-server-toggle');
       if(!btn) return;
+      if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
       btn.disabled = true; btn.setAttribute('aria-busy','true');
       const isActive = String(btn.dataset.active || 'false') === 'true';
       try{
@@ -6530,6 +6540,7 @@
       const setDash = () => { if(elUser) elUser.textContent = '—'; if(elType) elType.textContent = '—'; if(elDate) elDate.textContent = '—'; if(elStatus) elStatus.textContent = '—'; if(elDetail) elDetail.textContent = '—'; };
       const u = Number(uid);
       if(!Number.isFinite(u) || u < 1){ setDash(); return; }
+      if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); setDash(); return null; }
       try{
         const q = String(u);
         if(state.waLastLoading && state.waLastLastUid === q){ return state.waLastPromise || Promise.resolve(null); }
@@ -6570,16 +6581,33 @@
     }
     async function loadConfigData(){
       await Promise.all([loadTiposCuotaAdmin(), loadConceptosAdmin(), loadMetodosAdmin()]).catch(()=>{});
-      try{ await loadUsuarioWAUsersOptions((state.selectedUsuario && state.selectedUsuario.id) || null); }catch(_){}
+      try{ if(state.waConfigured){ await loadUsuarioWAUsersOptions((state.selectedUsuario && state.selectedUsuario.id) || null); } }catch(_){ }
+    }
+    async function initWAOnce(){
       try{
-        const blk = document.getElementById('wa-gestion-block');
-        const vis = blk ? (window.getComputedStyle(blk).display !== 'none') : false;
-        if(vis && !state.waInit){
-          state.waInit = true;
-          await loadWAPendings().catch(()=>{});
-          await loadWAState().catch(()=>{});
-        }
-      }catch(_){}
+        if(state.waInit) return;
+        if(state.waInitCheckLoading){ return state.waInitCheckPromise || Promise.resolve(null); }
+        if(state.waInitCheckAbort){ try{ state.waInitCheckAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.waInitCheckAbort = ctrl;
+        state.waInitCheckLoading = true;
+        state.waInitCheckPromise = (async () => {
+          const res = await fetch('/api/whatsapp/state', { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+          const data = await res.json().catch(() => ({}));
+          const cfg = (data && typeof data === 'object') ? (data.config || {}) : {};
+          const hasPid = !!String(cfg.phone_number_id || '').trim();
+          const hasTok = !!String(cfg.access_token || '').trim();
+          const hasWaba = !!String(cfg.whatsapp_business_account_id || '').trim();
+          const valid = !!data.configuracion_valida || (hasPid && hasTok && hasWaba);
+          state.waConfigured = valid;
+          if(valid && !state.waInit){
+            state.waInit = true;
+            await Promise.all([loadWAPendings().catch(()=>{}), loadWAState().catch(()=>{})]);
+          }
+          return valid;
+        })();
+        return state.waInitCheckPromise.finally(function(){ state.waInitCheckLoading = false; state.waInitCheckAbort = null; });
+      }catch(_){ }
     }
     // ===== Branding del gimnasio =====
     async function refreshBranding(){
@@ -6837,6 +6865,7 @@
       }
       const btnWaRefresh = document.getElementById('config-wa-refresh');
       if(btnWaRefresh) btnWaRefresh.addEventListener('click', async () => {
+        if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; }
         await loadWAPendings();
         await loadWAState();
         const uidEl = document.getElementById('usuario-wa-user-select');
@@ -6844,7 +6873,7 @@
         if(uid) await loadWALastForUser(uid);
       });
       const btnWaSave = document.getElementById('config-wa-save'); if(btnWaSave) btnWaSave.addEventListener('click', saveWAConfig);
-      const btnWaCheck = document.getElementById('config-wa-check-state'); if(btnWaCheck) btnWaCheck.addEventListener('click', loadWAState);
+      const btnWaCheck = document.getElementById('config-wa-check-state'); if(btnWaCheck) btnWaCheck.addEventListener('click', () => { if(!state.waConfigured){ showToast('WhatsApp no está configurado para este gimnasio', 'warning', 3500); return; } loadWAState(); });
       const btnWaToggle = document.getElementById('config-wa-server-toggle'); if(btnWaToggle) btnWaToggle.addEventListener('click', toggleWAServer);
       const btnWaRetryAll = document.getElementById('config-wa-retry-all'); if(btnWaRetryAll) btnWaRetryAll.addEventListener('click', retryAllWAPendings);
       const btnWaClearAll = document.getElementById('config-wa-clear-all'); if(btnWaClearAll) btnWaClearAll.addEventListener('click', clearWAFailuresAll);
@@ -11351,6 +11380,7 @@ function renderClaseEjerciciosUI(){
       try{ bindProfesoresEvents(); }catch(_){}
       try{ renderLoginInfo(); }catch(_){}
       try{ refreshTopBarSesion(); }catch(_){}
+      try{ initWAOnce(); }catch(_){}
       const roleEl = document.getElementById('login-current');
       const role = roleEl ? (roleEl.getAttribute('data-role') || '') : '';
       const btnProf = document.getElementById('tab-btn-profesores');
