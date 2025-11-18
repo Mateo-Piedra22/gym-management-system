@@ -12580,7 +12580,6 @@ class DatabaseManager:
             return result
     
     def crear_ejercicio(self, ejercicio) -> int:
-        """Crea un nuevo ejercicio y limpia caché relacionada."""
         try:
             with self.get_connection_context() as conn:
                 cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -12598,7 +12597,15 @@ class DatabaseManager:
                         f"INSERT INTO ejercicios ({', '.join(full_cols)}) VALUES ({', '.join(['%s'] * len(full_cols))}) RETURNING id",
                         tuple(full_vals),
                     )
-                except Exception:
+                except Exception as e:
+                    try:
+                        conn.rollback()
+                    except psycopg2.Error:
+                        pass
+                    code = getattr(e, 'pgcode', None)
+                    msg = str(e).lower()
+                    if code == '23505' or 'duplicate key' in msg:
+                        raise
                     try:
                         cols = self.get_table_columns('ejercicios') or []
                     except Exception:
@@ -12625,7 +12632,6 @@ class DatabaseManager:
                     cursor.execute(sql, tuple(insert_vals))
                 result = cursor.fetchone()
                 if result is None:
-                    logging.error(f"Failed to create exercise: {ejercicio.nombre} - fetchone returned None")
                     raise Exception(f"Error creando ejercicio {ejercicio.nombre}: fetchone returned None")
                 ejercicio_id = result['id']
                 conn.commit()

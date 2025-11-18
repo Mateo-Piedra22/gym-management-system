@@ -4202,6 +4202,9 @@ async def api_rutinas_get(usuario_id: Optional[int] = None, _=Depends(require_ge
     except Exception as e:
         import traceback
         traceback.print_exc()
+        msg = str(e).lower()
+        if ('duplicate key' in msg) or ('ejercicios_nombre_key' in msg):
+            return JSONResponse({"detail": "Ya existe un ejercicio con ese nombre"}, status_code=409)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -7117,8 +7120,16 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                     cur.execute("UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s", (url, content_type, int(ejercicio_id)))
                 except Exception:
                     try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    try:
                         cur.execute("UPDATE ejercicios SET video_url = %s WHERE id = %s", (url, int(ejercicio_id)))
                     except Exception:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                         try:
                             cur.execute("UPDATE ejercicios SET video_mime = %s WHERE id = %s", (content_type, int(ejercicio_id)))
                         except Exception:
