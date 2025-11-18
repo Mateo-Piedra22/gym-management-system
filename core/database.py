@@ -915,7 +915,7 @@ class DatabaseManager:
             appname_l = ''
         try:
             pool_env = os.getenv('ADMIN_DB_POOL_MAX') if ('admin' in appname_l) else os.getenv('DB_POOL_MAX')
-            pool_max = int(pool_env) if (pool_env and pool_env.strip()) else 3
+            pool_max = int(pool_env) if (pool_env and pool_env.strip()) else 10
         except Exception:
             pool_max = 3
         try:
@@ -925,7 +925,7 @@ class DatabaseManager:
             pass
         try:
             tout_env = os.getenv('DB_POOL_TIMEOUT')
-            tout = float(tout_env) if (tout_env and tout_env.strip()) else 25.0
+            tout = float(tout_env) if (tout_env and tout_env.strip()) else 8.0
         except Exception:
             tout = 25.0
         self._connection_pool = ConnectionPool(
@@ -16936,6 +16936,11 @@ class DatabaseManager:
                     # Conceptos y métodos de pago
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_conceptos_pago_activo ON conceptos_pago(activo)")
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_metodos_pago_activo ON metodos_pago(activo)")
+
+                    # Ejercicios
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ejercicios_nombre_lower ON ejercicios(LOWER(nombre))")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ejercicios_grupo_muscular ON ejercicios(grupo_muscular)")
+                    _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ejercicios_objetivo ON ejercicios(objetivo)")
 
                     # Relación usuario-etiquetas
                     _safe_create(cursor, "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usuario_etiquetas_usuario_id ON usuario_etiquetas(usuario_id)")
