@@ -2517,6 +2517,64 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         logging.error(f"Error subiendo a Backblaze B2: {e}")
         raise HTTPException(status_code=500, detail=f"Error subiendo a Backblaze B2: {e}")
 
+def _b2_build_public_url(dest_name: str) -> Optional[str]:
+    try:
+        settings = _get_b2_settings()
+        if not settings.get("bucket_id"):
+            return None
+        if requests is None:
+            return None
+        user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
+        auth_resp = requests.get(
+            "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+            auth=(user_id, settings["application_key"]),
+            timeout=8,
+        )
+        if auth_resp.status_code != 200:
+            return None
+        auth_json = auth_resp.json()
+        download_url = auth_json.get("downloadUrl", "")
+        api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+        bucket_id = settings.get("bucket_id") or ""
+        bucket_name_eff = (settings.get("bucket_name") or "").strip()
+        if not bucket_name_eff:
+            try:
+                acct_id_for_list = (settings.get("account_id") or "").strip()
+                if acct_id_for_list and bucket_id:
+                    list_resp = requests.post(
+                        f"{api_url}/b2api/v2/b2_list_buckets",
+                        headers={"Authorization": auth_json.get("authorizationToken", "")},
+                        json={"accountId": acct_id_for_list},
+                        timeout=8,
+                    )
+                    if list_resp.status_code == 200:
+                        buckets = list_resp.json().get("buckets", [])
+                        for b in (buckets or []):
+                            if str(b.get("bucketId", "")) == str(bucket_id):
+                                bn = (b.get("bucketName") or "").strip()
+                                if bn:
+                                    bucket_name_eff = bn
+                                break
+            except Exception:
+                pass
+        file_name = f"{settings['prefix']}/{dest_name}" if settings.get('prefix') else dest_name
+        public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
+        base = public_base.rstrip('/') if public_base else (download_url or "https://f000.backblazeb2.com").rstrip('/')
+        if f"://{bucket_name_eff}." in base:
+            final_base = base
+        elif base.endswith(f"/file/{bucket_name_eff}"):
+            final_base = base
+        elif base.endswith("/file"):
+            final_base = f"{base}/{bucket_name_eff}"
+        elif "/file/" in base:
+            idx = base.find("/file/")
+            final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+        else:
+            final_base = f"{base}/file/{bucket_name_eff}"
+        return f"{final_base}/{file_name}"
+    except Exception:
+        return None
+
 def _delete_media_from_gcs(url: str) -> bool:
     try:
         if not url:
@@ -2571,17 +2629,43 @@ def _delete_media_from_b2(url: str) -> bool:
         import urllib.parse as _urlparse
         u = _urlparse.urlparse(url)
         path = (u.path or "").strip("/")
-        # Buscar segmento 'file/<bucket>/<file_name>'
+        host = (u.netloc or "").strip().lower()
+        bucket_id = settings.get("bucket_id") or ""
+        bucket_name_eff = (settings.get("bucket_name") or "").strip()
+        if not bucket_name_eff:
+            try:
+                acct_id_for_list = (settings.get("account_id") or "").strip()
+                if acct_id_for_list and bucket_id:
+                    list_resp = requests.post(
+                        f"{api_url}/b2api/v2/b2_list_buckets",
+                        headers={"Authorization": auth_token},
+                        json={"accountId": acct_id_for_list},
+                        timeout=8,
+                    )
+                    if list_resp.status_code == 200:
+                        buckets = list_resp.json().get("buckets", [])
+                        for b in (buckets or []):
+                            if str(b.get("bucketId", "")) == str(bucket_id):
+                                bn = (b.get("bucketName") or "").strip()
+                                if bn:
+                                    bucket_name_eff = bn
+                                break
+            except Exception:
+                pass
         file_name = None
         try:
             parts = path.split("/")
             idx = parts.index("file") if "file" in parts else -1
             if idx >= 0 and len(parts) >= idx + 3:
-                bucket_name = parts[idx + 1]
+                bn = parts[idx + 1]
                 candidate = "/".join(parts[idx + 2 :])
-                # Evitar duplicar bucket dentro del nombre
-                if candidate.lower().startswith((bucket_name or "").lower() + "/"):
-                    candidate = candidate[len(bucket_name) + 1 :]
+                if candidate.lower().startswith((bn or "").lower() + "/"):
+                    candidate = candidate[len(bn) + 1 :]
+                file_name = candidate
+            elif bucket_name_eff and host.startswith(bucket_name_eff.lower() + "."):
+                candidate = path
+                if candidate.lower().startswith(bucket_name_eff.lower() + "/"):
+                    candidate = candidate[len(bucket_name_eff) + 1 :]
                 file_name = candidate
         except Exception:
             file_name = None
@@ -7066,8 +7150,24 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
         objetivo = (payload.get("objetivo") or existing.get("objetivo") or "general").strip() or (existing.get("objetivo") or "general")
         video_url = payload.get("video_url") if ("video_url" in payload) else (existing.get("video_url") if existing and ("video_url" in select_cols) else None)
         video_mime = payload.get("video_mime") if ("video_mime" in payload) else (existing.get("video_mime") if existing and ("video_mime" in select_cols) else None)
+        old_url = existing.get("video_url") if existing else None
         ejercicio = Ejercicio(id=int(ejercicio_id), nombre=nombre, grupo_muscular=grupo_muscular, descripcion=descripcion, objetivo=objetivo, video_url=video_url, video_mime=video_mime)  # type: ignore
         db.actualizar_ejercicio(ejercicio)  # type: ignore
+        try:
+            if ("video_url" in payload) and (payload.get("video_url") is None) and old_url:
+                u = str(old_url or "").strip().lower()
+                ok = False
+                if u.startswith('http://') or u.startswith('https://'):
+                    if 'storage.googleapis.com' in u:
+                        ok = _delete_media_from_gcs(str(old_url))
+                    elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                        ok = _delete_media_from_b2(str(old_url))
+                elif str(old_url).startswith('/uploads/'):
+                    ok = _delete_local_media(str(old_url))
+                if not ok:
+                    logging.warning(f"No se pudo borrar media en update: {old_url}")
+        except Exception:
+            pass
         return JSONResponse({"ok": True, "id": int(ejercicio_id)}, headers={"Cache-Control": "no-store, max-age=0, s-maxage=0", "Pragma": "no-cache"})
     except HTTPException:
         raise
@@ -13569,3 +13669,159 @@ app.add_middleware(ForceHTTPSProtoMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(TenantHeaderEnforcerMiddleware)
 app.add_middleware(TenantApiPrefixMiddleware)
+@app.post("/api/ejercicios/{ejercicio_id}/media/direct")
+async def api_ejercicio_media_direct(ejercicio_id: int, filename: str = Form("media.mp4"), content_type: str = Form("video/mp4"), overwrite: bool = Form(True), _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/ejercicios/{ejercicio_id}/media/direct[POST]")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, video_url FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            row0 = cur.fetchone()
+            if row0 is None:
+                raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+        name = str(filename or "media.mp4").replace("\r", "").replace("\n", "")
+        ext = ""
+        if "." in name:
+            ext = name.split(".")[-1].lower()
+        if not ext and content_type.startswith("video/"):
+            ext = content_type.split("/")[-1]
+        if ext not in {"mp4","webm","mov","gif","png","jpg","jpeg","svg"}:
+            raise HTTPException(status_code=400, detail="Tipo de archivo no permitido")
+        ts = int(time.time())
+        dest_name = f"ej_{int(ejercicio_id)}_{ts}.{ext}"
+        settings_b2 = _get_b2_settings()
+        if settings_b2.get("application_key") and settings_b2.get("bucket_id") and requests is not None:
+            user_id = (settings_b2.get("key_id") or settings_b2.get("account_id") or "").strip()
+            auth_resp = requests.get(
+                "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                auth=(user_id, settings_b2["application_key"]),
+                timeout=8,
+            )
+            if auth_resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="No se pudo autorizar B2")
+            auth_json = auth_resp.json()
+            api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+            upload_info = requests.post(
+                f"{api_url}/b2api/v2/b2_get_upload_url",
+                headers={"Authorization": auth_json.get("authorizationToken", "")},
+                json={"bucketId": settings_b2["bucket_id"]},
+                timeout=8,
+            )
+            if upload_info.status_code != 200:
+                raise HTTPException(status_code=502, detail="No se pudo obtener upload URL B2")
+            up_json = upload_info.json()
+            upload_url = up_json.get("uploadUrl", "")
+            upload_token = up_json.get("authorizationToken", "")
+            if not upload_url or not upload_token:
+                raise HTTPException(status_code=502, detail="Upload URL inválida para B2")
+            file_name = f"{settings_b2['prefix']}/{dest_name}" if settings_b2.get('prefix') else dest_name
+            public_base = (settings_b2.get("public_base_url") or "").strip().rstrip("/")
+            bucket_id = settings_b2.get("bucket_id") or ""
+            bucket_name_eff = (settings_b2.get("bucket_name") or "").strip()
+            if not bucket_name_eff:
+                try:
+                    acct_id_for_list = (settings_b2.get("account_id") or "").strip()
+                    if acct_id_for_list and bucket_id:
+                        list_resp = requests.post(
+                            f"{api_url}/b2api/v2/b2_list_buckets",
+                            headers={"Authorization": auth_json.get("authorizationToken", "")},
+                            json={"accountId": acct_id_for_list},
+                            timeout=8,
+                        )
+                        if list_resp.status_code == 200:
+                            buckets = list_resp.json().get("buckets", [])
+                            for b in (buckets or []):
+                                if str(b.get("bucketId", "")) == str(bucket_id):
+                                    bn = (b.get("bucketName") or "").strip()
+                                    if bn:
+                                        bucket_name_eff = bn
+                                    break
+                except Exception:
+                    pass
+            base = public_base.rstrip('/') if public_base else (auth_json.get("downloadUrl", "") or "https://f000.backblazeb2.com").rstrip('/')
+            if f"://{bucket_name_eff}." in base:
+                final_base = base
+            elif base.endswith(f"/file/{bucket_name_eff}"):
+                final_base = base
+            elif base.endswith("/file"):
+                final_base = f"{base}/{bucket_name_eff}"
+            elif "/file/" in base:
+                idx = base.find("/file/")
+                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            else:
+                final_base = f"{base}/file/{bucket_name_eff}"
+            public_url = f"{final_base}/{file_name}"
+            return JSONResponse({
+                "provider": "b2",
+                "upload_url": upload_url,
+                "upload_token": upload_token,
+                "file_name": file_name,
+                "dest_name": dest_name,
+                "content_type": content_type,
+                "public_url": public_url,
+                "overwrite": bool(overwrite),
+            })
+        raise HTTPException(status_code=503, detail="Proveedor de subida directa no disponible")
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/api/ejercicios/{ejercicio_id}/media/commit")
+async def api_ejercicio_media_commit(ejercicio_id: int, dest_name: str = Form(...), content_type: str = Form("video/mp4"), storage: str = Form("b2"), overwrite: bool = Form(True), _=Depends(require_gestion_access)):
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB no disponible")
+    guard = _circuit_guard_json(db, f"/api/ejercicios/{ejercicio_id}/media/commit[POST]")
+    if guard:
+        return guard
+    try:
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SELECT id, video_url FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            row0 = cur.fetchone()
+            if row0 is None:
+                raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+        url: Optional[str] = None
+        storage_out = ""
+        if storage == "b2":
+            url = _b2_build_public_url(dest_name)
+            storage_out = "b2"
+        elif storage == "gcs":
+            url = _upload_media_to_gcs(dest_name, b"", content_type)
+            storage_out = "gcs"
+        if not url:
+            raise HTTPException(status_code=502, detail="No se pudo resolver URL pública")
+        old_url = str(row0.get('video_url') or '').strip()
+        with db.get_connection_context() as conn:  # type: ignore
+            cur = conn.cursor()
+            cur.execute("UPDATE ejercicios SET video_url = %s, video_mime = %s WHERE id = %s", (url, content_type, int(ejercicio_id)))
+            conn.commit()
+        try:
+            if overwrite and old_url and old_url.strip() and (old_url.strip() != url.strip()):
+                ok = False
+                u = old_url.strip().lower()
+                if 'storage.googleapis.com' in u:
+                    ok = _delete_media_from_gcs(old_url)
+                elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                    ok = _delete_media_from_b2(old_url)
+                elif old_url.startswith('/uploads/'):
+                    ok = _delete_local_media(old_url)
+                if not ok:
+                    logging.warning(f"No se pudo borrar media previa en commit: {old_url}")
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, "url": url, "mime": content_type, "storage": storage_out})
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)

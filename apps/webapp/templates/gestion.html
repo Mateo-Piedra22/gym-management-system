@@ -9772,6 +9772,7 @@ function ensurePdfZoomControls(containerId, frameId){
       const fileEl = document.getElementById('ejercicio-video-file'); if(fileEl){
         try{ fileEl.value = ''; }catch(_){}
         const processVideoFile = (f) => {
+          if(state.ejercicioVideoBlobUrl){ try{ URL.revokeObjectURL(state.ejercicioVideoBlobUrl); }catch(_){} state.ejercicioVideoBlobUrl = null; }
           if(f){
             const type = (f.type || '').toLowerCase();
             const sizeMB = f.size ? (f.size / (1024*1024)) : 0;
@@ -9792,7 +9793,7 @@ function ensurePdfZoomControls(containerId, frameId){
           }
           state.ejercicioVideoFile = f || null; state.ejercicioVideoRemove = false; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0';
           const prev2 = document.getElementById('ejercicio-video-preview'); if(prev2){ prev2.innerHTML = ''; if(f){
-            const url2 = URL.createObjectURL(f);
+            const url2 = URL.createObjectURL(f); state.ejercicioVideoBlobUrl = url2;
             if((f.type||'').toLowerCase() === 'image/gif' || /\.gif$/i.test(String(f.name || ''))){
               const img2 = document.createElement('img'); img2.src = url2; img2.alt = 'GIF seleccionado'; img2.className = 'responsive-media'; img2.style.maxHeight = '220px'; prev2.appendChild(img2);
             } else {
@@ -9826,12 +9827,13 @@ function ensurePdfZoomControls(containerId, frameId){
         rmBtn.onclick = () => {
           state.ejercicioVideoFile = null; state.ejercicioVideoRemove = true; try{ (document.getElementById('ejercicio-video-file')||{}).value=''; }catch(_){}
           const flg2 = document.getElementById('ejercicio-video-remove-flag'); if(flg2) flg2.textContent = '1';
+          try{ if(state.ejercicioVideoBlobUrl){ URL.revokeObjectURL(state.ejercicioVideoBlobUrl); state.ejercicioVideoBlobUrl = null; } }catch(_){}
           const prev3 = document.getElementById('ejercicio-video-preview'); if(prev3){ prev3.innerHTML = ''; const p3 = document.createElement('p'); p3.className = 'muted'; p3.textContent = 'Se eliminará el video actual'; prev3.appendChild(p3); }
         };
       }
       // Evitar doble binding: ya se registra en bindEjerciciosEvents
     }
-    function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); state.ejercicioVideoFile=null; state.ejercicioVideoRemove=false; state.editingEjercicioOriginalVideoUrl=null; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0'; }
+    function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); try{ if(state.ejercicioVideoBlobUrl){ URL.revokeObjectURL(state.ejercicioVideoBlobUrl); state.ejercicioVideoBlobUrl=null; } }catch(_){} state.ejercicioVideoFile=null; state.ejercicioVideoRemove=false; state.editingEjercicioOriginalVideoUrl=null; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0'; }
 
     async function saveEjercicio(){
       const btn = document.getElementById('save-ejercicio'); if(btn) btn.disabled = true;
@@ -9862,6 +9864,29 @@ function ensurePdfZoomControls(containerId, frameId){
             const jd = await up.json().catch(() => ({}));
             if(!up.ok){
               showToast(jd.detail || jd.error || 'No se pudo subir el video', 'error', 4500);
+              const tooLarge = (up.status === 413) || /payload too large/i.test(String(jd.detail||jd.error||''));
+              if(tooLarge || (state.ejercicioVideoFile.size > (4.7*1024*1024))){
+                const infoFd = new FormData(); infoFd.append('filename', state.ejercicioVideoFile.name||'media.mp4'); infoFd.append('content_type', (state.ejercicioVideoFile.type||'video/mp4')); infoFd.append('overwrite','true');
+                const info = await fetch(`/api/ejercicios/${eid}/media/direct`, { method:'POST', body: infoFd, credentials:'same-origin' });
+                const j2 = await info.json().catch(()=>({}));
+                if(info.ok && j2 && j2.provider === 'b2' && j2.upload_url && j2.upload_token && j2.file_name){
+                  const headers = { 'Authorization': j2.upload_token, 'X-Bz-File-Name': encodeURIComponent(j2.file_name), 'Content-Type': (state.ejercicioVideoFile.type||j2.content_type||'application/octet-stream'), 'X-Bz-Content-Sha1': 'do_not_verify' };
+                  const up2 = await fetch(String(j2.upload_url), { method:'POST', headers, body: state.ejercicioVideoFile });
+                  if(up2.ok){
+                    const commitFd = new FormData(); commitFd.append('dest_name', j2.dest_name||''); commitFd.append('content_type', headers['Content-Type']); commitFd.append('storage','b2'); commitFd.append('overwrite','true');
+                    const c = await fetch(`/api/ejercicios/${eid}/media/commit`, { method:'POST', body: commitFd, credentials:'same-origin' });
+                    const jc = await c.json().catch(()=>({}));
+                    if(c.ok){
+                      showToast('Video subido a Backblaze B2', 'success', 3000);
+                      await loadEjercicios();
+                    } else {
+                      showToast(jc.detail || jc.error || 'No se pudo finalizar la subida', 'error', 4500);
+                    }
+                  } else {
+                    showToast('No se pudo subir el video directamente (B2)', 'error', 4500);
+                  }
+                }
+              }
             } else {
               const loc = String(jd.storage || '').toLowerCase();
               if(loc === 'b2'){
