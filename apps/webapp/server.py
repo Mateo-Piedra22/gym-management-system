@@ -13670,7 +13670,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(TenantHeaderEnforcerMiddleware)
 app.add_middleware(TenantApiPrefixMiddleware)
 @app.post("/api/ejercicios/{ejercicio_id}/media/direct")
-async def api_ejercicio_media_direct(ejercicio_id: int, filename: str = Form("media.mp4"), content_type: str = Form("video/mp4"), overwrite: bool = Form(True), _=Depends(require_gestion_access)):
+async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filename: str = Form("media.mp4"), content_type: str = Form("video/mp4"), overwrite: bool = Form(True), _=Depends(require_gestion_access)):
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="DB no disponible")
@@ -13696,6 +13696,10 @@ async def api_ejercicio_media_direct(ejercicio_id: int, filename: str = Form("me
         dest_name = f"ej_{int(ejercicio_id)}_{ts}.{ext}"
         settings_b2 = _get_b2_settings()
         if settings_b2.get("application_key") and settings_b2.get("bucket_id") and requests is not None:
+            try:
+                _ensure_b2_cors(request.headers.get("origin"))
+            except Exception:
+                pass
             user_id = (settings_b2.get("key_id") or settings_b2.get("account_id") or "").strip()
             auth_resp = requests.get(
                 "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
@@ -13825,3 +13829,73 @@ async def api_ejercicio_media_commit(ejercicio_id: int, dest_name: str = Form(..
         import traceback
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
+    try:
+        settings = _get_b2_settings()
+        if not (settings.get("application_key") and settings.get("bucket_id")):
+            return False
+        if requests is None:
+            return False
+        origin = str(allowed_origin or "").strip()
+        if not origin:
+            return False
+        user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
+        auth_resp = requests.get(
+            "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+            auth=(user_id, settings["application_key"]),
+            timeout=8,
+        )
+        if auth_resp.status_code != 200:
+            return False
+        auth_json = auth_resp.json()
+        api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+        auth_token = auth_json.get("authorizationToken", "")
+        if not api_url or not auth_token:
+            return False
+        # Obtener bucket actual con sus reglas
+        get_resp = requests.post(
+            f"{api_url}/b2api/v2/b2_get_bucket",
+            headers={"Authorization": auth_token},
+            json={"bucketId": settings["bucket_id"]},
+            timeout=8,
+        )
+        if get_resp.status_code != 200:
+            return False
+        bucket_info = get_resp.json()
+        cors_rules = bucket_info.get("corsRules") or []
+        # Verificar si ya existe una regla que incluye este origin y upload
+        exists = False
+        for r in cors_rules:
+            try:
+                if origin in (r.get("allowedOrigins") or []):
+                    ops = set(r.get("allowedOperations") or [])
+                    if ("b2_upload_file" in ops) and ("b2_get_upload_url" in ops):
+                        exists = True
+                        break
+            except Exception:
+                continue
+        if exists:
+            return True
+        # Añadir regla
+        new_rule = {
+            "corsRuleName": "allow-webapp-upload",
+            "allowedOrigins": [origin],
+            "allowedHeaders": [
+                "Authorization",
+                "X-Bz-File-Name",
+                "Content-Type",
+                "X-Bz-Content-Sha1",
+            ],
+            "allowedOperations": ["b2_get_upload_url", "b2_upload_file"],
+            "exposeHeaders": ["x-bz-content-sha1"],
+            "maxAgeSeconds": 86400,
+        }
+        upd_resp = requests.post(
+            f"{api_url}/b2api/v2/b2_update_bucket",
+            headers={"Authorization": auth_token},
+            json={"bucketId": settings["bucket_id"], "corsRules": cors_rules + [new_rule]},
+            timeout=8,
+        )
+        return upd_resp.status_code == 200
+    except Exception:
+        return False
