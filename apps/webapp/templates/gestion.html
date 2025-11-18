@@ -3202,7 +3202,7 @@
   <script>
     let editingUserId = null;
     let editingPagoId = null;
-    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, ejercicioVideoFile: null, ejercicioVideoRemove: false, editingEjercicioOriginalVideoUrl: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null };
+    const state = { pagos: [], pagosFilters: { metodo: '', concepto: '' }, deleteUserId: null, deletePagoId: null, selectedPago: null, selectedUsuario: null, usuarioHistorial: [], usuarioWAHistorial: [], configTipos: [], configConceptos: [], configMetodos: [], editingTipoId: null, editingConceptoId: null, editingMetodoId: null, deleteTipoId: null, deleteConceptoId: null, deleteMetodoId: null, tiposCuotaActivos: [], tiposCuotaMap: {}, metodosPago: [], metodosPagoMap: {}, ejercicios: [], editingEjercicioId: null, deleteEjercicioId: null, selectedEjercicio: null, ejercicioVideoFile: null, ejercicioVideoRemove: false, editingEjercicioOriginalVideoUrl: null, rutinas: [], plantillas: [], activeRutinaTab: 'plantillas', assignPlantillaId: null, editingRutinaId: null, deleteRutinaId: null, selectedRutina: null, renumStartId: null, estadoPlantillas: [], estadoPlantillasMap: {}, rutinaSelectMode: false, rutinaSelected: [], rutinaCompact: false, rutinaDayCollapsed: {}, rutinaAutoSaveTimer: null, rutinaPreviewDirty: false, lastAutoSaveTs: 0, ejFilter: { q:'', group:'', objetivo:'' }, ejerciciosFiltered: null, usuarios: [], asistenciasHoySet: null, morosidadSet: null, usuariosLoading: false, usuariosAbort: null, usuariosLastQuery: '', usuariosPromise: null, ejerciciosLoading: false, ejerciciosAbort: null, ejerciciosLastQuery: '', ejerciciosPromise: null, rutinasLoading: false, rutinasAbort: null, rutinasLastQuery: '', rutinasPromise: null, plantillasLoading: false, plantillasAbort: null, plantillasLastQuery: '', plantillasPromise: null, pagosLoading: false, pagosAbort: null, pagosLastQuery: '', pagosPromise: null, metodosPagoLoading: false, metodosPagoAbort: null, metodosPagoPromise: null, conceptosPagoLoading: false, conceptosPagoAbort: null, conceptosPagoPromise: null, tiposCuotaActivosLoading: false, tiposCuotaActivosAbort: null, tiposCuotaActivosPromise: null, waPendingsLoading: false, waPendingsAbort: null, waPendingsPromise: null, waStateLoading: false, waStateAbort: null, waStatePromise: null };
 
     function fmtDate(d){
       if(!d) return '';
@@ -3265,7 +3265,8 @@
         if(!sel) return;
         // Mantener opción "Todos"
         sel.innerHTML = '<option value="">Todos</option>';
-        const list = await fetchJson('/api/usuarios?limit=300', { }, 'supersede');
+        const res = await fetch('/api/usuarios?limit=300', { headers:{ 'Accept':'application/json' }, method:'GET' });
+        const list = await res.json().catch(() => []);
         if(Array.isArray(list)){
           // Ordenar por nombre para facilitar búsqueda visual
           list.sort((a,b) => String(a.nombre||'').localeCompare(String(b.nombre||'')) || Number(a.id||a.usuario_id||0) - Number(b.id||b.usuario_id||0));
@@ -3767,7 +3768,7 @@
       } catch(_){ /* noop */ }
     }
 
-    async function loadPayments(){
+  async function loadPayments(){
       const start = document.getElementById('pagos-start').value || '';
       const end = document.getElementById('pagos-end').value || '';
       const q = document.getElementById('pagos-q').value || '';
@@ -3778,17 +3779,23 @@
       if(q) params.append('q', q);
       params.append('limit', String(limit));
       params.append('offset', '0');
-      const url = `/api/pagos_detalle?${params.toString()}`;
-      // Mostrar skeleton mientras se carga
+      const queryKey = params.toString();
+      const url = `/api/pagos_detalle?${queryKey}`;
+      if(state.pagosLoading && state.pagosLastQuery === queryKey){ return state.pagosPromise || Promise.resolve([]); }
+      if(state.pagosAbort){ try{ state.pagosAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.pagosAbort = ctrl;
+      state.pagosLoading = true;
+      state.pagosLastQuery = queryKey;
       try { showTableSkeleton('#pagos-table', 7, Math.max(5, limit)); } catch(_){}
-      try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' });
+      state.pagosPromise = (async () => {
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
         const data = await res.json().catch(() => ({}));
         const itemsRaw = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
         state.pagos = itemsRaw;
         const items = pagosAplicaFiltros(itemsRaw);
         const tbody = document.querySelector('#pagos-table tbody');
-        tbody.innerHTML = '';
+        if(tbody) tbody.innerHTML = '';
         items.forEach((row, idx) => {
           const tr = document.createElement('tr');
           tr.setAttribute('data-index', String(idx));
@@ -3814,83 +3821,90 @@
             <td>${fmtCurrency(monto)}</td>
             <td class="table-actions">${actionsHTML}</td>
           `;
-          tbody.appendChild(tr);
+          tbody && tbody.appendChild(tr);
         });
         const count = (data && typeof data.count === 'number') ? data.count : items.length;
-        document.getElementById('pagos-count').textContent = `${count} pagos`;
-        // Tarjetas
+        const countEl = document.getElementById('pagos-count'); if(countEl) countEl.textContent = `${count} pagos`;
         const totalMonto = items.reduce((acc, r) => acc + (parseFloat(r.monto || 0) || 0), 0);
         const uniqueDni = new Set(items.map(r => String(r.dni || '')));
-        document.getElementById('pagos-card-count').textContent = String(items.length);
-    document.getElementById('pagos-card-monto').textContent = fmtCurrency(totalMonto);
-        document.getElementById('pagos-card-unique').textContent = String(Array.from(uniqueDni).filter(v => v).length);
+        const cardCountEl = document.getElementById('pagos-card-count'); if(cardCountEl) cardCountEl.textContent = String(items.length);
+        const cardMontoEl = document.getElementById('pagos-card-monto'); if(cardMontoEl) cardMontoEl.textContent = fmtCurrency(totalMonto);
+        const cardUniqueEl = document.getElementById('pagos-card-unique'); if(cardUniqueEl) cardUniqueEl.textContent = String(Array.from(uniqueDni).filter(v => v).length);
         const avg = items.length ? (totalMonto / items.length) : 0;
-    const avgEl = document.getElementById('pagos-card-average');
-    if(avgEl) avgEl.textContent = fmtCurrency(avg);
-      } catch(err){
-        console.error('Error cargando pagos:', err);
-      }
+        const avgEl = document.getElementById('pagos-card-average'); if(avgEl) avgEl.textContent = fmtCurrency(avg);
+        return items;
+      })();
+      return state.pagosPromise.catch(function(){ showToast('No se pudieron cargar pagos', 'error', 4500); return []; }).finally(function(){ state.pagosLoading = false; state.pagosAbort = null; });
     }
 
     async function loadMetodosPago(){
       try {
-        const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' });
-        const met = await res.json();
-        const items = Array.isArray(met) ? met : (Array.isArray(met?.metodos) ? met.metodos : []);
-        // Actualiza estado para que el wizard pueda poblar selects por ID
-        state.metodosPago = items;
-        state.metodosPagoMap = Object.fromEntries(items.map(m => [String(m.id), m]));
-        // Pobla el filtro por nombre (valor = nombre en minúsculas)
-        const sel = document.getElementById('pagos-metodo');
-        if(sel){
-          sel.innerHTML = '<option value="">Todos</option>';
-          items.forEach(m => {
-            const opt = document.createElement('option');
-            const nombre = m.nombre ?? '';
-            opt.value = String(nombre).toLowerCase();
-            opt.textContent = nombre;
-            sel.appendChild(opt);
-          });
-          if(state.pagosFilters.metodo){ sel.value = state.pagosFilters.metodo; }
-        }
-      } catch(e){ console.warn('No se pudieron cargar métodos de pago:', e); }
+        if(state.metodosPagoLoading){ return state.metodosPagoPromise || Promise.resolve([]); }
+        if(state.metodosPagoAbort){ try{ state.metodosPagoAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.metodosPagoAbort = ctrl;
+        state.metodosPagoLoading = true;
+        state.metodosPagoPromise = (async () => {
+          const res = await fetch('/api/metodos_pago', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
+          const met = await res.json().catch(()=>([]));
+          const items = Array.isArray(met) ? met : (Array.isArray(met?.metodos) ? met.metodos : []);
+          state.metodosPago = items;
+          state.metodosPagoMap = Object.fromEntries(items.map(m => [String(m.id), m]));
+          const sel = document.getElementById('pagos-metodo');
+          if(sel){
+            sel.innerHTML = '<option value="">Todos</option>';
+            items.forEach(m => { const opt = document.createElement('option'); const nombre = m.nombre ?? ''; opt.value = String(nombre).toLowerCase(); opt.textContent = nombre; sel.appendChild(opt); });
+            if(state.pagosFilters.metodo){ sel.value = state.pagosFilters.metodo; }
+          }
+          return items;
+        })();
+        return state.metodosPagoPromise.finally(function(){ state.metodosPagoLoading = false; state.metodosPagoAbort = null; });
+      } catch(e){ }
     }
     async function loadConceptosPago(){
       try {
-        const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' }, method:'GET' });
-        const conc = await res.json();
-        const items = Array.isArray(conc?.items) ? conc.items : (Array.isArray(conc) ? conc : []);
-        // Actualiza estado para el wizard (map por ID)
-        state.conceptosPago = items;
-        state.conceptosPagoMap = Object.fromEntries(items.map(c => [String(c.id), c]));
-        // Pobla el filtro por nombre (valor = nombre en minúsculas)
-        const sel = document.getElementById('pagos-concepto');
-        if(sel){
-          sel.innerHTML = '<option value="">Todos</option>';
-          items.forEach(c => {
-            const nombre = c.nombre ?? '';
-            const opt = document.createElement('option');
-            opt.value = String(nombre).toLowerCase();
-            opt.textContent = nombre;
-            sel.appendChild(opt);
-          });
-          if(state.pagosFilters.concepto){ sel.value = state.pagosFilters.concepto; }
-        }
-      } catch(e){ console.warn('No se pudieron cargar conceptos:', e); }
+        if(state.conceptosPagoLoading){ return state.conceptosPagoPromise || Promise.resolve([]); }
+        if(state.conceptosPagoAbort){ try{ state.conceptosPagoAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.conceptosPagoAbort = ctrl;
+        state.conceptosPagoLoading = true;
+        state.conceptosPagoPromise = (async () => {
+          const res = await fetch('/api/conceptos_pago', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
+          const conc = await res.json().catch(()=>([]));
+          const items = Array.isArray(conc?.items) ? conc.items : (Array.isArray(conc) ? conc : []);
+          state.conceptosPago = items;
+          state.conceptosPagoMap = Object.fromEntries(items.map(c => [String(c.id), c]));
+          const sel = document.getElementById('pagos-concepto');
+          if(sel){
+            sel.innerHTML = '<option value="">Todos</option>';
+            items.forEach(c => { const nombre = c.nombre ?? ''; const opt = document.createElement('option'); opt.value = String(nombre).toLowerCase(); opt.textContent = nombre; sel.appendChild(opt); });
+            if(state.pagosFilters.concepto){ sel.value = state.pagosFilters.concepto; }
+          }
+          return items;
+        })();
+        return state.conceptosPagoPromise.finally(function(){ state.conceptosPagoLoading = false; state.conceptosPagoAbort = null; });
+      } catch(e){ }
     }
 
     async function loadTiposCuotaActivos(){
       try {
-        const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' }, method:'GET' });
-        const tipos = await res.json();
-        const lista = Array.isArray(tipos) ? tipos : [];
-        state.tiposCuotaActivos = lista;
-        state.tiposCuotaMap = Object.fromEntries(lista.map(t => [String(t.id ?? t.nombre ?? ''), t]));
-        const sel = document.getElementById('u-tipo-cuota');
-        if(sel){
-          sel.innerHTML = '<option value="">Tipo de cuota</option>' + lista.map(t => `<option value="${t.id ?? t.nombre ?? ''}">${t.nombre ?? String(t.id ?? '')}</option>`).join('');
-        }
-      } catch(e){ console.warn('No se pudieron cargar tipos de cuota activos:', e); }
+        if(state.tiposCuotaActivosLoading){ return state.tiposCuotaActivosPromise || Promise.resolve([]); }
+        if(state.tiposCuotaActivosAbort){ try{ state.tiposCuotaActivosAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.tiposCuotaActivosAbort = ctrl;
+        state.tiposCuotaActivosLoading = true;
+        state.tiposCuotaActivosPromise = (async () => {
+          const res = await fetch('/api/tipos_cuota_activos', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
+          const tipos = await res.json().catch(()=>([]));
+          const lista = Array.isArray(tipos) ? tipos : [];
+          state.tiposCuotaActivos = lista;
+          state.tiposCuotaMap = Object.fromEntries(lista.map(t => [String(t.id ?? t.nombre ?? ''), t]));
+          const sel = document.getElementById('u-tipo-cuota');
+          if(sel){ sel.innerHTML = '<option value="">Tipo de cuota</option>' + lista.map(t => `<option value="${t.id ?? t.nombre ?? ''}">${t.nombre ?? String(t.id ?? '')}</option>`).join(''); }
+          return lista;
+        })();
+        return state.tiposCuotaActivosPromise.finally(function(){ state.tiposCuotaActivosLoading = false; state.tiposCuotaActivosAbort = null; });
+      } catch(e){ }
     }
 
     function updateUsuariosCards(rows){
@@ -3921,32 +3935,28 @@
       if(q) params.append('q', q);
       params.append('limit', String(limit));
       params.append('offset', '0');
-      const url = `/api/usuarios?${params.toString()}`;
-      // Mostrar skeleton mientras se carga
+      const queryKey = params.toString();
+      if(state.usuariosLoading && state.usuariosLastQuery === queryKey){ return state.usuariosPromise || Promise.resolve(); }
+      if(state.usuariosAbort){ try{ state.usuariosAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.usuariosAbort = ctrl;
+      state.usuariosLoading = true;
+      state.usuariosLastQuery = queryKey;
+      const url = `/api/usuarios?${queryKey}`;
       try { showTableSkeleton('#usuarios-table', 8, Math.max(5, limit)); } catch(_){}
-      try {
-        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET' });
+      state.usuariosPromise = (async () => {
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
         const rows = await res.json().catch(() => []);
         state.usuarios = Array.isArray(rows) ? rows : [];
         // Obtener set de IDs con asistencia hoy
-        const hoySet = await (async () => {
-          try {
-            const r = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET' });
-            const arr = await r.json().catch(() => []);
-            const list = Array.isArray(arr) ? arr : [];
-            return new Set(list.map(x => Number(x)));
-          } catch(e) { return new Set(); }
-        })();
+        const r1 = await fetch('/api/asistencias_hoy_ids', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
+        const arr1 = await r1.json().catch(() => []);
+        const hoySet = new Set((Array.isArray(arr1) ? arr1 : []).map(x => Number(x)));
         state.asistenciasHoySet = hoySet;
         // Obtener set de IDs desactivados por morosidad (estado activo)
-        const morosSet = await (async () => {
-          try {
-            const r = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET' });
-            const arr = await r.json().catch(() => []);
-            const list = Array.isArray(arr) ? arr : [];
-            return new Set(list.map(x => Number(x)));
-          } catch(e) { return new Set(); }
-        })();
+        const r2 = await fetch('/api/usuarios_morosidad_ids', { headers: { 'Accept': 'application/json' }, method:'GET', signal: ctrl.signal });
+        const arr2 = await r2.json().catch(() => []);
+        const morosSet = new Set((Array.isArray(arr2) ? arr2 : []).map(x => Number(x)));
         state.morosidadSet = morosSet;
         const tbody = document.querySelector('#usuarios-table tbody');
         tbody.innerHTML = '';
@@ -3980,9 +3990,8 @@
         try { populatePagosUsuarioSelector(); } catch {}
         // Actualizar selector de usuario en Rutinas
         try { renderRutinasUsuarioFilter(); } catch {}
-      } catch(err){
-        console.error('Error cargando usuarios:', err);
-      }
+      })();
+      return state.usuariosPromise.catch(function(err){ console.error('Error cargando usuarios:', err); }).finally(function(){ state.usuariosLoading = false; state.usuariosAbort = null; });
     }
 
     function showUserForm(user){
@@ -4490,7 +4499,7 @@
       const sel = document.getElementById('pago-usuario');
       if(!sel) return;
       if(!Array.isArray(state.usuarios) || state.usuarios.length === 0){
-        await loadUsers();
+        sel.innerHTML = '<option value="">Seleccionar usuario</option>';
       }
       const usuarios = Array.isArray(state.usuarios) ? state.usuarios : [];
       sel.innerHTML = '<option value="">Seleccionar usuario</option>' + usuarios.map(u => `<option value="${u.id}">${u.nombre} (${u.dni || ''})</option>`).join('');
@@ -4503,7 +4512,7 @@
       if(!sel) return;
       try {
         if(!Array.isArray(state.usuarios) || state.usuarios.length === 0){
-          await loadUsers();
+          sel.innerHTML = '<option value="">Usuario (opcional)</option>';
         }
         const usuarios = Array.isArray(state.usuarios) ? state.usuarios : [];
         sel.innerHTML = '<option value="">Usuario (opcional)</option>' + usuarios.map(u => `<option value="${u.id}">${u.nombre} (${u.dni || ''})</option>`).join('');
@@ -6221,14 +6230,23 @@
     // ===== Configuración: Envíos pendientes (WhatsApp) =====
     async function loadWAPendings(){
       try{
-        const res = await fetch('/api/whatsapp/pendings', { headers:{ 'Accept':'application/json' } });
-        if(res.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return; }
-        const data = await res.json();
-        const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
-        if(!window.state) window.state = {};
-        state.waPendings = rows;
-        renderWAPendingsTable(rows);
-      }catch(e){ console.warn('No se pudieron cargar envíos pendientes:', e); showToast('No se pudieron cargar envíos pendientes', 'error', 4500); }
+        if(state.waPendingsLoading){ return state.waPendingsPromise || Promise.resolve([]); }
+        if(state.waPendingsAbort){ try{ state.waPendingsAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.waPendingsAbort = ctrl;
+        state.waPendingsLoading = true;
+        state.waPendingsPromise = (async () => {
+          const res = await fetch('/api/whatsapp/pendings', { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+          if(res.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
+          const data = await res.json().catch(()=>([]));
+          const rows = Array.isArray(data.items) ? data.items : (Array.isArray(data) ? data : []);
+          if(!window.state) window.state = {};
+          state.waPendings = rows;
+          renderWAPendingsTable(rows);
+          return rows;
+        })();
+        return state.waPendingsPromise.finally(function(){ state.waPendingsLoading = false; state.waPendingsAbort = null; });
+      }catch(e){ showToast('No se pudieron cargar envíos pendientes', 'error', 4500); }
     }
     function renderWAPendingsTable(rows){
       const tbody = document.querySelector('#config-wa-pendings-table tbody'); if(!tbody) return;
@@ -6313,40 +6331,36 @@
     // ===== WhatsApp: Estado y último envío =====
     async function loadWAState(){
       try{
-        const res = await fetch('/api/whatsapp/state', { headers:{ 'Accept':'application/json' } });
-        const data = await res.json().catch(() => ({}));
-        const yesNo = (v) => (v ? 'Sí' : 'No');
-        const elAvail = document.getElementById('config-wa-state-available');
-        const elEnabled = document.getElementById('config-wa-state-enabled');
-        const elServer = document.getElementById('config-wa-state-server');
-        const elConfig = document.getElementById('config-wa-state-config');
-        if(elAvail) elAvail.textContent = yesNo(Boolean(data?.disponible));
-        if(elEnabled) elEnabled.textContent = yesNo(Boolean(data?.habilitado));
-        if(elServer) elServer.textContent = Boolean(data?.servidor_activo) ? 'Activo' : 'Inactivo';
-        if(elConfig) elConfig.textContent = yesNo(Boolean(data?.configuracion_valida));
-        // Actualizar botón toggle según estado del servidor
-        try {
-          updateWAServerToggleUI(Boolean(data?.servidor_activo));
-          const btnToggle = document.getElementById('config-wa-server-toggle');
-          if(btnToggle){
-            const cfgValid = Boolean(data?.configuracion_valida);
-            btnToggle.disabled = !cfgValid;
-            btnToggle.title = cfgValid ? '' : 'Configuración inválida';
-          }
-        } catch(_) {}
-        // Rellenar inputs si el estado trae config actual (si está disponible)
-        try{
-          const cfg = (data && data.config) ? data.config : null;
-          if(cfg){
-            const allowEl = document.getElementById('wa-config-allowlist-text'); if(allowEl && (cfg.allowlist_numbers != null)){
-              const arr = Array.isArray(cfg.allowlist_numbers) ? cfg.allowlist_numbers : String(cfg.allowlist_numbers || '').split(',');
-              allowEl.value = (arr || []).map(x => String(x||'').trim()).filter(x => x).join(', ');
+        if(state.waStateLoading){ return state.waStatePromise || Promise.resolve(null); }
+        if(state.waStateAbort){ try{ state.waStateAbort.abort(); }catch(_){ } }
+        const ctrl = new AbortController();
+        state.waStateAbort = ctrl;
+        state.waStateLoading = true;
+        state.waStatePromise = (async () => {
+          const res = await fetch('/api/whatsapp/state', { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+          const data = await res.json().catch(() => ({}));
+          const yesNo = (v) => (v ? 'Sí' : 'No');
+          const elAvail = document.getElementById('config-wa-state-available');
+          const elEnabled = document.getElementById('config-wa-state-enabled');
+          const elServer = document.getElementById('config-wa-state-server');
+          const elConfig = document.getElementById('config-wa-state-config');
+          if(elAvail) elAvail.textContent = yesNo(Boolean(data?.disponible));
+          if(elEnabled) elEnabled.textContent = yesNo(Boolean(data?.habilitado));
+          if(elServer) elServer.textContent = Boolean(data?.servidor_activo) ? 'Activo' : 'Inactivo';
+          if(elConfig) elConfig.textContent = yesNo(Boolean(data?.configuracion_valida));
+          try { updateWAServerToggleUI(Boolean(data?.servidor_activo)); const btnToggle = document.getElementById('config-wa-server-toggle'); if(btnToggle){ const cfgValid = Boolean(data?.configuracion_valida); btnToggle.disabled = !cfgValid; btnToggle.title = cfgValid ? '' : 'Configuración inválida'; } } catch(_){ }
+          try{
+            const cfg = (data && data.config) ? data.config : null;
+            if(cfg){
+              const allowEl = document.getElementById('wa-config-allowlist-text'); if(allowEl && (cfg.allowlist_numbers != null)){ const arr = Array.isArray(cfg.allowlist_numbers) ? cfg.allowlist_numbers : String(cfg.allowlist_numbers || '').split(','); allowEl.value = (arr || []).map(x => String(x||'').trim()).filter(x => x).join(', '); }
+              const allowChk = document.getElementById('wa-config-allowlist-enabled'); if(allowChk && (cfg.allowlist_enabled != null)) allowChk.checked = !!cfg.allowlist_enabled && String(cfg.allowlist_enabled).toLowerCase() !== 'false';
+              const hookChk = document.getElementById('wa-config-enable-webhook'); if(hookChk && (cfg.enable_webhook != null)) hookChk.checked = !!cfg.enable_webhook && String(cfg.enable_webhook).toLowerCase() !== 'false';
             }
-            const allowChk = document.getElementById('wa-config-allowlist-enabled'); if(allowChk && (cfg.allowlist_enabled != null)) allowChk.checked = !!cfg.allowlist_enabled && String(cfg.allowlist_enabled).toLowerCase() !== 'false';
-            const hookChk = document.getElementById('wa-config-enable-webhook'); if(hookChk && (cfg.enable_webhook != null)) hookChk.checked = !!cfg.enable_webhook && String(cfg.enable_webhook).toLowerCase() !== 'false';
-          }
-        }catch(_){ }
-      }catch(e){ console.warn('No se pudo cargar estado WA:', e); }
+          }catch(_){ }
+          return data;
+        })();
+        return state.waStatePromise.finally(function(){ state.waStateLoading = false; state.waStateAbort = null; });
+      }catch(e){ }
     }
 
     function updateWAServerToggleUI(active){
@@ -6787,7 +6801,7 @@
     }
 
     // ===== Ejercicios: funciones =====
-    function loadEjercicios(){
+    async function loadEjercicios(){
       const q = (document.getElementById('ejercicios-q') || {}).value || '';
       const objetivo = (document.getElementById('ejercicios-objetivo') || {}).value || '';
       const grupo = (document.getElementById('ejercicios-grupo') || {}).value || '';
@@ -6796,29 +6810,29 @@
       if(objetivo && objetivo !== 'Todos') params.append('objetivo', objetivo);
       if(grupo && grupo !== 'Todos') params.append('grupo_muscular', grupo);
       const url = params.toString() ? `/api/ejercicios?${params.toString()}` : '/api/ejercicios';
-      // Retornar la promesa para permitir await loadEjercicios()
-      return fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET' })
-        .then(async (r) => {
-          if(!r.ok){
-            if(r.status === 401){
-              showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500);
-              try{ window.location.href = '/gestion/login'; }catch(e){}
-              return [];
-            }
-            const d = await r.json().catch(() => ({}));
-            showToast(d.detail || 'No se pudieron cargar ejercicios', 'error', 4500);
-            return [];
-          }
-          return r.json().catch(() => []);
-        })
-        .then(items => { 
-          state.ejercicios = Array.isArray(items) ? items : []; 
-          updateEjerciciosTable(); 
-          const sel = state.selectedEjercicio ? (state.ejercicios || []).find(x => String(x.id) === String(state.selectedEjercicio.id)) : null;
-          updateEjercicioSidePanel(sel || null);
-          return state.ejercicios;
-        })
-        .catch(() => { showToast('No se pudieron cargar ejercicios', 'error', 4500); return []; });
+      const queryKey = url;
+      if(state.ejerciciosLoading && state.ejerciciosLastQuery === queryKey){ return state.ejerciciosPromise || Promise.resolve([]); }
+      if(state.ejerciciosAbort){ try{ state.ejerciciosAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.ejerciciosAbort = ctrl;
+      state.ejerciciosLoading = true;
+      state.ejerciciosLastQuery = queryKey;
+      state.ejerciciosPromise = (async () => {
+        const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', cache: 'no-store', method: 'GET', signal: ctrl.signal });
+        if(!r.ok){
+          if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
+          const d = await r.json().catch(() => ({}));
+          showToast(d.detail || 'No se pudieron cargar ejercicios', 'error', 4500);
+          return [];
+        }
+        const items = await r.json().catch(() => []);
+        state.ejercicios = Array.isArray(items) ? items : [];
+        updateEjerciciosTable();
+        const sel = state.selectedEjercicio ? (state.ejercicios || []).find(x => String(x.id) === String(state.selectedEjercicio.id)) : null;
+        updateEjercicioSidePanel(sel || null);
+        return state.ejercicios;
+      })();
+      return state.ejerciciosPromise.catch(function(){ showToast('No se pudieron cargar ejercicios', 'error', 4500); return []; }).finally(function(){ state.ejerciciosLoading = false; state.ejerciciosAbort = null; });
     }
 
     // ===== Rutinas: funciones =====
@@ -6836,49 +6850,50 @@
       if(current){ sel.value = current; }
     }
 
-    function loadRutinas(){
-      // Mantener para compatibilidad cuando se necesite ver todas (no default)
+    async function loadRutinas(){
       const q = (document.getElementById('rutinas-q') || {}).value || '';
-      fetch('/api/rutinas', { headers: { 'Accept': 'application/json' } })
-        .then(async (r) => {
-          if(!r.ok){
-            if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
-            const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar rutinas', 'error', 4500); return [];
-          }
-          return r.json().catch(() => []);
-        })
-        .then(items => {
-          const arr = Array.isArray(items) ? items : [];
-          // Filtro simple por nombre
-          const ql = q.trim().toLowerCase();
-          state.rutinas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')) .toLowerCase().includes(ql)) : arr;
-          updateRutinasTable();
-          const sel = state.selectedRutina ? (state.rutinas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
-          updateRutinaSidePanel(sel || null);
-        })
-        .catch(() => showToast('No se pudieron cargar rutinas', 'error', 4500));
+      const url = '/api/rutinas';
+      const queryKey = url;
+      if(state.rutinasLoading && state.rutinasLastQuery === queryKey){ return state.rutinasPromise || Promise.resolve([]); }
+      if(state.rutinasAbort){ try{ state.rutinasAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.rutinasAbort = ctrl; state.rutinasLoading = true; state.rutinasLastQuery = queryKey;
+      state.rutinasPromise = (async () => {
+        const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
+        if(!r.ok){ if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; } const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar rutinas', 'error', 4500); return []; }
+        const items = await r.json().catch(() => []);
+        const arr = Array.isArray(items) ? items : [];
+        const ql = q.trim().toLowerCase();
+        state.rutinas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')).toLowerCase().includes(ql)) : arr;
+        updateRutinasTable();
+        const sel = state.selectedRutina ? (state.rutinas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
+        updateRutinaSidePanel(sel || null);
+        return state.rutinas;
+      })();
+      return state.rutinasPromise.catch(function(){ showToast('No se pudieron cargar rutinas', 'error', 4500); return []; }).finally(function(){ state.rutinasLoading = false; state.rutinasAbort = null; });
     }
 
-    function loadRutinasPlantillas(){
+    async function loadRutinasPlantillas(){
       const q = (document.getElementById('rutinas-q') || {}).value || '';
-      fetch('/api/rutinas/plantillas', { headers: { 'Accept': 'application/json' } })
-        .then(async (r) => {
-          if(!r.ok){
-            if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; }
-            const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar plantillas', 'error', 4500); return [];
-          }
-          return r.json().catch(() => []);
-        })
-        .then(items => {
-          const arr = Array.isArray(items) ? items : [];
-          const ql = q.trim().toLowerCase();
-          state.plantillas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')).toLowerCase().includes(ql)) : arr;
-          // En vista de plantillas, actualizar tabla con plantillas
-          updateRutinasTable();
-          const sel = state.selectedRutina ? (state.plantillas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
-          updateRutinaSidePanel(sel || null);
-        })
-        .catch(() => showToast('No se pudieron cargar plantillas', 'error', 4500));
+      const url = '/api/rutinas/plantillas';
+      const queryKey = url;
+      if(state.plantillasLoading && state.plantillasLastQuery === queryKey){ return state.plantillasPromise || Promise.resolve([]); }
+      if(state.plantillasAbort){ try{ state.plantillasAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.plantillasAbort = ctrl; state.plantillasLoading = true; state.plantillasLastQuery = queryKey;
+      state.plantillasPromise = (async () => {
+        const r = await fetch(url, { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
+        if(!r.ok){ if(r.status === 401){ showToast('Acceso restringido a Gestión. Inicie sesión.', 'error', 4500); try{ window.location.href = '/gestion/login'; }catch(e){} return []; } const d = await r.json().catch(() => ({})); showToast(d.detail || 'No se pudieron cargar plantillas', 'error', 4500); return []; }
+        const items = await r.json().catch(() => []);
+        const arr = Array.isArray(items) ? items : [];
+        const ql = q.trim().toLowerCase();
+        state.plantillas = ql ? arr.filter(x => String((x.nombre||x.nombre_rutina||'')).toLowerCase().includes(ql)) : arr;
+        updateRutinasTable();
+        const sel = state.selectedRutina ? (state.plantillas || []).find(x => String(x.id) === String(state.selectedRutina.id)) : null;
+        updateRutinaSidePanel(sel || null);
+        return state.plantillas;
+      })();
+      return state.plantillasPromise.catch(function(){ showToast('No se pudieron cargar plantillas', 'error', 4500); return []; }).finally(function(){ state.plantillasLoading = false; state.plantillasAbort = null; });
     }
 
     function applyRutinasFilters(){
@@ -9987,7 +10002,7 @@ function ensurePdfZoomControls(containerId, frameId){
   }
 
   // ===== Clases (Gestión) =====
-  const clasesState = { list: [], selectedId: null, selectedHorarioId: null, tipos: [], profesores: [], horarios: [] };
+  const clasesState = { list: [], selectedId: null, selectedHorarioId: null, tipos: [], profesores: [], horarios: [], clasesLoading: false, clasesAbort: null, clasesLastQuery: '', clasesPromise: null, horariosLoading: false, horariosAbort: null, horariosLastClaseId: null, horariosPromise: null };
   async function ensureClasesState(){
     try {
       if(!Array.isArray(clasesState.tipos) || clasesState.tipos.length === 0){
@@ -10023,8 +10038,15 @@ function ensurePdfZoomControls(containerId, frameId){
   async function loadClases(){
     const q = (document.getElementById('clases-q')?.value || '').trim().toLowerCase();
     const tipoFilter = document.getElementById('clases-tipo-filter')?.value || '';
-    try {
-      const r = await fetch('/api/clases', { headers: { 'Accept': 'application/json' } });
+    const queryKey = `${q}|${String(tipoFilter)}`;
+    if(clasesState.clasesLoading && String(clasesState.clasesLastQuery) === String(queryKey)){ return clasesState.clasesPromise || Promise.resolve([]); }
+    if(clasesState.clasesAbort){ try{ clasesState.clasesAbort.abort(); }catch(_){ } }
+    const ctrl = new AbortController();
+    clasesState.clasesAbort = ctrl;
+    clasesState.clasesLoading = true;
+    clasesState.clasesLastQuery = String(queryKey);
+    clasesState.clasesPromise = (async () => {
+      const r = await fetch('/api/clases', { headers: { 'Accept': 'application/json' }, signal: ctrl.signal });
       const arr = r.ok ? (await r.json()) : [];
       clasesState.list = Array.isArray(arr) ? arr : [];
       let filtered = clasesState.list;
@@ -10033,7 +10055,9 @@ function ensurePdfZoomControls(containerId, frameId){
       renderClasesTable(filtered);
       const countEl = document.getElementById('clases-count');
       if(countEl) countEl.textContent = `${filtered.length} clases`;
-    } catch(e){ showToast('Error al cargar clases', 'error'); }
+      return filtered;
+    })();
+    return clasesState.clasesPromise.catch(function(){ showToast('Error al cargar clases', 'error'); return []; }).finally(function(){ clasesState.clasesLoading = false; clasesState.clasesAbort = null; });
   }
 
   function renderClasesTable(list){
@@ -10145,10 +10169,21 @@ function ensurePdfZoomControls(containerId, frameId){
 
   async function loadClaseHorarios(claseId){
     try {
-      const r = await fetch(`/api/clases/${claseId}/horarios`, { headers:{ 'Accept':'application/json' } });
-      const arr = r.ok ? (await r.json()) : [];
-      clasesState.horarios = Array.isArray(arr) ? arr : [];
-      renderHorariosTable(clasesState.horarios);
+      if(!claseId) return;
+      if(clasesState.horariosLoading && String(clasesState.horariosLastClaseId) === String(claseId)){ return clasesState.horariosPromise || Promise.resolve([]); }
+      if(clasesState.horariosAbort){ try{ clasesState.horariosAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      clasesState.horariosAbort = ctrl;
+      clasesState.horariosLoading = true;
+      clasesState.horariosLastClaseId = String(claseId);
+      clasesState.horariosPromise = (async () => {
+        const r = await fetch(`/api/clases/${claseId}/horarios`, { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+        const arr = r.ok ? (await r.json()) : [];
+        clasesState.horarios = Array.isArray(arr) ? arr : [];
+        renderHorariosTable(clasesState.horarios);
+        return clasesState.horarios;
+      })();
+      return clasesState.horariosPromise.catch(function(){ showToast('Error al cargar horarios de clase', 'error'); return []; }).finally(function(){ clasesState.horariosLoading = false; clasesState.horariosAbort = null; });
     } catch(e){ showToast('Error al cargar horarios de clase', 'error'); }
   }
 
@@ -11386,6 +11421,29 @@ function renderClaseEjerciciosUI(){
   function ensureProfesoresState(){
     if(!window.state) window.state = {};
     if(!state.profesores) state.profesores = { list: [], horarios: [], sesiones: [], horarioEditId: null, sesionEditId: null, activeSubtab: 'resumen', sesionTimerId: null, sesionTickId: null, sesionActive: false, lastDurationMin: 0, lastDurationAt: 0, currentUsuario: null };
+    if(state.profesores.basicoLoading === undefined) state.profesores.basicoLoading = false;
+    if(state.profesores.basicoAbort === undefined) state.profesores.basicoAbort = null;
+    if(state.profesores.basicoPromise === undefined) state.profesores.basicoPromise = null;
+    if(state.profesores.horariosLoading === undefined) state.profesores.horariosLoading = false;
+    if(state.profesores.horariosAbort === undefined) state.profesores.horariosAbort = null;
+    if(state.profesores.horariosLastPid === undefined) state.profesores.horariosLastPid = null;
+    if(state.profesores.horariosPromise === undefined) state.profesores.horariosPromise = null;
+    if(state.profesores.datosLoading === undefined) state.profesores.datosLoading = false;
+    if(state.profesores.datosAbort === undefined) state.profesores.datosAbort = null;
+    if(state.profesores.datosLastUid === undefined) state.profesores.datosLastUid = null;
+    if(state.profesores.datosPromise === undefined) state.profesores.datosPromise = null;
+    if(state.profesores.configLoading === undefined) state.profesores.configLoading = false;
+    if(state.profesores.configAbort === undefined) state.profesores.configAbort = null;
+    if(state.profesores.configLastPid === undefined) state.profesores.configLastPid = null;
+    if(state.profesores.configPromise === undefined) state.profesores.configPromise = null;
+    if(state.profesores.resumenLoading === undefined) state.profesores.resumenLoading = false;
+    if(state.profesores.resumenAbort === undefined) state.profesores.resumenAbort = null;
+    if(state.profesores.resumenLastKey === undefined) state.profesores.resumenLastKey = null;
+    if(state.profesores.resumenPromise === undefined) state.profesores.resumenPromise = null;
+    if(state.profesores.sesionesLoading === undefined) state.profesores.sesionesLoading = false;
+    if(state.profesores.sesionesAbort === undefined) state.profesores.sesionesAbort = null;
+    if(state.profesores.sesionesLastKey === undefined) state.profesores.sesionesLastKey = null;
+    if(state.profesores.sesionesPromise === undefined) state.profesores.sesionesPromise = null;
   }
   function bindProfesoresEvents(){
     const btnRefresh = document.getElementById('prof-refresh');
@@ -11482,41 +11540,51 @@ function renderClaseEjerciciosUI(){
   }
   function loadProfesoresBasico(){
     ensureProfesoresState();
-    fetch('/api/profesores_basico')
-      .then(r => r.json())
-      .then(list => {
-        state.profesores.list = Array.isArray(list) ? list : [];
-        const sel = document.getElementById('profesor-select');
-        if(!sel) return;
+    if(state.profesores.basicoLoading){ return state.profesores.basicoPromise || Promise.resolve([]); }
+    if(state.profesores.basicoAbort){ try{ state.profesores.basicoAbort.abort(); }catch(_){ } }
+    const ctrl = new AbortController();
+    state.profesores.basicoAbort = ctrl;
+    state.profesores.basicoLoading = true;
+    state.profesores.basicoPromise = (async () => {
+      const r = await fetch('/api/profesores_basico', { headers:{ 'Accept':'application/json' }, signal: ctrl.signal });
+      const list = r.ok ? (await r.json()) : [];
+      state.profesores.list = Array.isArray(list) ? list : [];
+      const sel = document.getElementById('profesor-select');
+      if(sel){
         const prev = sel.value;
         sel.innerHTML = state.profesores.list.map(p => `<option value="${p.profesor_id}">${p.nombre || ('Profesor ' + p.profesor_id)}</option>`).join('');
         const hasPrev = state.profesores.list.some(p => String(p.profesor_id) === String(prev));
         if(hasPrev) sel.value = prev;
         if(!sel.value && state.profesores.list.length) sel.value = String(state.profesores.list[0].profesor_id);
-        loadProfesorDatos();
-        loadProfesorHorarios();
-        loadProfesorConfig();
-        refreshSesion();
-        loadProfesorResumen();
-      })
-      .catch(_ => {
-        if (typeof showToast === 'function') showToast('Error cargando profesores', 'error');
-      });
+      }
+      try{ loadProfesorDatos(); }catch(_){}
+      try{ loadProfesorHorarios(); }catch(_){}
+      try{ loadProfesorConfig(); }catch(_){}
+      try{ refreshSesion(); }catch(_){}
+      try{ loadProfesorResumen(); }catch(_){}
+      return state.profesores.list;
+    })();
+    return state.profesores.basicoPromise.catch(function(){ if (typeof showToast === 'function') showToast('Error cargando profesores', 'error'); return []; }).finally(function(){ state.profesores.basicoLoading = false; state.profesores.basicoAbort = null; });
   }
   function loadProfesorHorarios(){
     ensureProfesoresState();
     const sel = document.getElementById('profesor-select');
     if(!sel || !sel.value) return;
     const pid = sel.value;
-    fetch(`/api/profesor_horarios?profesor_id=${encodeURIComponent(pid)}`)
-      .then(r => r.json())
-      .then(list => {
-        state.profesores.horarios = Array.isArray(list) ? list : [];
-        renderHorariosTable();
-      })
-      .catch(_ => {
-        if (typeof showToast === 'function') showToast('Error cargando horarios', 'error');
-      });
+    if(state.profesores.horariosLoading && String(state.profesores.horariosLastPid) === String(pid)){ return state.profesores.horariosPromise || Promise.resolve([]); }
+    if(state.profesores.horariosAbort){ try{ state.profesores.horariosAbort.abort(); }catch(_){ } }
+    const ctrl = new AbortController();
+    state.profesores.horariosAbort = ctrl;
+    state.profesores.horariosLoading = true;
+    state.profesores.horariosLastPid = String(pid);
+    state.profesores.horariosPromise = (async () => {
+      const r = await fetch(`/api/profesor_horarios?profesor_id=${encodeURIComponent(pid)}`, { signal: ctrl.signal });
+      const list = await r.json().catch(()=> []);
+      state.profesores.horarios = Array.isArray(list) ? list : [];
+      renderHorariosTable();
+      return state.profesores.horarios;
+    })();
+    return state.profesores.horariosPromise.catch(function(){ if (typeof showToast === 'function') showToast('Error cargando horarios', 'error'); return []; }).finally(function(){ state.profesores.horariosLoading = false; state.profesores.horariosAbort = null; });
   }
   function renderHorariosTable(){
     const tbody = document.querySelector('#prof-horarios-table tbody');
@@ -11953,27 +12021,37 @@ function renderClaseEjerciciosUI(){
       const actEl = document.getElementById('prof-dato-activo');
       const rolLabel = document.getElementById('prof-dato-rol-label');
       if(!uid || !nomEl || !dniEl || !telEl || !pinEl || !actEl) return;
-      const r = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, { headers: { 'Accept':'application/json' } });
-      if(!r.ok){ if (typeof showToast === 'function') showToast('No se pudo cargar datos del profesor', 'error'); return; }
-      const data = await r.json().catch(()=> ({}));
-      state.profesores.currentUsuario = data || null;
-      nomEl.value = String(data?.nombre || '');
-      dniEl.value = String(data?.dni || '');
-      telEl.value = String(data?.telefono || '');
-      pinEl.value = String(data?.pin || '');
-      actEl.checked = !!data?.activo;
-      if(rolLabel) rolLabel.textContent = `Rol: ${String(data?.rol || 'profesor').charAt(0).toUpperCase() + String(data?.rol || 'profesor').slice(1)}`;
-      // Ocultar/deshabilitar PIN si sesión es profesor y está viendo otro profesor
-      try{
-        const loginEl = document.getElementById('login-current');
-        const role = (loginEl?.getAttribute('data-role') || '').trim();
-        const loginProfId = (loginEl?.getAttribute('data-prof-id') || '').trim();
-        const sel = document.getElementById('profesor-select');
-        const pid = sel?.value || '';
-        const isOther = role === 'profesor' && loginProfId && pid && (String(loginProfId) !== String(pid));
-        if(isOther){ pinEl.value=''; pinEl.disabled = true; pinEl.placeholder = 'PIN oculto (no editable)'; }
-        else { pinEl.disabled = false; pinEl.placeholder = ''; }
-      }catch(_){}
+      ensureProfesoresState();
+      if(state.profesores.datosLoading && String(state.profesores.datosLastUid) === String(uid)){ return state.profesores.datosPromise || Promise.resolve(null); }
+      if(state.profesores.datosAbort){ try{ state.profesores.datosAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.profesores.datosAbort = ctrl;
+      state.profesores.datosLoading = true;
+      state.profesores.datosLastUid = String(uid);
+      state.profesores.datosPromise = (async () => {
+        const r = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, { headers: { 'Accept':'application/json' }, signal: ctrl.signal });
+        if(!r.ok){ if (typeof showToast === 'function') showToast('No se pudo cargar datos del profesor', 'error'); return null; }
+        const data = await r.json().catch(()=> ({}));
+        state.profesores.currentUsuario = data || null;
+        nomEl.value = String(data?.nombre || '');
+        dniEl.value = String(data?.dni || '');
+        telEl.value = String(data?.telefono || '');
+        pinEl.value = String(data?.pin || '');
+        actEl.checked = !!data?.activo;
+        if(rolLabel) rolLabel.textContent = `Rol: ${String(data?.rol || 'profesor').charAt(0).toUpperCase() + String(data?.rol || 'profesor').slice(1)}`;
+        try{
+          const loginEl = document.getElementById('login-current');
+          const role = (loginEl?.getAttribute('data-role') || '').trim();
+          const loginProfId = (loginEl?.getAttribute('data-prof-id') || '').trim();
+          const sel = document.getElementById('profesor-select');
+          const pid = sel?.value || '';
+          const isOther = role === 'profesor' && loginProfId && pid && (String(loginProfId) !== String(pid));
+          if(isOther){ pinEl.value=''; pinEl.disabled = true; pinEl.placeholder = 'PIN oculto (no editable)'; }
+          else { pinEl.disabled = false; pinEl.placeholder = ''; }
+        }catch(_){ }
+        return data;
+      })();
+      return state.profesores.datosPromise.finally(function(){ state.profesores.datosLoading = false; state.profesores.datosAbort = null; });
     }catch(e){ console.error('Error cargando datos profesor', e); }
   }
   async function saveProfesorDatos(){
@@ -12042,8 +12120,16 @@ function renderClaseEjerciciosUI(){
       const selProf = document.getElementById('profesor-select');
       const pid = selProf?.value;
       if(!pid) return;
-      const r = await fetch(`/api/profesores/${encodeURIComponent(pid)}`);
-      const d = await r.json().catch(()=> ({}));
+      ensureProfesoresState();
+      if(state.profesores.configLoading && String(state.profesores.configLastPid) === String(pid)){ return state.profesores.configPromise || Promise.resolve(null); }
+      if(state.profesores.configAbort){ try{ state.profesores.configAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.profesores.configAbort = ctrl;
+      state.profesores.configLoading = true;
+      state.profesores.configLastPid = String(pid);
+      state.profesores.configPromise = (async () => {
+        const r = await fetch(`/api/profesores/${encodeURIComponent(pid)}`, { signal: ctrl.signal });
+        const d = await r.json().catch(()=> ({}));
       const usuarioEl = document.getElementById('prof-config-usuario');
       if(usuarioEl){
         const uid = d?.usuario_id ?? null;
@@ -12087,7 +12173,10 @@ function renderClaseEjerciciosUI(){
       if(espEl) espEl.value = String(d?.tipo || '');
       if(expEl) expEl.value = (d?.experiencia_años != null) ? String(d.experiencia_años) : '';
       if(certEl) certEl.value = String(d?.certificaciones || '');
-    }catch(_){ /* silencioso */ }
+      return d;
+    })();
+      return state.profesores.configPromise.finally(function(){ state.profesores.configLoading = false; state.profesores.configAbort = null; });
+    }catch(_){ }
   }
   async function saveProfesorConfig(){
     try{
@@ -12202,69 +12291,71 @@ function renderClaseEjerciciosUI(){
       const sel = document.getElementById('profesor-select');
       const pid = sel?.value;
       if(!pid) return;
-      // Mensual: mes actual
-      const { start: ms, end: me } = getMonthRange();
-      try {
-        const qsM = new URLSearchParams({ profesor_id: String(pid), start: ms, end: me });
-        const rM = await fetch('/api/profesor_resumen?' + qsM.toString());
-        const resM = await rM.json().catch(() => ({}));
-        // Recalcular cobertura (en horario) y extras desde sesiones en el mismo rango
-        let extrasMinM = 0;
-        let coveredMinM = 0;
-        try{
-          const rSM = await fetch('/api/profesor_sesiones?' + qsM.toString());
-          const dataSM = await rSM.json().catch(() => ([]));
-          const arrSM = Array.isArray(dataSM) ? dataSM : (Array.isArray(dataSM?.items) ? dataSM.items : []);
-          for(const ses of arrSM){
-            const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
-            const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
-            const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
-            const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
-            if(cov){
-              extrasMinM += Math.max(0, cov.extraMin || 0);
-              coveredMinM += Math.max(0, cov.coveredMin || 0);
-            }
-          }
-        }catch(_){ /* mantener backend si falla */ }
-        const resM2 = Object.assign({}, resM || {}, { horas_trabajadas: (coveredMinM/60), horas_extras: (extrasMinM/60) });
-        updateResumenCards('prof-m', resM2);
-      } catch(_) { updateResumenCards('prof-m', {}); }
-      // Semanal: basado en fecha y comienzo de semana
       const weekDate = document.getElementById('prof-week-date');
       const weekStart = document.getElementById('prof-week-start');
       const base = weekDate?.value || toISODate(new Date());
       const mode = (weekStart?.value || 'mon');
-      const range = getWeekRange(base, mode);
-      const rangeEl = document.getElementById('prof-week-range');
-      if(rangeEl && range) rangeEl.textContent = range.label; else if(rangeEl) rangeEl.textContent = '—';
-      if(range){
+      const lastKey = `${String(pid)}|${String(base)}|${String(mode)}`;
+      if(state.profesores.resumenLoading && String(state.profesores.resumenLastKey) === String(lastKey)){ return state.profesores.resumenPromise || Promise.resolve(null); }
+      if(state.profesores.resumenAbort){ try{ state.profesores.resumenAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.profesores.resumenAbort = ctrl;
+      state.profesores.resumenLoading = true;
+      state.profesores.resumenLastKey = String(lastKey);
+      state.profesores.resumenPromise = (async () => {
+        const { start: ms, end: me } = getMonthRange();
         try {
-          const qsW = new URLSearchParams({ profesor_id: String(pid), start: range.start, end: range.end });
-          const rW = await fetch('/api/profesor_resumen?' + qsW.toString());
-          const resW = await rW.json().catch(() => ({}));
-          let extrasMinW = 0;
-          let coveredMinW = 0;
+          const qsM = new URLSearchParams({ profesor_id: String(pid), start: ms, end: me });
+          const rM = await fetch('/api/profesor_resumen?' + qsM.toString(), { signal: ctrl.signal });
+          const resM = await rM.json().catch(() => ({}));
+          let extrasMinM = 0;
+          let coveredMinM = 0;
           try{
-            const rSW = await fetch('/api/profesor_sesiones?' + qsW.toString());
-            const dataSW = await rSW.json().catch(() => ([]));
-            const arrSW = Array.isArray(dataSW) ? dataSW : (Array.isArray(dataSW?.items) ? dataSW.items : []);
-            for(const ses of arrSW){
+            const rSM = await fetch('/api/profesor_sesiones?' + qsM.toString(), { signal: ctrl.signal });
+            const dataSM = await rSM.json().catch(() => ([]));
+            const arrSM = Array.isArray(dataSM) ? dataSM : (Array.isArray(dataSM?.items) ? dataSM.items : []);
+            for(const ses of arrSM){
               const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
               const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
               const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
               const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
-              if(cov){
-                extrasMinW += Math.max(0, cov.extraMin || 0);
-                coveredMinW += Math.max(0, cov.coveredMin || 0);
-              }
+              if(cov){ extrasMinM += Math.max(0, cov.extraMin || 0); coveredMinM += Math.max(0, cov.coveredMin || 0); }
             }
           }catch(_){ }
-          const resW2 = Object.assign({}, resW || {}, { horas_trabajadas: (coveredMinW/60), horas_extras: (extrasMinW/60) });
-          updateResumenCards('prof-w', resW2);
-        } catch(_) { updateResumenCards('prof-w', {}); }
-      } else {
-        updateResumenCards('prof-w', {});
-      }
+          const resM2 = Object.assign({}, resM || {}, { horas_trabajadas: (coveredMinM/60), horas_extras: (extrasMinM/60) });
+          updateResumenCards('prof-m', resM2);
+        } catch(_) { updateResumenCards('prof-m', {}); }
+        const range = getWeekRange(base, mode);
+        const rangeEl = document.getElementById('prof-week-range');
+        if(rangeEl && range) rangeEl.textContent = range.label; else if(rangeEl) rangeEl.textContent = '—';
+        if(range){
+          try {
+            const qsW = new URLSearchParams({ profesor_id: String(pid), start: range.start, end: range.end });
+            const rW = await fetch('/api/profesor_resumen?' + qsW.toString(), { signal: ctrl.signal });
+            const resW = await rW.json().catch(() => ({}));
+            let extrasMinW = 0;
+            let coveredMinW = 0;
+            try{
+              const rSW = await fetch('/api/profesor_sesiones?' + qsW.toString(), { signal: ctrl.signal });
+              const dataSW = await rSW.json().catch(() => ([]));
+              const arrSW = Array.isArray(dataSW) ? dataSW : (Array.isArray(dataSW?.items) ? dataSW.items : []);
+              for(const ses of arrSW){
+                const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
+                const inicioText = extractTime(ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+                const finText = extractTime(ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+                const cov = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText);
+                if(cov){ extrasMinW += Math.max(0, cov.extraMin || 0); coveredMinW += Math.max(0, cov.coveredMin || 0); }
+              }
+            }catch(_){ }
+            const resW2 = Object.assign({}, resW || {}, { horas_trabajadas: (coveredMinW/60), horas_extras: (extrasMinW/60) });
+            updateResumenCards('prof-w', resW2);
+          } catch(_) { updateResumenCards('prof-w', {}); }
+        } else {
+          updateResumenCards('prof-w', {});
+        }
+        return true;
+      })();
+      return state.profesores.resumenPromise.finally(function(){ state.profesores.resumenLoading = false; state.profesores.resumenAbort = null; });
     } catch(e){ console.error('Error cargando resumen profesor', e); }
   }
   async function loadProfesorSesiones(){
@@ -12278,119 +12369,104 @@ function renderClaseEjerciciosUI(){
       qs.set('profesor_id', String(pid));
       if(s) qs.set('start', s);
       if(e) qs.set('end', e);
+      const lastKey = `${String(pid)}|${String(s||'')}|${String(e||'')}`;
+      ensureProfesoresState();
+      if(state.profesores.sesionesLoading && String(state.profesores.sesionesLastKey) === String(lastKey)){ return state.profesores.sesionesPromise || Promise.resolve([]); }
+      if(state.profesores.sesionesAbort){ try{ state.profesores.sesionesAbort.abort(); }catch(_){ } }
+      const ctrl = new AbortController();
+      state.profesores.sesionesAbort = ctrl;
+      state.profesores.sesionesLoading = true;
+      state.profesores.sesionesLastKey = String(lastKey);
       const tbody = document.querySelector('#prof-sesiones-table tbody');
       if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Cargando…</td></tr>`;
-      const r = await fetch('/api/profesor_sesiones?' + qs.toString());
-      if(!r.ok){
-        let msg = `Error ${r.status}`;
-        try { const err = await r.json(); msg = err?.detail || err?.error || msg; } catch(_){ }
-        if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">${msg}</td></tr>`;
-        return;
-      }
-      const data = await r.json();
-      const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
-      if(arr.length === 0){
-        if(s || e){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos en el rango</td></tr>`; return; }
-        try {
-          const qs2 = new URLSearchParams(); qs2.set('profesor_id', String(pid));
-          const r2 = await fetch('/api/profesor_sesiones?' + qs2.toString());
-          if(!r2.ok){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
-          const data2 = await r2.json();
-          const arr2 = Array.isArray(data2) ? data2 : (Array.isArray(data2?.items) ? data2.items : []);
-          if(arr2.length === 0){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
-          arr.push(...arr2);
-        } catch(_){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return; }
-      }
-      if(tbody) tbody.innerHTML = '';
-      ensureProfesoresState();
-      state.profesores.sesiones = arr;
-      arr.forEach(ses => {
-        const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
-        const inicioRaw = (ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
-        const finRaw = (ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
-        const minutosVal = (ses.minutos ?? ses.minutos_totales ?? ses.Minutos ?? ses.duracion_min ?? ses.duracion ?? ses.mins ?? ses.minutos_trabajados ?? ses.minutes ?? 0);
-        const horasVal = (ses.horas ?? ses.horas_totales ?? ses.Horas ?? ses.horas_trabajadas ?? ses.duracion_horas ?? ses.duration_hours ?? null);
-        const tipoVal = (ses.tipo ?? ses.tipo_actividad ?? ses.Tipo ?? ses.actividad ?? ses.category ?? '');
-        const tr = document.createElement('tr');
-        const inicioText = extractTime(inicioRaw);
-        const finText0 = extractTime(finRaw);
-        const parseMin = (t) => {
-          if(!t || t === '—') return null;
-          try {
-            const [hh, mm] = String(t).split(':');
-            const h = parseInt(hh, 10); const m = parseInt(mm, 10);
-            if(Number.isFinite(h) && Number.isFinite(m)) return h*60 + m;
-          } catch(_){ }
-          return null;
-        };
-        const approxEq = (a, b, tol=3) => (typeof a === 'number' && typeof b === 'number') ? Math.abs(a-b) <= tol : false;
-        const sMin = parseMin(inicioText);
-        const fMin = parseMin(finText0);
-        const minutosNum = Number(minutosVal || 0);
-        // Estrategia: calcular cruce de medianoche a partir de minutos reales desde hora de inicio
-        const crossesByMinutes = (sMin !== null && Number.isFinite(minutosNum)) ? ((sMin + minutosNum) >= 1440) : false;
-        // Respaldo: comparar fin<inicio y que los minutos coincidan con cruce (tolerancia)
-        const expectedMinTimes = (sMin !== null && fMin !== null) ? (fMin - sMin + 1440) : null;
-        const crossesByTimes = (sMin !== null && fMin !== null && fMin < sMin) && (expectedMinTimes !== null) && approxEq(minutosNum, expectedMinTimes, 3);
-        const crossesMidnight = crossesByMinutes || crossesByTimes;
-        const finText = crossesMidnight ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
-        // Calcular chip y determinar texto de tipo enriquecido
-        let extraBadge = '';
-        let covResult = null;
-        try{
-          covResult = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText0);
-          if(covResult){
-            const extMin = covResult.extraMin;
-            if(extMin > 0){
-              const h = (extMin/60).toFixed(2);
-              extraBadge = `<span class="chip sm danger" title="Tiempo fuera de horario" style="margin-left:6px">${h} h extra</span>`;
-            } else {
-              extraBadge = `<span class="chip sm success" title="Completamente en horario" style="margin-left:6px">En horario</span>`;
-            }
-          }
-        }catch(_){ }
-        const sanitizeTipo = (s) => {
-          const x = String(s || '').trim();
-          if(!x) return '';
-          // Colapsar duplicados "Horas extra - Horas extra"
-          let y = x.replace(/\s*-\s*Horas extra\s*-\s*Horas extra/gi, ' - Horas extra');
-          if(/^Horas extra\s*-\s*Horas extra$/i.test(y)) y = 'Horas extra';
-          return y.replace(/\s{2,}/g, ' ');
-        };
-        let tipoDisplay = '';
-        if(covResult){
-          if(covResult.coveredMin > 0 && covResult.extraMin > 0){
-            // Forzar clasificación compuesta independientemente del tipo backend
-            tipoDisplay = 'Trabajo - Extra';
-          } else if(covResult.extraMin === 0 && covResult.coveredMin > 0){
-            tipoDisplay = 'Trabajo';
-          } else if(covResult.coveredMin === 0 && covResult.extraMin > 0){
-            tipoDisplay = 'Horas extra';
-          } else {
-            tipoDisplay = sanitizeTipo(tipoVal);
-          }
-        } else {
-          tipoDisplay = sanitizeTipo(tipoVal);
+      state.profesores.sesionesPromise = (async () => {
+        const r = await fetch('/api/profesor_sesiones?' + qs.toString(), { signal: ctrl.signal });
+        if(!r.ok){
+          let msg = `Error ${r.status}`;
+          try { const err = await r.json(); msg = err?.detail || err?.error || msg; } catch(_){ }
+          if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">${msg}</td></tr>`;
+          return [];
         }
-        const idVal = (ses.id ?? ses.sesion_id ?? ses.id_sesion ?? ses.SesionID ?? '');
-        tr.innerHTML = `
-          <td>${String(fecha).slice(0,10)}</td>
-          <td>${inicioText}</td>
-          <td>${finText}</td>
-          <td>${Number(minutosVal ?? 0)}</td>
-          <td>${(horasVal!==undefined && horasVal!==null)?Number(horasVal).toFixed(2):'—'}</td>
-          <td>${tipoDisplay} ${extraBadge}</td>
-          <td>
-            <button class="btn tiny" data-action="edit-sesion" data-id="${idVal}">Editar</button>
-            <button class="btn tiny danger" data-action="delete-sesion" data-id="${idVal}">Eliminar</button>
-          </td>
-        `;
-        tbody?.appendChild(tr);
-        const b = tr.querySelector('button[data-action="edit-sesion"]');
-        if(b){ b.onclick = () => { const sid = b.getAttribute('data-id') || ''; if(sid) openSesionEdit(sid); }; }
-        const bd = tr.querySelector('button[data-action="delete-sesion"]');
-        if(bd){ bd.onclick = () => { const sid = bd.getAttribute('data-id') || ''; if(sid) openDeleteSesionModal(sid); }; }
-      });
+        const data = await r.json().catch(()=> ([]));
+        const arr = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+        if(arr.length === 0){
+          if(s || e){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos en el rango</td></tr>`; return []; }
+          try {
+            const qs2 = new URLSearchParams(); qs2.set('profesor_id', String(pid));
+            const r2 = await fetch('/api/profesor_sesiones?' + qs2.toString(), { signal: ctrl.signal });
+            if(!r2.ok){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return []; }
+            const data2 = await r2.json().catch(()=> ([]));
+            const arr2 = Array.isArray(data2) ? data2 : (Array.isArray(data2?.items) ? data2.items : []);
+            if(arr2.length === 0){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return []; }
+            arr.push(...arr2);
+          } catch(_){ if(tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty">Sin datos</td></tr>`; return []; }
+        }
+        if(tbody) tbody.innerHTML = '';
+        state.profesores.sesiones = arr;
+        arr.forEach(ses => {
+          const fecha = (ses.fecha ?? ses.Fecha ?? ses.fecha_sesion ?? ses.fecha_numerica ?? ses.fecha_num ?? ses.date ?? ses.dia ?? ses.FechaSesion ?? '');
+          const inicioRaw = (ses.inicio ?? ses.hora_inicio ?? ses.Inicio ?? ses.entrada ?? ses.HoraInicio ?? ses.start_time ?? ses.horaEntrada ?? '');
+          const finRaw = (ses.fin ?? ses.hora_fin ?? ses.Fin ?? ses.salida ?? ses.HoraFin ?? ses.end_time ?? ses.horaSalida ?? '');
+          const minutosVal = (ses.minutos ?? ses.minutos_totales ?? ses.Minutos ?? ses.duracion_min ?? ses.duracion ?? ses.mins ?? ses.minutos_trabajados ?? ses.minutes ?? 0);
+          const horasVal = (ses.horas ?? ses.horas_totales ?? ses.Horas ?? ses.horas_trabajadas ?? ses.duracion_horas ?? ses.duration_hours ?? null);
+          const tipoVal = (ses.tipo ?? ses.tipo_actividad ?? ses.Tipo ?? ses.actividad ?? ses.category ?? '');
+          const tr = document.createElement('tr');
+          const inicioText = extractTime(inicioRaw);
+          const finText0 = extractTime(finRaw);
+          const parseMin = (t) => {
+            if(!t || t === '—') return null;
+            try { const [hh, mm] = String(t).split(':'); const h = parseInt(hh, 10); const m = parseInt(mm, 10); if(Number.isFinite(h) && Number.isFinite(m)) return h*60 + m; } catch(_){ }
+            return null;
+          };
+          const approxEq = (a, b, tol=3) => (typeof a === 'number' && typeof b === 'number') ? Math.abs(a-b) <= tol : false;
+          const sMin = parseMin(inicioText);
+          const fMin = parseMin(finText0);
+          const minutosNum = Number(minutosVal || 0);
+          const crossesByMinutes = (sMin !== null && Number.isFinite(minutosNum)) ? ((sMin + minutosNum) >= 1440) : false;
+          const expectedMinTimes = (sMin !== null && fMin !== null) ? (fMin - sMin + 1440) : null;
+          const crossesByTimes = (sMin !== null && fMin !== null && fMin < sMin) && (expectedMinTimes !== null) && approxEq(minutosNum, expectedMinTimes, 3);
+          const crossesMidnight = crossesByMinutes || crossesByTimes;
+          const finText = crossesMidnight ? `${finText0} <span title="Termina después de medianoche">(+1d)</span>` : finText0;
+          let extraBadge = '';
+          let covResult = null;
+          try{
+            covResult = computeCoverageExtra(String(fecha).slice(0,10), inicioText, finText0);
+            if(covResult){
+              const extMin = covResult.extraMin;
+              if(extMin > 0){ const h = (extMin/60).toFixed(2); extraBadge = `<span class="chip sm danger" title="Tiempo fuera de horario" style="margin-left:6px">${h} h extra</span>`; }
+              else { extraBadge = `<span class="chip sm success" title="Completamente en horario" style="margin-left:6px">En horario</span>`; }
+            }
+          }catch(_){ }
+          const sanitizeTipo = (s) => { const x = String(s || '').trim(); if(!x) return ''; let y = x.replace(/\s*-\s*Horas extra\s*-\s*Horas extra/gi, ' - Horas extra'); if(/^Horas extra\s*-\s*Horas extra$/i.test(y)) y = 'Horas extra'; return y.replace(/\s{2,}/g, ' '); };
+          let tipoDisplay = '';
+          if(covResult){
+            if(covResult.coveredMin > 0 && covResult.extraMin > 0){ tipoDisplay = 'Trabajo - Extra'; }
+            else if(covResult.extraMin === 0 && covResult.coveredMin > 0){ tipoDisplay = 'Trabajo'; }
+            else if(covResult.coveredMin === 0 && covResult.extraMin > 0){ tipoDisplay = 'Horas extra'; }
+            else { tipoDisplay = sanitizeTipo(tipoVal); }
+          } else { tipoDisplay = sanitizeTipo(tipoVal); }
+          const idVal = (ses.id ?? ses.sesion_id ?? ses.id_sesion ?? ses.SesionID ?? '');
+          tr.innerHTML = `
+            <td>${String(fecha).slice(0,10)}</td>
+            <td>${inicioText}</td>
+            <td>${finText}</td>
+            <td>${Number(minutosVal ?? 0)}</td>
+            <td>${(horasVal!==undefined && horasVal!==null)?Number(horasVal).toFixed(2):'—'}</td>
+            <td>${tipoDisplay} ${extraBadge}</td>
+            <td>
+              <button class="btn tiny" data-action="edit-sesion" data-id="${idVal}">Editar</button>
+              <button class="btn tiny danger" data-action="delete-sesion" data-id="${idVal}">Eliminar</button>
+            </td>
+          `;
+          tbody?.appendChild(tr);
+          const b = tr.querySelector('button[data-action="edit-sesion"]');
+          if(b){ b.onclick = () => { const sid = b.getAttribute('data-id') || ''; if(sid) openSesionEdit(sid); }; }
+          const bd = tr.querySelector('button[data-action="delete-sesion"]');
+          if(bd){ bd.onclick = () => { const sid = bd.getAttribute('data-id') || ''; if(sid) openDeleteSesionModal(sid); }; }
+        });
+        return state.profesores.sesiones;
+      })();
+      return state.profesores.sesionesPromise.finally(function(){ state.profesores.sesionesLoading = false; state.profesores.sesionesAbort = null; });
     } catch(e){ console.error('Error cargando sesiones profesor', e); }
   }
   function bindProfesoresSubtabsEvents(){
