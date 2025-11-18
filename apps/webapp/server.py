@@ -13885,12 +13885,25 @@ def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
             "exposeHeaders": ["x-bz-content-sha1"],
             "maxAgeSeconds": 86400,
         }
-        upd_resp = requests.post(
-            f"{api_url}/b2api/v2/b2_update_bucket",
-            headers={"Authorization": auth_token},
-            json={"bucketId": settings["bucket_id"], "corsRules": cors_rules + [new_rule]},
-            timeout=8,
-        )
+        try:
+            bucket_type = bucket_info.get("bucketType") or "allPublic"
+            payload = {
+                "bucketId": settings["bucket_id"],
+                "bucketType": bucket_type,
+                "corsRules": cors_rules + [new_rule],
+            }
+            if "defaultServerSideEncryption" in bucket_info:
+                payload["defaultServerSideEncryption"] = bucket_info.get("defaultServerSideEncryption")
+            if "lifecycleRules" in bucket_info:
+                payload["lifecycleRules"] = bucket_info.get("lifecycleRules")
+            upd_resp = requests.post(
+                f"{api_url}/b2api/v2/b2_update_bucket",
+                headers={"Authorization": auth_token},
+                json=payload,
+                timeout=8,
+            )
+        except Exception:
+            return False
         return upd_resp.status_code == 200
     except Exception:
         return False
