@@ -1535,7 +1535,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 csp = (
                     "default-src 'self' https:; "
                     "img-src 'self' data: https:; "
-                    "media-src 'self' https:; "
+                    "media-src 'self' https: blob: data:; "
                     "style-src 'self' https: 'unsafe-inline'; "
                     "font-src 'self' https:; "
                     "script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; "
@@ -1545,7 +1545,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 csp = (
                     "default-src 'self' https:; "
                     "img-src 'self' data: https:; "
-                    "media-src 'self' https:; "
+                    "media-src 'self' https: blob: data:; "
                     "style-src 'self' https: 'unsafe-inline'; "
                     "font-src 'self' https:; "
                     "script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; "
@@ -2516,6 +2516,123 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
     except Exception as e:
         logging.error(f"Error subiendo a Backblaze B2: {e}")
         raise HTTPException(status_code=500, detail=f"Error subiendo a Backblaze B2: {e}")
+
+def _delete_media_from_gcs(url: str) -> bool:
+    try:
+        if not url:
+            return False
+        settings = _get_gcs_settings()
+        bucket_name = settings.get("bucket") or ""
+        if not bucket_name or gcs_storage is None:
+            return False
+        import urllib.parse as _urlparse
+        u = _urlparse.urlparse(url)
+        path = (u.path or "").strip("/")
+        parts = path.split("/")
+        if not parts or parts[0] != bucket_name:
+            # URL no corresponde al bucket configurado; no borrar
+            return False
+        blob_path = "/".join(parts[1:])
+        if not blob_path:
+            return False
+        client = gcs_storage.Client(project=(settings.get("project_id") or None))
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        try:
+            blob.delete()
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+def _delete_media_from_b2(url: str) -> bool:
+    try:
+        if not url or requests is None:
+            return False
+        settings = _get_b2_settings()
+        if not (settings.get("application_key") and settings.get("bucket_id")):
+            return False
+        # Autorizar
+        user_id = (settings.get("key_id") or settings.get("account_id") or "").strip()
+        auth_resp = requests.get(
+            "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+            auth=(user_id, settings["application_key"]),
+            timeout=8,
+        )
+        if auth_resp.status_code != 200:
+            return False
+        auth_json = auth_resp.json()
+        api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+        auth_token = auth_json.get("authorizationToken", "")
+        if not api_url or not auth_token:
+            return False
+        # Derivar file_name a partir de URL pública
+        import urllib.parse as _urlparse
+        u = _urlparse.urlparse(url)
+        path = (u.path or "").strip("/")
+        # Buscar segmento 'file/<bucket>/<file_name>'
+        file_name = None
+        try:
+            parts = path.split("/")
+            idx = parts.index("file") if "file" in parts else -1
+            if idx >= 0 and len(parts) >= idx + 3:
+                bucket_name = parts[idx + 1]
+                candidate = "/".join(parts[idx + 2 :])
+                # Evitar duplicar bucket dentro del nombre
+                if candidate.lower().startswith((bucket_name or "").lower() + "/"):
+                    candidate = candidate[len(bucket_name) + 1 :]
+                file_name = candidate
+        except Exception:
+            file_name = None
+        if not file_name:
+            return False
+        # Obtener fileId via list
+        list_resp = requests.post(
+            f"{api_url}/b2api/v2/b2_list_file_names",
+            headers={"Authorization": auth_token},
+            json={"bucketId": settings["bucket_id"], "startFileName": file_name, "maxFileCount": 1},
+            timeout=8,
+        )
+        if list_resp.status_code != 200:
+            return False
+        items = (list_resp.json().get("files") or [])
+        found = None
+        for it in items:
+            if str(it.get("fileName") or "") == file_name:
+                found = it
+                break
+        if not found:
+            return False
+        file_id = found.get("fileId")
+        if not file_id:
+            return False
+        del_resp = requests.post(
+            f"{api_url}/b2api/v2/b2_delete_file_version",
+            headers={"Authorization": auth_token},
+            json={"fileName": file_name, "fileId": file_id},
+            timeout=8,
+        )
+        return del_resp.status_code == 200
+    except Exception:
+        return False
+
+def _delete_local_media(url: str) -> bool:
+    try:
+        if not url:
+            return False
+        if url.startswith("/uploads/"):
+            name = url.split("/uploads/")[-1]
+            p = uploads_dir / name
+            if p.exists():
+                try:
+                    p.unlink()
+                    return True
+                except Exception:
+                    return False
+        return False
+    except Exception:
+        return False
 
 def _get_password() -> str:
     # Leer directamente desde la base de datos para sincronización inmediata
@@ -6968,12 +7085,15 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
     if guard:
         return guard
     try:
-        # Validar existencia del ejercicio
+        # Validar existencia del ejercicio y obtener media previa
         with db.get_connection_context() as conn:  # type: ignore
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute("SELECT id FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
-            if cur.fetchone() is None:
+            cur.execute("SELECT id, video_url, video_mime FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+            row0 = cur.fetchone()
+            if row0 is None:
                 raise HTTPException(status_code=404, detail="Ejercicio no encontrado")
+            old_url = str(row0.get('video_url') or '').strip()
+            old_mime = str(row0.get('video_mime') or '').strip()
 
         content_type = (file.content_type or "").lower()
         orig_name = (file.filename or "media").replace("\r", "").replace("\n", "")
@@ -7139,6 +7259,25 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                     db.cache.invalidate('ejercicios')  # type: ignore
                 except Exception:
                     pass
+            # Borrar media anterior si overwrite y existe
+            try:
+                if overwrite and old_url and old_url.strip() and (old_url.strip() != url.strip()):
+                    ok = False
+                    u = old_url.strip().lower()
+                    if u.startswith('http://') or u.startswith('https://'):
+                        if 'storage.googleapis.com' in u:
+                            ok = _delete_media_from_gcs(old_url)
+                        elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                            ok = _delete_media_from_b2(old_url)
+                    elif old_url.startswith('/uploads/'):
+                        ok = _delete_local_media(old_url)
+                    if not ok:
+                        try:
+                            logging.warning(f"No se pudo borrar media previa: {old_url}")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error actualizando ejercicio: {e}")
 
@@ -7168,7 +7307,35 @@ async def api_ejercicios_delete(ejercicio_id: int, _=Depends(require_gestion_acc
     if guard:
         return guard
     try:
+        # Obtener media asociada antes de borrar
+        old_url: Optional[str] = None
+        try:
+            with db.get_connection_context() as conn:  # type: ignore
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT video_url FROM ejercicios WHERE id = %s", (int(ejercicio_id),))
+                r = cur.fetchone()
+                if r:
+                    old_url = str(r.get('video_url') or '').strip()
+        except Exception:
+            old_url = None
+        # Eliminar el ejercicio en DB
         db.eliminar_ejercicio(int(ejercicio_id))  # type: ignore
+        # Intentar eliminar media del bucket/local
+        try:
+            if old_url:
+                ok = False
+                u = old_url.lower()
+                if u.startswith('http://') or u.startswith('https://'):
+                    if 'storage.googleapis.com' in u:
+                        ok = _delete_media_from_gcs(old_url)
+                    elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                        ok = _delete_media_from_b2(old_url)
+                elif old_url.startswith('/uploads/'):
+                    ok = _delete_local_media(old_url)
+                if not ok:
+                    logging.warning(f"No se pudo borrar media de ejercicio eliminado: {old_url}")
+        except Exception:
+            pass
         return {"ok": True}
     except HTTPException:
         raise

@@ -9733,7 +9733,7 @@ function ensurePdfZoomControls(containerId, frameId){
         });
       }
 
-      const btnSave = document.getElementById('save-ejercicio'); if(btnSave) btnSave.addEventListener('click', saveEjercicio);
+      const btnSave = document.getElementById('save-ejercicio'); if(btnSave) { btnSave.addEventListener('click', saveEjercicio); }
       const btnCancel = document.getElementById('cancel-ejercicio'); if(btnCancel) btnCancel.addEventListener('click', hideEjercicioForm);
       const btnClose = document.getElementById('close-modal-ejercicio'); if(btnClose) btnClose.addEventListener('click', hideEjercicioForm);
 
@@ -9829,11 +9829,12 @@ function ensurePdfZoomControls(containerId, frameId){
           const prev3 = document.getElementById('ejercicio-video-preview'); if(prev3){ prev3.innerHTML = ''; const p3 = document.createElement('p'); p3.className = 'muted'; p3.textContent = 'Se eliminará el video actual'; prev3.appendChild(p3); }
         };
       }
-      const btnSaveInline = document.getElementById('save-ejercicio'); if(btnSaveInline) btnSaveInline.onclick = saveEjercicio;
+      // Evitar doble binding: ya se registra en bindEjerciciosEvents
     }
     function hideEjercicioForm(){ closeModal('modal-ejercicio-form'); state.ejercicioVideoFile=null; state.ejercicioVideoRemove=false; state.editingEjercicioOriginalVideoUrl=null; const flg = document.getElementById('ejercicio-video-remove-flag'); if(flg) flg.textContent = '0'; }
 
     async function saveEjercicio(){
+      const btn = document.getElementById('save-ejercicio'); if(btn) btn.disabled = true;
       const nombre = (document.getElementById('ejercicio-nombre') || {}).value || '';
       const grupo_muscular = (document.getElementById('ejercicio-grupo') || {}).value || '';
       const objetivo = (document.getElementById('ejercicio-objetivo') || {}).value || 'general';
@@ -9882,6 +9883,7 @@ function ensurePdfZoomControls(containerId, frameId){
           }catch(_){ showToast('Error de red al eliminar el video', 'error', 4500); }
         }
       }catch(e){ showToast('Error de red al guardar', 'error', 4500); }
+      finally { if(btn) btn.disabled = false; }
     }
 
     function deleteEjercicio(id){
