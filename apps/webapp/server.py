@@ -2303,6 +2303,53 @@ def _upload_media_to_gcs(dest_name: str, data: bytes, content_type: str) -> Opti
         logging.error(f"Error subiendo a GCS: {e}")
         raise HTTPException(status_code=500, detail=f"Error subiendo a GCS: {e}")
 
+def _gcs_build_public_url(dest_name: str) -> Optional[str]:
+    try:
+        settings = _get_gcs_settings()
+        bucket_name = settings.get("bucket") or ""
+        if not bucket_name:
+            return None
+        prefix = (settings.get("prefix") or "").strip().strip("/")
+        blob_path = f"{prefix}/{dest_name}" if prefix else dest_name
+        public_base = (settings.get("public_base_url") or "https://storage.googleapis.com").strip().rstrip("/")
+        return f"{public_base}/{bucket_name}/{blob_path}"
+    except Exception:
+        return None
+
+def _gcs_generate_signed_put_url(dest_name: str, content_type: str, allowed_origin: Optional[str]) -> Optional[Dict[str, str]]:
+    try:
+        settings = _get_gcs_settings()
+        bucket_name = settings.get("bucket") or ""
+        if not bucket_name or gcs_storage is None:
+            return None
+        client = gcs_storage.Client(project=(settings.get("project_id") or None))
+        bucket = client.bucket(bucket_name)
+        try:
+            if allowed_origin:
+                cors = bucket.cors or []
+                origins = set()
+                for r in cors:
+                    for o in (r.get("origin") or []):
+                        origins.add(o)
+                if allowed_origin not in origins:
+                    cors.append({"origin": [allowed_origin], "method": ["GET", "PUT", "HEAD", "OPTIONS"], "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600})
+                    bucket.cors = cors
+                    try:
+                        bucket.patch()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+        prefix = (settings.get("prefix") or "").strip().strip("/")
+        blob_path = f"{prefix}/{dest_name}" if prefix else dest_name
+        blob = bucket.blob(blob_path)
+        from datetime import timedelta as _td
+        put_url = blob.generate_signed_url(expiration=_td(minutes=20), method="PUT", content_type=content_type, version="v4")
+        public_url = _gcs_build_public_url(dest_name)
+        return {"put_url": put_url, "public_url": public_url or "", "content_type": content_type}
+    except Exception:
+        return None
+
 
 # Configuración y utilidades para subida de medios a Backblaze B2 (fallback)
 def _get_b2_settings() -> Dict[str, Any]:
@@ -13770,6 +13817,17 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 "public_url": public_url,
                 "overwrite": bool(overwrite),
             })
+        # Fallback: GCS signed PUT URL
+        gcs_info = _gcs_generate_signed_put_url(dest_name, content_type, request.headers.get("origin"))
+        if gcs_info and gcs_info.get("put_url"):
+            return JSONResponse({
+                "provider": "gcs",
+                "put_url": gcs_info["put_url"],
+                "public_url": gcs_info.get("public_url", ""),
+                "dest_name": dest_name,
+                "content_type": content_type,
+                "overwrite": bool(overwrite),
+            })
         raise HTTPException(status_code=503, detail="Proveedor de subida directa no disponible")
     except HTTPException:
         raise
@@ -13799,7 +13857,7 @@ async def api_ejercicio_media_commit(ejercicio_id: int, dest_name: str = Form(..
             url = _b2_build_public_url(dest_name)
             storage_out = "b2"
         elif storage == "gcs":
-            url = _upload_media_to_gcs(dest_name, b"", content_type)
+            url = _gcs_build_public_url(dest_name)
             storage_out = "gcs"
         if not url:
             raise HTTPException(status_code=502, detail="No se pudo resolver URL pública")
