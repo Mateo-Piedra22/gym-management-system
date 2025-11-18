@@ -1647,8 +1647,15 @@ class TenantHeaderEnforcerMiddleware(BaseHTTPMiddleware):
                     provided = request.headers.get('X-Tenant-ID') or request.headers.get('x-tenant-id') or ''
                 except Exception:
                     provided = ''
-                if not expected or not provided or provided.strip().lower() != str(expected).strip().lower():
-                    return JSONResponse({"error": "invalid_tenant_header"}, status_code=400)
+                if not expected:
+                    try:
+                        host = _get_request_host(request)
+                        expected = _extract_tenant_from_host(host) or None
+                    except Exception:
+                        expected = None
+                if expected:
+                    if (not provided) or (provided.strip().lower() != str(expected).strip().lower()):
+                        return JSONResponse({"error": "invalid_tenant_header"}, status_code=400)
         except Exception:
             pass
         return await call_next(request)
