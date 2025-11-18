@@ -479,17 +479,20 @@ class AdminDatabaseManager:
     def eliminar_gimnasio(self, gym_id: int) -> bool:
         try:
             db_name = None
+            subdominio = None
             try:
                 with self.db.get_connection_context() as conn:  # type: ignore
                     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                    cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
+                    cur.execute("SELECT db_name, subdominio FROM gyms WHERE id = %s", (int(gym_id),))
                     row = cur.fetchone()
                 if row:
                     db_name = str(row.get("db_name") or "").strip()
+                    subdominio = str(row.get("subdominio") or "").strip().lower()
             except Exception:
                 db_name = None
             try:
-                self.eliminar_bucket_gym(int(gym_id))
+                if subdominio:
+                    self._b2_delete_prefix_for_sub(subdominio)
             except Exception:
                 pass
             if db_name:
@@ -634,25 +637,8 @@ class AdminDatabaseManager:
         sub = subdominio.strip().lower()
         suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
         db_name = f"{sub}{suffix}"
-        bucket_prefix = os.getenv("B2_BUCKET_PREFIX", "motiona-assets")
-        safe_prefix = self._slugify(str(bucket_prefix or "").strip().lower()) or "motiona-assets"
-        safe_sub_for_bucket = self._slugify(sub) or sub
-        try:
-            auth0 = self._b2_authorize_master()
-        except Exception:
-            auth0 = {}
-        acc_id = str((auth0 or {}).get("accountId") or "").strip()
-        suffix_env = str(os.getenv("B2_BUCKET_SUFFIX", "")).strip().lower()
-        suffix_slug = self._slugify(suffix_env) if suffix_env else ""
-        acc_suf = suffix_slug or self._slugify(acc_id[-6:] if acc_id else "")
-        suffix = f"-{acc_suf}" if acc_suf else ""
-        bucket_default = f"{safe_prefix}-{safe_sub_for_bucket}{suffix}"
-        bucket_name_input = str(b2_bucket_name or "").strip().lower()
-        bucket_name = self._slugify(bucket_name_input) or bucket_default
-        if acc_suf and bucket_name and not bucket_name.endswith(acc_suf) and not bucket_name.endswith(f"-{acc_suf}"):
-            bucket_name = f"{bucket_name}-{acc_suf}"
         created_db = False
-        bucket_info = {"bucket_name": bucket_name, "bucket_id": None, "key_id": None, "application_key": None}
+        bucket_info = {"bucket_name": None, "bucket_id": None, "key_id": None, "application_key": None}
         try:
             created_db = bool(self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0))
         except Exception:
@@ -660,23 +646,9 @@ class AdminDatabaseManager:
         if not created_db:
             return {"error": "db_creation_failed"}
         try:
-            bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
-        except Exception as e:
-            try:
-                self._eliminar_db_postgres(db_name)
-            except Exception:
-                pass
-            return {"error": "b2_bucket_creation_failed"}
-        if not bucket_info.get("bucket_id") or not bucket_info.get("key_id") or not bucket_info.get("application_key"):
-            try:
-                self._eliminar_db_postgres(db_name)
-            except Exception:
-                pass
-            return {"error": "b2_bucket_creation_failed"}
-        try:
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
-                cur.execute("INSERT INTO gyms (nombre, subdominio, db_name, b2_bucket_name, b2_bucket_id, b2_key_id, b2_application_key, whatsapp_phone_id, whatsapp_access_token, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, whatsapp_send_timeout_seconds, owner_phone) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", (nombre.strip(), sub, db_name, bucket_info.get("bucket_name") or bucket_name, bucket_info.get("bucket_id") or None, bucket_info.get("key_id") or None, bucket_info.get("application_key") or None, (whatsapp_phone_id or "").strip() or None, (whatsapp_access_token or "").strip() or None, (whatsapp_business_account_id or "").strip() or None, (whatsapp_verify_token or "").strip() or None, (whatsapp_app_secret or "").strip() or None, bool(whatsapp_nonblocking or False), whatsapp_send_timeout_seconds, (owner_phone or "").strip() or None))
+                cur.execute("INSERT INTO gyms (nombre, subdominio, db_name, b2_bucket_name, b2_bucket_id, b2_key_id, b2_application_key, whatsapp_phone_id, whatsapp_access_token, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, whatsapp_send_timeout_seconds, owner_phone) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id", (nombre.strip(), sub, db_name, None, None, None, None, (whatsapp_phone_id or "").strip() or None, (whatsapp_access_token or "").strip() or None, (whatsapp_business_account_id or "").strip() or None, (whatsapp_verify_token or "").strip() or None, (whatsapp_app_secret or "").strip() or None, bool(whatsapp_nonblocking or False), whatsapp_send_timeout_seconds, (owner_phone or "").strip() or None))
                 rid = cur.fetchone()[0]
                 conn.commit()
                 try:
@@ -696,7 +668,11 @@ class AdminDatabaseManager:
                         self._push_whatsapp_to_gym_db(int(rid))
                 except Exception:
                     pass
-                return {"id": int(rid), "nombre": nombre.strip(), "subdominio": sub, "db_name": db_name, "db_created": bool(created_db), "b2_bucket_name": bucket_info.get("bucket_name") or bucket_name, "b2_bucket_id": bucket_info.get("bucket_id") or None, "b2_key_id": bucket_info.get("key_id") or None, "b2_application_key": bucket_info.get("application_key") or None}
+                try:
+                    self._b2_ensure_prefix_for_sub(sub)
+                except Exception:
+                    pass
+                return {"id": int(rid), "nombre": nombre.strip(), "subdominio": sub, "db_name": db_name, "db_created": bool(created_db), "b2_bucket_name": None, "b2_bucket_id": None, "b2_key_id": None, "b2_application_key": None}
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"error": str(e)}
@@ -938,6 +914,196 @@ class AdminDatabaseManager:
                 pass
             return {}
 
+    def _b2_ensure_bucket_env(self) -> Dict[str, Any]:
+        try:
+            bname = (os.getenv("B2_BUCKET_NAME") or "").strip()
+            bid = (os.getenv("B2_BUCKET_ID") or "").strip()
+            if bid and bname:
+                return {"bucket_name": bname, "bucket_id": bid}
+            auth = self._b2_authorize_master()
+            api_url = self._b2_api_url(auth)
+            token = str(auth.get("authorizationToken") or "").strip()
+            account_id = str(auth.get("accountId") or "").strip()
+            if not api_url or not token or not account_id or not bname:
+                return {"bucket_name": bname, "bucket_id": bid}
+            headers = {"Authorization": token}
+            lb = requests.post(f"{api_url}/b2api/v4/b2_list_buckets", headers=headers, json={"accountId": account_id, "bucketName": bname}, timeout=10)
+            if lb.status_code == 200:
+                for b in (lb.json().get("buckets") or []):
+                    if str(b.get("bucketName") or "").strip().lower() == bname.lower():
+                        bid = str(b.get("bucketId") or "").strip()
+                        break
+            if not bid:
+                btype = "allPrivate"
+                try:
+                    priv_env = str(os.getenv("B2_BUCKET_PRIVATE", "")).strip().lower()
+                    priv = (priv_env in ("1", "true", "yes"))
+                    btype = "allPrivate" if priv else "allPublic"
+                except Exception:
+                    btype = "allPrivate"
+                cb = requests.post(f"{api_url}/b2api/v4/b2_create_bucket", headers={"Authorization": token}, json={"accountId": account_id, "bucketName": bname, "bucketType": btype}, timeout=12)
+                if cb.status_code == 200:
+                    bj = cb.json()
+                    bid = str(bj.get("bucketId") or "").strip()
+            return {"bucket_name": bname, "bucket_id": bid}
+        except Exception:
+            return {"bucket_name": (os.getenv("B2_BUCKET_NAME") or "").strip(), "bucket_id": (os.getenv("B2_BUCKET_ID") or "").strip()}
+
+    def _b2_list_files_by_prefix(self, bucket_id: str, prefix: str) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        try:
+            auth = self._b2_authorize_master()
+            api_url = self._b2_api_url(auth)
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return items
+            headers = {"Authorization": token}
+            start_name = None
+            while True:
+                body = {"bucketId": bucket_id, "maxFileCount": 1000}
+                if start_name:
+                    body["startFileName"] = start_name
+                lr = requests.post(f"{api_url}/b2api/v4/b2_list_file_names", headers=headers, json=body, timeout=12)
+                if lr.status_code != 200:
+                    break
+                data = lr.json() or {}
+                files = data.get("files") or []
+                for f in files:
+                    try:
+                        fname = str(f.get("fileName") or "").strip()
+                        if fname.startswith(prefix):
+                            items.append(f)
+                    except Exception:
+                        continue
+                next_name = data.get("nextFileName")
+                if not next_name:
+                    break
+                start_name = next_name
+            return items
+        except Exception:
+            return items
+
+    def _b2_copy_prefix(self, bucket_id: str, old_prefix: str, new_prefix: str) -> bool:
+        try:
+            auth = self._b2_authorize_master()
+            api_url = self._b2_api_url(auth)
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return False
+            headers = {"Authorization": token}
+            items = self._b2_list_files_by_prefix(bucket_id, old_prefix)
+            any_error = False
+            for it in items:
+                try:
+                    fid = str(it.get("fileId") or "").strip()
+                    fname = str(it.get("fileName") or "").strip()
+                    if not fid or not fname:
+                        continue
+                    if not fname.startswith(old_prefix):
+                        continue
+                    new_name = new_prefix + fname[len(old_prefix):]
+                    cp = requests.post(f"{api_url}/b2api/v4/b2_copy_file", headers=headers, json={"sourceFileId": fid, "fileName": new_name, "destinationBucketId": bucket_id}, timeout=20)
+                    if cp.status_code != 200:
+                        any_error = True
+                except Exception:
+                    any_error = True
+                    continue
+            return not any_error
+        except Exception:
+            return False
+
+    def _b2_delete_prefix(self, bucket_id: str, prefix: str) -> bool:
+        try:
+            auth = self._b2_authorize_master()
+            api_url = self._b2_api_url(auth)
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return False
+            headers = {"Authorization": token}
+            items = self._b2_list_files_by_prefix(bucket_id, prefix)
+            any_error = False
+            for it in items:
+                try:
+                    fid = str(it.get("fileId") or "").strip()
+                    fname = str(it.get("fileName") or "").strip()
+                    if fid and fname:
+                        dr = requests.post(f"{api_url}/b2api/v4/b2_delete_file_version", headers=headers, json={"fileName": fname, "fileId": fid}, timeout=12)
+                        if dr.status_code != 200:
+                            any_error = True
+                except Exception:
+                    any_error = True
+                    continue
+            return not any_error
+        except Exception:
+            return False
+
+    def _b2_upload_placeholder(self, bucket_id: str, prefix: str) -> bool:
+        try:
+            auth = self._b2_authorize_master()
+            api_url = self._b2_api_url(auth)
+            token = str(auth.get("authorizationToken") or "").strip()
+            if not api_url or not token:
+                return False
+            file_name = f"{prefix.rstrip('/')}/.keep"
+            req = requests.post(f"{api_url}/b2api/v4/b2_get_upload_url", headers={"Authorization": token}, json={"bucketId": bucket_id}, timeout=10)
+            if req.status_code != 200:
+                return False
+            uj = req.json() or {}
+            upload_url = uj.get("uploadUrl")
+            upload_token = uj.get("authorizationToken")
+            if not upload_url or not upload_token:
+                return False
+            headers = {
+                "Authorization": upload_token,
+                "X-Bz-File-Name": file_name,
+                "Content-Type": "text/plain",
+                "X-Bz-Content-Sha1": "do_not_verify",
+                "X-Bz-Info-b2-cache-control": "public, max-age=864000",
+            }
+            data = b""
+            r = requests.post(upload_url, headers=headers, data=data, timeout=10)
+            return r.status_code == 200
+        except Exception:
+            return False
+
+    def _b2_ensure_prefix_for_sub(self, subdominio: str) -> bool:
+        try:
+            env = self._b2_ensure_bucket_env()
+            bid = str(env.get("bucket_id") or "").strip()
+            if not bid:
+                return False
+            prefix = f"{str(subdominio or '').strip().lower()}-assets"
+            return self._b2_upload_placeholder(bid, prefix)
+        except Exception:
+            return False
+
+    def _b2_delete_prefix_for_sub(self, subdominio: str) -> bool:
+        try:
+            env = self._b2_ensure_bucket_env()
+            bid = str(env.get("bucket_id") or "").strip()
+            if not bid:
+                return False
+            prefix = f"{str(subdominio or '').strip().lower()}-assets/"
+            return self._b2_delete_prefix(bid, prefix)
+        except Exception:
+            return False
+
+    def _b2_migrate_prefix_for_sub(self, old_sub: str, new_sub: str) -> bool:
+        try:
+            env = self._b2_ensure_bucket_env()
+            bid = str(env.get("bucket_id") or "").strip()
+            if not bid:
+                return False
+            op = f"{str(old_sub or '').strip().lower()}-assets/"
+            np = f"{str(new_sub or '').strip().lower()}-assets/"
+            ok_cp = self._b2_copy_prefix(bid, op, np)
+            if not ok_cp:
+                return False
+            ok_del = self._b2_delete_prefix(bid, op)
+            return bool(ok_del)
+        except Exception:
+            return False
+
     def _b2_api_url(self, auth: Dict[str, Any]) -> str:
         try:
             api_url = str((auth or {}).get("apiUrl") or "").strip()
@@ -1136,109 +1302,41 @@ class AdminDatabaseManager:
             return False
 
     def _b2_copy_all_files(self, source_bucket_id: str | None, destination_bucket_id: str | None) -> bool:
-        try:
-            sbid = str(source_bucket_id or "").strip()
-            dbid = str(destination_bucket_id or "").strip()
-            if not sbid or not dbid:
-                return False
-            auth = self._b2_authorize_master()
-            api_url = self._b2_api_url(auth)
-            token = str(auth.get("authorizationToken") or "").strip()
-            if not api_url or not token:
-                return False
-            headers = {"Authorization": token}
-            start_name = None
-            start_id = None
-            any_error = False
-            while True:
-                body = {"bucketId": sbid, "maxFileCount": 1000}
-                if start_name:
-                    body["startFileName"] = start_name
-                if start_id:
-                    body["startFileId"] = start_id
-                lr = requests.post(f"{api_url}/b2api/v4/b2_list_file_versions", headers=headers, json=body, timeout=15)
-                if lr.status_code != 200:
-                    try:
-                        logging.getLogger(__name__).error(f"B2 list_file_versions fallo {lr.status_code}: {lr.text}")
-                    except Exception:
-                        pass
-                    break
-                data = lr.json() or {}
-                files = data.get("files") or []
-                for f in files:
-                    try:
-                        if str(f.get("action") or "").strip() != "upload":
-                            continue
-                        fid = str(f.get("fileId") or "").strip()
-                        fname = str(f.get("fileName") or "").strip()
-                        if not fid or not fname:
-                            continue
-                        cp = requests.post(
-                            f"{api_url}/b2api/v4/b2_copy_file",
-                            headers=headers,
-                            json={"sourceFileId": fid, "fileName": fname, "destinationBucketId": dbid},
-                            timeout=20,
-                        )
-                        if cp.status_code != 200:
-                            any_error = True
-                            try:
-                                logging.getLogger(__name__).error(f"B2 copy_file fallo {cp.status_code}: {cp.text}")
-                            except Exception:
-                                pass
-                    except Exception:
-                        any_error = True
-                        continue
-                start_name = data.get("nextFileName")
-                start_id = data.get("nextFileId")
-                if not start_name:
-                    break
-            return not any_error
-        except Exception:
-            return False
+        return False
 
-    def renombrar_gimnasio_y_bucket(self, gym_id: int, nombre: Optional[str], subdominio: Optional[str], action: Optional[str]) -> Dict[str, Any]:
+    def renombrar_gimnasio_y_assets(self, gym_id: int, nombre: Optional[str], subdominio: Optional[str]) -> Dict[str, Any]:
         try:
             gid = int(gym_id)
             nm = (nombre or "").strip()
             sd = (subdominio or "").strip().lower()
+            # Obtener subdominio y db actuales
             with self.db.get_connection_context() as conn:  # type: ignore
-                cur = conn.cursor()
-                cur.execute("SELECT b2_bucket_id, b2_bucket_name, b2_key_id FROM gyms WHERE id = %s", (gid,))
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT subdominio, db_name FROM gyms WHERE id = %s", (gid,))
                 row = cur.fetchone()
-            old_bid = str((row or [None, None, None])[0] or "")
-            old_bname = str((row or [None, None, None])[1] or "")
-            old_key_id = str((row or [None, None, None])[2] or "")
-            prefix = os.getenv("B2_BUCKET_PREFIX", "motiona-assets")
-            new_bname = f"{prefix}-{sd}" if sd else (old_bname or "")
-            bucket_info = {"bucket_name": new_bname, "bucket_id": None, "key_id": None, "application_key": None}
-            act = (action or "").strip().lower()
-            if act in ("recreate", "migrate"):
-                if act == "recreate":
-                    try:
-                        self.eliminar_bucket_gym(gid)
-                    except Exception:
-                        pass
-                    bucket_info = self._crear_bucket_b2_con_reintentos(new_bname, intentos=3, espera=2.0)
-                else:
-                    bucket_info = self._crear_bucket_b2_con_reintentos(new_bname, intentos=3, espera=2.0)
-                    if old_bid and bucket_info.get("bucket_id"):
-                        try:
-                            self._b2_copy_all_files(old_bid, str(bucket_info.get("bucket_id") or ""))
-                        except Exception:
-                            pass
-                        try:
-                            if old_key_id:
-                                self._b2_delete_key(old_key_id)
-                        except Exception:
-                            pass
-                        try:
-                            self._b2_empty_bucket(old_bid)
-                        except Exception:
-                            pass
-                        try:
-                            self._b2_delete_bucket(old_bid)
-                        except Exception:
-                            pass
+            if not row:
+                return {"ok": False, "error": "gym_not_found"}
+            old_sub = str((row or {}).get("subdominio") or "").strip().lower()
+            old_db = str((row or {}).get("db_name") or "").strip()
+            new_sub = sd or old_sub
+            # Renombrar carpeta de assets en B2: old_sub-assets -> new_sub-assets
+            if new_sub and old_sub and (new_sub != old_sub):
+                try:
+                    self._b2_migrate_prefix_for_sub(old_sub, new_sub)
+                except Exception:
+                    pass
+            # Renombrar DB si cambió subdominio
+            if old_db and new_sub and old_sub and (new_sub != old_sub):
+                try:
+                    suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
+                    new_db = f"{new_sub}{suffix}"
+                    self._rename_db_postgres(old_db, new_db)
+                    with self.db.get_connection_context() as conn:  # type: ignore
+                        cur = conn.cursor()
+                        cur.execute("UPDATE gyms SET db_name = %s WHERE id = %s", (new_db, gid))
+                        conn.commit()
+                except Exception:
+                    pass
             sets: List[str] = []
             params: List[Any] = []
             if nm:
@@ -1252,15 +1350,6 @@ class AdminDatabaseManager:
                         return {"ok": False, "error": "subdominio_in_use"}
                 sets.append("subdominio = %s")
                 params.append(sd)
-            if act in ("recreate", "migrate") and (bucket_info.get("bucket_id") or new_bname):
-                sets.append("b2_bucket_name = %s")
-                params.append(bucket_info.get("bucket_name") or new_bname)
-                sets.append("b2_bucket_id = %s")
-                params.append(bucket_info.get("bucket_id") or None)
-                sets.append("b2_key_id = %s")
-                params.append(bucket_info.get("key_id") or None)
-                sets.append("b2_application_key = %s")
-                params.append(bucket_info.get("application_key") or None)
             if not sets:
                 return {"ok": False, "error": "no_fields"}
             with self.db.get_connection_context() as conn:  # type: ignore
@@ -1269,7 +1358,7 @@ class AdminDatabaseManager:
                 params.append(gid)
                 cur.execute(sql, params)
                 conn.commit()
-            return {"ok": True, "bucket": bucket_info}
+            return {"ok": True}
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"ok": False, "error": str(e)}
@@ -1286,14 +1375,12 @@ class AdminDatabaseManager:
             if not sub:
                 return {"ok": False, "error": "invalid_subdomain"}
             db_name = str(row.get("db_name") or "").strip() or f"{sub}{os.getenv('TENANT_DB_SUFFIX', '_db')}"
-            bucket_name = str(row.get("b2_bucket_name") or "").strip() or f"{os.getenv('B2_BUCKET_PREFIX', 'motiona-assets')}-{sub}"
             created_db = self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0)
-            bucket_info = self._crear_bucket_b2_con_reintentos(bucket_name, intentos=3, espera=2.0)
             with self.db.get_connection_context() as conn:  # type: ignore
                 cur = conn.cursor()
-                cur.execute("UPDATE gyms SET db_name = %s, b2_bucket_name = %s, b2_bucket_id = %s, b2_key_id = %s, b2_application_key = %s WHERE id = %s", (db_name, bucket_info.get("bucket_name") or bucket_name, bucket_info.get("bucket_id") or None, bucket_info.get("key_id") or None, bucket_info.get("application_key") or None, int(gym_id)))
+                cur.execute("UPDATE gyms SET db_name = %s WHERE id = %s", (db_name, int(gym_id)))
                 conn.commit()
-            return {"ok": True, "db_created": bool(created_db), "bucket": bucket_info}
+            return {"ok": True, "db_created": bool(created_db)}
         except Exception as e:
             logging.getLogger(__name__).error(str(e))
             return {"ok": False, "error": str(e)}
@@ -1423,37 +1510,7 @@ class AdminDatabaseManager:
             return False
 
     def eliminar_bucket_gym(self, gym_id: int) -> bool:
-        try:
-            with self.db.get_connection_context() as conn:  # type: ignore
-                cur = conn.cursor()
-                cur.execute("SELECT b2_bucket_id, b2_key_id FROM gyms WHERE id = %s", (int(gym_id),))
-                row = cur.fetchone()
-                if not row:
-                    return False
-                bid = row[0]
-                kid = row[1]
-            if kid:
-                try:
-                    self._b2_delete_key(kid)
-                except Exception:
-                    pass
-            ok = False
-            if bid:
-                try:
-                    self._b2_empty_bucket(bid)
-                except Exception:
-                    pass
-                ok = self._b2_delete_bucket(bid)
-            try:
-                with self.db.get_connection_context() as conn:  # type: ignore
-                    cur = conn.cursor()
-                    cur.execute("UPDATE gyms SET b2_bucket_id = NULL, b2_bucket_name = NULL, b2_key_id = NULL, b2_application_key = NULL WHERE id = %s", (int(gym_id),))
-                    conn.commit()
-            except Exception:
-                pass
-            return bool(ok)
-        except Exception:
-            return False
+        return True
 
     def _eliminar_db_postgres(self, db_name: str) -> bool:
         try:
@@ -1530,39 +1587,47 @@ class AdminDatabaseManager:
         except Exception:
             return False
 
-    def regenerar_clave_b2(self, gym_id: int) -> Dict[str, Any]:
+    def _rename_db_postgres(self, old_name: str, new_name: str) -> bool:
         try:
-            with self.db.get_connection_context() as conn:  # type: ignore
+            on = str(old_name or "").strip()
+            nn = str(new_name or "").strip()
+            if not on or not nn or on == nn:
+                return False
+            base = _resolve_admin_db_params()
+            host = base.get("host")
+            port = int(base.get("port") or 5432)
+            user = base.get("user")
+            password = base.get("password")
+            sslmode = base.get("sslmode")
+            connect_timeout = int(base.get("connect_timeout") or 10)
+            application_name = (base.get("application_name") or "gym_admin_renamer").strip()
+            conn = psycopg2.connect(host=host, port=port, dbname=base.get("database"), user=user, password=password, sslmode=sslmode, connect_timeout=connect_timeout, application_name=application_name)
+            try:
+                conn.autocommit = True
                 cur = conn.cursor()
-                cur.execute("SELECT b2_bucket_id FROM gyms WHERE id = %s", (int(gym_id),))
-                row = cur.fetchone()
-                if not row:
-                    return {"ok": False}
-                bid = str(row[0] or "").strip()
-            if not bid:
-                return {"ok": False}
-            auth = self._b2_authorize_master()
-            api_url = self._b2_api_url(auth)
-            token = str(auth.get("authorizationToken") or "").strip()
-            account_id = str(auth.get("accountId") or "").strip()
-            if not api_url or not token or not account_id:
-                return {"ok": False}
-            headers = {"Authorization": token}
-            key_name = f"gym-regenerated-{gym_id}"
-            caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles", "listBuckets", "readBuckets"]
-            ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bid})
-            if ck.status_code != 200:
-                return {"ok": False}
-            kj = ck.json()
-            key_id = kj.get("applicationKeyId")
-            application_key = kj.get("applicationKey")
-            with self.db.get_connection_context() as conn:  # type: ignore
-                cur = conn.cursor()
-                cur.execute("UPDATE gyms SET b2_key_id = %s, b2_application_key = %s WHERE id = %s", (key_id, application_key, int(gym_id)))
-                conn.commit()
-            return {"ok": True, "key_id": key_id, "application_key": application_key}
+                try:
+                    cur.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = %s", (on,))
+                except Exception:
+                    pass
+                try:
+                    cur.execute(f"ALTER DATABASE {on} RENAME TO {nn}")
+                except Exception:
+                    return False
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return True
         except Exception:
-            return {"ok": False}
+            return False
+
+    def regenerar_clave_b2(self, gym_id: int) -> Dict[str, Any]:
+        return {"ok": False}
 
     def set_gym_whatsapp_config(self, gym_id: int, phone_id: Optional[str], access_token: Optional[str], waba_id: Optional[str], verify_token: Optional[str], app_secret: Optional[str], nonblocking: Optional[bool], send_timeout_seconds: Optional[float]) -> bool:
         try:
@@ -1594,52 +1659,10 @@ class AdminDatabaseManager:
             return False
 
     def set_gym_b2_bucket_name(self, gym_id: int, bucket_name: Optional[str]) -> bool:
-        try:
-            name = (bucket_name or "").strip()
-            with self.db.get_connection_context() as conn:  # type: ignore
-                cur = conn.cursor()
-                cur.execute(
-                    "UPDATE gyms SET b2_bucket_name = %s, b2_bucket_id = NULL, b2_key_id = NULL, b2_application_key = NULL WHERE id = %s",
-                    (name or None, int(gym_id)),
-                )
-                conn.commit()
-            return True
-        except Exception:
-            return False
+        return True
 
     def set_gym_b2_settings(self, gym_id: int, bucket_name: Optional[str], bucket_id: Optional[str], key_id: Optional[str], application_key: Optional[str]) -> bool:
-        try:
-            name_raw = (bucket_name or "").strip()
-            bid_raw = (bucket_id or "").strip()
-            kid_raw = (key_id or "").strip()
-            akey_raw = (application_key or "").strip()
-            name = name_raw or None
-            bid = bid_raw or None
-            kid = kid_raw or None
-            akey = akey_raw or None
-            if name_raw and (not bid_raw or not kid_raw or not akey_raw):
-                try:
-                    info = self._crear_bucket_b2_con_reintentos(name_raw, intentos=3, espera=2.0)
-                except Exception:
-                    info = {"bucket_name": name_raw, "bucket_id": None, "key_id": None, "application_key": None}
-                if not bid:
-                    bid = info.get("bucket_id") or bid
-                if not kid:
-                    kid = info.get("key_id") or kid
-                if not akey:
-                    akey = info.get("application_key") or akey
-                if not name:
-                    name = info.get("bucket_name") or name
-            with self.db.get_connection_context() as conn:  # type: ignore
-                cur = conn.cursor()
-                cur.execute(
-                    "UPDATE gyms SET b2_bucket_name = %s, b2_bucket_id = %s, b2_key_id = %s, b2_application_key = %s WHERE id = %s",
-                    (name, bid, kid, akey, int(gym_id)),
-                )
-                conn.commit()
-            return True
-        except Exception:
-            return False
+        return True
 
     def _push_whatsapp_to_gym_db(self, gym_id: int) -> bool:
         try:
@@ -1840,8 +1863,13 @@ class AdminDatabaseManager:
                 gyms_last_30 = int((cur.fetchone() or [0])[0])
                 cur.execute("SELECT COUNT(*) FROM gyms WHERE whatsapp_phone_id IS NOT NULL AND whatsapp_access_token IS NOT NULL")
                 whatsapp_cfg = int((cur.fetchone() or [0])[0])
-                cur.execute("SELECT COUNT(*) FROM gyms WHERE b2_bucket_name IS NOT NULL AND b2_bucket_id IS NOT NULL")
-                storage_cfg = int((cur.fetchone() or [0])[0])
+                try:
+                    key_id = (os.getenv("B2_APPLICATION_KEY_ID") or "").strip()
+                    key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
+                    bname = (os.getenv("B2_BUCKET_NAME") or "").strip()
+                    storage_cfg = 1 if (key_id and key and bname) else 0
+                except Exception:
+                    storage_cfg = 0
                 cur.execute("SELECT COUNT(*) FROM gym_subscriptions WHERE status = 'overdue'")
                 overdue_subs = int((cur.fetchone() or [0])[0])
                 cur.execute("SELECT COUNT(*) FROM gym_subscriptions WHERE status = 'active'")

@@ -336,7 +336,6 @@ async def admin_home(request: Request):
                 "recent_gyms": recent_gyms,
                 "recent_payments": recent_payments,
                 "audit": audit,
-                "b2_bucket_prefix": os.getenv("B2_BUCKET_PREFIX", "motiona-assets"),
             },
         )
     except Exception:
@@ -533,7 +532,6 @@ async def listar_gimnasios(request: Request):
             "order_by": order_by,
             "order_dir": order_dir,
             "view": view,
-            "b2_bucket_prefix": os.getenv("B2_BUCKET_PREFIX", "motiona-assets"),
         },
     )
     def chip(s: str) -> str:
@@ -559,12 +557,12 @@ async def listar_gimnasios(request: Request):
         status = str(g.get("status") or "")
         hard = "Sí" if bool(g.get("hard_suspend")) else "No"
         until = str(g.get("suspended_until") or "")
-        bname = str(g.get("b2_bucket_name") or "")
+        prefix = f"{sub}-assets" if sub else ""
         salud = f"<div id=\"health-{gid}\" style=\"display:flex;gap:10px;align-items:center\"><div class=\"skeleton\" style=\"width:96px;height:14px;border-radius:6px\"></div></div>"
         status_html = chip(status)
-        actions = f"<form method=\"post\" action=\"/admin/gyms/{gid}/contact\" style=\"display:inline\"><input name=\"owner_phone\" value=\"{owner_phone}\" placeholder=\"+54...\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:160px\"/><button type=\"submit\" style=\"margin-left:6px\">Guardar</button></form> <a href=\"/admin/gyms/{gid}/owner?ui=1\" style=\"margin-left:6px\">Contraseña dueño</a> <a href=\"/admin/gyms/{gid}/branding?ui=1\" style=\"margin-left:6px\">Branding</a> <a href=\"#\" data-edit=\"{gid}\" style=\"margin-left:6px\">Editar</a> <form method=\"post\" action=\"/admin/gyms/{gid}/provision\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Provisionar</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/suspend\" style=\"display:inline;margin-left:6px\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\">Suspender</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/unsuspend\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Reactivar</button></form> <a href=\"/admin/gyms/{gid}/subscription?ui=1\" style=\"margin-left:6px\">Suscripción</a> <a href=\"/admin/gyms/{gid}/payments?ui=1\" style=\"margin-left:6px\">Pagos</a> <a href=\"/admin/gyms/{gid}/maintenance?ui=1\" style=\"margin-left:6px\">Mantenimiento</a> <a href=\"/admin/gyms/{gid}/whatsapp?ui=1\" style=\"margin-left:6px\">WhatsApp</a> <a href=\"/admin/gyms/{gid}/health?ui=1\" style=\"margin-left:6px\">Salud</a> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/regenerate-key\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Regenerar clave B2</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/b2/delete-bucket\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Eliminar bucket B2</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/delete\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Eliminar</button></form>"
+        actions = f"<form method=\"post\" action=\"/admin/gyms/{gid}/contact\" style=\"display:inline\"><input name=\"owner_phone\" value=\"{owner_phone}\" placeholder=\"+54...\" style=\"padding:6px;border:1px solid #333;border-radius:6px;width:160px\"/><button type=\"submit\" style=\"margin-left:6px\">Guardar</button></form> <a href=\"/admin/gyms/{gid}/owner?ui=1\" style=\"margin-left:6px\">Contraseña dueño</a> <a href=\"/admin/gyms/{gid}/branding?ui=1\" style=\"margin-left:6px\">Branding</a> <a href=\"#\" data-edit=\"{gid}\" style=\"margin-left:6px\">Editar</a> <form method=\"post\" action=\"/admin/gyms/{gid}/provision\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Provisionar</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/suspend\" style=\"display:inline;margin-left:6px\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\">Suspender</button></form> <form method=\"post\" action=\"/admin/gyms/{gid}/unsuspend\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Reactivar</button></form> <a href=\"/admin/gyms/{gid}/subscription?ui=1\" style=\"margin-left:6px\">Suscripción</a> <a href=\"/admin/gyms/{gid}/payments?ui=1\" style=\"margin-left:6px\">Pagos</a> <a href=\"/admin/gyms/{gid}/maintenance?ui=1\" style=\"margin-left:6px\">Mantenimiento</a> <a href=\"/admin/gyms/{gid}/whatsapp?ui=1\" style=\"margin-left:6px\">WhatsApp</a> <a href=\"/admin/gyms/{gid}/health?ui=1\" style=\"margin-left:6px\">Salud</a> <form method=\"post\" action=\"/admin/gyms/{gid}/delete\" style=\"display:inline;margin-left:6px\"><button type=\"submit\">Eliminar</button></form>"
         created = str(g.get("created_at") or "")
-        rows.append(f"<tr data-gym-id=\"{gid}\"><td>{gid}</td><td>{nombre}</td><td>{sub}</td><td>{created}</td><td>{owner_phone}</td><td>{status_html}</td><td>{salud}</td><td>{hard}</td><td>{until}</td><td>{bname}</td><td>{actions}</td></tr>")
+        rows.append(f"<tr data-gym-id=\"{gid}\"><td>{gid}</td><td>{nombre}</td><td>{sub}</td><td>{created}</td><td>{owner_phone}</td><td>{status_html}</td><td>{salud}</td><td>{hard}</td><td>{until}</td><td>{prefix}</td><td>{actions}</td></tr>")
     def link_for(col: str) -> str:
         dir_next = "ASC" if order_dir.upper() == "DESC" else "DESC"
         return f"/admin/gyms?ui=1&page={p}&page_size={ps}&q={q}&status={status_q}&order_by={col}&order_dir={dir_next}"
@@ -609,7 +607,7 @@ async def listar_gimnasios(request: Request):
     function openK(){var o=document.getElementById('k-overlay');if(o){o.style.display='flex';var inp=document.getElementById('k-input');if(inp){setTimeout(function(){inp.focus()},50)}}}
     function closeK(){var o=document.getElementById('k-overlay');if(o){o.style.display='none'}}
     var _kTimer=null;function searchK(q){var res=document.getElementById('k-results');if(!res)return;clearTimeout(_kTimer);_kTimer=setTimeout(function(){res.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';var list=[];fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=10',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];for(var i=0;i<items.length;i++){var g=items[i];list.push({t:'gym',id:String(g.id||''),label:String(g.nombre||'')+' · '+String(g.subdominio||'')})}return fetch('/admin/templates',{headers:{'accept':'application/json'}})}).then(function(r){return r.json()}).then(function(j){var t=(j&&j.templates)||[];for(var i=0;i<t.length;i++){list.push({t:'template',id:String(i+1),label:String(t[i]||'')})}var html='';for(var k=0;k<list.length;k++){var it=list[k];var href=it.t==='gym'?('/admin/gyms/'+it.id+'/health?ui=1'):('/admin/templates?ui=1');html+="<a href=\""+href+"\" style=\"display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#0b1222;color:#fff;text-decoration:none\"><span>"+it.label+"</span><span style=\"color:#9ca3af;font-size:12px\">"+it.t+"</span></a>"}if(!html){html='<div style=\"color:#9ca3af\">Sin resultados</div>'}res.innerHTML=html}).catch(function(){res.innerHTML='<div style=\"color:#ef4444\">Error en búsqueda</div>'})},300)}
-    function openDetails(gid){var o=document.getElementById('details-overlay');var c=document.getElementById('details-content');if(o&&c){o.style.display='flex';c.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(!res.ok){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>';return}var d=res.body||{};var g=d.gym||{};var h=d.health||{};var s=d.subscription||{};var pays=d.payments||[];var ok=function(v){return v?'<span style=\"color:#16a34a\">OK</span>':'<span style=\"color:#ef4444\">Fallo</span>'};var html='';html+='<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px\">';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"color:#9ca3af\">ID</div><div style=\"color:#fff\">'+String(g.id||'')+'</div><div style=\"color:#9ca3af\">Nombre</div><div style=\"color:#fff\">'+String(g.nombre||'')+'</div><div style=\"color:#9ca3af\">Subdominio</div><div style=\"color:#fff\">'+String(g.subdominio||'')+'</div><div style=\"color:#9ca3af\">Estado</div><div>'+String(g.status||'')+'</div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Salud</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>DB</div><div>'+ok(h.db&&h.db.ok)+'</div><div>WhatsApp</div><div>'+ok(h.whatsapp&&h.whatsapp.ok)+'</div><div>Storage</div><div>'+ok(h.storage&&h.storage.ok)+'</div></div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Suscripción</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>Plan</div><div>'+String((s&&s.plan_name)||'')+'</div><div>Estado</div><div>'+String((s&&s.status)||'')+'</div><div>Vence</div><div>'+String((s&&s.next_due_date)||'')+'</div></div></div>';var plist='';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];plist+='<tr><td>'+String(p.paid_at||'')+'</td><td>'+String(p.amount||'')+' '+String(p.currency||'')+'</td><td>'+String(p.status||'')+'</td></tr>'}html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Pagos recientes</div><div style=\"overflow-x:auto;margin-top:8px\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Fecha</th><th>Monto</th><th>Estado</th></tr></thead><tbody>'+plist+'</tbody></table></div></div>';html+='</div>';html+='<div style=\"margin-top:12px;display:flex;gap:8px;flex-wrap:wrap\"><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/provision\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Provisionar</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/suspend\" style=\"display:inline\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Suspender</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/unsuspend\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Reactivar</button></form><a href=\"/admin/gyms/'+String(g.id||'')+'/branding?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Branding</a><a href=\"/admin/gyms/'+String(g.id||'')+'/owner?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Contraseña dueño</a><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/b2/regenerate-key\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Regenerar clave B2</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/b2/delete-bucket\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#111827;color:#fff\">Eliminar bucket B2</button></form></div>';c.innerHTML=html;}).catch(function(){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>'})}}
+    function openDetails(gid){var o=document.getElementById('details-overlay');var c=document.getElementById('details-content');if(o&&c){o.style.display='flex';c.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';fetch('/admin/gyms/'+gid+'/details',{headers:{'accept':'application/json'}}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(!res.ok){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>';return}var d=res.body||{};var g=d.gym||{};var h=d.health||{};var s=d.subscription||{};var pays=d.payments||[];var ok=function(v){return v?'<span style=\"color:#16a34a\">OK</span>':'<span style=\"color:#ef4444\">Fallo</span>'};var html='';html+='<div style=\"display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px\">';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"color:#9ca3af\">ID</div><div style=\"color:#fff\">'+String(g.id||'')+'</div><div style=\"color:#9ca3af\">Nombre</div><div style=\"color:#fff\">'+String(g.nombre||'')+'</div><div style=\"color:#9ca3af\">Subdominio</div><div style=\"color:#fff\">'+String(g.subdominio||'')+'</div><div style=\"color:#9ca3af\">Estado</div><div>'+String(g.status||'')+'</div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Salud</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>DB</div><div>'+ok(h.db&&h.db.ok)+'</div><div>WhatsApp</div><div>'+ok(h.whatsapp&&h.whatsapp.ok)+'</div><div>Storage</div><div>'+ok(h.storage&&h.storage.ok)+'</div></div></div>';html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Suscripción</div><div style=\"margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px\"><div>Plan</div><div>'+String((s&&s.plan_name)||'')+'</div><div>Estado</div><div>'+String((s&&s.status)||'')+'</div><div>Vence</div><div>'+String((s&&s.next_due_date)||'')+'</div></div></div>';var plist='';for(var i=0;i<Math.min(pays.length,5);i++){var p=pays[i];plist+='<tr><td>'+String(p.paid_at||'')+'</td><td>'+String(p.amount||'')+' '+String(p.currency||'')+'</td><td>'+String(p.status||'')+'</td></tr>'}html+='<div style=\"padding:12px;border:1px solid #333;border-radius:12px;background:#0b1222\"><div style=\"font-weight:600;color:#fff\">Pagos recientes</div><div style=\"overflow-x:auto;margin-top:8px\"><table style=\"width:100%;border-collapse:collapse\"><thead><tr><th>Fecha</th><th>Monto</th><th>Estado</th></tr></thead><tbody>'+plist+'</tbody></table></div></div>';html+='</div>';html+='<div style=\"margin-top:12px;display:flex;gap:8px;flex-wrap:wrap\"><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/provision\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#1e40af;color:#fff\">Provisionar</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/suspend\" style=\"display:inline\"><input type=\"hidden\" name=\"hard\" value=\"false\"/><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#ef4444;color:#fff\">Suspender</button></form><form method=\"post\" action=\"/admin/gyms/'+String(g.id||'')+'/unsuspend\" style=\"display:inline\"><button type=\"submit\" style=\"padding:8px 12px;border-radius:6px;background:#16a34a;color:#fff\">Reactivar</button></form><a href=\"/admin/gyms/'+String(g.id||'')+'/branding?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Branding</a><a href=\"/admin/gyms/'+String(g.id||'')+'/owner?ui=1\" style=\"padding:8px 12px;border-radius:6px;background:#374151;color:#fff;text-decoration:none\">Contraseña dueño</a></div>';c.innerHTML=html;}).catch(function(){c.innerHTML='<div style=\"color:#ef4444\">Error al cargar detalles</div>'})}}
     var dc=document.getElementById('details-close');if(dc){dc.addEventListener('click',function(){var o=document.getElementById('details-overlay');if(o){o.style.display='none'}})}
     function initAdminPage(){initHealth();var ok=document.getElementById('open-k');if(ok){ok.addEventListener('click',openK)}var okf=document.getElementById('open-k-float');if(okf){okf.addEventListener('click',openK)}var kc=document.getElementById('k-close');if(kc){kc.addEventListener('click',closeK)}var ki=document.getElementById('k-input');if(ki){ki.addEventListener('input',function(){searchK(ki.value)})}var toolbar=document.querySelector('h1').parentNode;try{var inp=document.createElement('input');inp.id='page-jump';inp.placeholder='Ir a página';inp.setAttribute('style','padding:8px;border:1px solid #333;border-radius:6px;width:100px');var btn=document.createElement('button');btn.id='go-page';btn.textContent='Ir';btn.setAttribute('style','padding:8px 12px;border-radius:6px;background:#374151;color:#fff;margin-left:8px');var rng=document.createElement('div');rng.textContent='Rango: 1–{LP}';rng.setAttribute('style','color:#9ca3af;margin-left:8px');toolbar.appendChild(inp);toolbar.appendChild(btn);toolbar.appendChild(rng);}catch(e){}var cards=document.querySelectorAll('[data-gym-id]');var stored=(localStorage.getItem('admin_selected_gym_ids')||'').split(',').filter(function(x){return !!x});var selected=new Set(stored);function updateSel(){var c=document.getElementById('sel-count');if(c){c.textContent='Seleccionados: '+selected.size;localStorage.setItem('admin_selected_gym_ids',Array.from(selected).join(','))}}for(var i=0;i<cards.length;i++){(function(r){var gid=r.getAttribute('data-gym-id');var btn=r.querySelector('button[data-open]');var chk=r.querySelector('input[type="checkbox"][data-select]');var sub=r.querySelector('[data-sub]');if(btn){btn.addEventListener('click',function(){openDetails(gid)})}if(chk){chk.checked=selected.has(gid);chk.addEventListener('change',function(){if(chk.checked){selected.add(gid)}else{selected.delete(gid)}updateSel()})}if(sub){sub.addEventListener('click',function(){var tx=sub.textContent||'';if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')})}else{toast(tx,'info')}})}})(cards[i])}updateSel();var sbs=document.getElementById('sb-search');if(sbs){sbs.addEventListener('input',function(){sbSearch(sbs.value)})}var bp=document.getElementById('batch-prov');if(bp){bp.addEventListener('click',function(){runBatch('provision',selected)})}var bs=document.getElementById('batch-sus');if(bs){bs.addEventListener('click',function(){runBatch('suspend',selected)})}var bu=document.getElementById('batch-uns');if(bu){bu.addEventListener('click',function(){runBatch('unsuspend',selected)})}var bui=document.getElementById('batch-uns');var parent= bui?bui.parentNode:null;if(parent){var im=document.createElement('input');im.id='batch-msg';im.placeholder='Mensaje';im.setAttribute('style','padding:8px;border:1px solid #333;border-radius:6px;min-width:240px');var br=document.createElement('button');br.id='batch-remind';br.textContent='Recordar';br.setAttribute('style','padding:8px 12px;border-radius:6px;background:#9333ea;color:#fff;margin-left:8px');parent.appendChild(im);parent.appendChild(br);br.addEventListener('click',function(){var form=new URLSearchParams();form.append('gym_ids',Array.from(selected).join(','));var msg=document.getElementById('batch-msg');form.append('message',msg?String(msg.value||''):'');fetch('/admin/gyms/remind/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Recordatorios enviados','success')}else{if(res.status===429){toast('Rate limit excedido','error')}else{toast('Error al recordar','error')}}}).catch(function(){toast('Error de red','error')})})}}
     if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',initAdminPage)}else{initAdminPage()}
@@ -617,7 +615,7 @@ async def listar_gimnasios(request: Request):
     var gp=document.getElementById('go-page');if(gp){gp.addEventListener('click',function(){var inp=document.getElementById('page-jump');var v=inp&&inp.value?parseInt(inp.value,10):NaN;if(!isNaN(v)&&v>0){var url='/admin/gyms?ui=1&page='+v+'&page_size={PS}&q='+encodeURIComponent("{Q}")+'&status={STATUS}&order_by={ORDER_BY}&order_dir={ORDER_DIR}';window.location.href=url}})}
     function runBatch(action, selected){if(!selected||selected.size===0){toast('No hay seleccionados','info');return}var form=new URLSearchParams();form.append('action',action);form.append('gym_ids',Array.from(selected).join(','));fetch('/admin/gyms/batch',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok,body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Acción '+action+' aplicada','success');setTimeout(function(){window.location.reload()},600)}else{toast('Error en lote','error')}}).catch(function(){toast('Error de red','error')})}
     var _sbTimer=null;function sbSearch(q){var res=document.getElementById('sb-results');if(!res)return;var list=[];if(!q||q.length<2){res.innerHTML='';return}clearTimeout(_sbTimer);_sbTimer=setTimeout(function(){res.innerHTML='<div class="skeleton" style="width:100%;height:18px;border-radius:6px"></div>';fetch('/admin/gyms?q='+encodeURIComponent(q)+'&page=1&page_size=5',{headers:{'accept':'application/json'}}).then(function(r){return r.json()}).then(function(j){var items=(j&&j.items)||[];var html='';for(var i=0;i<items.length;i++){var g=items[i];html+='<button data-open="'+String(g.id||'')+'" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border:1px solid #333;border-radius:8px;background:#0b1222;color:#fff">'+String(g.nombre||'')+' · '+String(g.subdominio||'')+'<span style="color:#9ca3af;font-size:12px">Ver</span></button>'}if(!html){html='<div style="color:#9ca3af">Sin resultados</div>'}res.innerHTML=html;var btns=res.querySelectorAll('button[data-open]');for(var k=0;k<btns.length;k++){(function(b){b.addEventListener('click',function(){openDetails(b.getAttribute('data-open'))})})(btns[k])}}).catch(function(){res.innerHTML='<div style="color:#ef4444">Error</div>'})},300)}
-    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete-bucket')>=0||a.indexOf('/b2/regenerate-key')>=0||a.indexOf('/delete')>=0||a.match(new RegExp('^/admin/gyms/\\d+$'))){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
+    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete')>=0||a.match(new RegExp('^/admin/gyms/\\d+$'))){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
     </script>
     """.replace("{LP}", str(last_page)).replace("{PS}", str(ps)).replace("{Q}", q).replace("{STATUS}", status_q).replace("{ORDER_BY}", order_by).replace("{ORDER_DIR}", order_dir)
     use_grid = True
@@ -644,7 +642,7 @@ async def listar_gimnasios(request: Request):
     if(su){su.addEventListener('input',_updateEditStatus);_updateEditStatus()}
     if(es){es.addEventListener('click',function(){var gid=ei?ei.value:'';var form=new URLSearchParams();if(en&&en.value){form.append('nombre',en.value)}if(su&&su.value){form.append('subdominio',su.value)}fetch('/admin/gyms/'+gid+'/update',{method:'POST',headers:{'accept':'application/json','content-type':'application/x-www-form-urlencoded'},body:form.toString()}).then(function(r){return r.json().then(function(j){return {ok:r.ok, body:j}})}).then(function(res){if(res.ok&&res.body&&res.body.ok){toast('Actualizado','success');if(eo){eo.style.display='none'}var row=document.querySelector('tr[data-gym-id="'+gid+'"]');if(row){if(en&&en.value){row.children[1].textContent=en.value}if(su&&su.value){row.children[2].textContent=su.value}}}else{toast('Error al actualizar','error')}}).catch(function(){toast('Error al actualizar','error')})})}
     var gp=document.getElementById('go-page');if(gp){gp.addEventListener('click',function(){var inp=document.getElementById('page-jump');var v=inp&&inp.value?parseInt(inp.value,10):NaN;if(!isNaN(v)&&v>0){var url='/admin/gyms?ui=1&page='+v+'&page_size='+"{ps}"+'&q='+encodeURIComponent("{q}")+'&status='+'"+"{status_q}"+"'+'&order_by='+'"+"{order_by}"+"'+'&order_dir='+'"+"{order_dir}"+"';window.location.href=url}})}
-    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete-bucket')>=0||a.indexOf('/b2/regenerate-key')>=0||a.indexOf('/delete')>=0||a.match(new RegExp('^/admin/gyms/\\d+$'))){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
+    document.addEventListener('submit',function(e){var t=e.target;try{if(t&&t.tagName==='FORM'){var a=t.getAttribute('action')||'';var need=false;if(a.indexOf('/provision')>=0||a.indexOf('/suspend')>=0||a.indexOf('/unsuspend')>=0||a.indexOf('/delete')>=0||a.match(new RegExp('^/admin/gyms/\\d+$'))){need=true}if(need){var ok=window.confirm('¿Confirmar la acción?');if(!ok){e.preventDefault();return false}}}}catch(err){}});
     var rows=document.querySelectorAll('tr[data-gym-id]');for(var i=0;i<rows.length;i++){(function(r){var sub=r.children[2];if(sub){sub.style.cursor='copy';sub.addEventListener('click',function(){var tx=sub.textContent||'';navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(tx).then(function(){toast('Copiado: '+tx,'info')}).catch(function(){toast('No se pudo copiar','error')}):toast(tx,'info')})}})(rows[i])}
     });
     </script>
@@ -667,7 +665,7 @@ async def listar_gimnasios(request: Request):
         html = _admin_wrap(html)
 
 @admin_app.post("/gyms")
-async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None), b2_bucket_name: Optional[str] = Form(None)):
+async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, nombre: str = Form(...), subdominio: Optional[str] = Form(None), owner_phone: Optional[str] = Form(None), whatsapp_phone_id: Optional[str] = Form(None), whatsapp_access_token: Optional[str] = Form(None), whatsapp_business_account_id: Optional[str] = Form(None), whatsapp_verify_token: Optional[str] = Form(None), whatsapp_app_secret: Optional[str] = Form(None), whatsapp_nonblocking: Optional[bool] = Form(False), whatsapp_send_timeout_seconds: Optional[str] = Form(None)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_create", 20, 60)
     if rl:
@@ -704,16 +702,7 @@ async def crear_gimnasio(request: Request, background_tasks: BackgroundTasks, no
                 wsts = None
     except Exception:
         wsts = None
-    try:
-        bn_in = (b2_bucket_name or "").strip().lower()
-    except Exception:
-        bn_in = ""
-    if not bn_in:
-        try:
-            bn_in = f"{os.getenv('B2_BUCKET_PREFIX', 'motiona-assets')}-{sd_in}"
-        except Exception:
-            bn_in = f"motiona-assets-{sd_in}"
-    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, wsts, b2_bucket_name=bn_in)
+    res = adm.crear_gimnasio(nombre, sd_in, whatsapp_phone_id, whatsapp_access_token, owner_phone, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret, whatsapp_nonblocking, wsts)
     try:
         adm.log_action("owner", "create_gym", res.get("id") if isinstance(res, dict) else None, f"{nombre}|{sd_in}")
     except Exception:
@@ -764,7 +753,7 @@ async def check_subdomain(request: Request, sub: Optional[str] = None, name: Opt
     return JSONResponse({"ok": True, "available": av, "suggestion": sug, "sub": s}, status_code=200)
 
 @admin_app.post("/gyms/{gym_id}/update")
-async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form(None), subdominio: Optional[str] = Form(None), auto_subdomain: Optional[bool] = Form(False), update_bucket: Optional[bool] = Form(False), bucket_action: Optional[str] = Form(None), disable_sync: Optional[bool] = Form(False), no_migrate_bucket: Optional[bool] = Form(False)):
+async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form(None), subdominio: Optional[str] = Form(None), auto_subdomain: Optional[bool] = Form(False), disable_sync: Optional[bool] = Form(False)):
     _require_admin(request)
     rl = _check_rate_limit(request, "gym_update", 60, 60)
     if rl:
@@ -798,29 +787,18 @@ async def update_gym(request: Request, gym_id: int, nombre: Optional[str] = Form
             av = False
         if not av:
             return JSONResponse({"ok": False, "error": "subdominio_in_use"}, status_code=400)
-    do_bucket = bool(update_bucket)
-    act = (bucket_action or "").strip().lower()
+    do_assets = False
     try:
-        if (not update_bucket) and nm and sd and old_sub and (sd != old_sub) and (not bool(disable_sync)):
-            do_bucket = True
-            if not act:
-                act = "migrate"
+        if nm and sd and old_sub and (sd != old_sub) and (not bool(disable_sync)):
+            do_assets = True
     except Exception:
-        pass
-    if bool(no_migrate_bucket):
-        do_bucket = False
-        act = ""
-    if bool(disable_sync):
-        do_bucket = False
-        act = ""
-    if do_bucket and (act in ("recreate", "migrate") or (not act)):
-        if not act:
-            act = "migrate"
-        res = adm.renombrar_gimnasio_y_bucket(int(gym_id), nm or None, sd or None, act)
+        do_assets = False
+    if do_assets:
+        res = adm.renombrar_gimnasio_y_assets(int(gym_id), nm or None, sd or None)
     else:
         res = adm.actualizar_gimnasio(int(gym_id), nm or None, sd or None)
     try:
-        adm.log_action("owner", "update_gym", int(gym_id), {"nombre": nm, "subdominio": sd, "bucket_action": act if do_bucket else None})
+        adm.log_action("owner", "update_gym", int(gym_id), {"nombre": nm, "subdominio": sd})
     except Exception:
         pass
     sc = 200 if bool(res.get("ok")) else 400
@@ -993,62 +971,24 @@ async def storage_form(request: Request, gym_id: int):
     g = adm.obtener_gimnasio(int(gym_id))
     if not g:
         return JSONResponse({"error": "gym_not_found"}, status_code=404)
+    folder_prefix = f"{str(g.get('subdominio') or '').strip()}-assets"
     return templates.TemplateResponse(
         "gym-settings.html",
         {
             "request": request,
             "section": "storage",
             "gid": int(gym_id),
-            "bucket_name": str(g.get("b2_bucket_name") or ""),
-            "bucket_id": str(g.get("b2_bucket_id") or ""),
-            "key_id": str(g.get("b2_key_id") or ""),
-            "application_key": str(g.get("b2_application_key") or ""),
+            "folder_prefix": folder_prefix,
         },
     )
 
 @admin_app.post("/gyms/{gym_id}/storage")
-async def storage_save(request: Request, gym_id: int, bucket_name: Optional[str] = Form(None), bucket_id: Optional[str] = Form(None), key_id: Optional[str] = Form(None), application_key: Optional[str] = Form(None), provision: Optional[bool] = Form(False)):
+async def storage_save(request: Request, gym_id: int):
     _require_admin(request)
     rl = _check_rate_limit(request, "storage_save", 20, 60)
     if rl:
         return rl
-    adm = _get_admin_db()
-    if adm is None:
-        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = False
-    try:
-        ok = adm.set_gym_b2_settings(int(gym_id), bucket_name, bucket_id, key_id, application_key)
-    except Exception:
-        ok = False
-    prov = None
-    if ok:
-        if bool(provision or False):
-            try:
-                prov = adm.provisionar_recursos(int(gym_id))
-            except Exception as e:
-                prov = {"ok": False, "error": str(e)}
-        else:
-            try:
-                gcur = adm.obtener_gimnasio(int(gym_id))
-            except Exception:
-                gcur = None
-            try:
-                missing_bid = not bool(str((gcur or {}).get("b2_bucket_id") or "").strip())
-            except Exception:
-                missing_bid = True
-            if missing_bid:
-                try:
-                    prov = adm.provisionar_recursos(int(gym_id))
-                except Exception as e:
-                    prov = {"ok": False, "error": str(e)}
-    try:
-        adm.log_action("owner", "set_storage", int(gym_id), str(bucket_name or ""))
-    except Exception:
-        pass
-    out = {"ok": bool(ok)}
-    if prov is not None:
-        out["provision"] = prov
-    return JSONResponse(out, status_code=200 if ok else 400)
+    return JSONResponse({"ok": True, "note": "Modelo de bucket único: no se guardan configuraciones por gimnasio."}, status_code=200)
 
 @admin_app.get("/gyms/{gym_id}/maintenance")
 async def mantenimiento_form(request: Request, gym_id: int):
@@ -1752,31 +1692,7 @@ async def cron_daily_reminders(request: Request, token: Optional[str] = None, da
         grace = 5
     auto = adm.auto_suspend_overdue(grace)
     return JSONResponse({"ok": True, "days": d, "count": sent, "auto_suspended": int(auto), "grace_days": int(grace)}, status_code=200)
-@admin_app.post("/gyms/{gym_id}/b2/regenerate-key")
-async def b2_regenerate_key(request: Request, gym_id: int):
-    _require_admin(request)
-    adm = _get_admin_db()
-    if adm is None:
-        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    res = adm.regenerar_clave_b2(int(gym_id))
-    try:
-        adm.log_action("owner", "b2_regenerate_key", int(gym_id), None)
-    except Exception:
-        pass
-    return JSONResponse(res, status_code=200 if res.get("ok") else 400)
-
-@admin_app.post("/gyms/{gym_id}/b2/delete-bucket")
-async def b2_delete_bucket(request: Request, gym_id: int):
-    _require_admin(request)
-    adm = _get_admin_db()
-    if adm is None:
-        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
-    ok = adm.eliminar_bucket_gym(int(gym_id))
-    try:
-        adm.log_action("owner", "b2_delete_bucket", int(gym_id), None)
-    except Exception:
-        pass
-    return JSONResponse({"ok": bool(ok)}, status_code=200 if ok else 400)
+    
 
 @admin_app.post("/gyms/{gym_id}/delete")
 async def delete_gym_post(request: Request, gym_id: int):
@@ -2219,13 +2135,39 @@ async def health_check(request: Request, gym_id: int):
     st_ok = False
     st_cfg = False
     try:
-        bname = str(g.get("b2_bucket_name") or "").strip()
-        bid = str(g.get("b2_bucket_id") or "").strip()
-        st_cfg = bool(bname and bid)
-        st_ok = st_cfg
+        key_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+        key = (os.getenv("B2_APPLICATION_KEY") or os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
+        bname = (os.getenv("B2_BUCKET_NAME") or "").strip()
+        st_cfg = bool(key_id and key and bname)
+        if st_cfg and requests is not None:
+            sess = _get_http_session()
+            r = (sess.get if sess is not None else requests.get)(
+                "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                auth=(key_id, key),
+                timeout=8,
+            )
+            if r.status_code == 200:
+                aj = r.json()
+                api_url = str(aj.get("apiUrl") or "").strip()
+                acc_id = str(aj.get("accountId") or "").strip()
+                headers = {"Authorization": str(aj.get("authorizationToken") or "")}
+                lb = (sess.post if sess is not None else requests.post)(
+                    f"{api_url}/b2api/v4/b2_list_buckets",
+                    headers=headers,
+                    json={"accountId": acc_id},
+                    timeout=8,
+                )
+                if lb.status_code == 200:
+                    bj = lb.json()
+                    buckets = list(bj.get("buckets") or [])
+                    st_ok = any(str(it.get("bucketName") or "").strip().lower() == bname.lower() for it in buckets)
+                else:
+                    st_ok = False
+            else:
+                st_ok = False
     except Exception:
         st_ok = False
-        st_cfg = False
+        st_cfg = bool(st_cfg)
     accept = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in accept) or (request.query_params.get("ui") == "1")
     snippet = (str(request.query_params.get("snippet") or "").strip() == "1") or (str(request.headers.get("hx-request") or "").lower() == "true")
@@ -2363,15 +2305,49 @@ async def gym_details(request: Request, gym_id: int):
     st_ok = False
     st_cfg = False
     try:
-        bname = str(g.get("b2_bucket_name") or "").strip()
-        bid = str(g.get("b2_bucket_id") or "").strip()
-        st_cfg = bool(bname and bid)
-        st_ok = st_cfg
+        key_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+        key = (os.getenv("B2_APPLICATION_KEY") or os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
+        bname = (os.getenv("B2_BUCKET_NAME") or "").strip()
+        st_cfg = bool(key_id and key and bname)
+        if st_cfg and requests is not None:
+            sess = _get_http_session()
+            r = (sess.get if sess is not None else requests.get)(
+                "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                auth=(key_id, key),
+                timeout=8,
+            )
+            if r.status_code == 200:
+                aj = r.json()
+                api_url = str(aj.get("apiUrl") or "").strip()
+                acc_id = str(aj.get("accountId") or "").strip()
+                headers = {"Authorization": str(aj.get("authorizationToken") or "")}
+                lb = (sess.post if sess is not None else requests.post)(
+                    f"{api_url}/b2api/v4/b2_list_buckets",
+                    headers=headers,
+                    json={"accountId": acc_id},
+                    timeout=8,
+                )
+                if lb.status_code == 200:
+                    bj = lb.json()
+                    buckets = list(bj.get("buckets") or [])
+                    st_ok = any(str(it.get("bucketName") or "").strip().lower() == bname.lower() for it in buckets)
+                else:
+                    st_ok = False
+            else:
+                st_ok = False
     except Exception:
         st_ok = False
-        st_cfg = False
+        st_cfg = bool(st_cfg)
     sub = adm.obtener_subscription(int(gym_id))
     pays = adm.listar_pagos(int(gym_id))
+    assets_folder_prefix = f"{str(g.get("subdominio") or "").strip()}-assets"
+    public_base = (os.getenv("CDN_CUSTOM_DOMAIN") or os.getenv("B2_PUBLIC_BASE_URL") or "").strip()
+    if public_base:
+        try:
+            if not public_base.startswith("http://") and not public_base.startswith("https://"):
+                public_base = f"https://{public_base}"
+        except Exception:
+            pass
     safe = {
         "id": int(g.get("id") or int(gym_id)),
         "nombre": str(g.get("nombre") or ""),
@@ -2381,10 +2357,6 @@ async def gym_details(request: Request, gym_id: int):
         "owner_phone": str(g.get("owner_phone") or ""),
         "db_name": str(g.get("db_name") or ""),
         "suspended_reason": str(g.get("suspended_reason") or ""),
-        "b2_bucket_name": str(g.get("b2_bucket_name") or ""),
-        "b2_bucket_id": str(g.get("b2_bucket_id") or ""),
-        "b2_key_id": str(g.get("b2_key_id") or ""),
-        "b2_application_key": str(g.get("b2_application_key") or ""),
         "hard_suspend": bool(g.get("hard_suspend") or False),
         "suspended_until": str(g.get("suspended_until") or ""),
         "whatsapp_phone_id": str(g.get("whatsapp_phone_id") or ""),
@@ -2394,6 +2366,8 @@ async def gym_details(request: Request, gym_id: int):
         "whatsapp_app_secret_configured": bool(str(g.get("whatsapp_app_secret") or "").strip()),
         "whatsapp_nonblocking": bool(g.get("whatsapp_nonblocking") or False),
         "whatsapp_send_timeout_seconds": str(g.get("whatsapp_send_timeout_seconds") or ""),
+        "assets_folder_prefix": assets_folder_prefix,
+        "storage_public_base": public_base,
     }
     health = {"db": {"ok": bool(db_ok), "error": db_err}, "whatsapp": {"ok": bool(wa_ok), "status": wa_status}, "storage": {"ok": bool(st_ok), "configured": bool(st_cfg)}}
     try:

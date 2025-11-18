@@ -150,8 +150,7 @@
       var s=document.getElementById(subId);
       var st=statusId?document.getElementById(statusId):null;
       var b=bucketId?document.getElementById(bucketId):null;
-      var pref=String(prefix||'').trim();
-      function setBucket(val){if(!b)return;var v=(pref?pref+'-':'')+String(val||'');if(b.tagName==='INPUT'){b.value=v}else{b.textContent=v}}
+      function setBucket(val){if(!b)return;var v=String(val||'');v=v?v+'-assets':'';if(b.tagName==='INPUT'){b.value=v}else{b.textContent=v}}
       function update(){
         var orig=(n&&n.value)||'';
         var base=window.slugify(orig);
@@ -176,7 +175,7 @@
       update()
     };
     document.body.addEventListener('htmx:configRequest',function(ev){try{var pref=window.apiPref?window.apiPref():'';var pi=ev&&ev.detail&&ev.detail.pathInfo?ev.detail.pathInfo:null;var path=pi?pi.path:'';if(pref&&path&&path.indexOf('/admin/')===0){pi.path=pref+path}}catch(_){}});
-    document.body.addEventListener('htmx:load',function(){try{var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');var b=document.getElementById('create-bucket');var prefEl=document.getElementById('bucket-prefix');var pref=prefEl?String(prefEl.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(n&&s&&window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub',st?'create-sub-status':null,b?'create-bucket':null,pref)}}catch(_){}});
+    document.body.addEventListener('htmx:load',function(){try{var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');var b=document.getElementById('create-bucket');if(n&&s&&window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub',st?'create-sub-status':null,b?'create-bucket':null,'')}}catch(_){} });
     function _updateSidebarActive(){
       try{
         var p=(window.location&&window.location.pathname)||'';
@@ -211,18 +210,12 @@
       function msgForPath(elt,path){
         var p=String(path||'');
         if(p.indexOf('/admin/gyms')===0){
-          if(p.indexOf('/b2/regenerate-key')>0){return 'Regenerando clave B2'}
-          if(p.indexOf('/b2/delete-bucket')>0){return 'Eliminando bucket B2'}
           if(p.match(/\/gyms\/\d+\/update/)){
-            var f=(elt&&elt.tagName==='FORM')?elt:null;
-            var ub=f?f.querySelector('input[name="update_bucket"]'):null;
-            return (ub&&ub.checked)?'Actualizando bucket y datos':'Actualizando gimnasio'
+            return 'Actualizando gimnasio'
           }
-          if(p.match(/\/gyms$/)){return 'Creando gimnasio · DB y bucket'}
+          if(p.match(/\/gyms$/)){return 'Creando gimnasio'}
           if(p.indexOf('/storage')>0){
-            var f2=(elt&&elt.tagName==='FORM')?elt:null;
-            var pv=f2?f2.querySelector('input[name="provision"]'):null;
-            return pv&&pv.checked?'Guardando y creando recursos':'Guardando · creando bucket si falta'
+            return 'Guardando configuración'
           }
           if(p.indexOf('/subscription')>0){return 'Procesando suscripción'}
           return 'Procesando'

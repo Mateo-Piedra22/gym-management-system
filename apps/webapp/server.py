@@ -2354,7 +2354,11 @@ def _gcs_generate_signed_put_url(dest_name: str, content_type: str, allowed_orig
 # Configuración y utilidades para subida de medios a Backblaze B2 (fallback)
 def _get_b2_settings() -> Dict[str, Any]:
     try:
-        public_base = (os.getenv("B2_PUBLIC_BASE_URL") or "").strip().rstrip("/")
+        pbase_raw = (os.getenv("CDN_CUSTOM_DOMAIN") or os.getenv("B2_PUBLIC_BASE_URL") or "").strip()
+        if pbase_raw and not (pbase_raw.startswith("http://") or pbase_raw.startswith("https://")):
+            public_base = f"https://{pbase_raw}"
+        else:
+            public_base = pbase_raw
         prefix = (os.getenv("B2_MEDIA_PREFIX") or "assets").strip().strip("/")
         tenant = None
         try:
@@ -2363,33 +2367,52 @@ def _get_b2_settings() -> Dict[str, Any]:
             tenant = None
         bucket_id = (os.getenv("B2_BUCKET_ID") or "").strip()
         bucket_name = (os.getenv("B2_BUCKET_NAME") or "").strip()
-        key_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or "").strip()
-        application_key = (os.getenv("B2_APPLICATION_KEY") or "").strip()
-        if tenant:
-            adm = _get_admin_db_manager()
-            if adm is not None:
-                try:
-                    with adm.db.get_connection_context() as conn:  # type: ignore
-                        cur = conn.cursor()
-                        cur.execute("SELECT b2_bucket_id, b2_bucket_name, b2_key_id, b2_application_key FROM gyms WHERE subdominio = %s", (str(tenant).strip().lower(),))
-                        row = cur.fetchone()
-                        if row:
-                            bucket_id = str(row[0] or "").strip()
-                            bucket_name = str(row[1] or "").strip()
-                            key_id = str(row[2] or "").strip()
-                            application_key = str(row[3] or "").strip()
-                except Exception:
-                    pass
-        try:
-            require_tenant_bucket = (os.getenv("REQUIRE_TENANT_BUCKET", "0").strip().lower() in ("1", "true", "yes"))
-        except Exception:
-            require_tenant_bucket = False
-        if require_tenant_bucket and tenant:
-            if not bucket_id or not bucket_name or not key_id or not application_key:
-                raise HTTPException(status_code=503, detail="Configuración de bucket B2 por tenant no disponible")
+        key_id = (os.getenv("B2_KEY_ID") or os.getenv("B2_ACCOUNT_ID") or os.getenv("B2_MASTER_KEY_ID") or "").strip()
+        application_key = (os.getenv("B2_APPLICATION_KEY") or os.getenv("B2_MASTER_APPLICATION_KEY") or "").strip()
         if tenant:
             try:
-                prefix = f"{prefix}/{tenant}".strip().strip("/")
+                prefix = f"{tenant}-assets".strip().strip("/")
+            except Exception:
+                pass
+        if not bucket_id and bucket_name and requests is not None and key_id and application_key:
+            try:
+                auth_resp = requests.get(
+                    "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                    auth=(key_id, application_key),
+                    timeout=8,
+                )
+                if auth_resp.status_code == 200:
+                    auth_json = auth_resp.json()
+                    api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+                    token = auth_json.get("authorizationToken", "")
+                    account_id = auth_json.get("accountId", "")
+                    if api_url and token and account_id:
+                        headers = {"Authorization": token}
+                        lb = requests.post(f"{api_url}/b2api/v4/b2_list_buckets", headers=headers, json={"accountId": account_id, "bucketName": bucket_name}, timeout=8)
+                        if lb.status_code == 200:
+                            data = lb.json() or {}
+                            for b in (data.get("buckets") or []):
+                                if str(b.get("bucketName") or "").strip().lower() == bucket_name.lower():
+                                    bucket_id = str(b.get("bucketId") or "").strip()
+                                    bucket_name = str(b.get("bucketName") or "").strip()
+                                    break
+                        if not bucket_id:
+                            btype = "allPrivate"
+                            try:
+                                priv_env = str(os.getenv("B2_BUCKET_PRIVATE", "")).strip().lower()
+                                btype = "allPrivate" if (priv_env in ("1", "true", "yes")) else "allPublic"
+                            except Exception:
+                                btype = "allPrivate"
+                            info = {"accountId": account_id, "bucketName": bucket_name, "bucketType": btype}
+                            try:
+                                info["bucketInfo"] = {"Cache-Control": "public, max-age=864000"}
+                            except Exception:
+                                pass
+                            cb = requests.post(f"{api_url}/b2api/v4/b2_create_bucket", headers={"Authorization": token}, json=info, timeout=10)
+                            if cb.status_code == 200:
+                                bj = cb.json() or {}
+                                bucket_id = str(bj.get("bucketId") or "").strip()
+                                bucket_name = str(bj.get("bucketName") or "").strip()
             except Exception:
                 pass
         return {
@@ -2399,7 +2422,7 @@ def _get_b2_settings() -> Dict[str, Any]:
             "bucket_id": bucket_id,
             "bucket_name": bucket_name,
             "prefix": prefix,
-            "public_base_url": public_base,
+            "public_base_url": public_base.strip().rstrip("/") if public_base else "",
         }
     except Exception:
         return {
@@ -2526,6 +2549,7 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             "X-Bz-File-Name": file_name_header,
             "Content-Type": (content_type or "application/octet-stream"),
             "X-Bz-Content-Sha1": "do_not_verify",
+            "X-Bz-Info-b2-cache-control": "public, max-age=864000",
         }
         put_resp = requests.post(upload_url, headers=headers, data=data, timeout=30)
         if put_resp.status_code != 200:
@@ -2538,21 +2562,24 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
 
         # Construir URL pública
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
-        if not public_base:
-            public_base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
-        # Normalizar para evitar duplicar el nombre del bucket o el segmento /file
-        base = public_base.rstrip('/')
-        # Si el host ya incluye el bucket como subdominio (estilo S3 virtual-hosted), no añadir /file
+        if public_base:
+            try:
+                import urllib.parse as _urlparse
+                u = _urlparse.urlparse(public_base)
+                host = (u.netloc or "").lower()
+            except Exception:
+                host = ""
+            if host and ("backblaze" not in host) and ("b2" not in host):
+                return f"{public_base.rstrip('/')}/{file_name}"
+        base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
+        base = base.rstrip('/')
         if f"://{bucket_name_eff}." in base:
             final_base = base
-            return f"{final_base}/{file_name}"
-        # Si base ya termina con /file/<bucket>, no añadir el bucket de nuevo
-        if base.endswith(f"/file/{bucket_name_eff}"):
+        elif base.endswith(f"/file/{bucket_name_eff}"):
             final_base = base
         elif base.endswith("/file"):
             final_base = f"{base}/{bucket_name_eff}"
         elif "/file/" in base:
-            # Si el base contiene /file/<algo>, simplificar a /file y añadir bucket correcto
             idx = base.find("/file/")
             final_base = f"{base[:idx]}/file/{bucket_name_eff}"
         else:
@@ -2606,7 +2633,16 @@ def _b2_build_public_url(dest_name: str) -> Optional[str]:
                 pass
         file_name = f"{settings['prefix']}/{dest_name}" if settings.get('prefix') else dest_name
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
-        base = public_base.rstrip('/') if public_base else (download_url or "https://f000.backblazeb2.com").rstrip('/')
+        if public_base:
+            try:
+                import urllib.parse as _urlparse
+                u = _urlparse.urlparse(public_base)
+                host = (u.netloc or "").lower()
+            except Exception:
+                host = ""
+            if host and ("backblaze" not in host) and ("b2" not in host):
+                return f"{public_base.rstrip('/')}/{file_name}"
+        base = (download_url or "https://f000.backblazeb2.com").rstrip('/')
         if f"://{bucket_name_eff}." in base:
             final_base = base
         elif base.endswith(f"/file/{bucket_name_eff}"):
@@ -2677,6 +2713,15 @@ def _delete_media_from_b2(url: str) -> bool:
         u = _urlparse.urlparse(url)
         path = (u.path or "").strip("/")
         host = (u.netloc or "").strip().lower()
+        try:
+            cdn_host_raw = (os.getenv("CDN_CUSTOM_DOMAIN") or os.getenv("B2_PUBLIC_BASE_URL") or "").strip()
+            if cdn_host_raw and (not cdn_host_raw.startswith("http://") and not cdn_host_raw.startswith("https://")):
+                cdn_host = cdn_host_raw.lower()
+            else:
+                cu = _urlparse.urlparse(cdn_host_raw or "")
+                cdn_host = (cu.netloc or "").lower()
+        except Exception:
+            cdn_host = ""
         bucket_id = settings.get("bucket_id") or ""
         bucket_name_eff = (settings.get("bucket_name") or "").strip()
         if not bucket_name_eff:
@@ -2714,6 +2759,8 @@ def _delete_media_from_b2(url: str) -> bool:
                 if candidate.lower().startswith(bucket_name_eff.lower() + "/"):
                     candidate = candidate[len(bucket_name_eff) + 1 :]
                 file_name = candidate
+            elif cdn_host and host == cdn_host:
+                file_name = path
         except Exception:
             file_name = None
         if not file_name:
@@ -7207,7 +7254,7 @@ async def api_ejercicios_update(ejercicio_id: int, request: Request, _=Depends(r
                 if u.startswith('http://') or u.startswith('https://'):
                     if 'storage.googleapis.com' in u:
                         ok = _delete_media_from_gcs(str(old_url))
-                    elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                    elif _is_b2_url(str(old_url)):
                         ok = _delete_media_from_b2(str(old_url))
                 elif str(old_url).startswith('/uploads/'):
                     ok = _delete_local_media(str(old_url))
@@ -7281,8 +7328,13 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
         dest_name = f"ej_{int(ejercicio_id)}_{ts}.{ext}"
         dest_path = uploads_dir / dest_name
 
-        # Leer contenido
         data = await file.read()
+        try:
+            if isinstance(data, (bytes, bytearray)):
+                if len(data) > (50 * 1024 * 1024):
+                    raise HTTPException(status_code=413, detail="Archivo demasiado grande (máx 50MB)")
+        except Exception:
+            pass
 
         # Intentar subir a GCS si está configurado
         url: Optional[str] = None
@@ -7414,7 +7466,7 @@ async def api_ejercicio_upload_media(ejercicio_id: int, file: UploadFile = File(
                     if u.startswith('http://') or u.startswith('https://'):
                         if 'storage.googleapis.com' in u:
                             ok = _delete_media_from_gcs(old_url)
-                        elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                        elif _is_b2_url(old_url):
                             ok = _delete_media_from_b2(old_url)
                     elif old_url.startswith('/uploads/'):
                         ok = _delete_local_media(old_url)
@@ -7475,7 +7527,7 @@ async def api_ejercicios_delete(ejercicio_id: int, _=Depends(require_gestion_acc
                 if u.startswith('http://') or u.startswith('https://'):
                     if 'storage.googleapis.com' in u:
                         ok = _delete_media_from_gcs(old_url)
-                    elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                    elif _is_b2_url(old_url):
                         ok = _delete_media_from_b2(old_url)
                 elif old_url.startswith('/uploads/'):
                     ok = _delete_local_media(old_url)
@@ -13795,7 +13847,15 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 except Exception:
                     pass
             base = public_base.rstrip('/') if public_base else (auth_json.get("downloadUrl", "") or "https://f000.backblazeb2.com").rstrip('/')
-            if f"://{bucket_name_eff}." in base:
+            try:
+                import urllib.parse as _urlparse
+                u = _urlparse.urlparse(base)
+                host = (u.netloc or "").lower()
+            except Exception:
+                host = ""
+            if host and ("backblaze" not in host) and ("b2" not in host):
+                final_base = base
+            elif f"://{bucket_name_eff}." in base:
                 final_base = base
             elif base.endswith(f"/file/{bucket_name_eff}"):
                 final_base = base
@@ -13816,6 +13876,11 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 "content_type": content_type,
                 "public_url": public_url,
                 "overwrite": bool(overwrite),
+                "required_headers": {
+                    "X-Bz-File-Name": file_name,
+                    "X-Bz-Info-b2-cache-control": "public, max-age=864000",
+                    "X-Bz-Content-Sha1": "do_not_verify",
+                }
             })
         # Fallback: GCS signed PUT URL
         gcs_info = _gcs_generate_signed_put_url(dest_name, content_type, request.headers.get("origin"))
@@ -13872,7 +13937,7 @@ async def api_ejercicio_media_commit(ejercicio_id: int, dest_name: str = Form(..
                 u = old_url.strip().lower()
                 if 'storage.googleapis.com' in u:
                     ok = _delete_media_from_gcs(old_url)
-                elif '/file/' in u or 'backblaze' in u or 'b2' in u:
+                elif _is_b2_url(old_url):
                     ok = _delete_media_from_b2(old_url)
                 elif old_url.startswith('/uploads/'):
                     ok = _delete_local_media(old_url)
@@ -13963,5 +14028,26 @@ def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
         except Exception:
             return False
         return upd_resp.status_code == 200
+    except Exception:
+        return False
+def _is_b2_url(url: str) -> bool:
+    try:
+        if not url:
+            return False
+        import urllib.parse as _urlparse
+        u = _urlparse.urlparse(url)
+        host = (u.netloc or "").lower()
+        path = (u.path or "")
+        if "/file/" in path or "backblaze" in host or host.startswith("f000") or ".backblazeb2.com" in host:
+            return True
+        cdn_raw = (os.getenv("CDN_CUSTOM_DOMAIN") or os.getenv("B2_PUBLIC_BASE_URL") or "").strip()
+        if cdn_raw:
+            if not (cdn_raw.startswith("http://") or cdn_raw.startswith("https://")):
+                cdn_host = cdn_raw.lower()
+            else:
+                cu = _urlparse.urlparse(cdn_raw)
+                cdn_host = (cu.netloc or "").lower()
+            return bool(cdn_host and host == cdn_host)
+        return False
     except Exception:
         return False
