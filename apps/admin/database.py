@@ -963,7 +963,7 @@ class AdminDatabaseManager:
             if not api_url or not token or not account_id:
                 return {"bucket_name": name, "bucket_id": None}
             headers = {"Authorization": token, "Content-Type": "application/json"}
-            lb = requests.post(f"{api_url}/b2api/v2/b2_list_buckets", headers=headers, json={"accountId": account_id, "bucketName": name}, timeout=10)
+            lb = requests.post(f"{api_url}/b2api/v4/b2_list_buckets", headers=headers, json={"accountId": account_id, "bucketName": name}, timeout=10)
             bucket_id = None
             bucket_name = name
             if lb.status_code == 200:
@@ -989,7 +989,7 @@ class AdminDatabaseManager:
                     btype = "allPrivate" if priv else "allPublic"
                 except Exception:
                     btype = "allPrivate"
-                cb = requests.post(f"{api_url}/b2api/v2/b2_create_bucket", headers=headers, json={"accountId": account_id, "bucketName": name, "bucketType": btype}, timeout=12)
+                cb = requests.post(f"{api_url}/b2api/v4/b2_create_bucket", headers=headers, json={"accountId": account_id, "bucketName": name, "bucketType": btype}, timeout=12)
                 if cb.status_code == 200:
                     bj = cb.json()
                     bucket_name = bj.get("bucketName")
@@ -1011,7 +1011,7 @@ class AdminDatabaseManager:
                 acc_suf = suffix_slug or self._slugify(acc_id[-6:] if acc_id else "")
                 key_name = f"gym-{name}{('-'+acc_suf) if acc_suf else ''}"
                 caps = ["listFiles", "readFiles", "writeFiles", "deleteFiles"]
-                ck = requests.post(f"{api_url}/b2api/v2/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
+                ck = requests.post(f"{api_url}/b2api/v4/b2_create_key", headers=headers, json={"accountId": account_id, "capabilities": caps, "keyName": key_name, "bucketId": bucket_id}, timeout=12)
                 if ck.status_code == 200:
                     kj = ck.json()
                     key_id = kj.get("applicationKeyId")
@@ -1052,7 +1052,7 @@ class AdminDatabaseManager:
             if not api_url or not token:
                 return False
             headers = {"Authorization": token}
-            r = requests.post(f"{api_url}/b2api/v2/b2_delete_key", headers=headers, json={"applicationKeyId": kid}, timeout=10)
+            r = requests.post(f"{api_url}/b2api/v4/b2_delete_key", headers=headers, json={"applicationKeyId": kid}, timeout=10)
             ok = bool(r.status_code == 200)
             if not ok:
                 try:
@@ -1075,7 +1075,7 @@ class AdminDatabaseManager:
             if not api_url or not token or not account_id:
                 return False
             headers = {"Authorization": token}
-            r = requests.post(f"{api_url}/b2api/v2/b2_delete_bucket", headers=headers, json={"accountId": account_id, "bucketId": bid}, timeout=12)
+            r = requests.post(f"{api_url}/b2api/v4/b2_delete_bucket", headers=headers, json={"accountId": account_id, "bucketId": bid}, timeout=12)
             ok = bool(r.status_code == 200)
             if not ok:
                 try:
@@ -1103,7 +1103,7 @@ class AdminDatabaseManager:
                 body = {"bucketId": bid, "maxFileCount": 1000}
                 if start_name:
                     body["startFileName"] = start_name
-                lr = requests.post(f"{api_url}/b2api/v2/b2_list_file_names", headers=headers, json=body, timeout=12)
+                lr = requests.post(f"{api_url}/b2api/v4/b2_list_file_names", headers=headers, json=body, timeout=12)
                 if lr.status_code != 200:
                     try:
                         logging.getLogger(__name__).error(f"B2 list_file_names fallo {lr.status_code}: {lr.text}")
@@ -1117,7 +1117,7 @@ class AdminDatabaseManager:
                         fid = str(f.get("fileId") or "").strip()
                         fname = str(f.get("fileName") or "").strip()
                         if fid and fname:
-                            dr = requests.post(f"{api_url}/b2api/v2/b2_delete_file_version", headers=headers, json={"fileName": fname, "fileId": fid}, timeout=12)
+                            dr = requests.post(f"{api_url}/b2api/v4/b2_delete_file_version", headers=headers, json={"fileName": fname, "fileId": fid}, timeout=12)
                             if dr.status_code != 200:
                                 any_error = True
                                 try:
@@ -1156,7 +1156,7 @@ class AdminDatabaseManager:
                     body["startFileName"] = start_name
                 if start_id:
                     body["startFileId"] = start_id
-                lr = requests.post(f"{api_url}/b2api/v2/b2_list_file_versions", headers=headers, json=body, timeout=15)
+                lr = requests.post(f"{api_url}/b2api/v4/b2_list_file_versions", headers=headers, json=body, timeout=15)
                 if lr.status_code != 200:
                     try:
                         logging.getLogger(__name__).error(f"B2 list_file_versions fallo {lr.status_code}: {lr.text}")
@@ -1174,7 +1174,7 @@ class AdminDatabaseManager:
                         if not fid or not fname:
                             continue
                         cp = requests.post(
-                            f"{api_url}/b2api/v2/b2_copy_file",
+                            f"{api_url}/b2api/v4/b2_copy_file",
                             headers=headers,
                             json={"sourceFileId": fid, "fileName": fname, "destinationBucketId": dbid},
                             timeout=20,

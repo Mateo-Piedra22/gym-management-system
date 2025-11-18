@@ -2462,7 +2462,7 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             acct_id_for_list = (settings.get("account_id") or auth_json.get("accountId") or "").strip()
             if acct_id_for_list:
                 list_resp = requests.post(
-                    f"{api_url}/b2api/v2/b2_list_buckets",
+                    f"{api_url}/b2api/v4/b2_list_buckets",
                     headers={"Authorization": auth_token},
                     json={"accountId": acct_id_for_list},
                     timeout=8,
@@ -2482,7 +2482,7 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         upl = _b2_cache_upload.get(settings["bucket_id"])
         if not upl or (now - int(upl.get("ts", 0))) > 300:
             up_resp = requests.post(
-                f"{api_url}/b2api/v2/b2_get_upload_url",
+                f"{api_url}/b2api/v4/b2_get_upload_url",
                 headers={"Authorization": auth_token},
                 json={"bucketId": settings["bucket_id"]},
                 timeout=8,
@@ -2589,7 +2589,7 @@ def _b2_build_public_url(dest_name: str) -> Optional[str]:
                 acct_id_for_list = (settings.get("account_id") or "").strip()
                 if acct_id_for_list and bucket_id:
                     list_resp = requests.post(
-                        f"{api_url}/b2api/v2/b2_list_buckets",
+                        f"{api_url}/b2api/v4/b2_list_buckets",
                         headers={"Authorization": auth_json.get("authorizationToken", "")},
                         json={"accountId": acct_id_for_list},
                         timeout=8,
@@ -2684,7 +2684,7 @@ def _delete_media_from_b2(url: str) -> bool:
                 acct_id_for_list = (settings.get("account_id") or "").strip()
                 if acct_id_for_list and bucket_id:
                     list_resp = requests.post(
-                        f"{api_url}/b2api/v2/b2_list_buckets",
+                        f"{api_url}/b2api/v4/b2_list_buckets",
                         headers={"Authorization": auth_token},
                         json={"accountId": acct_id_for_list},
                         timeout=8,
@@ -2720,7 +2720,7 @@ def _delete_media_from_b2(url: str) -> bool:
             return False
         # Obtener fileId via list
         list_resp = requests.post(
-            f"{api_url}/b2api/v2/b2_list_file_names",
+            f"{api_url}/b2api/v4/b2_list_file_names",
             headers={"Authorization": auth_token},
             json={"bucketId": settings["bucket_id"], "startFileName": file_name, "maxFileCount": 1},
             timeout=8,
@@ -2739,7 +2739,7 @@ def _delete_media_from_b2(url: str) -> bool:
         if not file_id:
             return False
         del_resp = requests.post(
-            f"{api_url}/b2api/v2/b2_delete_file_version",
+            f"{api_url}/b2api/v4/b2_delete_file_version",
             headers={"Authorization": auth_token},
             json={"fileName": file_name, "fileId": file_id},
             timeout=8,
@@ -13758,7 +13758,7 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
             auth_json = auth_resp.json()
             api_url = (auth_json.get("apiUrl") or "") or (((auth_json.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
             upload_info = requests.post(
-                f"{api_url}/b2api/v2/b2_get_upload_url",
+                f"{api_url}/b2api/v4/b2_get_upload_url",
                 headers={"Authorization": auth_json.get("authorizationToken", "")},
                 json={"bucketId": settings_b2["bucket_id"]},
                 timeout=8,
@@ -13779,7 +13779,7 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                     acct_id_for_list = (settings_b2.get("account_id") or "").strip()
                     if acct_id_for_list and bucket_id:
                         list_resp = requests.post(
-                            f"{api_url}/b2api/v2/b2_list_buckets",
+                            f"{api_url}/b2api/v4/b2_list_buckets",
                             headers={"Authorization": auth_json.get("authorizationToken", "")},
                             json={"accountId": acct_id_for_list},
                             timeout=8,
@@ -13912,7 +13912,7 @@ def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
             return False
         # Obtener bucket actual con sus reglas
         get_resp = requests.post(
-            f"{api_url}/b2api/v2/b2_get_bucket",
+            f"{api_url}/b2api/v4/b2_get_bucket",
             headers={"Authorization": auth_token},
             json={"bucketId": settings["bucket_id"]},
             timeout=8,
@@ -13955,7 +13955,7 @@ def _ensure_b2_cors(allowed_origin: Optional[str]) -> bool:
             if "lifecycleRules" in bucket_info:
                 payload["lifecycleRules"] = bucket_info.get("lifecycleRules")
             upd_resp = requests.post(
-                f"{api_url}/b2api/v2/b2_update_bucket",
+                f"{api_url}/b2api/v4/b2_update_bucket",
                 headers={"Authorization": auth_token},
                 json=payload,
                 timeout=8,
