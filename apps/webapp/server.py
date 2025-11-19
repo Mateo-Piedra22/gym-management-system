@@ -2541,7 +2541,7 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             pass
         try:
             import urllib.parse as _urlparse  # import local para evitar polución global
-            file_name_header = _urlparse.quote(file_name)
+            file_name_header = _urlparse.quote(file_name, safe='/')
         except Exception:
             file_name_header = file_name.replace(" ", "%20")
         headers = {
@@ -13877,7 +13877,7 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 "public_url": public_url,
                 "overwrite": bool(overwrite),
                 "required_headers": {
-                    "X-Bz-File-Name": file_name,
+                    "X-Bz-File-Name": (__import__('urllib').parse.quote(file_name, safe='/') if hasattr(__import__('urllib'), 'parse') else file_name.replace(' ', '%20')),
                     "X-Bz-Info-b2-cache-control": "public, max-age=864000",
                     "X-Bz-Content-Sha1": "do_not_verify",
                 }

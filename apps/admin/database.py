@@ -1050,7 +1050,7 @@ class AdminDatabaseManager:
                 return False
             try:
                 import urllib.parse as _urlparse
-                file_name_header = _urlparse.quote(file_name)
+                file_name_header = _urlparse.quote(file_name, safe='/')
             except Exception:
                 file_name_header = file_name.replace(" ", "%20")
             headers = {
