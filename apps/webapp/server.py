@@ -2608,16 +2608,24 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
             base = public_base.rstrip('/')
-            if base.endswith(f"/file/{bucket_name_eff}"):
-                final_base = base
-            elif base.endswith("/file"):
-                final_base = f"{base}/{bucket_name_eff}"
-            elif "/file/" in base:
-                idx = base.find("/file/")
-                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
-            else:
-                final_base = f"{base}/file/{bucket_name_eff}"
-            return f"{final_base}/{file_name}"
+            try:
+                import urllib.parse as _urlparse
+                u = _urlparse.urlparse(base)
+                host = (u.netloc or "").lower()
+            except Exception:
+                host = ""
+            if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
+                if base.endswith(f"/file/{bucket_name_eff}"):
+                    final_base = base
+                elif base.endswith("/file"):
+                    final_base = f"{base}/{bucket_name_eff}"
+                elif "/file/" in base:
+                    idx = base.find("/file/")
+                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+                else:
+                    final_base = f"{base}/file/{bucket_name_eff}"
+                return f"{final_base}/{file_name}"
+            return f"{base}/{file_name}"
         base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
         base = base.rstrip('/')
         if f"://{bucket_name_eff}." in base:
@@ -2682,16 +2690,24 @@ def _b2_build_public_url(dest_name: str) -> Optional[str]:
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
             base = public_base.rstrip('/')
-            if base.endswith(f"/file/{bucket_name_eff}"):
-                final_base = base
-            elif base.endswith("/file"):
-                final_base = f"{base}/{bucket_name_eff}"
-            elif "/file/" in base:
-                idx = base.find("/file/")
-                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
-            else:
-                final_base = f"{base}/file/{bucket_name_eff}"
-            return f"{final_base}/{file_name}"
+            try:
+                import urllib.parse as _urlparse
+                u = _urlparse.urlparse(base)
+                host = (u.netloc or "").lower()
+            except Exception:
+                host = ""
+            if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
+                if base.endswith(f"/file/{bucket_name_eff}"):
+                    final_base = base
+                elif base.endswith("/file"):
+                    final_base = f"{base}/{bucket_name_eff}"
+                elif "/file/" in base:
+                    idx = base.find("/file/")
+                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+                else:
+                    final_base = f"{base}/file/{bucket_name_eff}"
+                return f"{final_base}/{file_name}"
+            return f"{base}/{file_name}"
         base = (download_url or "https://f000.backblazeb2.com").rstrip('/')
         if f"://{bucket_name_eff}." in base:
             final_base = base
@@ -13903,20 +13919,33 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 host = (u.netloc or "").lower()
             except Exception:
                 host = ""
-            if host and ("backblaze" not in host) and ("b2" not in host):
-                final_base = base
-            elif f"://{bucket_name_eff}." in base:
-                final_base = base
-            elif base.endswith(f"/file/{bucket_name_eff}"):
-                final_base = base
-            elif base.endswith("/file"):
-                final_base = f"{base}/{bucket_name_eff}"
-            elif "/file/" in base:
-                idx = base.find("/file/")
-                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            if public_base:
+                if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
+                    if base.endswith(f"/file/{bucket_name_eff}"):
+                        final_base = base
+                    elif base.endswith("/file"):
+                        final_base = f"{base}/{bucket_name_eff}"
+                    elif "/file/" in base:
+                        idx = base.find("/file/")
+                        final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+                    else:
+                        final_base = f"{base}/file/{bucket_name_eff}"
+                    public_url = f"{final_base}/{file_name}"
+                else:
+                    public_url = f"{base}/{file_name}"
             else:
-                final_base = f"{base}/file/{bucket_name_eff}"
-            public_url = f"{final_base}/{file_name}"
+                if f"://{bucket_name_eff}." in base:
+                    final_base = base
+                elif base.endswith(f"/file/{bucket_name_eff}"):
+                    final_base = base
+                elif base.endswith("/file"):
+                    final_base = f"{base}/{bucket_name_eff}"
+                elif "/file/" in base:
+                    idx = base.find("/file/")
+                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+                else:
+                    final_base = f"{base}/file/{bucket_name_eff}"
+                public_url = f"{final_base}/{file_name}"
             return JSONResponse({
                 "provider": "b2",
                 "upload_url": upload_url,
