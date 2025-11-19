@@ -1124,9 +1124,8 @@ async def get_admin_reminder_webapp(request: Request, gym_id: int):
         params = dict(base)
         params["database"] = dbn
         dm = DatabaseManager(connection_params=params)
-        cfg = dm.obtener_configuracion()  # type: ignore
-        msg = str((cfg or {}).get("admin_reminder_message") or "")
-        act_raw = str((cfg or {}).get("admin_reminder_active") or "0").strip().lower()
+        msg = str(dm.obtener_configuracion('admin_reminder_message') or '')  # type: ignore
+        act_raw = str(dm.obtener_configuracion('admin_reminder_active') or '0').strip().lower()  # type: ignore
         act = (act_raw in ("1", "true", "yes"))
         return JSONResponse({"ok": True, "message": msg, "active": bool(act)}, status_code=200)
     except Exception as e:
@@ -1221,10 +1220,9 @@ async def obtener_estado_modal_mantenimiento(request: Request, gym_id: int):
         params = dict(base)
         params["database"] = dbn
         dm = DatabaseManager(connection_params=params)
-        cfg = dm.obtener_configuracion()  # type: ignore
-        msg = str((cfg or {}).get("maintenance_modal_message") or "")
-        until = str((cfg or {}).get("maintenance_modal_until") or "")
-        act_raw = str((cfg or {}).get("maintenance_modal_active") or "0").strip().lower()
+        msg = str(dm.obtener_configuracion('maintenance_modal_message') or '')  # type: ignore
+        until = str(dm.obtener_configuracion('maintenance_modal_until') or '')  # type: ignore
+        act_raw = str(dm.obtener_configuracion('maintenance_modal_active') or '0').strip().lower()  # type: ignore
         act = (act_raw in ("1", "true", "yes"))
         return JSONResponse({"ok": True, "message": msg, "until": until, "active": bool(act)}, status_code=200)
     except Exception as e:
@@ -2211,10 +2209,10 @@ async def health_check(request: Request, gym_id: int):
             params["database"] = str(g.get("db_name") or "").strip()
             if params["database"] and DatabaseManager is not None:
                 dm = DatabaseManager(connection_params=params)
-                cfg = dm.obtener_configuracion()  # type: ignore
-                if isinstance(cfg, dict):
-                    rem_active = str(cfg.get("admin_reminder_active") or "0").strip().lower() in ("1", "true", "yes")
-                    maint_active = str(cfg.get("maintenance_modal_active") or "0").strip().lower() in ("1", "true", "yes")
+                rem_raw = str(dm.obtener_configuracion('admin_reminder_active') or '0').strip().lower()  # type: ignore
+                maint_raw = str(dm.obtener_configuracion('maintenance_modal_active') or '0').strip().lower()  # type: ignore
+                rem_active = rem_raw in ("1", "true", "yes")
+                maint_active = maint_raw in ("1", "true", "yes")
         except Exception:
             rem_active = False
             maint_active = False

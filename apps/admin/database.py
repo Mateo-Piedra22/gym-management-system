@@ -1048,12 +1048,18 @@ class AdminDatabaseManager:
             upload_token = uj.get("authorizationToken")
             if not upload_url or not upload_token:
                 return False
+            try:
+                import urllib.parse as _urlparse
+                file_name_header = _urlparse.quote(file_name)
+            except Exception:
+                file_name_header = file_name.replace(" ", "%20")
             headers = {
                 "Authorization": upload_token,
-                "X-Bz-File-Name": file_name,
+                "X-Bz-File-Name": file_name_header,
                 "Content-Type": "text/plain",
                 "X-Bz-Content-Sha1": "do_not_verify",
                 "X-Bz-Info-b2-cache-control": "public, max-age=864000",
+                "Content-Length": "0",
             }
             data = b""
             r = requests.post(upload_url, headers=headers, data=data, timeout=10)
