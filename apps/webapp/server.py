@@ -2415,6 +2415,45 @@ def _get_b2_settings() -> Dict[str, Any]:
                                 bucket_name = str(bj.get("bucketName") or "").strip()
             except Exception:
                 pass
+        try:
+            if bucket_id and requests is not None and key_id and application_key:
+                auth_resp2 = requests.get(
+                    "https://api.backblazeb2.com/b2api/v4/b2_authorize_account",
+                    auth=(key_id, application_key),
+                    timeout=8,
+                )
+                if auth_resp2.status_code == 200:
+                    aj = auth_resp2.json()
+                    api_url2 = (aj.get("apiUrl") or "") or (((aj.get("apiInfo") or {}).get("storageApi") or {}).get("apiUrl") or "")
+                    token2 = aj.get("authorizationToken", "")
+                    account_id2 = aj.get("accountId", "")
+                    if api_url2 and token2 and account_id2:
+                        lb2 = requests.post(
+                            f"{api_url2}/b2api/v4/b2_list_buckets",
+                            headers={"Authorization": token2},
+                            json={"accountId": account_id2, "bucketId": bucket_id},
+                            timeout=8,
+                        )
+                        if lb2.status_code == 200:
+                            data2 = lb2.json() or {}
+                            buckets2 = data2.get("buckets") or []
+                            for b2 in buckets2:
+                                if str(b2.get("bucketId") or "") == str(bucket_id):
+                                    btype2 = str(b2.get("bucketType") or "").strip()
+                                    priv_env2 = str(os.getenv("B2_BUCKET_PRIVATE", "")).strip().lower()
+                                    want_private = priv_env2 in ("1", "true", "yes")
+                                    if (btype2 == "allPrivate") and (not want_private):
+                                        upd = requests.post(
+                                            f"{api_url2}/b2api/v4/b2_update_bucket",
+                                            headers={"Authorization": token2},
+                                            json={"accountId": account_id2, "bucketId": bucket_id, "bucketType": "allPublic"},
+                                            timeout=8,
+                                        )
+                                        if 200 <= upd.status_code < 300:
+                                            bucket_name = str((upd.json() or {}).get("bucketName") or bucket_name).strip()
+                                    break
+        except Exception:
+            pass
         return {
             "key_id": key_id,
             "account_id": key_id,
@@ -2568,14 +2607,17 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         # Construir URL pública
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
-            try:
-                import urllib.parse as _urlparse
-                u = _urlparse.urlparse(public_base)
-                host = (u.netloc or "").lower()
-            except Exception:
-                host = ""
-            if host and ("backblaze" not in host) and ("b2" not in host):
-                return f"{public_base.rstrip('/')}/{file_name}"
+            base = public_base.rstrip('/')
+            if base.endswith(f"/file/{bucket_name_eff}"):
+                final_base = base
+            elif base.endswith("/file"):
+                final_base = f"{base}/{bucket_name_eff}"
+            elif "/file/" in base:
+                idx = base.find("/file/")
+                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            else:
+                final_base = f"{base}/file/{bucket_name_eff}"
+            return f"{final_base}/{file_name}"
         base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
         base = base.rstrip('/')
         if f"://{bucket_name_eff}." in base:
@@ -2639,14 +2681,17 @@ def _b2_build_public_url(dest_name: str) -> Optional[str]:
         file_name = f"{settings['prefix']}/{dest_name}" if settings.get('prefix') else dest_name
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
-            try:
-                import urllib.parse as _urlparse
-                u = _urlparse.urlparse(public_base)
-                host = (u.netloc or "").lower()
-            except Exception:
-                host = ""
-            if host and ("backblaze" not in host) and ("b2" not in host):
-                return f"{public_base.rstrip('/')}/{file_name}"
+            base = public_base.rstrip('/')
+            if base.endswith(f"/file/{bucket_name_eff}"):
+                final_base = base
+            elif base.endswith("/file"):
+                final_base = f"{base}/{bucket_name_eff}"
+            elif "/file/" in base:
+                idx = base.find("/file/")
+                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            else:
+                final_base = f"{base}/file/{bucket_name_eff}"
+            return f"{final_base}/{file_name}"
         base = (download_url or "https://f000.backblazeb2.com").rstrip('/')
         if f"://{bucket_name_eff}." in base:
             final_base = base
