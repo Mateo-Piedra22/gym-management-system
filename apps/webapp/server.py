@@ -2544,12 +2544,17 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
             file_name_header = _urlparse.quote(file_name, safe='/')
         except Exception:
             file_name_header = file_name.replace(" ", "%20")
+        try:
+            import urllib.parse as _urlparse
+            _cache_hdr_val = _urlparse.quote("public, max-age=864000", safe="")
+        except Exception:
+            _cache_hdr_val = "public%2C%20max-age%3D864000"
         headers = {
             "Authorization": upload_token,
             "X-Bz-File-Name": file_name_header,
             "Content-Type": (content_type or "application/octet-stream"),
             "X-Bz-Content-Sha1": "do_not_verify",
-            "X-Bz-Info-b2-cache-control": "public, max-age=864000",
+            "X-Bz-Info-b2-cache-control": _cache_hdr_val,
         }
         put_resp = requests.post(upload_url, headers=headers, data=data, timeout=30)
         if put_resp.status_code != 200:
@@ -13878,7 +13883,7 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
                 "overwrite": bool(overwrite),
                 "required_headers": {
                     "X-Bz-File-Name": (__import__('urllib').parse.quote(file_name, safe='/') if hasattr(__import__('urllib'), 'parse') else file_name.replace(' ', '%20')),
-                    "X-Bz-Info-b2-cache-control": "public, max-age=864000",
+                    "X-Bz-Info-b2-cache-control": (__import__('urllib').parse.quote("public, max-age=864000", safe='') if hasattr(__import__('urllib'), 'parse') else "public%2C%20max-age%3D864000"),
                     "X-Bz-Content-Sha1": "do_not_verify",
                 }
             })
