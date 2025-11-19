@@ -87,24 +87,19 @@ class AdminDatabaseManager:
             except Exception:
                 created_admin_db = False
             self.db = DatabaseManager(connection_params=params)  # type: ignore
+        self._ensure_schema()
         try:
-            boot_schema = str(os.getenv("ADMIN_BOOTSTRAP_SCHEMA_ON_BOOT", "0")).strip().lower() in ("1", "true", "yes", "on")
-        except Exception:
-            boot_schema = False
-        if boot_schema:
-            self._ensure_schema()
-            try:
-                if created_admin_db:
-                    try:
-                        self.log_action("system", "bootstrap_admin_database", None, str(params.get("database") or "gymms_admin"))
-                    except Exception:
-                        pass
+            if created_admin_db:
                 try:
-                    self.log_action("system", "bootstrap_admin_schema", None, None)
+                    self.log_action("system", "bootstrap_admin_database", None, str(params.get("database") or "gymms_admin"))
                 except Exception:
                     pass
+            try:
+                self.log_action("system", "bootstrap_admin_schema", None, None)
             except Exception:
                 pass
+        except Exception:
+            pass
         try:
             boot_owner = str(os.getenv("ADMIN_BOOTSTRAP_OWNER_ON_BOOT", "0")).strip().lower() in ("1", "true", "yes", "on")
         except Exception:
