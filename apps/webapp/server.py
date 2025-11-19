@@ -2608,24 +2608,16 @@ def _upload_media_to_b2(dest_name: str, data: bytes, content_type: str) -> Optio
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
             base = public_base.rstrip('/')
-            try:
-                import urllib.parse as _urlparse
-                u = _urlparse.urlparse(base)
-                host = (u.netloc or "").lower()
-            except Exception:
-                host = ""
-            if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
-                if base.endswith(f"/file/{bucket_name_eff}"):
-                    final_base = base
-                elif base.endswith("/file"):
-                    final_base = f"{base}/{bucket_name_eff}"
-                elif "/file/" in base:
-                    idx = base.find("/file/")
-                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
-                else:
-                    final_base = f"{base}/file/{bucket_name_eff}"
-                return f"{final_base}/{file_name}"
-            return f"{base}/{file_name}"
+            if base.endswith(f"/file/{bucket_name_eff}"):
+                final_base = base
+            elif base.endswith("/file"):
+                final_base = f"{base}/{bucket_name_eff}"
+            elif "/file/" in base:
+                idx = base.find("/file/")
+                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            else:
+                final_base = f"{base}/file/{bucket_name_eff}"
+            return f"{final_base}/{file_name}"
         base = f"{(download_url or '').rstrip('/')}/file" if download_url else "https://f000.backblazeb2.com/file"
         base = base.rstrip('/')
         if f"://{bucket_name_eff}." in base:
@@ -2690,24 +2682,16 @@ def _b2_build_public_url(dest_name: str) -> Optional[str]:
         public_base = (settings.get("public_base_url") or "").strip().rstrip("/")
         if public_base:
             base = public_base.rstrip('/')
-            try:
-                import urllib.parse as _urlparse
-                u = _urlparse.urlparse(base)
-                host = (u.netloc or "").lower()
-            except Exception:
-                host = ""
-            if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
-                if base.endswith(f"/file/{bucket_name_eff}"):
-                    final_base = base
-                elif base.endswith("/file"):
-                    final_base = f"{base}/{bucket_name_eff}"
-                elif "/file/" in base:
-                    idx = base.find("/file/")
-                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
-                else:
-                    final_base = f"{base}/file/{bucket_name_eff}"
-                return f"{final_base}/{file_name}"
-            return f"{base}/{file_name}"
+            if base.endswith(f"/file/{bucket_name_eff}"):
+                final_base = base
+            elif base.endswith("/file"):
+                final_base = f"{base}/{bucket_name_eff}"
+            elif "/file/" in base:
+                idx = base.find("/file/")
+                final_base = f"{base[:idx]}/file/{bucket_name_eff}"
+            else:
+                final_base = f"{base}/file/{bucket_name_eff}"
+            return f"{final_base}/{file_name}"
         base = (download_url or "https://f000.backblazeb2.com").rstrip('/')
         if f"://{bucket_name_eff}." in base:
             final_base = base
@@ -2963,7 +2947,7 @@ def _resolve_logo_url() -> str:
                     # En gym_config la clave se almacena como 'logo_url'
                     u1 = str(cfg.get('logo_url') or '').strip()
                     if u1:
-                        return u1
+                        return _normalize_public_url(u1)
             # Fallback: tabla configuracion
             if hasattr(db, 'obtener_configuracion'):
                 try:
@@ -2971,7 +2955,7 @@ def _resolve_logo_url() -> str:
                 except Exception:
                     url = None
                 if isinstance(url, str) and url.strip():
-                    return url.strip()
+                    return _normalize_public_url(url.strip())
     except Exception:
         pass
     # Fallback a assets locales
@@ -13920,19 +13904,16 @@ async def api_ejercicio_media_direct(ejercicio_id: int, request: Request, filena
             except Exception:
                 host = ""
             if public_base:
-                if ("backblaze" in host) or ("b2" in host) or base.endswith("/file") or ("/file/" in base):
-                    if base.endswith(f"/file/{bucket_name_eff}"):
-                        final_base = base
-                    elif base.endswith("/file"):
-                        final_base = f"{base}/{bucket_name_eff}"
-                    elif "/file/" in base:
-                        idx = base.find("/file/")
-                        final_base = f"{base[:idx]}/file/{bucket_name_eff}"
-                    else:
-                        final_base = f"{base}/file/{bucket_name_eff}"
-                    public_url = f"{final_base}/{file_name}"
+                if base.endswith(f"/file/{bucket_name_eff}"):
+                    final_base = base
+                elif base.endswith("/file"):
+                    final_base = f"{base}/{bucket_name_eff}"
+                elif "/file/" in base:
+                    idx = base.find("/file/")
+                    final_base = f"{base[:idx]}/file/{bucket_name_eff}"
                 else:
-                    public_url = f"{base}/{file_name}"
+                    final_base = f"{base}/file/{bucket_name_eff}"
+                public_url = f"{final_base}/{file_name}"
             else:
                 if f"://{bucket_name_eff}." in base:
                     final_base = base
@@ -14130,3 +14111,24 @@ def _is_b2_url(url: str) -> bool:
         return False
     except Exception:
         return False
+def _normalize_public_url(url: str) -> str:
+    try:
+        if not url:
+            return url
+        settings = _get_b2_settings()
+        public_base = (settings.get("public_base_url") or "").strip()
+        bucket_name_eff = (settings.get("bucket_name") or "").strip()
+        import urllib.parse as _urlparse
+        u = _urlparse.urlparse(url)
+        host = (u.netloc or "").lower()
+        path = (u.path or "")
+        if public_base and bucket_name_eff:
+            pb = _urlparse.urlparse(public_base if (public_base.startswith("http://") or public_base.startswith("https://")) else ("https://" + public_base))
+            ph = (pb.netloc or "").lower()
+            if ph and host == ph:
+                if not path.startswith(f"/file/{bucket_name_eff}/"):
+                    np = path if path.startswith("/") else ("/" + path)
+                    return f"{pb.scheme}://{ph}/file/{bucket_name_eff}{np}"
+        return url
+    except Exception:
+        return url
