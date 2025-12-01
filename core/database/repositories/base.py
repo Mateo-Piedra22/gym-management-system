@@ -1,22 +1,15 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional
 import logging
-import psycopg2
-from ..connection import ConnectionPool, CacheManager, database_retry
+from sqlalchemy.orm import Session
+from ..connection import CacheManager
 
 class BaseRepository:
-    def __init__(self, connection_pool: ConnectionPool, cache: CacheManager, logger: logging.Logger):
-        self.pool = connection_pool
+    def __init__(self, db: Session, cache: Optional[CacheManager] = None, logger: Optional[logging.Logger] = None):
+        self.db = db
         self.cache = cache
-        self.logger = logger
+        self.logger = logger or logging.getLogger(__name__)
 
-    @property
-    def connection(self):
-        return self.pool.connection()
-    
-    @property
-    def transaction(self):
-        return self.pool.transaction()
-    
     def _invalidate_cache(self, cache_type: str, key: Any = None):
         """Invalidate cache helper"""
-        self.cache.invalidate(cache_type, key)
+        if self.cache:
+            self.cache.invalidate(cache_type, key)

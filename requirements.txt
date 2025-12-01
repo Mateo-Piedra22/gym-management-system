@@ -20,3 +20,4 @@ pandas
 cryptography
 sqlalchemy
 pydantic
+alembic
