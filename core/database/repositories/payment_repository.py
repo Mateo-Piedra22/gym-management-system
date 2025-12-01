@@ -97,7 +97,7 @@ class PaymentRepository(BaseRepository):
             if cached is not None:
                 return cached
         except Exception:
-            pass
+            self.logger.debug("Error leyendo caché de pagos", exc_info=True)
 
         
         # 3) Consulta con columnas específicas y timeouts

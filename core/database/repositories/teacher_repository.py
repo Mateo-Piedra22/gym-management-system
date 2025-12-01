@@ -56,7 +56,7 @@ class TeacherRepository(BaseRepository):
                     cursor.execute("SET LOCAL lock_timeout = '1000ms'")
                     cursor.execute("SET LOCAL idle_in_transaction_session_timeout = '2s'")
                 except Exception:
-                    pass
+                    self.logger.debug("Error configurando timeouts locales", exc_info=True)
 
                 # Leer valores actuales para tener fecha base
                 cursor.execute(
@@ -97,7 +97,7 @@ class TeacherRepository(BaseRepository):
                     try:
                         return datetime.fromisoformat(s.replace('Z', '+00:00'))
                     except Exception:
-                        pass
+                        self.logger.debug(f"Error parseando hora completa {s}", exc_info=True)
                     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
                         try:
                             return datetime.strptime(s, fmt)

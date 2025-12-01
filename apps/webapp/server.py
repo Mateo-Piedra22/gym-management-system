@@ -34,6 +34,16 @@ import time
 import hmac
 import hashlib
 import urllib.parse
+
+# Configuración de logging
+try:
+    from core.logger_config import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
+
 try:
     _here = Path(__file__).resolve()
     for _cand in (_here.parent, _here.parent.parent, _here.parent.parent.parent, _here.parent.parent.parent.parent):
@@ -42,19 +52,23 @@ try:
                 sys.path.insert(0, str(_cand))
                 break
         except Exception:
+            logger.debug(f"Error verificando candidato de ruta {_cand}", exc_info=True)
             continue
 except Exception:
-    pass
+    logger.warning("Error al configurar sys.path", exc_info=True)
+
 # HTTP client para probes (con fallback si no está disponible)
 try:
     import requests  # type: ignore
 except Exception:
+    logger.debug("requests no disponible")
     requests = None  # type: ignore
 
 # Cliente de Google Cloud Storage (opcional)
 try:
     from google.cloud import storage as gcs_storage  # type: ignore
 except Exception:
+    logger.debug("google-cloud-storage no disponible")
     gcs_storage = None  # type: ignore
 
 from core.database import DatabaseManager  # type: ignore
@@ -62,6 +76,7 @@ from core.database import DatabaseManager  # type: ignore
 try:
     from core.models import Usuario, Pago, MetodoPago, ConceptoPago, Ejercicio, Rutina, RutinaEjercicio  # type: ignore
 except Exception:
+    logger.error("Error importando modelos core", exc_info=True)
     Usuario = None  # type: ignore
     Pago = None  # type: ignore
     MetodoPago = None  # type: ignore
@@ -83,6 +98,7 @@ try:
             v = _get_gym_value("gym_address")
             return (v or default).strip()
         except Exception:
+            logger.warning("Error obteniendo gym_address", exc_info=True)
             return default
 except Exception:
     def get_gym_address(default: str = "Dirección del gimnasio") -> str:  # type: ignore
@@ -92,17 +108,20 @@ try:
     from core.secure_config import SecureConfig as _SC  # type: ignore
     DEV_PASSWORD = _SC.get_dev_password()
 except Exception:
+    logger.warning("SecureConfig no disponible", exc_info=True)
     DEV_PASSWORD = ""
 
 try:
     from core.models import Clase, ClaseHorario  # type: ignore
 except Exception:
+    logger.error("Error importando modelos de Clases", exc_info=True)
     Clase = None  # type: ignore
     ClaseHorario = None  # type: ignore
 
 try:
     from core.payment_manager import PaymentManager  # type: ignore
 except Exception:
+    logger.error("Error importando PaymentManager", exc_info=True)
     PaymentManager = None  # type: ignore
 
 try:
@@ -127,7 +146,7 @@ def _get_preview_secret() -> str:
         if env:
             return env
     except Exception:
-        pass
+        logger.warning("Error leyendo WEBAPP_PREVIEW_SECRET", exc_info=True)
     # Fallbacks suaves: usar valores ya configurados si existen
     for k in ("SESSION_SECRET", "SECRET_KEY", "VERCEL_GITHUB_COMMIT_SHA"):
         try:
@@ -152,6 +171,7 @@ def _sign_excel_view(rutina_id: int, weeks: int, filename: str, ts: int, qr_mode
         if qr not in ("inline", "sheet", "none"):
             qr = "inline"
     except Exception:
+        logger.debug("Error normalizando qr_mode en _sign_excel_view", exc_info=True)
         qr = "inline"
     # Incorporar el nombre de hoja como string en la firma (protegido y truncado)
     try:
@@ -290,6 +310,7 @@ def _get_client_ip(request: Request) -> str:
             return c.host
         return "0.0.0.0"
     except Exception:
+        logger.warning("Error al obtener IP del cliente", exc_info=True)
         return "0.0.0.0"
 
 def _prune_attempts(store: Dict[str, list], window_s: int) -> None:
@@ -391,6 +412,7 @@ def _encode_preview_payload(payload: Dict[str, Any]) -> str:
         try:
             return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
         except Exception:
+            logger.error("Error codificando preview payload", exc_info=True)
             return ""
 
 def _decode_preview_payload(data: str) -> Optional[Dict[str, Any]]:
@@ -457,6 +479,7 @@ def _decode_preview_payload(data: str) -> Optional[Dict[str, Any]]:
             }
         return obj
     except Exception:
+        logger.warning("Error decodificando preview payload", exc_info=True)
         return None
 
 # Almacenamiento efímero de borradores para previsualización
@@ -549,6 +572,7 @@ def _load_ejercicios_catalog(force: bool = False) -> Dict[str, Any]:
                         cur.execute(f"SELECT {', '.join(select_cols)} FROM ejercicios")
                         rows = cur.fetchall()
                 except Exception:
+                    logger.warning("Error cargando ejercicios desde DB para catálogo", exc_info=True)
                     rows = None
 
             if rows:
@@ -591,6 +615,7 @@ def _load_ejercicios_catalog(force: bool = False) -> Dict[str, Any]:
             _ejercicios_catalog_cache = {"ts": now, "by_id": by_id, "by_name": by_name}
             return _ejercicios_catalog_cache
     except Exception:
+        logger.error("Error general en _load_ejercicios_catalog", exc_info=True)
         return {"ts": 0, "by_id": {}, "by_name": {}}
 
 def _lookup_video_info(ejercicio_id: Any, nombre: Optional[str]) -> Dict[str, Any]:
@@ -697,6 +722,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                 try:
                     u_obj = db.obtener_usuario(int(u_id))  # type: ignore
                 except Exception:
+                    logger.warning(f"Error obteniendo usuario {u_id} en _build_rutina_from_draft", exc_info=True)
                     u_obj = None
                 if u_obj is not None:
                     try:
@@ -704,7 +730,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                         u_dni = getattr(u_obj, "dni", None) if (getattr(u_obj, "dni", None) or None) else u_dni
                         u_tel = getattr(u_obj, "telefono", "") if (getattr(u_obj, "telefono", "") or "") else u_tel
                     except Exception:
-                        pass
+                        logger.warning("Error leyendo atributos de usuario objeto", exc_info=True)
                 # Si aún sin nombre, intentar JOIN directo por rutina_id si existe en payload
                 if not u_nombre:
                     try:
@@ -736,9 +762,9 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                                     u_dni = _u_dni if _u_dni is not None else u_dni
                                     u_tel = _u_tel or u_tel
                         except Exception:
-                            pass
+                            logger.warning("Error consultando usuario por rutina_id", exc_info=True)
         except Exception:
-            pass
+            logger.warning("Error general resolviendo usuario en _build_rutina_from_draft", exc_info=True)
     # Si sigue sin nombre y SIN usuario_id, usar fallback 'Plantilla' (estamos en modo plantilla)
     if not u_nombre and u_id is None:
         u_nombre = "Plantilla"
@@ -866,6 +892,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                             pass
                 ejercicios.append(re)
             except Exception:
+                logger.warning("Error procesando item de ejercicio (lista plana)", exc_info=True)
                 continue
     # Fuente 2: por días 'dias' (dict o lista)
     dias = payload.get("dias") or payload.get("dias_semana_detalle") or []
@@ -925,6 +952,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                                 pass
                     ejercicios.append(re)
                 except Exception:
+                    logger.warning("Error procesando item de ejercicio (dict dias)", exc_info=True)
                     continue
     elif isinstance(dias, list):
         for d in dias:
@@ -981,6 +1009,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
                                     pass
                         ejercicios.append(re)
                     except Exception:
+                        logger.warning("Error procesando item de ejercicio (lista dias)", exc_info=True)
                         continue
             except Exception:
                 continue
@@ -988,7 +1017,7 @@ def _build_rutina_from_draft(payload: Dict[str, Any]) -> tuple:
     try:
         rutina.ejercicios = ejercicios
     except Exception:
-        pass
+        logger.warning("Error adjuntando ejercicios a rutina", exc_info=True)
     ejercicios_por_dia = _build_exercises_by_day(rutina)
     return rutina, usuario, ejercicios_por_dia
 

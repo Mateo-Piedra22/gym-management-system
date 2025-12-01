@@ -18,11 +18,22 @@ import random
 import calendar
 import uuid
 
+# Importar configuración de logs
+try:
+    from core.logger_config import setup_logging
+except ImportError:
+    # Fallback si no se puede importar logger_config
+    logging.basicConfig(level=logging.INFO)
+    logging.getLogger(__name__).warning("No se pudo importar logger_config, usando configuración básica", exc_info=True)
+
+logger = logging.getLogger(__name__)
+
 # Importar PyQt6 para workers (con fallback seguro en entornos sin GUI)
 try:
     from PyQt6.QtCore import QThread, pyqtSignal, QObject  # type: ignore
     _HAS_QT = True
-except Exception:
+except ImportError:
+    logger.debug("PyQt6 no disponible. Usando stubs para compatibilidad.")
     _HAS_QT = False
     # Stubs mínimos para permitir importación en entornos web (Railway) sin PyQt6
     class QObject:  # type: ignore
@@ -53,7 +64,7 @@ except Exception:
                 try:
                     self._callbacks.append(cb)
                 except Exception:
-                    pass
+                    logger.exception("Error al conectar señal simulada")
             def emit(self, *a, **kw):
                 # Ejecutar callbacks de forma segura; en web normalmente no se usarán
                 for cb in list(self._callbacks):
@@ -61,8 +72,15 @@ except Exception:
                         cb(*a, **kw)
                     except Exception:
                         # No bloquear por errores en callbacks
-                        pass
+                        logger.exception("Error en callback de señal simulada")
         return _Signal()
+except Exception:
+    logger.exception("Error inesperado al importar PyQt6 o crear stubs")
+    _HAS_QT = False
+    # Definir stubs mínimos en caso de error catastrófico
+    class QObject: pass # type: ignore
+    class QThread: pass # type: ignore
+    def pyqtSignal(*args, **kwargs): return None # type: ignore
 
 # Guards globales para inicialización única y creación de índices
 _INIT_ONCE_LOCK = threading.RLock()
@@ -145,7 +163,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                                     return self._get_default_offline_return(func_name)
                                 return None
                         except Exception:
-                            pass
+                            logger.exception(f"Error al verificar operación de lectura en Circuit Breaker para {func_name}")
                         # Escrituras: devolver retorno seguro sin encolar
                         try:
                             if hasattr(self, '_is_write_operation') and self._is_write_operation(func_name):
@@ -153,9 +171,9 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                                     return self._get_default_offline_return(func_name)
                                 return None
                         except Exception:
-                            pass
+                            logger.exception(f"Error al verificar operación de escritura en Circuit Breaker para {func_name}")
             except Exception:
-                pass
+                logger.exception(f"Error general en chequeo de Circuit Breaker para {func_name}")
             
             for attempt in range(max_retries + 1):
                 try:
@@ -166,7 +184,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                         if hasattr(self, '_cb_register_success'):
                             self._cb_register_success()
                     except Exception:
-                        pass
+                        logger.exception(f"Error al registrar éxito en Circuit Breaker para {func_name}")
                     return result
                 
                 except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError) as e:
@@ -192,7 +210,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                     
                     if not is_connection_error:
                         # Si no es error de conexión, re-lanzar inmediatamente
-                        logging.error(f"Error no recuperable en {f.__name__}: {e}")
+                        logging.error(f"Error no recuperable en {f.__name__}: {e}", exc_info=True)
                         raise e
                     
                     if attempt == max_retries:
@@ -207,7 +225,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                                 logging.error(f"No hay método de conexión directa disponible")
                                 raise e
                         except Exception as direct_error:
-                            logging.error(f"Falló también la conexión directa: {direct_error}")
+                            logging.error(f"Falló también la conexión directa: {direct_error}", exc_info=True)
                             raise last_exception
                     
                     # Calcular delay con backoff exponencial y jitter
@@ -220,7 +238,8 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                         if hasattr(self, '_cb_register_failure'):
                             self._cb_register_failure(e)
                     except Exception:
-                        pass
+                        logger.exception(f"Error al registrar fallo en Circuit Breaker para {func_name}")
+
                     logging.warning(f"Error de conexión en {f.__name__} (intento {attempt + 1}/{max_retries + 1}): {e}")
                     logging.info(f"Reintentando en {total_delay:.2f} segundos...")
                     
@@ -241,12 +260,12 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                                     self.connection_pool.close_all()
                                     
                         except Exception as pool_error:
-                            logging.warning(f"Error al limpiar pool: {pool_error}")
+                            logging.warning(f"Error al limpiar pool: {pool_error}", exc_info=True)
                             pool_failed = True
                 
                 except Exception as e:
                     # Para otros tipos de errores, no reintentar
-                    logging.error(f"Error no recuperable en {f.__name__}: {e}")
+                    logging.error(f"Error no recuperable en {f.__name__}: {e}", exc_info=True)
                     raise e
             
             # Si llegamos aquí, agotamos todos los reintentos
@@ -261,7 +280,7 @@ def database_retry(func=None, *, max_retries=3, base_delay=1.0, max_delay=10.0):
                         return self._get_default_offline_return(func_name)
             except Exception:
                 # No ocultar el error original
-                pass
+                logger.exception(f"Error al obtener valor offline por defecto para {func_name}")
             raise last_exception
             
         return wrapper
@@ -301,19 +320,20 @@ class ConnectionPool:
                 try:
                     del params['database']
                 except Exception:
-                    pass
+                    logger.warning("Error menor al limpiar parámetro 'database' redundante", exc_info=True)
             elif 'dbname' not in params and 'database' in params:
                 params['dbname'] = params['database']
                 try:
                     del params['database']
                 except Exception:
-                    pass
+                    logger.warning("Error menor al renombrar parámetro 'database' a 'dbname'", exc_info=True)
+            
             conn = psycopg2.connect(**params)
             conn.autocommit = False  # Explicit transaction control
             try:
                 conn.set_client_encoding('UTF8')
             except Exception:
-                pass
+                logger.warning("No se pudo establecer codificación UTF8 en la conexión", exc_info=True)
             
             # Configuraciones optimizadas para PostgreSQL
             with conn.cursor() as cursor:
@@ -345,6 +365,7 @@ class ConnectionPool:
         except Exception as e:
             with self._lock:
                 self.stats['errors'] += 1
+            logger.error("Error crítico creando conexión a base de datos", exc_info=True)
             raise
 
     def _cleanup_dead_connections(self):
@@ -374,7 +395,7 @@ class ConnectionPool:
                     try:
                         conn.rollback()
                     except psycopg2.Error:
-                        pass
+                        logger.warning("Error al hacer rollback en health check", exc_info=True)
                     # Si llegamos aquí, la conexión está viva
                     self._pool.put_nowait(conn)
                 except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError) as e:
@@ -382,22 +403,23 @@ class ConnectionPool:
                     dead_connections.append(conn)
                     try:
                         conn.close()
-                    except:
-                        pass  # Ignorar errores al cerrar conexiones ya muertas
+                    except Exception:
+                        logger.warning("Error al cerrar conexión muerta (ignorable)", exc_info=True)
                     
                     with self._lock:
-                        self.stats['connections_closed'] += 1
+                        self.stats['connections_closed'] = self.stats.get('connections_closed', 0) + 1
                         if id(conn) in self._all_connections:
                             self._all_connections.remove(id(conn))
                             
         except Exception as e:
             # En caso de error, devolver todas las conexiones válidas al pool
+            logger.error("Error durante limpieza de conexiones muertas", exc_info=True)
             for conn in temp_connections:
                 if conn not in dead_connections:
                     try:
                         self._pool.put_nowait(conn)
-                    except:
-                        pass
+                    except Exception:
+                        logger.error("Error al devolver conexión al pool tras fallo de limpieza", exc_info=True)
         
         return len(dead_connections)
 
@@ -407,6 +429,7 @@ class ConnectionPool:
             env_r = os.getenv('DB_CONNECT_RETRIES')
             max_retries = int(env_r) if (env_r and env_r.strip()) else 2
         except Exception:
+            logger.warning("Error al leer DB_CONNECT_RETRIES, usando default 2", exc_info=True)
             max_retries = 2
         retry_delay = 0.1
         
@@ -422,7 +445,7 @@ class ConnectionPool:
                     try:
                         conn.rollback()
                     except psycopg2.Error:
-                        pass
+                        logger.warning("Error al rollback en get_connection", exc_info=True)
                     with self._lock:
                         self.stats['connections_reused'] += 1
                     return conn
@@ -431,8 +454,8 @@ class ConnectionPool:
                     logging.warning(f"Conexión muerta detectada: {e}")
                     try:
                         conn.close()
-                    except:
-                        pass
+                    except Exception:
+                        logger.warning("Error al cerrar conexión muerta en get_connection", exc_info=True)
                     with self._lock:
                         self._all_connections.discard(conn)
                     continue
@@ -453,7 +476,7 @@ class ConnectionPool:
                         try:
                             conn.rollback()
                         except psycopg2.Error:
-                            pass
+                            logger.warning("Error al rollback en get_connection (wait)", exc_info=True)
                         with self._lock:
                             self.stats['connections_reused'] += 1
                         return conn
@@ -462,8 +485,8 @@ class ConnectionPool:
                         logging.warning(f"Conexión muerta detectada: {e}")
                         try:
                             conn.close()
-                        except:
-                            pass
+                        except Exception:
+                            logger.warning("Error al cerrar conexión muerta en get_connection (wait)", exc_info=True)
                         with self._lock:
                             self._all_connections.discard(conn)
                         continue
@@ -498,6 +521,9 @@ class ConnectionPool:
                 if len(self._all_connections) < self.max_connections:
                     return self._create_connection()
             raise TimeoutError("Pool max connections reached")
+        except Exception:
+            logger.error("Error final al intentar crear conexión tras agotarse reintentos", exc_info=True)
+            raise
         except Exception as e:
             logging.error(f"Falló la creación de conexión de emergencia: {e}")
             # Como último recurso, intentar conexión directa si tenemos acceso al DatabaseManager

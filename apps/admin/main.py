@@ -1,5 +1,14 @@
 import os
+import logging
 from typing import Optional, List, Dict, Any
+
+try:
+    from core.logger_config import setup_logging
+    setup_logging()
+except ImportError:
+    logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request, HTTPException, Form, BackgroundTasks
 from fastapi.responses import JSONResponse, Response, RedirectResponse
@@ -9,11 +18,13 @@ from starlette.middleware.sessions import SessionMiddleware
 try:
     import requests  # type: ignore
 except Exception:
+    logger.warning("No se pudo importar requests", exc_info=True)
     requests = None  # type: ignore
 try:
     from requests.adapters import HTTPAdapter  # type: ignore
     from urllib3.util.retry import Retry  # type: ignore
 except Exception:
+    logger.warning("No se pudo importar HTTPAdapter/Retry", exc_info=True)
     HTTPAdapter = None  # type: ignore
     Retry = None  # type: ignore
 from datetime import datetime
@@ -23,11 +34,13 @@ from .database import AdminDatabaseManager, _resolve_admin_db_params
 try:
     from core.database import DatabaseManager  # type: ignore
 except Exception:
+    logger.warning("No se pudo importar DatabaseManager", exc_info=True)
     DatabaseManager = None  # type: ignore
 try:
     import psycopg2  # type: ignore
     import psycopg2.extras  # type: ignore
 except Exception:
+    logger.warning("No se pudo importar psycopg2", exc_info=True)
     psycopg2 = None  # type: ignore
 
 
@@ -40,7 +53,7 @@ try:
     setattr(admin_app.state, "session_version", int(getattr(admin_app.state, "session_version", 1)))
     setattr(admin_app.state, "rate_limits", dict(getattr(admin_app.state, "rate_limits", {})))
 except Exception:
-    pass
+    logger.warning("Error inicializando estado de sesión admin", exc_info=True)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 _admin_db: Optional[AdminDatabaseManager] = None
@@ -53,12 +66,14 @@ def _get_admin_db() -> Optional[AdminDatabaseManager]:
         _admin_db = AdminDatabaseManager()
         return _admin_db
     except Exception:
+        logger.error("Error obteniendo admin db", exc_info=True)
         return None
 
 def _is_logged_in(request: Request) -> bool:
     try:
         return bool(request.session.get("admin_logged_in"))
     except Exception:
+        logger.warning("Error verificando login admin", exc_info=True)
         return False
 
 def _require_admin(request: Request) -> None:
@@ -97,6 +112,7 @@ def _get_http_session():
     try:
         s = getattr(admin_app.state, "http_session", None)
     except Exception:
+        logger.warning("Error obteniendo http session", exc_info=True)
         s = None
     if s is not None:
         return s

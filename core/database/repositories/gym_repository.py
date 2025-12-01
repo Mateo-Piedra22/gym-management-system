@@ -2,6 +2,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Set, Tuple, Any
 import json
 import logging
+import threading
 import psycopg2
 import psycopg2.extras
 import uuid
@@ -11,7 +12,10 @@ from ...models import Ejercicio, Rutina, RutinaEjercicio, Clase, ClaseHorario, C
 from ...utils import get_gym_name
 
 class GymRepository(BaseRepository):
-    pass
+    def __init__(self, connection_pool, cache, logger):
+        super().__init__(connection_pool, cache, logger)
+        self._table_columns_cache = {}
+        self._table_columns_lock = threading.RLock()
 
     # --- Methods moved from DatabaseManager ---
 
@@ -27,7 +31,7 @@ class GymRepository(BaseRepository):
             if cols:
                 return cols
         except Exception:
-            pass
+            self.logger.warning("Error leyendo caché de columnas local", exc_info=True)
         with self._table_columns_lock:
             # Revalidar dentro del lock
             cols2 = self._table_columns_cache.get(table_name)
@@ -51,6 +55,7 @@ class GymRepository(BaseRepository):
                         self._table_columns_cache[table_name] = names
                         return names
             except Exception:
+                self.logger.error(f"Error obteniendo columnas para tabla {table_name}", exc_info=True)
                 # Fallback: devolver vacío para evitar romper llamadas; el caller puede usar '*'
                 return []
 
@@ -64,7 +69,7 @@ class GymRepository(BaseRepository):
                     except Exception:
                         self._table_columns_cache.pop(table_name, None)
         except Exception:
-            pass
+            self.logger.warning("Error invalidando caché de columnas", exc_info=True)
 
 
     def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
@@ -83,6 +88,7 @@ class GymRepository(BaseRepository):
                 row = cur.fetchone()
                 return bool(row and row.get('exists'))
         except Exception:
+            self.logger.warning(f"Error verificando columna {column_name} en {table_name}", exc_info=True)
             return False
 
 

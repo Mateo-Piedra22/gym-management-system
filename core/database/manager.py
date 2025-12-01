@@ -37,11 +37,13 @@ class DatabaseManager:
             ct_env = os.getenv('DB_CONNECT_TIMEOUT')
             ct_val = int(ct_env) if (ct_env and ct_env.strip()) else int(connection_params.get('connect_timeout') or 30)
         except Exception:
+            logging.warning("Error al leer DB_CONNECT_TIMEOUT, usando valor por defecto", exc_info=True)
             ct_val = int(connection_params.get('connect_timeout') or 30)
         try:
             app_env = os.getenv('DB_APPLICATION_NAME')
             app_name = (app_env.strip() if app_env else 'GymManagementSystem_Argentina')
         except Exception:
+            logging.warning("Error al leer DB_APPLICATION_NAME, usando valor por defecto", exc_info=True)
             app_name = 'GymManagementSystem_Argentina'
         optimized_params.update({
             'connect_timeout': ct_val,
@@ -57,6 +59,7 @@ class DatabaseManager:
                 opts = (base_opts + (' ' if base_opts else '') + extra_opts).strip()
                 optimized_params['options'] = opts
         except Exception:
+            logging.warning("Error al configurar opciones de conexión optimizadas", exc_info=True)
             optimized_params['options'] = "-c TimeZone=America/Argentina/Buenos_Aires -c statement_timeout=60s -c lock_timeout=10s -c idle_in_transaction_session_timeout=30s"
         
         self.connection_params = optimized_params
@@ -78,7 +81,7 @@ class DatabaseManager:
             }
             self.logger.info(f"DatabaseManager: init con params optimizados para conexión remota={_safe}")
         except Exception:
-            pass
+            self.logger.warning("Error al loguear parámetros de conexión seguros", exc_info=True)
         
         try:
             appname_l = str(optimized_params.get('application_name') or '').lower()
@@ -88,16 +91,18 @@ class DatabaseManager:
             pool_env = os.getenv('ADMIN_DB_POOL_MAX') if ('admin' in appname_l) else os.getenv('DB_POOL_MAX')
             pool_max = int(pool_env) if (pool_env and pool_env.strip()) else 10
         except Exception:
+            self.logger.warning("Error al configurar DB_POOL_MAX, usando default 3", exc_info=True)
             pool_max = 3
         try:
             if (os.getenv('VERCEL') or os.getenv('VERCEL_ENV') or os.getenv('RAILWAY')):
                 pool_max = max(2, min(pool_max, 4))
         except Exception:
-            pass
+            self.logger.debug("No se detectó entorno Vercel/Railway o error al configurar pool", exc_info=True) # Entorno normal, ignorar
         try:
             tout_env = os.getenv('DB_POOL_TIMEOUT')
             tout = float(tout_env) if (tout_env and tout_env.strip()) else 8.0
         except Exception:
+            self.logger.warning("Error al configurar DB_POOL_TIMEOUT, usando default 8.0", exc_info=True)
             tout = 8.0
         self._connection_pool = ConnectionPool(
             connection_params=optimized_params,
@@ -107,7 +112,7 @@ class DatabaseManager:
         try:
             self.logger.info(f"DatabaseManager: pool creado max_connections={pool_max}, timeout={tout}s")
         except Exception:
-            pass
+            self.logger.warning("Error al loguear creación del pool", exc_info=True)
         
         self._cache_config = {
             'usuarios': {'duration': 900, 'max_size': 1000},      # 15 minutos, 1000 usuarios
@@ -180,7 +185,8 @@ class DatabaseManager:
             if cols:
                 return cols
         except Exception:
-            pass
+            self.logger.warning(f"Error al leer caché de columnas para {table_name}", exc_info=True)
+        
         with self._table_columns_lock:
             # Revalidar dentro del lock
             cols2 = self._table_columns_cache.get(table_name)
@@ -204,6 +210,7 @@ class DatabaseManager:
                         self._table_columns_cache[table_name] = names
                         return names
             except Exception:
+                self.logger.error(f"Error al obtener columnas de tabla {table_name}", exc_info=True)
                 # Fallback: devolver vacío para evitar romper llamadas; el caller puede usar '*'
                 return []
 
@@ -216,7 +223,7 @@ class DatabaseManager:
                     except Exception:
                         self._table_columns_cache.pop(table_name, None)
         except Exception:
-            pass
+            self.logger.warning(f"Error al invalidar caché de columnas para {table_name}", exc_info=True)
 
     def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
         """Verifica si existe una columna en una tabla (schema público)."""
@@ -234,6 +241,7 @@ class DatabaseManager:
                 row = cur.fetchone()
                 return bool(row and row.get('exists'))
         except Exception:
+            self.logger.error(f"Error al verificar existencia de columna {table_name}.{column_name}", exc_info=True)
             return False
 
     def ensure_rutina_uuid_ready(self, conn) -> bool:
@@ -256,17 +264,19 @@ class DatabaseManager:
                         cur.execute("ALTER TABLE rutinas ADD COLUMN uuid_rutina TEXT DEFAULT gen_random_uuid()::text")
                         created = True
                     except Exception:
+                        self.logger.warning("No se pudo crear columna uuid_rutina con default (pgcrypto no disponible?), intentando sin default", exc_info=True)
                         # Fallback: crear sin default
                         try:
                             cur.execute("ALTER TABLE rutinas ADD COLUMN uuid_rutina TEXT")
                             created = True
                         except Exception:
+                            self.logger.error("Fallo crítico al crear columna uuid_rutina", exc_info=True)
                             created = False
                     if created:
                         try:
                             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid ON rutinas (uuid_rutina)")
                         except Exception:
-                            pass
+                            self.logger.warning("Error al crear índice único en uuid_rutina", exc_info=True)
                         conn.commit()
                     else:
                         conn.rollback()
@@ -286,25 +296,28 @@ class DatabaseManager:
                             try:
                                 cur.execute("UPDATE rutinas SET uuid_rutina = %s WHERE id = %s", (new_uuid, rid))
                             except Exception:
+                                self.logger.warning(f"Colisión o error al asignar UUID a rutina {rid}, reintentando...", exc_info=True)
                                 # Si falla por duplicado improbable, generar otro
                                 try:
                                     cur.execute("UPDATE rutinas SET uuid_rutina = %s WHERE id = %s", (str(uuid.uuid4()), rid))
                                 except Exception:
-                                    pass
+                                    self.logger.error(f"Fallo definitivo al asignar UUID a rutina {rid}", exc_info=True)
                         try:
                             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid ON rutinas (uuid_rutina)")
                         except Exception:
-                            pass
+                            self.logger.warning("Error al asegurar índice único tras rellenado", exc_info=True)
                         conn.commit()
             except Exception:
+                self.logger.error("Error durante el rellenado de UUIDs en rutinas", exc_info=True)
                 # No bloquear si algo falla al rellenar
                 try:
                     conn.rollback()
                 except Exception:
-                    pass
+                    self.logger.error("Error al hacer rollback tras fallo de rellenado", exc_info=True)
 
             return has_col
         except Exception:
+            self.logger.error("Error general en ensure_rutina_uuid_ready", exc_info=True)
             return False
 
     def initialize_prepared_statements(self):
@@ -355,6 +368,7 @@ class DatabaseManager:
     def get_query_performance_stats(self) -> Dict:
         return self.reports_repo.get_query_performance_stats()
 
+    @staticmethod
     def test_connection(params: Optional[dict] = None, timeout_seconds: int = 5) -> bool:
         """Prueba una conexión simple a PostgreSQL.
 
@@ -403,6 +417,7 @@ class DatabaseManager:
                         'options': options,
                     }
                 except Exception:
+                    logging.warning("Error al resolver parámetros por defecto en test_connection", exc_info=True)
                     params = {}
 
             # Mapear a argumentos de psycopg2
@@ -432,7 +447,7 @@ class DatabaseManager:
                 }
                 logging.debug(f"DatabaseManager.test_connection: intentando con {_safe}")
             except Exception:
-                pass
+                logging.warning("Error al loguear parámetros seguros en test_connection", exc_info=True)
 
             conn = psycopg2.connect(**test_params)
             try:
@@ -443,7 +458,7 @@ class DatabaseManager:
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    logging.warning("Error al cerrar conexión de prueba", exc_info=True)
             try:
                 logging.info("DatabaseManager.test_connection: conexión exitosa")
             except Exception:
@@ -451,7 +466,7 @@ class DatabaseManager:
             return True
         except Exception as e:
             try:
-                logging.warning(f"DatabaseManager.test_connection: fallo de conexión ({type(e).__name__})")
+                logging.warning(f"DatabaseManager.test_connection: fallo de conexión ({type(e).__name__})", exc_info=True)
             except Exception:
                 pass
             return False
@@ -476,18 +491,19 @@ class DatabaseManager:
             try:
                 conn.autocommit = True
             except Exception:
+                self.logger.warning("No se pudo activar autocommit para readonly_session", exc_info=True)
                 prev_autocommit = None
             try:
                 cursor = conn.cursor()
                 try:
                     self._apply_readonly_timeouts(cursor, lock_ms=lock_ms, statement_ms=statement_ms, idle_s=idle_s)
                 except Exception:
-                    pass
+                    self.logger.warning("Error al aplicar timeouts en readonly_session", exc_info=True)
                 if seqscan_off:
                     try:
                         cursor.execute("SET LOCAL enable_seqscan = off")
                     except Exception:
-                        pass
+                        self.logger.warning("No se pudo deshabilitar seqscan en readonly_session", exc_info=True)
                 # Cerrar cursor de configuración; el consumidor abrirá el suyo propio si requiere factory especial
                 try:
                     cursor.close()
@@ -500,7 +516,7 @@ class DatabaseManager:
                     if prev_autocommit is not None:
                         conn.autocommit = prev_autocommit
                 except Exception:
-                    pass
+                    self.logger.warning("Error al restaurar autocommit en readonly_session", exc_info=True)
                 try:
                     self.logger.debug("readonly_session: end")
                 except Exception:
@@ -525,12 +541,13 @@ class DatabaseManager:
                         pass
                 except Exception as e:
                     try:
-                        logging.error(f"Error en inicialización única de DB: {e}")
+                        logging.error(f"Error en inicialización única de DB: {e}", exc_info=True)
                     except Exception:
                         pass
         try:
             threading.Thread(target=_do_init, daemon=True).start()
         except Exception:
+            self.logger.warning("No se pudo iniciar hilo de inicialización de DB, ejecutando sincrónicamente", exc_info=True)
             # Fallback: ejecutar sincrónicamente si falló el hilo
             _do_init()
 
@@ -640,15 +657,15 @@ class DatabaseManager:
             try:
                 self._cb_register_success()
             except Exception:
-                pass
+                self.logger.warning("Error al registrar éxito en Circuit Breaker desde obtener_conexion", exc_info=True)
             
             return conn
         except Exception as e:
-            logging.error(f"Error al obtener conexión: {e}")
+            logging.error(f"Error al obtener conexión: {e}", exc_info=True)
             try:
                 self._cb_register_failure(e)
             except Exception:
-                pass
+                self.logger.warning("Error al registrar fallo en Circuit Breaker desde obtener_conexion", exc_info=True)
             raise
 
     def get_connection_context(self):
@@ -667,7 +684,7 @@ class DatabaseManager:
                     # Semi-apertura: permitir un intento y cerrar si falla
                     setattr(self, '_cb_is_open', False)
         except Exception:
-            pass
+            self.logger.warning("Error al verificar estado del Circuit Breaker", exc_info=True)
 
         if hasattr(self, '_initializing') and self._initializing:
             conn = self._crear_conexion_directa()
@@ -683,13 +700,13 @@ class DatabaseManager:
                     try:
                         self._cb_register_failure(e)
                     except Exception:
-                        pass
+                        self.logger.warning("Error al registrar fallo en Circuit Breaker (init)", exc_info=True)
                     raise
                 else:
                     try:
                         self._cb_register_success()
                     except Exception:
-                        pass
+                        self.logger.warning("Error al registrar éxito en Circuit Breaker (init)", exc_info=True)
             finally:
                 try:
                     self.logger.debug("get_connection_context: conexión directa liberada")
@@ -709,13 +726,13 @@ class DatabaseManager:
                     try:
                         self._cb_register_failure(e)
                     except Exception:
-                        pass
+                        self.logger.warning("Error al registrar fallo en Circuit Breaker", exc_info=True)
                     raise
                 else:
                     try:
                         self._cb_register_success()
                     except Exception:
-                        pass
+                        self.logger.warning("Error al registrar éxito en Circuit Breaker", exc_info=True)
                     try:
                         self.logger.debug("get_connection_context: conexión de pool liberada")
                     except Exception:
@@ -789,7 +806,7 @@ class DatabaseManager:
                     conn.rollback()
                     logging.debug("Rollback ejecutado por error operacional")
                 except psycopg2.Error as rollback_error:
-                    logging.error(f"Error durante rollback: {rollback_error}")
+                    logging.error(f"Error durante rollback: {rollback_error}", exc_info=True)
                 
                 if hasattr(self, '_initializing') and self._initializing:
                     conn.close()
@@ -797,8 +814,8 @@ class DatabaseManager:
                     # Marcar conexión como inválida y obtener una nueva
                     try:
                         self._connection_pool.return_connection(conn, is_broken=True)
-                    except:
-                        pass
+                    except Exception:
+                        self.logger.warning("Error al devolver conexión rota al pool", exc_info=True)
                 
                 # Reintentar en caso de deadlock o timeout
                 if ("deadlock" in error_msg or "timeout" in error_msg or "lock" in error_msg) and attempt < max_retries - 1:
@@ -808,7 +825,7 @@ class DatabaseManager:
                     time.sleep(delay)
                     continue
                 else:
-                    logging.error(f"Error operacional en transacción después de {attempt + 1} intentos: {e}")
+                    logging.error(f"Error operacional en transacción después de {attempt + 1} intentos: {e}", exc_info=True)
                     raise
                     
             except Exception as e:
@@ -816,14 +833,14 @@ class DatabaseManager:
                     conn.rollback()
                     logging.debug("Rollback ejecutado por error general")
                 except psycopg2.Error as rollback_error:
-                    logging.error(f"Error durante rollback: {rollback_error}")
+                    logging.error(f"Error durante rollback: {rollback_error}", exc_info=True)
                 
                 if hasattr(self, '_initializing') and self._initializing:
                     conn.close()
                 else:
                     self._connection_pool.return_connection(conn)
                 
-                logging.error(f"Error en transacción atómica: {e}")
+                logging.error(f"Error en transacción atómica: {e}", exc_info=True)
                 raise
         
         raise psycopg2.OperationalError(f"Transacción falló después de {max_retries} intentos")
@@ -840,7 +857,7 @@ class DatabaseManager:
                 try:
                     conn.rollback()
                 except psycopg2.Error:
-                    pass
+                    self.logger.warning("Error al hacer rollback en transacción directa", exc_info=True)
                 raise
             finally:
                 conn.close()
@@ -942,7 +959,7 @@ class DatabaseManager:
                     if p:
                         self.connection_params['password'] = p
                 except Exception:
-                    pass
+                    logging.warning("Error al intentar leer contraseña desde entorno en modo frozen", exc_info=True)
         except Exception:
             pass
         # Normalizar parámetros para psycopg2 (dbname)
@@ -959,12 +976,16 @@ class DatabaseManager:
                 del params['database']
             except Exception:
                 pass
-        conn = psycopg2.connect(**params)
-        # Importante: no ejecutar ninguna instrucción inmediatamente después de conectar.
-        # Ejecutar un "SET" aquí iniciaba una transacción implícita y rompía
-        # operaciones que requieren auto-commit (p.ej. CREATE INDEX CONCURRENTLY).
-        conn.autocommit = False
-        return conn
+        try:
+            conn = psycopg2.connect(**params)
+            # Importante: no ejecutar ninguna instrucción inmediatamente después de conectar.
+            # Ejecutar un "SET" aquí iniciaba una transacción implícita y rompía
+            # operaciones que requieren auto-commit (p.ej. CREATE INDEX CONCURRENTLY).
+            conn.autocommit = False
+            return conn
+        except Exception as e:
+            logging.error("Error al crear conexión directa", exc_info=True)
+            raise
 
     def _execute_with_direct_connection(self, func, *args, **kwargs):
         """
@@ -1031,6 +1052,7 @@ class DatabaseManager:
         try:
             dbkey = f"{self.connection_params.get('host')}:{self.connection_params.get('port')}:{self.connection_params.get('dbname') or self.connection_params.get('database')}"
         except Exception:
+            self.logger.warning("Error al generar clave de base de datos para inicialización única", exc_info=True)
             dbkey = str(self.connection_params.get('dbname') or self.connection_params.get('database') or '')
         try:
             global _INIT_DONE_DBS
@@ -1040,7 +1062,7 @@ class DatabaseManager:
             if dbkey and dbkey in _INIT_DONE_DBS:
                 return
         except Exception:
-            pass
+            self.logger.warning("Error al verificar _INIT_DONE_DBS", exc_info=True)
         self._initializing = True
         try:
             conn = self._crear_conexion_directa()
@@ -1050,8 +1072,8 @@ class DatabaseManager:
                     try:
                         cursor.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
                     except Exception:
+                        self.logger.warning("No se pudo crear extensión pgcrypto (puede requerir superusuario)", exc_info=True)
                         # Si no se puede crear, se generarán UUIDs en la aplicación
-                        pass
                     
                     # --- TABLAS BÁSICAS DEL SISTEMA ---
                     
@@ -1078,44 +1100,44 @@ class DatabaseManager:
                     try:
                         cursor.execute("ALTER TABLE usuarios DISABLE ROW LEVEL SECURITY")
                     except Exception:
-                        pass
+                        self.logger.debug("No se pudo deshabilitar RLS en usuarios (puede que no esté habilitado)", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE usuarios NO FORCE ROW LEVEL SECURITY")
                     except Exception:
-                        pass
+                        self.logger.debug("No se pudo quitar FORCE RLS en usuarios", exc_info=True)
                     # Eliminar políticas/funciones/triggers si existían de ejecuciones previas
                     try:
                         cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_select ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar política usuarios_block_owner_select", exc_info=True)
                     try:
                         cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_update ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar política usuarios_block_owner_update", exc_info=True)
                     try:
                         cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_delete ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar política usuarios_block_owner_delete", exc_info=True)
                     try:
                         cursor.execute("DROP POLICY IF EXISTS usuarios_block_owner_insert ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar política usuarios_block_owner_insert", exc_info=True)
                     try:
                         cursor.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_ins_upd_dueno ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar trigger trg_usuarios_bloquear_ins_upd_dueno", exc_info=True)
                     try:
                         cursor.execute("DROP TRIGGER IF EXISTS trg_usuarios_bloquear_del_dueno ON usuarios")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar trigger trg_usuarios_bloquear_del_dueno", exc_info=True)
                     try:
                         cursor.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_ins_upd()")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar función usuarios_bloquear_dueno_ins_upd", exc_info=True)
                     try:
                         cursor.execute("DROP FUNCTION IF EXISTS usuarios_bloquear_dueno_delete()")
                     except Exception:
-                        pass
+                        self.logger.debug("Error al borrar función usuarios_bloquear_dueno_delete", exc_info=True)
 
                     # Usuario dueño por defecto antes de las protecciones
                     cursor.execute("SELECT id FROM usuarios WHERE rol = 'dueño'")
@@ -1138,6 +1160,7 @@ class DatabaseManager:
                         if _row and _row[0] is not None:
                             owner_id = int(_row[0])
                     except Exception:
+                        self.logger.error("Error al obtener ID del dueño", exc_info=True)
                         owner_id = None
 
                     # Proteger completamente a los usuarios con rol 'dueño':
@@ -1230,15 +1253,15 @@ class DatabaseManager:
                     try:
                         cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS concepto VARCHAR(100)")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'concepto' a pagos", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS metodo_pago VARCHAR(50)")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'metodo_pago' a pagos", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE pagos ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'pagado'")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'estado' a pagos", exc_info=True)
                     
                     # Tabla de configuración
                     cursor.execute("""
@@ -1474,19 +1497,19 @@ class DatabaseManager:
                         if not self._column_exists(conn, 'ejercicios', 'objetivo'):
                             cursor.execute("ALTER TABLE ejercicios ADD COLUMN objetivo VARCHAR(100) DEFAULT 'general'")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'objetivo' a ejercicios", exc_info=True)
                     # Columnas de medios para ejercicios
                     try:
                         # Compatibilidad con PostgreSQL antiguos: sin IF NOT EXISTS
                         if not self._column_exists(conn, 'ejercicios', 'video_url'):
                             cursor.execute("ALTER TABLE ejercicios ADD COLUMN video_url VARCHAR(512)")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'video_url' a ejercicios", exc_info=True)
                     try:
                         if not self._column_exists(conn, 'ejercicios', 'video_mime'):
                             cursor.execute("ALTER TABLE ejercicios ADD COLUMN video_mime VARCHAR(50)")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'video_mime' a ejercicios", exc_info=True)
                     
                     # Tabla de rutinas
                     cursor.execute("""
@@ -1513,6 +1536,7 @@ class DatabaseManager:
                             "CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid_rutina ON rutinas (uuid_rutina)"
                         )
                     except Exception:
+                        self.logger.warning("No se pudo añadir columna uuid_rutina con default gen_random_uuid", exc_info=True)
                         # Fallback sin default
                         try:
                             cursor.execute(
@@ -1522,7 +1546,7 @@ class DatabaseManager:
                                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_rutinas_uuid_rutina ON rutinas (uuid_rutina)"
                             )
                         except Exception:
-                            pass
+                            self.logger.error("Fallo crítico al añadir columna uuid_rutina (fallback)", exc_info=True)
                     
                     # Tabla de rutina_ejercicios
                     cursor.execute("""
@@ -1563,23 +1587,23 @@ class DatabaseManager:
                     try:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS orden INTEGER DEFAULT 0")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'orden' a clase_ejercicios", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS series INTEGER DEFAULT 0")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'series' a clase_ejercicios", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS repeticiones VARCHAR(50) DEFAULT ''")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'repeticiones' a clase_ejercicios", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS descanso_segundos INTEGER DEFAULT 0")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'descanso_segundos' a clase_ejercicios", exc_info=True)
                     try:
                         cursor.execute("ALTER TABLE clase_ejercicios ADD COLUMN IF NOT EXISTS notas TEXT")
                     except Exception:
-                        pass
+                        self.logger.warning("Error al añadir columna 'notas' a clase_ejercicios", exc_info=True)
 
                     # --- TABLAS DE BLOQUES DE EJERCICIOS POR CLASE ---
                     # Tabla de bloques asociados a una clase
@@ -2300,12 +2324,14 @@ class DatabaseManager:
                     try:
                         env_pwd = (os.getenv('WEBAPP_OWNER_PASSWORD', '') or os.getenv('OWNER_PASSWORD', '')).strip()
                     except Exception:
+                        self.logger.warning("Error al leer variables de entorno para password de dueño", exc_info=True)
                         env_pwd = ''
                     if env_pwd:
                         try:
                             from .security_utils import SecurityUtils
                             hashed_pwd = SecurityUtils.hash_password(env_pwd)
                         except Exception:
+                            self.logger.warning("Error al hashear password de dueño, usando texto plano", exc_info=True)
                             # Fallback a texto plano solo si falla bcrypt
                             hashed_pwd = env_pwd
                         try:
@@ -2314,8 +2340,8 @@ class DatabaseManager:
                                 ('owner_password', hashed_pwd, 'Contraseña del Dueño para acceso administrativo')
                             )
                         except Exception:
+                            self.logger.warning("No se pudo insertar owner_password en configuración", exc_info=True)
                             # No bloquear inicialización por errores de seed
-                            pass
 
                     # Usuario dueño por defecto ya creado antes de aplicar protecciones (ver sección anterior)
 
@@ -2374,7 +2400,7 @@ class DatabaseManager:
                 try:
                     self.ensure_indexes()
                 except Exception as e:
-                    logging.warning(f"Error al asegurar índices durante la inicialización: {e}")
+                    logging.warning(f"Error al asegurar índices durante la inicialización: {e}", exc_info=True)
                 try:
                     dbkey = f"{self.connection_params.get('host')}:{self.connection_params.get('port')}:{self.connection_params.get('dbname') or self.connection_params.get('database')}"
                 except Exception:
@@ -2383,7 +2409,7 @@ class DatabaseManager:
                     if dbkey:
                         _INIT_DONE_DBS.add(dbkey)
                 except Exception:
-                    pass
+                    self.logger.warning("Error al añadir dbkey a _INIT_DONE_DBS", exc_info=True)
         finally:
             self._initializing = False
 

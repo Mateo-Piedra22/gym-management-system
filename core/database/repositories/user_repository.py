@@ -27,6 +27,7 @@ class UserRepository(BaseRepository):
                 if hasattr(self, 'obtener_usuario_por_rol'):
                     usr = self.obtener_usuario_por_rol('dueño', timeout_ms=timeout_ms)
             except Exception:
+                self.logger.warning("Error obteniendo usuario dueño por rol", exc_info=True)
                 usr = None
             # Stub mínimo para evitar bloqueos
             if not usr:
@@ -35,9 +36,10 @@ class UserRepository(BaseRepository):
                 self._owner_cache['user'] = usr
                 self._owner_cache['user_expiry'] = now + max(60, ttl_seconds)
             except Exception:
-                pass
+                self.logger.warning("Error actualizando caché de dueño", exc_info=True)
             return usr
         except Exception:
+            self.logger.error("Error en get_owner_user_cached", exc_info=True)
             return None
 
 
