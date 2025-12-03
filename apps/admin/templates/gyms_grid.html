@@ -68,10 +68,10 @@
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <a href="/gyms/{{ g.id }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
-      <a href="/gyms/{{ g.id }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
-      <a href="/gyms/{{ g.id }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">Soporte</span></a>
-      <a href="/gyms/{{ g.id }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
+      <a href="/admin/gyms/{{ g.id }}/subscriptions?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
+      <a href="/admin/gyms/{{ g.id }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
+      <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">Soporte</span></a>
+      <a href="/admin/gyms/{{ g.id }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
     </div>
   </div>
   {% endfor %}

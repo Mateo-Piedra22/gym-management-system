@@ -833,6 +833,26 @@ async def gym_health(request: Request, gym_id: int, snippet: Optional[str] = Non
     })
 
 
+
+@admin_app.post("/gyms/{gym_id}/password")
+async def change_owner_password(request: Request, gym_id: int, password: str = Form(...)):
+    _require_admin(request)
+    if not password or len(password) < 4:
+         return JSONResponse({"ok": False, "error": "Password too short"}, status_code=400)
+         
+    adm = _get_admin_service()
+    if not adm:
+        return JSONResponse({"ok": False, "error": "DB admin no disponible"}, status_code=500)
+        
+    try:
+        ok = adm.cambiar_password_owner(int(gym_id), password)
+        if ok:
+             return JSONResponse({"ok": True, "message": "Contraseña actualizada"}, status_code=200)
+        else:
+             return JSONResponse({"ok": False, "error": "No se pudo actualizar"}, status_code=500)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 @admin_app.post("/gyms/{gym_id}/suspend")
 async def suspender_gimnasio(request: Request, gym_id: int, reason: Optional[str] = Form(None), until: Optional[str] = Form(None), hard: Optional[bool] = Form(False)):
     _require_admin(request)
@@ -996,32 +1016,20 @@ async def gym_subscriptions(request: Request, gym_id: int):
     _require_admin(request)
     adm = _get_admin_service()
     plans = adm.listar_planes() if adm else []
-    # Fetch current subscription info if needed, but gym-settings.html template might expect 'subscription' object or 'plans' list
-    # Currently 'subscription' section in template uses 'plans' loop (line 187) and 'subscription' object (line 177)
-    # I should probably fetch subscription details here too, similar to how I might have done in other places or rely on passed data
-    # Wait, looking at existing 'subscription' section in template, it uses `subscription` and `plans`.
-    # Where does `subscription` come from? In `listar_gimnasios_con_resumen` query, there is some sub info.
-    # But for detailed view, I might need to fetch it.
-    # `admin_service` doesn't have `obtener_suscripcion_gym`.
-    # I should probably add it or infer it.
-    # Let's look at `gym_subscriptions` endpoint.
-    # I'll fetch plans. I'll try to fetch subscription details if I can.
-    # Actually, `gym-settings.html` expects `plans` for the dropdown.
-    # It also expects `subscription` object with `plan`, `start_date`, `valid_until`.
-    # I should fetch these.
     sub = None
     try:
-        with adm.db.get_connection_context() as conn:
-             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-             cur.execute("SELECT gs.start_date, gs.next_due_date as valid_until, gs.status, p.name as plan_name, p.amount, p.currency FROM gym_subscriptions gs LEFT JOIN plans p ON p.id = gs.plan_id WHERE gs.gym_id = %s", (int(gym_id),))
-             row = cur.fetchone()
-             if row:
-                 sub = {
-                     "plan": row.get("plan_name"),
-                     "start_date": row.get("start_date"),
-                     "valid_until": row.get("valid_until"),
-                     "status": row.get("status")
-                 }
+        if adm:
+            with adm.db.get_connection_context() as conn:
+                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                 cur.execute("SELECT gs.start_date, gs.next_due_date as valid_until, gs.status, p.name as plan_name, p.amount, p.currency FROM gym_subscriptions gs LEFT JOIN plans p ON p.id = gs.plan_id WHERE gs.gym_id = %s", (int(gym_id),))
+                 row = cur.fetchone()
+                 if row:
+                     sub = {
+                         "plan": row.get("plan_name"),
+                         "start_date": row.get("start_date"),
+                         "valid_until": row.get("valid_until"),
+                         "status": row.get("status")
+                     }
     except Exception:
         pass
     
