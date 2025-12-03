@@ -1,0 +1,15 @@
+<aside x-show="open" x-bind:class="isMobile ? 'fixed inset-y-0 left-0 w-[240px] z-50 bg-[#0b1222] border-r border-gray-800 p-4' : 'bg-[#0b1222] border-r border-gray-800 p-4'">
+  <div class="text-lg font-bold flex items-center gap-2">
+    <i class="fa-solid fa-dumbbell"></i>
+    <span>GymMS Admin</span>
+  </div>
+  <nav class="mt-3 space-y-2" hx-boost="true" hx-target="#main" hx-select="main > *" hx-push-url="true" hx-indicator="#main-indicator" hx-headers='{"accept":"text/html"}'>
+    {% set p = request.url.path %}
+    <a href="/admin/?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p == '/admin' or p == '/admin/' else 'bg-gray-900' }}"><i class="fa-solid fa-house"></i><span>Home</span></a>
+    <a href="/admin/gyms?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/gyms') else 'bg-gray-900' }}"><i class="fa-solid fa-building"></i><span>Gimnasios</span></a>
+    <a href="/admin/audit?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/audit') else 'bg-gray-900' }}"><i class="fa-solid fa-user-secret"></i><span>Auditoría</span></a>
+    <a href="/admin/subscriptions/dashboard?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/subscriptions') else 'bg-gray-900' }}"><i class="fa-solid fa-ticket"></i><span>Suscripciones</span></a>
+    <a href="/admin/plans?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/plans') else 'bg-gray-900' }}"><i class="fa-solid fa-list"></i><span>Planes</span></a>
+    <a href="/admin/templates?ui=1" hx-headers='{"accept":"text/html"}' class="flex items-center gap-2 px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if p.startswith('/admin/templates') else 'bg-gray-900' }}"><i class="fa-solid fa-message"></i><span>Templates</span></a>
+  </nav>
+</aside>

@@ -7,6 +7,22 @@ from ..orm_models import Pago, TipoCuota, MetodoPago, ConceptoPago, Usuario, Con
 
 class PaymentRepository(BaseRepository):
     
+    def obtener_ultimos_pagos(self, usuario_id: int, limit: int = 10) -> List[Dict]:
+        stmt = select(Pago).where(Pago.usuario_id == usuario_id).order_by(Pago.fecha_pago.desc()).limit(limit)
+        pagos = self.db.scalars(stmt).all()
+        return [
+            {
+                'id': p.id, 
+                'usuario_id': p.usuario_id, 
+                'monto': float(p.monto), 
+                'mes': p.mes, 
+                'año': p.año, 
+                'fecha_pago': p.fecha_pago, 
+                'metodo_pago_id': p.metodo_pago_id
+            }
+            for p in pagos
+        ]
+
     def obtener_todos_pagos(self) -> List[Dict]:
         stmt = select(Pago).order_by(Pago.fecha_pago.desc(), Pago.año.desc(), Pago.mes.desc())
         pagos = self.db.scalars(stmt).all()

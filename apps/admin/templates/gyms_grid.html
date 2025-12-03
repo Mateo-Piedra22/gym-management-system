@@ -1,0 +1,81 @@
+<div id="gyms-section" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
+  {% for g in items %}
+  <div class="p-3 rounded-xl border border-gray-800 bg-[#0b1222] grid gap-3" data-gym-id="{{ g.id }}" data-next-due="{{ g.next_due_date or '' }}" x-data="{ edit:false, showCfg:false, more:false }">
+    <div class="flex flex-wrap justify-between items-center">
+      <div class="flex items-center gap-2 min-w-0">
+        <input type="checkbox" class="select-gym" value="{{ g.id }}" />
+        <div id="gym-name-{{ g.id }}" class="font-semibold truncate max-w-[60%]" title="{{ g.nombre }}">{{ g.nombre }}</div>
+        <button type="button" id="gym-sub-{{ g.id }}" class="text-gray-400 text-sm truncate max-w-[40%]" data-sub="{{ g.subdominio }}" title="{{ g.subdominio }}">{{ g.subdominio }}</button>
+        {% if g.webapp_url %}
+        <a id="gym-url-{{ g.id }}" href="{{ g.webapp_url }}" target="_blank" rel="noopener" class="text-blue-400 text-xs truncate max-w-[50%]" title="{{ g.webapp_url }}">{{ g.webapp_url }}</a>
+        {% endif %}
+      </div>
+      <div class="flex items-center gap-2 ml-auto">
+        <div id="health-mini-{{ g.id }}" hx-get="/admin/gyms/{{ g.id }}/health?snippet=1" hx-headers='{"accept":"text/html"}' hx-trigger="revealed delay:300ms throttle:500ms" hx-target="this" hx-select="*" hx-swap="innerHTML" hx-push-url="false" class="hidden sm:flex gap-1 items-center">
+          <div class="skeleton w-16 h-3 rounded-md"></div>
+        </div>
+        <span id="status-badge-{{ g.id }}" class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if g.status=='active' else ('bg-red-600 text-white' if g.status=='suspended' else ('bg-yellow-500 text-black' if g.status=='maintenance' else 'bg-gray-700 text-white')) }}">{{ g.status }}</span>
+      </div>
+    </div>
+    {% set next_due = g.next_due_date if g.next_due_date is defined else '' %}
+    {% set last_amt = g.last_payment_amount if g.last_payment_amount is defined else '' %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <div class="grid gap-2">
+        <div class="flex items-center justify-between"><span class="text-gray-400">Creado</span><span>{{ g.created_at }}</span></div>
+        <div class="flex items-center justify-between"><span class="text-gray-400">Vence</span><span class="flex items-center gap-2"><span>{{ next_due }}</span><span data-due-chip class="px-2 py-1 rounded-full text-xs"></span></span></div>
+        <div class="flex items-center justify-between"><span class="text-gray-400">Carpeta en bucket</span><span id="gym-folder-{{ g.id }}" class="truncate" title="{{ g.subdominio ~ '-assets' }}">{{ g.subdominio ~ '-assets' }}</span></div>
+      </div>
+      <div class="grid gap-2">
+        <div class="flex items-center justify-between"><span class="text-gray-400">Teléfono</span><span>{% if g.owner_phone and g.owner_phone|trim %}{{ g.owner_phone }}{% else %}No registrado{% endif %}</span></div>
+        <div class="flex items-center justify-between"><span class="text-gray-400">Último pago</span><span>{% if last_amt %}{{ last_amt }} {{ g.last_payment_currency or '' }}{% if g.last_payment_at %} · {{ g.last_payment_at }}{% endif %}{% else %}Sin pagos{% endif %}</span></div>
+        <div class="flex items-center justify-end"><button type="button" class="px-2 py-1 rounded-md bg-gray-900" x-on:click="showCfg=!showCfg">Configuración</button></div>
+      </div>
+    </div>
+    <div class="grid gap-2" x-show="showCfg">
+      <form hx-post="/admin/gyms/{{ g.id }}/contact" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <input name="owner_phone" value="{{ g.owner_phone }}" placeholder="+54..." class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
+        <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
+      </form>
+      <form hx-post="/admin/gyms/{{ g.id }}/update" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 gap-2 needs-confirm" data-confirm="Esta acción puede cambiar subdominio y carpeta. Puede afectar el acceso a archivos. ¿Confirmar?">
+        <input id="edit-name-{{ g.id }}" name="nombre" value="{{ g.nombre }}" placeholder="Nombre" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
+        <div>
+          <input id="edit-sub-{{ g.id }}" name="subdominio" value="{{ g.subdominio }}" placeholder="Subdominio" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950 w-full"
+                 hx-get="/admin/subdomains/check" hx-trigger="input changed" hx-target="#edit-sub-status-{{ g.id }}" hx-include="#edit-name-{{ g.id }}, #edit-sub-hidden-{{ g.id }}" hx-headers='{"accept":"text/html"}'
+                 x-on:input="document.getElementById('edit-sub-hidden-{{ g.id }}').value = $event.target.value" />
+          <input type="hidden" id="edit-sub-hidden-{{ g.id }}" name="sub" />
+          <span id="edit-sub-status-{{ g.id }}" class="text-xs text-gray-400"></span>
+          <div id="edit-folder-preview-{{ g.id }}" class="text-xs text-gray-400">{{ g.subdominio ~ '-assets' }}</div>
+        </div>
+        <label class="flex items-center gap-2"><input type="checkbox" name="disable_sync" /> <span class="text-sm text-gray-300">Desactivar sincronización obligatoria en esta edición</span></label>
+        
+        <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Guardar</button></div>
+      </form>
+    </div>
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <form hx-post="/admin/gyms/{{ g.id }}/provision" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground"><i class="fa-solid fa-cloud"></i><span class="ml-2">Provisionar</span></button></form>
+        <button type="button" class="px-3 py-2 rounded-md bg-red-600 text-white" data-open-suspend="{{ g.id }}"><i class="fa-solid fa-pause"></i><span class="ml-2">Suspender</span></button>
+        <form hx-post="/admin/gyms/{{ g.id }}/unsuspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline"><button type="submit" class="px-3 py-2 rounded-md bg-green-600 text-white"><i class="fa-solid fa-play"></i><span class="ml-2">Reactivar</span></button></form>
+      </div>
+      <div class="relative ml-auto">
+        <button type="button" class="px-3 py-2 rounded-md bg-gray-900" x-on:click="more=!more">⋮ Más acciones</button>
+        <div x-show="more" class="absolute right-0 mt-2 w-48 rounded-md border border-gray-800 bg-[#0b1222] z-10">
+          <button type="button" class="w-full text-left px-3 py-2" data-open-details="{{ g.id }}"><i class="fa-solid fa-circle-info"></i><span class="ml-2">Ver detalles</span></button>
+          <button type="button" class="w-full text-left px-3 py-2" x-on:click="edit=!edit"><i class="fa-solid fa-pen"></i><span class="ml-2">Editar</span></button>
+          
+          <form method="post" action="/admin/gyms/{{ g.id }}/delete" class="w-full needs-confirm" data-confirm="¿Eliminar gimnasio?"><button type="submit" class="w-full text-left px-3 py-2 text-red-500"><i class="fa-solid fa-trash"></i><span class="ml-2">Eliminar</span></button></form>
+        </div>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="/admin/gyms/{{ g.id }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-ticket"></i><span class="ml-2">Subs</span></a>
+      <a href="/admin/gyms/{{ g.id }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-dollar-sign"></i><span class="ml-2">Pagos</span></a>
+      <a href="/admin/gyms/{{ g.id }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-brands fa-whatsapp"></i><span class="ml-2">Soporte</span></a>
+      <a href="/admin/gyms/{{ g.id }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-stethoscope"></i><span class="ml-2">Salud</span></a>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<script>
+(function(){var cards=document.querySelectorAll('#gyms-section [data-gym-id]');for(var i=0;i<cards.length;i++){var nd=String(cards[i].getAttribute('data-next-due')||'').trim();if(!nd)continue;var chip=cards[i].querySelector('[data-due-chip]');if(!chip)continue;var days=null;try{var d=new Date(nd+'T00:00:00Z');var now=new Date();days=Math.ceil((d-now)/86400000)}catch(_){days=null}if(days===null){chip.textContent='';chip.className='px-2 py-1 rounded-full text-xs';continue}if(days<0){chip.textContent='vencido';chip.className='px-2 py-1 rounded-full text-xs bg-red-600 text-white'}else{chip.textContent=String(days)+' días';if(days<=7){chip.className='px-2 py-1 rounded-full text-xs bg-yellow-500 text-black'}else{chip.className='px-2 py-1 rounded-full text-xs bg-gray-700 text-white'}}}})();
+</script>

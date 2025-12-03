@@ -11,6 +11,83 @@ from ..orm_models import (
 
 class TeacherRepository(BaseRepository):
 
+    def obtener_detalle_profesores(self, start_date: Optional[date], end_date: Optional[date]) -> List[Dict]:
+        now = datetime.now()
+        mes_actual = now.month
+        anio_actual = now.year
+        
+        # We use text() for the complex CTE query
+        sql = text("""
+            WITH sesiones AS (
+                SELECT profesor_id,
+                       COUNT(*) AS sesiones_mes,
+                       COALESCE(SUM(minutos_totales) / 60.0, 0) AS horas_mes
+                FROM profesor_horas_trabajadas
+                WHERE hora_fin IS NOT NULL
+                  AND (
+                    ( :start_date IS NOT NULL AND :end_date IS NOT NULL AND fecha BETWEEN :start_date AND :end_date )
+                    OR ( (:start_date IS NULL OR :end_date IS NULL) AND EXTRACT(MONTH FROM fecha) = :mes_actual AND EXTRACT(YEAR FROM fecha) = :anio_actual )
+                  )
+                GROUP BY profesor_id
+            ),
+            horarios AS (
+                SELECT hp.profesor_id,
+                       COUNT(hp.id) AS horarios_count,
+                       JSON_AGG(
+                           JSON_BUILD_OBJECT(
+                               'dia', hp.dia_semana,
+                               'inicio', CAST(hp.hora_inicio AS TEXT),
+                               'fin', CAST(hp.hora_fin AS TEXT)
+                           )
+                           ORDER BY CASE hp.dia_semana 
+                               WHEN 'Lunes' THEN 1 
+                               WHEN 'Martes' THEN 2 
+                               WHEN 'Miércoles' THEN 3 
+                               WHEN 'Jueves' THEN 4 
+                               WHEN 'Viernes' THEN 5 
+                               WHEN 'Sábado' THEN 6 
+                               WHEN 'Domingo' THEN 7 
+                           END, hp.hora_inicio
+                       ) AS horarios
+                FROM horarios_profesores hp
+                GROUP BY hp.profesor_id
+            )
+            SELECT p.id AS id,
+                   COALESCE(u.nombre,'') AS nombre,
+                   '' AS email,
+                   COALESCE(u.telefono,'') AS telefono,
+                   COALESCE(h.horarios_count, 0) AS horarios_count,
+                   COALESCE(h.horarios, '[]'::json) AS horarios,
+                   COALESCE(s.sesiones_mes, 0) AS sesiones_mes,
+                   COALESCE(s.horas_mes, 0) AS horas_mes
+            FROM profesores p
+            JOIN usuarios u ON u.id = p.usuario_id
+            LEFT JOIN horarios h ON h.profesor_id = p.id
+            LEFT JOIN sesiones s ON s.profesor_id = p.id
+            ORDER BY p.id
+        """)
+        
+        result = self.db.execute(sql, {
+            "start_date": start_date, 
+            "end_date": end_date, 
+            "mes_actual": mes_actual, 
+            "anio_actual": anio_actual
+        }).fetchall()
+        
+        return [
+            {
+                "id": row.id,
+                "nombre": row.nombre,
+                "email": row.email,
+                "telefono": row.telefono,
+                "horarios_count": row.horarios_count,
+                "horarios": row.horarios,
+                "sesiones_mes": row.sesiones_mes,
+                "horas_mes": row.horas_mes
+            }
+            for row in result
+        ]
+
     def obtener_todos_profesores(self) -> List[Dict]:
         stmt = select(Profesor).order_by(Profesor.id)
         profesores = self.db.scalars(stmt).all()
@@ -129,6 +206,30 @@ class TeacherRepository(BaseRepository):
         profesor.usuario.activo = (nuevo_estado == 'activo')
         self.db.commit()
         return True
+
+    def obtener_horas_trabajadas_profesor(self, profesor_id: int, fecha_inicio: Optional[date] = None, fecha_fin: Optional[date] = None) -> List[Dict]:
+        stmt = select(ProfesorHoraTrabajada).where(ProfesorHoraTrabajada.profesor_id == profesor_id)
+        
+        if fecha_inicio:
+            stmt = stmt.where(ProfesorHoraTrabajada.fecha >= fecha_inicio)
+        if fecha_fin:
+            stmt = stmt.where(ProfesorHoraTrabajada.fecha <= fecha_fin)
+            
+        stmt = stmt.order_by(ProfesorHoraTrabajada.fecha.desc(), ProfesorHoraTrabajada.hora_inicio.desc())
+        
+        results = self.db.scalars(stmt).all()
+        return [
+            {
+                'id': s.id,
+                'fecha': s.fecha,
+                'hora_inicio': s.hora_inicio,
+                'hora_fin': s.hora_fin,
+                'minutos_totales': s.minutos_totales,
+                'horas_totales': s.horas_totales,
+                'tipo_actividad': s.tipo_actividad
+            }
+            for s in results
+        ]
 
     def actualizar_profesor_sesion(
         self,

@@ -12,6 +12,60 @@ from ..orm_models import (
 
 class UserRepository(BaseRepository):
     
+    def listar_usuarios_paginados(self, q: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[Dict]:
+        stmt = select(Usuario)
+        
+        if q:
+            stmt = stmt.where(
+                or_(
+                    Usuario.nombre.ilike(f"%{q}%"),
+                    Usuario.dni.ilike(f"%{q}%"),
+                    Usuario.telefono.ilike(f"%{q}%")
+                )
+            )
+            
+        stmt = stmt.order_by(Usuario.nombre.asc()).limit(limit).offset(offset)
+        
+        users = self.db.scalars(stmt).all()
+        return [
+            {
+                'id': u.id, 
+                'nombre': (u.nombre or "").strip(), 
+                'dni': u.dni, 
+                'telefono': u.telefono, 
+                'rol': (u.rol or "").strip().lower(), 
+                'tipo_cuota': u.tipo_cuota, 
+                'activo': u.activo, 
+                'fecha_registro': u.fecha_registro
+            }
+            for u in users
+        ]
+
+    def cambiar_usuario_id(self, current_id: int, new_id: int):
+        # This is a dangerous operation, but requested by the user/legacy code.
+        # We need to disable foreign key checks or cascade updates if the DB supports it, 
+        # or update all related tables manually.
+        # PostgreSQL ON UPDATE CASCADE handles this if configured.
+        # If not, we might fail.
+        
+        # Using raw SQL for this specific admin operation
+        try:
+            self.db.execute(text("UPDATE usuarios SET id = :new_id WHERE id = :old_id"), {"new_id": new_id, "old_id": current_id})
+            self.db.commit()
+        except Exception as e:
+            self.db.rollback()
+            raise e
+
+    def obtener_o_crear_etiqueta(self, nombre: str) -> Etiqueta:
+        stmt = select(Etiqueta).where(func.lower(Etiqueta.nombre) == nombre.lower().strip())
+        etiqueta = self.db.scalar(stmt)
+        if not etiqueta:
+            etiqueta = Etiqueta(nombre=nombre.strip(), color='#3498db')
+            self.db.add(etiqueta)
+            self.db.commit()
+            self.db.refresh(etiqueta)
+        return etiqueta
+
     # --- Basic CRUD ---
     def obtener_usuario(self, usuario_id: int) -> Optional[Usuario]:
         return self.db.get(Usuario, usuario_id)
