@@ -1086,26 +1086,73 @@ class AdminService:
             old_db = str((row or {}).get("db_name") or "").strip()
             new_sub = sd or old_sub
             
-            # Migrate Assets (B2) - simplified
-            if new_sub and old_sub and (new_sub != old_sub):
-                self._b2_migrate_prefix_for_sub(old_sub, new_sub)
-            
-            # Rename DB
-            if old_db and new_sub and old_sub and (new_sub != old_sub):
+            # If subdominio is changing, we need to handle renames
+            if sd and sd != old_sub:
+                # Migrate Assets (B2) - simplified
                 try:
-                    suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
-                    new_db = f"{new_sub}{suffix}"
-                    if self._rename_db_postgres(old_db, new_db):
-                        with self.db.get_connection_context() as conn:
-                            cur = conn.cursor()
-                            cur.execute("UPDATE gyms SET db_name = %s WHERE id = %s", (new_db, gid))
-                            conn.commit()
+                    self._b2_migrate_prefix_for_sub(old_sub, new_sub)
                 except Exception:
                     pass
+                
+                # Rename DB
+                if old_db:
+                    try:
+                        suffix = os.getenv("TENANT_DB_SUFFIX", "_db")
+                        new_db = f"{new_sub}{suffix}"
+                        # Check if rename is needed and if old_db != new_db
+                        if old_db != new_db:
+                            if self._rename_db_postgres(old_db, new_db):
+                                with self.db.get_connection_context() as conn:
+                                    cur = conn.cursor()
+                                    cur.execute("UPDATE gyms SET db_name = %s WHERE id = %s", (new_db, gid))
+                                    conn.commit()
+                    except Exception:
+                        pass
 
             return self.actualizar_gimnasio(gid, nm, sd)
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    def eliminar_gimnasio(self, gym_id: int) -> bool:
+        try:
+            db_name = None
+            subdominio = None
+            try:
+                with self.db.get_connection_context() as conn:
+                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur.execute("SELECT db_name, subdominio FROM gyms WHERE id = %s", (int(gym_id),))
+                    row = cur.fetchone()
+                if row:
+                    db_name = str(row.get("db_name") or "").strip()
+                    subdominio = str(row.get("subdominio") or "").strip().lower()
+            except Exception:
+                db_name = None
+            
+            # 1. Delete Assets (B2)
+            try:
+                if subdominio:
+                    self._b2_delete_prefix_for_sub(subdominio)
+            except Exception:
+                pass
+            
+            # 2. Drop Database
+            if db_name:
+                try:
+                    # Try Neon drop first if applicable, then standard Postgres drop
+                    if not self._eliminar_db_postgres(db_name):
+                        logger.warning(f"Could not drop database {db_name} for gym {gym_id}")
+                except Exception:
+                    pass
+            
+            # 3. Delete Record
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM gyms WHERE id = %s", (int(gym_id),))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error deleting gym {gym_id}: {e}")
+            return False
 
     def set_gym_owner_phone(self, gym_id: int, owner_phone: Optional[str]) -> bool:
         try:
