@@ -24,6 +24,7 @@ try:
     from core.services import UserService, PaymentService, GymService, AttendanceService, TeacherService
     from core.services.admin_service import AdminService
     from core.database.connection import SessionLocal
+    from core.database.raw_manager import RawPostgresManager
 except ImportError as e:
     logging.warning(f"Could not import core modules in dependencies.py. Ensure PYTHONPATH is set. Error: {e}")
     DatabaseManager = None
@@ -91,7 +92,7 @@ def get_admin_service() -> Optional[AdminService]:
         if AdminService is None:
             return None
         params = AdminService.resolve_admin_db_params()
-        db = DatabaseManager(connection_params=params)
+        db = RawPostgresManager(connection_params=params)
         return AdminService(db)
     except Exception as e:
         logger.error(f"Error instantiating AdminService: {e}")
