@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-Jinja2
+jinja2
 python-multipart
 python-dotenv
 itsdangerous
@@ -9,7 +9,7 @@ psutil
 psycopg2-binary
 reportlab
 openpyxl
-Pillow
+pillow
 xlsxtpl
 segno
 qrcode
@@ -18,6 +18,7 @@ pywa
 google-cloud-storage
 pandas
 cryptography
-sqlalchemy
+sqlalchemy>=2.0.0
 pydantic
 alembic
+typing-extensions
