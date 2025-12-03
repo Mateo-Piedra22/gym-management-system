@@ -43,11 +43,22 @@ except ImportError:
     psycopg2 = None
 
 
+from fastapi.staticfiles import StaticFiles
+
 admin_app = FastAPI(title="GymMS Admin", version="1.0")
 _cookie_domain = os.getenv("SESSION_COOKIE_DOMAIN", "").strip() or None
 _cookie_secure = (os.getenv("SESSION_COOKIE_SECURE", "1").strip().lower() in ("1", "true", "yes"))
 _cookie_samesite = (os.getenv("SESSION_COOKIE_SAMESITE", "lax").strip().lower() or "lax")
 admin_app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET", "admin-session"), domain=_cookie_domain, https_only=_cookie_secure, same_site=_cookie_samesite)
+
+try:
+    # Try to mount static files from webapp/static for shared styles
+    # Adjust path relative to apps/admin/main.py -> ../webapp/static
+    static_path = Path(__file__).parent.parent / "webapp" / "static"
+    if static_path.exists():
+        admin_app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+except Exception:
+    pass
 
 try:
     setattr(admin_app.state, "session_version", int(getattr(admin_app.state, "session_version", 1)))
@@ -331,10 +342,6 @@ async def admin_logout(request: Request):
     return JSONResponse({"ok": True}, status_code=200)
 
 @admin_app.get("/")
-async def admin_root_redirect(request: Request):
-    return RedirectResponse(url="/admin", status_code=303)
-
-@admin_app.get("/admin")
 async def admin_home(request: Request):
     acc = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
@@ -390,6 +397,10 @@ async def admin_home(request: Request):
         if wants_html:
             return Response(content="<div class=\"p-6 text-red-300\">Error interno del panel</div>", media_type="text/html", status_code=500)
         return JSONResponse({"ok": False, "error": "internal_home_render"}, status_code=500)
+
+@admin_app.get("/admin")
+async def admin_home_alias(request: Request):
+    return RedirectResponse(url="/", status_code=303)
 
 def _lim_key(request: Request, bucket: str) -> str:
     try:
