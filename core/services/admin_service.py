@@ -1426,3 +1426,63 @@ class AdminService:
         except Exception as e:
             logger.error(f"Error setting owner password for gym {gym_id}: {e}")
             return False
+
+    def listar_auditoria_avanzada(self, page: int, page_size: int, actor: Optional[str], action: Optional[str], gym_id: Optional[int], date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
+        try:
+            p = max(int(page or 1), 1)
+            ps = max(int(page_size or 20), 1)
+            where_terms: List[str] = []
+            params: List[Any] = []
+            
+            if actor:
+                where_terms.append("actor_username ILIKE %s")
+                params.append(f"%{actor}%")
+            if action:
+                where_terms.append("action ILIKE %s")
+                params.append(f"%{action}%")
+            if gym_id:
+                where_terms.append("gym_id = %s")
+                params.append(int(gym_id))
+            if date_from:
+                where_terms.append("created_at >= %s")
+                params.append(date_from)
+            if date_to:
+                where_terms.append("created_at <= %s")
+                # Add one day to include the end date fully if time is 00:00
+                params.append(f"{date_to} 23:59:59")
+                
+            where_sql = (" WHERE " + " AND ".join(where_terms)) if where_terms else ""
+            
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                cur.execute(f"SELECT COUNT(*) FROM admin_audit{where_sql}", params)
+                total_row = cur.fetchone()
+                total = int(total_row[0]) if total_row else 0
+                
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    f"SELECT * FROM admin_audit{where_sql} ORDER BY created_at DESC LIMIT %s OFFSET %s",
+                    params + [ps, (p - 1) * ps]
+                )
+                rows = cur.fetchall()
+            return {"items": [dict(r) for r in rows], "total": total, "page": p, "page_size": ps}
+        except Exception as e:
+            logger.error(f"Error listing audit advanced: {e}")
+            return {"items": [], "total": 0, "page": 1, "page_size": int(page_size or 20)}
+
+    def resumen_suscripciones(self) -> Dict[str, Any]:
+        try:
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT status, COUNT(*) FROM gym_subscriptions GROUP BY status")
+                rows = cur.fetchall()
+                stats = {r[0]: r[1] for r in rows}
+                
+                # Also get total active value?
+                # This might require joining with plans to get value
+                cur.execute("SELECT COALESCE(SUM(p.amount), 0) FROM gym_subscriptions s JOIN plans p ON p.id = s.plan_id WHERE s.status = 'active'")
+                monthly_rr = float(cur.fetchone()[0] or 0)
+                
+                return {"active": stats.get("active", 0), "total": sum(stats.values()), "stats": stats, "mrr": monthly_rr}
+        except Exception:
+            return {"active": 0, "total": 0, "stats": {}, "mrr": 0.0}

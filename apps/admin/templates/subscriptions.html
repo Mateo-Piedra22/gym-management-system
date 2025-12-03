@@ -8,7 +8,7 @@
   </div>
   <div class="flex flex-wrap gap-3 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
-    <form hx-get="{% if mode=='dashboard' %}/admin/subscriptions/dashboard{% else %}/admin/subscriptions/upcoming{% endif %}" hx-target="#subs-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="flex gap-2">
+    <form hx-get="{% if mode=='dashboard' %}/subscriptions/dashboard{% else %}/subscriptions/upcoming{% endif %}" hx-target="#subs-section" hx-swap="innerHTML" hx-push-url="true" hx-headers='{"accept":"text/html"}' class="flex gap-2">
       <label for="sub-days" class="text-sm text-gray-300">Días</label>
       <input id="sub-days" name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       {% if mode=='dashboard' %}
@@ -19,7 +19,7 @@
       <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Filtrar</button>
     </form>
     {% if mode=='dashboard' %}
-    <form hx-post="/admin/subscriptions/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="flex items-center gap-2">
+    <form hx-post="/subscriptions/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="flex items-center gap-2">
       <label for="remind-days" class="text-sm text-gray-300">Días</label>
       <input id="remind-days" name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar por ventana</button>
@@ -34,12 +34,12 @@
           <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div class="p-3 grid gap-3">
-            <form hx-post="/admin/subscriptions/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2">
+            <form hx-post="/subscriptions/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2">
               <label for="side-remind-days" class="text-sm text-gray-300">Días</label>
               <input id="side-remind-days" name="days" type="number" min="1" value="{{ days }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
               <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Recordar por ventana</button>
             </form>
-            <form hx-post="/admin/subscriptions/auto-suspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2 needs-confirm" data-confirm="¿Auto suspender?">
+            <form hx-post="/subscriptions/auto-suspend" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid gap-2 needs-confirm" data-confirm="¿Auto suspender?">
               <label for="side-grace-days" class="text-sm text-gray-300">Gracia (días)</label>
               <input id="side-grace-days" name="grace_days" type="number" min="0" value="7" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
               <button type="submit" class="px-3 py-2 rounded-md bg-red-600 text-white">Auto-suspender vencidos</button>
@@ -52,7 +52,7 @@
   (function(){var o=document.getElementById('open-actions');var ov=document.getElementById('actions-overlay');var c=document.getElementById('actions-close');var b=document.getElementById('actions-backdrop');function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden')}}if(o){o.addEventListener('click',function(){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');setTimeout(function(){if(c){c.focus()}},10)}})}if(c){c.addEventListener('click',close)}if(b){b.addEventListener('click',close)}document.addEventListener('keydown',function(e){if(e.key==='Escape'){close()}})})();
   </script>
   <div class="overflow-x-auto">
-    <form hx-post="/admin/subscriptions/remind-selected" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <form hx-post="/subscriptions/remind-selected" hx-headers='{"accept":"application/json"}' hx-swap="none">
       <table class="w-full text-sm">
         <thead>
           <tr class="text-gray-300">
@@ -74,7 +74,7 @@
             <td class="p-2">{{ it.subdominio }}</td>
             <td class="p-2">{{ it.next_due_date }}</td>
             <td class="p-2">
-              <form hx-post="/admin/gyms/{{ gid }}/subscription/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline">
+              <form hx-post="/gyms/{{ gid }}/subscription/remind" hx-headers='{"accept":"application/json"}' hx-swap="none" class="inline">
                 <input type="hidden" name="message" value="Recordatorio: vence el {{ it.next_due_date }}" />
                 <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">Recordar</button>
               </form>

@@ -6,7 +6,7 @@
     
     <div class="flex flex-wrap gap-3 items-center">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
-    <form method="get" action="/admin/gyms" class="flex flex-wrap gap-2">
+    <form method="get" action="/gyms" class="flex flex-wrap gap-2">
       <input name="q" value="{{ q }}" placeholder="Buscar por nombre o subdominio" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-full sm:min-w-[240px] sm:w-auto min-w-0" />
       <select name="status" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950">
         <option value="">Todos</option>
@@ -30,12 +30,12 @@
     </form>
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-sm text-gray-400">Estado:</span>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status=&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if not status_q else 'bg-gray-900' }}">Todos</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status=active&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='active' else 'bg-gray-900' }}">Activos</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status=suspended&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='suspended' else 'bg-gray-900' }}">Suspendidos</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status=maintenance&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
+      <a href="/gyms?ui=1&q={{ q }}&status=&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if not status_q else 'bg-gray-900' }}">Todos</a>
+      <a href="/gyms?ui=1&q={{ q }}&status=active&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='active' else 'bg-gray-900' }}">Activos</a>
+      <a href="/gyms?ui=1&q={{ q }}&status=suspended&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='suspended' else 'bg-gray-900' }}">Suspendidos</a>
+      <a href="/gyms?ui=1&q={{ q }}&status=maintenance&order_by={{ order_by }}&order_dir={{ order_dir }}&view={{ view or 'cards' }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if status_q=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
     </div>
-    <form method="get" action="/admin/gyms" class="flex flex-wrap items-center gap-2">
+    <form method="get" action="/gyms" class="flex flex-wrap items-center gap-2">
       <input name="page_size" value="{{ page_size }}" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 w-24" />
       <input type="hidden" name="ui" value="1" />
       <input type="hidden" name="page" value="1" />
@@ -44,10 +44,10 @@
     {% set dir_next = 'ASC' if (order_dir or 'DESC')=='DESC' else 'DESC' %}
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-sm text-gray-400">Ordenar por:</span>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=id&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='id' else 'bg-gray-900' }}">ID</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=created_at&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='created_at' else 'bg-gray-900' }}">Creado</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=nombre&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='nombre' else 'bg-gray-900' }}">Nombre</a>
-      <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=subdominio&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='subdominio' else 'bg-gray-900' }}">Subdominio</a>
+      <a href="/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=id&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='id' else 'bg-gray-900' }}">ID</a>
+      <a href="/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=created_at&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='created_at' else 'bg-gray-900' }}">Creado</a>
+      <a href="/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=nombre&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='nombre' else 'bg-gray-900' }}">Nombre</a>
+      <a href="/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=subdominio&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='subdominio' else 'bg-gray-900' }}">Subdominio</a>
       <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by=status&order_dir={{ dir_next }}" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if order_by=='status' else 'bg-gray-900' }}">Estado</a>
       <span class="ml-3 text-sm text-gray-400">Vista:</span>
       <a href="/admin/gyms?ui=1&q={{ q }}&status={{ status_q }}&order_by={{ order_by }}&order_dir={{ order_dir }}&view=cards" hx-headers='{"accept":"text/html"}' class="px-2 py-1 rounded-md {{ 'bg-primary text-primary-foreground' if (view or 'cards')=='cards' else 'bg-gray-900' }}">Tarjetas</a>
@@ -139,12 +139,12 @@
           <h3 id="create-title" class="text-base font-semibold text-white">Crear gimnasio</h3>
           <button id="create-cancel" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
-        <form hx-post="/admin/gyms" hx-headers='{"accept":"application/json"}' hx-swap="none" class="p-3 grid gap-2">
+        <form hx-post="/gyms" hx-headers='{"accept":"application/json"}' hx-swap="none" class="p-3 grid gap-2">
           <label for="create-name" class="text-sm text-gray-300">Nombre</label>
           <input id="create-name" name="nombre" required minlength="2" maxlength="80" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" />
           <label for="create-sub" class="text-sm text-gray-300">Subdominio</label>
           <input id="create-sub" name="subdominio" pattern="^[a-z0-9-]{1,63}$" title="Solo letras minúsculas, números y guiones" autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"
-                 hx-get="/admin/subdomains/check" hx-trigger="input changed" hx-target="#create-sub-status" hx-headers='{"accept":"text/html"}' hx-include="#create-name, #create-sub-hidden" x-on:input="document.getElementById('create-sub-hidden').value = $event.target.value" />
+                 hx-get="/subdomains/check" hx-trigger="input changed" hx-target="#create-sub-status" hx-headers='{"accept":"text/html"}' hx-include="#create-name, #create-sub-hidden" x-on:input="document.getElementById('create-sub-hidden').value = $event.target.value" />
           <input type="hidden" id="create-sub-hidden" name="sub" />
           <span id="create-sub-status" class="text-xs text-gray-400"></span>
           <div id="create-bucket" class="text-xs text-gray-400"></div>

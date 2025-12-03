@@ -989,3 +989,118 @@ async def update_gym_password(request: Request, gym_id: int, password: str = For
     except Exception:
         pass
     return JSONResponse({"ok": bool(ok)}, status_code=200)
+
+@admin_app.get("/audit")
+async def admin_audit_global(request: Request):
+    gr = _guard_html_login_redirect(request)
+    if gr: return gr
+    adm = _get_admin_service()
+    if not adm:
+        return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    
+    actor = request.query_params.get("actor")
+    action = request.query_params.get("action")
+    gym_id = request.query_params.get("gym_id")
+    date_from = request.query_params.get("from")
+    date_to = request.query_params.get("to")
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except Exception:
+        page = 1
+    
+    data = adm.listar_auditoria_avanzada(page, 20, actor, action, int(gym_id) if gym_id else None, date_from, date_to)
+    
+    return templates.TemplateResponse("audit.html", {
+        "request": request,
+        "items": data.get("items"),
+        "total": data.get("total"),
+        "page": page,
+        "page_size": 20,
+        "actor": actor,
+        "action": action,
+        "gym_id": gym_id,
+        "from": date_from,
+        "to": date_to,
+        "mode": "advanced"
+    })
+
+@admin_app.get("/subscriptions/dashboard")
+async def admin_subscriptions_dashboard(request: Request):
+    gr = _guard_html_login_redirect(request)
+    if gr: return gr
+    adm = _get_admin_service()
+    if not adm:
+         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    
+    try:
+        days = int(request.query_params.get("days") or 30)
+    except Exception:
+        days = 30
+        
+    stats = adm.resumen_suscripciones()
+    upcoming = adm.listar_proximos_vencimientos(days)
+    
+    return templates.TemplateResponse("subscriptions.html", {
+        "request": request, 
+        "stats": stats, 
+        "upcoming": upcoming, 
+        "mode": "dashboard", 
+        "days": days,
+        "q": request.query_params.get("q")
+    })
+
+@admin_app.get("/subscriptions/upcoming")
+async def admin_subscriptions_upcoming(request: Request):
+    gr = _guard_html_login_redirect(request)
+    if gr: return gr
+    adm = _get_admin_service()
+    if not adm:
+         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    
+    try:
+        days = int(request.query_params.get("days") or 14)
+    except Exception:
+        days = 14
+        
+    upcoming = adm.listar_proximos_vencimientos(days)
+    
+    return templates.TemplateResponse("subscriptions.html", {
+        "request": request, 
+        "upcoming": upcoming, 
+        "mode": "upcoming", 
+        "days": days
+    })
+
+@admin_app.post("/subscriptions/remind")
+async def admin_subscriptions_remind(request: Request):
+    _require_admin(request)
+    # Placeholder logic
+    return JSONResponse({"ok": True, "message": "Recordatorios enviados (simulado)"})
+
+@admin_app.post("/subscriptions/auto-suspend")
+async def admin_subscriptions_auto_suspend(request: Request):
+    _require_admin(request)
+    # Placeholder logic
+    return JSONResponse({"ok": True, "message": "Auto-suspensión ejecutada (simulado)"})
+
+@admin_app.get("/plans")
+async def admin_plans(request: Request):
+    gr = _guard_html_login_redirect(request)
+    if gr: return gr
+    adm = _get_admin_service()
+    if not adm:
+         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    
+    plans = adm.listar_planes()
+    return templates.TemplateResponse("plans.html", {"request": request, "plans": plans})
+
+@admin_app.get("/templates")
+async def admin_templates(request: Request):
+    gr = _guard_html_login_redirect(request)
+    if gr: return gr
+    adm = _get_admin_service()
+    if not adm:
+         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+         
+    tmpls = adm.listar_templates()
+    return templates.TemplateResponse("templates.html", {"request": request, "templates": tmpls})
