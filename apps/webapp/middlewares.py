@@ -249,13 +249,24 @@ class TenantGuardMiddleware(BaseHTTPMiddleware):
                     base = (os.getenv("TENANT_BASE_DOMAIN") or "").strip().lower().lstrip(".")
                 except Exception:
                     base = ""
-                is_base_host = bool(base and (host == base or host == ("www." + base))) or (host in ("localhost", "127.0.0.1"))
+                
+                # Allow if host matches base domain, localhost, OR is a Vercel deployment URL (ending in .vercel.app)
+                is_vercel = host.endswith(".vercel.app")
+                is_base_host = bool(base and (host == base or host == ("www." + base))) or (host in ("localhost", "127.0.0.1")) or is_vercel
+                
                 if p == "/" and is_base_host:
-                    return RedirectResponse(url="/admin", status_code=303)
+                    # Allow landing page on base host
+                    return await call_next(request)
+                    
                 if p.startswith("/admin"):
                     if is_base_host:
                         return await call_next(request)
                     return JSONResponse({"error": "tenant_not_found"}, status_code=404)
+                
+                # Allow auth routes and checkin even without tenant (might handle tenant selection inside)
+                if p.startswith("/auth") or p.startswith("/checkin") or p.startswith("/theme.css") or p.startswith("/healthz") or p.startswith("/webapp/base_url"):
+                     return await call_next(request)
+
                 return JSONResponse({"error": "tenant_not_found"}, status_code=404)
             try:
                 if _is_tenant_suspended(sub):

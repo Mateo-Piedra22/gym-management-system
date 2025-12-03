@@ -638,8 +638,22 @@ class AdminService:
             engine = create_engine(url, pool_pre_ping=True)
             
             # 1. Create Schema
+            tables = list(Base.metadata.tables.keys())
+            logger.info(f"Bootstrapping tenant {dbname}. Tables to create: {tables}")
+            
             Base.metadata.create_all(engine)
             
+            # Verify creation
+            try:
+                from sqlalchemy import inspect
+                insp = inspect(engine)
+                created_tables = insp.get_table_names()
+                logger.info(f"Tables actually created in {dbname}: {created_tables}")
+                if not created_tables:
+                    logger.error(f"CRITICAL: No tables created for {dbname} despite create_all execution.")
+            except Exception as e:
+                logger.error(f"Error verifying tables in {dbname}: {e}")
+
             # 2. Create Owner User if provided
             if owner_data:
                 Session = sessionmaker(bind=engine)

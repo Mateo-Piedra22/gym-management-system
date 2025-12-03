@@ -1,3 +1,7 @@
+import warnings
+# Ignore SyntaxWarnings from xltpl library
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=".*xltpl.*")
+
 from .database import DatabaseManager
 from .models import (
     Usuario,
