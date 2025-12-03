@@ -641,7 +641,8 @@ class AdminService:
             tables = list(Base.metadata.tables.keys())
             logger.info(f"Bootstrapping tenant {dbname}. Tables to create: {tables}")
             
-            Base.metadata.create_all(engine)
+            # Ensure we are using the bound engine
+            Base.metadata.create_all(bind=engine)
             
             # Verify creation
             try:
@@ -764,25 +765,49 @@ class AdminService:
             appname = (base.get("application_name") or "gym_admin_provisioner").strip()
             base_db = os.getenv("ADMIN_DB_BASE_NAME", "neondb").strip() or "neondb"
             
-            conn = psycopg2.connect(host=host, port=port, dbname=base_db, user=user, password=password, sslmode=sslmode, connect_timeout=connect_timeout, application_name=appname)
+            def try_create(conn_db):
+                conn = psycopg2.connect(host=host, port=port, dbname=conn_db, user=user, password=password, sslmode=sslmode, connect_timeout=connect_timeout, application_name=appname)
+                try:
+                    conn.autocommit = True
+                    cur = conn.cursor()
+                    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
+                    exists = bool(cur.fetchone())
+                    if not exists:
+                        try:
+                            cur.execute(f"CREATE DATABASE {name}")
+                        except Exception:
+                            pass
+                    cur.close()
+                    return True
+                finally:
+                    conn.close()
+
+            created = False
             try:
-                conn.autocommit = True
-                cur = conn.cursor()
-                cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
-                exists = bool(cur.fetchone())
-                if not exists:
-                    try:
-                        cur.execute(f"CREATE DATABASE {name}")
-                    except Exception:
-                        pass
-                cur.close()
-            finally:
-                conn.close()
+                created = try_create(base_db)
+            except Exception:
+                # Fallback to 'postgres' if base_db (neondb) fails
+                try:
+                    created = try_create("postgres")
+                except Exception:
+                    created = False
             
-            params = dict(base)
-            params["database"] = name
-            self._bootstrap_tenant_db(params, owner_data)
-            return True
+            if not created:
+                # Check if it exists anyway
+                 try:
+                    params = dict(base)
+                    params["database"] = name
+                    with RawPostgresManager(params).get_connection_context():
+                        created = True
+                 except Exception:
+                    return False
+
+            if created:
+                params = dict(base)
+                params["database"] = name
+                self._bootstrap_tenant_db(params, owner_data)
+                return True
+            return False
         except Exception as e:
             logger.error(f"Error creating DB {db_name}: {e}")
             return False
@@ -909,14 +934,105 @@ class AdminService:
         # Placeholder
         return True
 
+    def _b2_get_s3_client(self):
+        try:
+            import boto3
+            from botocore.config import Config
+            
+            endpoint = os.getenv("B2_ENDPOINT_URL") # e.g. https://s3.us-east-005.backblazeb2.com or Cloudflare endpoint
+            key_id = os.getenv("B2_KEY_ID") or os.getenv("B2_MASTER_KEY_ID")
+            app_key = os.getenv("B2_APPLICATION_KEY") or os.getenv("B2_MASTER_APPLICATION_KEY")
+            
+            if not endpoint or not key_id or not app_key:
+                return None
+                
+            return boto3.client(
+                's3',
+                endpoint_url=endpoint,
+                aws_access_key_id=key_id,
+                aws_secret_access_key=app_key,
+                config=Config(signature_version='s3v4')
+            )
+        except ImportError:
+            logger.warning("boto3 not installed, cannot use S3/B2 storage")
+            return None
+        except Exception as e:
+            logger.error(f"Error creating S3 client: {e}")
+            return None
+
     def _b2_ensure_prefix_for_sub(self, subdominio: str) -> bool:
-        return True
+        try:
+            s = str(subdominio or "").strip().lower()
+            if not s: return False
+            
+            bucket = os.getenv("B2_BUCKET_NAME")
+            if not bucket: return False
+            
+            s3 = self._b2_get_s3_client()
+            if not s3: return False
+            
+            # Create a placeholder file to "create" the directory
+            key = f"{s}-assets/.keep"
+            s3.put_object(Bucket=bucket, Key=key, Body=b"")
+            return True
+        except Exception as e:
+            logger.error(f"Error ensuring B2 prefix for {subdominio}: {e}")
+            return False
 
     def _b2_delete_prefix_for_sub(self, subdominio: str) -> bool:
-        return True
+        try:
+            s = str(subdominio or "").strip().lower()
+            if not s: return False
+            
+            bucket = os.getenv("B2_BUCKET_NAME")
+            if not bucket: return False
+            
+            s3 = self._b2_get_s3_client()
+            if not s3: return False
+            
+            prefix = f"{s}-assets/"
+            
+            # List and delete objects
+            paginator = s3.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+            
+            for page in pages:
+                if 'Contents' in page:
+                    objects = [{'Key': obj['Key']} for obj in page['Contents']]
+                    if objects:
+                        s3.delete_objects(Bucket=bucket, Delete={'Objects': objects})
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting B2 prefix for {subdominio}: {e}")
+            return False
 
     def _b2_migrate_prefix_for_sub(self, old_sub: str, new_sub: str) -> bool:
-        return True
+        try:
+            old_p = f"{old_sub}-assets/"
+            new_p = f"{new_sub}-assets/"
+            
+            bucket = os.getenv("B2_BUCKET_NAME")
+            if not bucket: return False
+            
+            s3 = self._b2_get_s3_client()
+            if not s3: return False
+            
+            # Copy objects
+            paginator = s3.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=bucket, Prefix=old_p)
+            
+            for page in pages:
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        old_key = obj['Key']
+                        new_key = old_key.replace(old_p, new_p, 1)
+                        s3.copy_object(Bucket=bucket, CopySource={'Bucket': bucket, 'Key': old_key}, Key=new_key)
+                        # Delete old
+                        s3.delete_object(Bucket=bucket, Key=old_key)
+            return True
+        except Exception as e:
+            logger.error(f"Error migrating B2 prefix: {e}")
+            return False
 
     # --- Complex Business Logic ---
 
@@ -1196,3 +1312,70 @@ class AdminService:
                 return [dict(r) for r in rows]
         except Exception:
             return []
+
+    def obtener_auditoria_gym(self, gym_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        try:
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute(
+                    "SELECT actor_username, action, details, created_at FROM admin_audit WHERE gym_id = %s ORDER BY created_at DESC LIMIT %s",
+                    (int(gym_id), int(limit))
+                )
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def listar_planes(self) -> List[Dict[str, Any]]:
+        try:
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT id, name, amount, currency, period_days, active FROM plans ORDER BY amount ASC")
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+        except Exception:
+            return []
+
+    def listar_templates(self) -> List[Dict[str, Any]]:
+        # Placeholder: return empty list or hardcoded templates
+        # If there was a templates table, query it here.
+        return []
+
+    def set_gym_owner_password(self, gym_id: int, new_password: str) -> bool:
+        try:
+            if not (new_password or "").strip(): return False
+            
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT db_name FROM gyms WHERE id = %s", (int(gym_id),))
+                row = cur.fetchone()
+            if not row: return False
+            db_name = str(row[0] or "").strip()
+            if not db_name: return False
+
+            params = self.resolve_admin_db_params()
+            params["database"] = db_name
+            
+            pg_params = {
+                "host": params.get("host"),
+                "port": params.get("port"),
+                "dbname": params.get("database"),
+                "user": params.get("user"),
+                "password": params.get("password"),
+                "sslmode": params.get("sslmode"),
+                "connect_timeout": params.get("connect_timeout"),
+                "application_name": "gym_admin_set_owner_password"
+            }
+
+            ph = self._hash_password(new_password)
+
+            with psycopg2.connect(**pg_params) as t_conn:
+                with t_conn.cursor() as t_cur:
+                    # Assuming tenant DB has 'usuarios' table with 'rol' and 'password_hash'
+                    t_cur.execute("UPDATE usuarios SET password_hash = %s WHERE rol = 'owner'", (ph,))
+                t_conn.commit()
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error setting owner password for gym {gym_id}: {e}")
+            return False

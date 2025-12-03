@@ -20,12 +20,15 @@
     {% set base = '/admin/gyms/' ~ gid %}
     <a href="{{ base }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='subscription' else 'bg-gray-900' }}">Suscripción</a>
     <a href="{{ base }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='payments' else 'bg-gray-900' }}">Pagos</a>
+    <a href="{{ base }}/audit?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='audit' else 'bg-gray-900' }}">Auditoría</a>
+    <a href="{{ base }}/plans?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='plans' else 'bg-gray-900' }}">Planes</a>
+    <a href="{{ base }}/templates?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='templates' else 'bg-gray-900' }}">Templates</a>
     <a href="{{ base }}/whatsapp?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='whatsapp' else 'bg-gray-900' }}">WhatsApp</a>
     <a href="{{ base }}/storage?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='storage' else 'bg-gray-900' }}">Storage</a>
     <a href="{{ base }}/maintenance?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='maintenance' else 'bg-gray-900' }}">Mantenimiento</a>
     <a href="{{ base }}/branding?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='branding' else 'bg-gray-900' }}">Branding</a>
     <a href="{{ base }}/health?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='health' else 'bg-gray-900' }}">Salud</a>
-    <a href="{{ base }}/owner?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='owner' else 'bg-gray-900' }}">Contraseña dueño</a>
+    <a href="{{ base }}/password?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='password' else 'bg-gray-900' }}">Contraseña dueño</a>
   </div>
 
   {% if section=='whatsapp' %}
@@ -289,6 +292,77 @@
     <a href="#" id="recheck-health" class="ml-2 px-3 py-2 rounded-md bg-gray-800 text-white">Re-chequear salud</a>
     {% endif %}
   </div>
+  {% elif section=='audit' %}
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4 overflow-x-auto">
+    <h2 class="text-white text-sm mb-4">Auditoría</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-300 border-b border-gray-800">
+          <th class="text-left p-2">Fecha</th>
+          <th class="text-left p-2">Usuario</th>
+          <th class="text-left p-2">Acción</th>
+          <th class="text-left p-2">Detalles</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in audit_logs %}
+        <tr class="border-b border-gray-800 last:border-0">
+          <td class="p-2">{{ log.created_at }}</td>
+          <td class="p-2">{{ log.actor_username }}</td>
+          <td class="p-2">{{ log.action }}</td>
+          <td class="p-2 text-xs font-mono text-gray-400">{{ log.details or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="p-4 text-center text-gray-500">Sin registros recientes</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif section=='plans' %}
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4 overflow-x-auto">
+    <h2 class="text-white text-sm mb-4">Planes Globales</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-gray-300 border-b border-gray-800">
+          <th class="text-left p-2">ID</th>
+          <th class="text-left p-2">Nombre</th>
+          <th class="text-left p-2">Precio</th>
+          <th class="text-left p-2">Periodo (días)</th>
+          <th class="text-left p-2">Activo</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for plan in plans %}
+        <tr class="border-b border-gray-800 last:border-0">
+          <td class="p-2">{{ plan.id }}</td>
+          <td class="p-2 font-medium">{{ plan.name }}</td>
+          <td class="p-2">{{ plan.amount }} {{ plan.currency }}</td>
+          <td class="p-2">{{ plan.period_days }}</td>
+          <td class="p-2">{{ 'Sí' if plan.active else 'No' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="p-4 text-center text-gray-500">No hay planes configurados</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif section=='templates' %}
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+    <h2 class="text-white text-sm mb-4">Templates</h2>
+    <p class="text-gray-400 text-sm">No hay templates configurados.</p>
+  </div>
+  {% elif section=='password' %}
+  <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4 max-w-md">
+    <h2 class="text-white text-sm mb-4">Cambiar Contraseña del Dueño</h2>
+    <form method="post" action="/admin/gyms/{{ gid }}/password" class="grid gap-4 needs-confirm" data-confirm="¿Cambiar contraseña?" hx-headers='{"accept":"application/json"}' hx-swap="none">
+      <div>
+        <label for="new-password" class="block text-sm text-gray-300 mb-1">Nueva Contraseña</label>
+        <input id="new-password" name="password" type="password" required minlength="6" class="w-full px-3 py-2 rounded-md border border-gray-700 bg-gray-950 text-white" />
+      </div>
+      <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Actualizar Contraseña</button>
+    </form>
+    <div id="password-status" class="text-xs text-gray-400 mt-2" aria-live="polite"></div>
+  </div>
   {% endif %}
   </div>
 {% endblock %}
@@ -330,7 +404,7 @@
   <script>
   (function(){
     var unsaved={};
-    function statusForAction(act){try{var a=String(act||'');if(a.indexOf('/whatsapp/test')>=0)return document.getElementById('wa-test-status');if(a.indexOf('/whatsapp')>=0)return document.getElementById('wa-status');if(a.indexOf('/branding')>=0)return document.getElementById('brand-status');if(a.indexOf('/storage')>=0)return document.getElementById('storage-status');if(a.indexOf('/subscription')>=0)return document.getElementById('subscription-status');if(a.indexOf('/payments')>=0)return document.getElementById('payments-status');if(a.indexOf('/maintenance')>=0)return document.getElementById('maintenance-status');return null}catch(_){return null}}
+    function statusForAction(act){try{var a=String(act||'');if(a.indexOf('/whatsapp/test')>=0)return document.getElementById('wa-test-status');if(a.indexOf('/whatsapp')>=0)return document.getElementById('wa-status');if(a.indexOf('/branding')>=0)return document.getElementById('brand-status');if(a.indexOf('/storage')>=0)return document.getElementById('storage-status');if(a.indexOf('/subscription')>=0)return document.getElementById('subscription-status');if(a.indexOf('/payments')>=0)return document.getElementById('payments-status');if(a.indexOf('/maintenance')>=0)return document.getElementById('maintenance-status');if(a.indexOf('/password')>=0)return document.getElementById('password-status');return null}catch(_){return null}}
     function updateUnsavedBadge(act){try{var st=statusForAction(act);if(!st)return;var c=unsaved[act]?Object.keys(unsaved[act]).length:0;if(c>0){st.textContent='Cambios sin guardar: '+c}}catch(_){}}
     function validateField(inp){try{if(!inp||!inp.checkValidity)return;var ok=inp.checkValidity();inp.setAttribute('aria-invalid',ok?'false':'true');inp.style.borderColor=ok?'#16a34a':'#ef4444'}catch(_){}}
     function onFieldChange(e){try{var f=e.target&&e.target.closest&&e.target.closest('form');if(!f)return;var act=(f.getAttribute('action')||'');var name=(e.target.getAttribute('name')||e.target.id||'field');unsaved[act]=unsaved[act]||{};unsaved[act][name]=true;validateField(e.target);updateUnsavedBadge(act)}catch(_){}}
@@ -345,7 +419,7 @@
   </script>
   <script>
   (function(){
-    function statusForAction(act){try{var a=String(act||'');if(a.indexOf('/whatsapp/test')>=0)return document.getElementById('wa-test-status');if(a.indexOf('/whatsapp')>=0)return document.getElementById('wa-status');if(a.indexOf('/branding')>=0)return document.getElementById('brand-status');if(a.indexOf('/storage')>=0)return document.getElementById('storage-status');if(a.indexOf('/subscription')>=0)return document.getElementById('subscription-status');if(a.indexOf('/payments')>=0)return document.getElementById('payments-status');if(a.indexOf('/maintenance')>=0)return document.getElementById('maintenance-status');return null}catch(_){return null}}
+    function statusForAction(act){try{var a=String(act||'');if(a.indexOf('/whatsapp/test')>=0)return document.getElementById('wa-test-status');if(a.indexOf('/whatsapp')>=0)return document.getElementById('wa-status');if(a.indexOf('/branding')>=0)return document.getElementById('brand-status');if(a.indexOf('/storage')>=0)return document.getElementById('storage-status');if(a.indexOf('/subscription')>=0)return document.getElementById('subscription-status');if(a.indexOf('/payments')>=0)return document.getElementById('payments-status');if(a.indexOf('/maintenance')>=0)return document.getElementById('maintenance-status');if(a.indexOf('/password')>=0)return document.getElementById('password-status');return null}catch(_){return null}}
     document.body.addEventListener('htmx:beforeRequest', function(evt){try{var t=evt.target;var f=t&&t.closest&&t.closest('form');if(!f)return;var act=(f.getAttribute('action')||'');var st=statusForAction(act);var btn=f.querySelector('[type="submit"]');if(st){st.textContent='Guardando...'}if(btn){btn.setAttribute('disabled','disabled')}}catch(_){}});
     document.body.addEventListener('htmx:afterRequest', function(evt){try{var t=evt.target;var f=t&&t.closest&&t.closest('form');if(!f)return;var btn=f.querySelector('[type="submit"]');if(btn){btn.removeAttribute('disabled')}}catch(_){}});
     document.body.addEventListener('htmx:afterOnLoad', function(evt){try{var xhr=evt.detail.xhr;var txt=xhr&&xhr.responseText||'';var j=null;try{j=JSON.parse(txt)}catch(_){j=null}var t=evt.target;var f=t&&t.closest&&t.closest('form');var act=(f&&f.getAttribute('action'))||'';var st=statusForAction(act);if(j&&j.ok){if(st){st.textContent='Guardado'}}else{if(st){st.textContent='Error'}}}catch(_){}});

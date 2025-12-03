@@ -331,6 +331,10 @@ async def admin_logout(request: Request):
     return JSONResponse({"ok": True}, status_code=200)
 
 @admin_app.get("/")
+async def admin_root_redirect(request: Request):
+    return RedirectResponse(url="/admin", status_code=303)
+
+@admin_app.get("/admin")
 async def admin_home(request: Request):
     acc = (request.headers.get("accept") or "").lower()
     wants_html = ("text/html" in acc) or (request.query_params.get("ui") == "1")
@@ -342,10 +346,13 @@ async def admin_home(request: Request):
         try:
             if wants_html:
                 return templates.TemplateResponse("login.html", {"request": request, "hide_sidebar": True})
+            # If API request to /admin without auth, redirect to login for consistency if browser, else 401
+            if "text/html" in acc:
+                 return RedirectResponse(url="/login", status_code=303)
             return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
         except Exception:
             if wants_html:
-                return RedirectResponse(url="/admin/login", status_code=303)
+                return RedirectResponse(url="/login", status_code=303)
             return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     warnings: List[str] = []
     try:
@@ -862,3 +869,99 @@ async def storage_form(request: Request, gym_id: int):
             "folder_prefix": folder_prefix,
         },
     )
+
+# --- Endpoints para las secciones faltantes ---
+
+@admin_app.get("/gyms/{gym_id}/audit")
+async def gym_audit(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    audit_logs = adm.obtener_auditoria_gym(int(gym_id)) if adm else []
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "audit", "gid": int(gym_id), "audit_logs": audit_logs})
+
+@admin_app.get("/gyms/{gym_id}/subscriptions")
+async def gym_subscriptions(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    plans = adm.listar_planes() if adm else []
+    # Fetch current subscription info if needed, but gym-settings.html template might expect 'subscription' object or 'plans' list
+    # Currently 'subscription' section in template uses 'plans' loop (line 187) and 'subscription' object (line 177)
+    # I should probably fetch subscription details here too, similar to how I might have done in other places or rely on passed data
+    # Wait, looking at existing 'subscription' section in template, it uses `subscription` and `plans`.
+    # Where does `subscription` come from? In `listar_gimnasios_con_resumen` query, there is some sub info.
+    # But for detailed view, I might need to fetch it.
+    # `admin_service` doesn't have `obtener_suscripcion_gym`.
+    # I should probably add it or infer it.
+    # Let's look at `gym_subscriptions` endpoint.
+    # I'll fetch plans. I'll try to fetch subscription details if I can.
+    # Actually, `gym-settings.html` expects `plans` for the dropdown.
+    # It also expects `subscription` object with `plan`, `start_date`, `valid_until`.
+    # I should fetch these.
+    sub = None
+    try:
+        with adm.db.get_connection_context() as conn:
+             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+             cur.execute("SELECT gs.start_date, gs.next_due_date as valid_until, gs.status, p.name as plan_name, p.amount, p.currency FROM gym_subscriptions gs LEFT JOIN plans p ON p.id = gs.plan_id WHERE gs.gym_id = %s", (int(gym_id),))
+             row = cur.fetchone()
+             if row:
+                 sub = {
+                     "plan": row.get("plan_name"),
+                     "start_date": row.get("start_date"),
+                     "valid_until": row.get("valid_until"),
+                     "status": row.get("status")
+                 }
+    except Exception:
+        pass
+    
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "subscription", "gid": int(gym_id), "plans": plans, "subscription": sub or {}})
+
+@admin_app.get("/gyms/{gym_id}/plans")
+async def gym_plans(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    plans = adm.listar_planes() if adm else []
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "plans", "gid": int(gym_id), "plans": plans})
+
+@admin_app.get("/gyms/{gym_id}/templates")
+async def gym_templates(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    tmpls = adm.listar_templates() if adm else []
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "templates", "gid": int(gym_id), "templates": tmpls})
+
+@admin_app.get("/gyms/{gym_id}/payments")
+async def gym_payments(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    items = adm.listar_pagos(int(gym_id)) if adm else []
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "payments", "gid": int(gym_id), "items": items})
+
+@admin_app.get("/gyms/{gym_id}/maintenance")
+async def gym_maintenance(request: Request, gym_id: int):
+    _require_admin(request)
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "maintenance", "gid": int(gym_id)})
+
+@admin_app.get("/gyms/{gym_id}/branding")
+async def gym_branding(request: Request, gym_id: int):
+    _require_admin(request)
+    adm = _get_admin_service()
+    g = adm.obtener_gimnasio(int(gym_id)) if adm else {}
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "branding", "gid": int(gym_id), "gym": g})
+
+@admin_app.get("/gyms/{gym_id}/password")
+async def gym_password(request: Request, gym_id: int):
+    _require_admin(request)
+    return templates.TemplateResponse("gym-settings.html", {"request": request, "section": "password", "gid": int(gym_id)})
+
+@admin_app.post("/gyms/{gym_id}/password")
+async def update_gym_password(request: Request, gym_id: int, password: str = Form(...)):
+    _require_admin(request)
+    adm = _get_admin_service()
+    if adm is None:
+         return JSONResponse({"error": "DB admin no disponible"}, status_code=500)
+    ok = adm.set_gym_owner_password(int(gym_id), password)
+    try:
+        adm.log_action("owner", "set_gym_password", int(gym_id), None)
+    except Exception:
+        pass
+    return JSONResponse({"ok": bool(ok)}, status_code=200)
