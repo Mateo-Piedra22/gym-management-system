@@ -54,8 +54,8 @@
       for(var i=0;i<links.length;i++){
         var a=links[i];
         var href=(a.getAttribute('href')||'').split('?')[0];
-        var isHome=(href==='/admin/'||href==='/admin');
-        var match=isHome?(p==='/admin'||p==='/admin/'):(p.indexOf(href.split('?')[0])===0);
+        var isHome=(href==='/'||href==='/admin'||href==='/admin/');
+        var match=isHome?(p==='/'||p==='/admin'||p==='/admin/'):(p.indexOf(href.split('?')[0])===0&&href!=='/'&&href!=='/admin');
         if(match){
           a.classList.add('bg-primary','text-primary-foreground');
           a.classList.remove('bg-gray-900');
@@ -70,7 +70,7 @@
   document.addEventListener('htmx:afterOnLoad',_updateSidebarActive);
   document.addEventListener('htmx:afterSwap',_updateSidebarActive);
   window.addEventListener('popstate',_updateSidebarActive);
-  document.addEventListener('keydown',function(e){try{if(e.altKey&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey){var k=e.key;var pref=window.apiPref?window.apiPref():'';if(k==='1'){window.location.href=pref+'/admin/?ui=1'}else if(k==='2'){window.location.href=pref+'/admin/gyms?ui=1'}else if(k==='3'){window.location.href=pref+'/admin/audit?ui=1'}else if(k==='4'){window.location.href=pref+'/admin/subscriptions/dashboard?ui=1'}else if(k==='5'){window.location.href=pref+'/admin/plans?ui=1'}else if(k==='6'){window.location.href=pref+'/admin/templates?ui=1'}}}catch(_){}});
+  document.addEventListener('keydown',function(e){try{if(e.altKey&&!e.shiftKey&&!e.ctrlKey&&!e.metaKey){var k=e.key;var pref=window.apiPref?window.apiPref():'';if(k==='1'){window.location.href=pref+'/?ui=1'}else if(k==='2'){window.location.href=pref+'/gyms?ui=1'}else if(k==='3'){window.location.href=pref+'/audit?ui=1'}else if(k==='4'){window.location.href=pref+'/subscriptions/dashboard?ui=1'}else if(k==='5'){window.location.href=pref+'/plans?ui=1'}else if(k==='6'){window.location.href=pref+'/templates?ui=1'}}}catch(_){}});
   (function(){var ov=document.getElementById('global-confirm-overlay');var msg=document.getElementById('global-confirm-message');var yes=document.getElementById('global-confirm-yes');var cancel=document.getElementById('global-confirm-cancel');var cancel2=document.getElementById('global-confirm-cancel-2');var pending=null;function open(m,formOrFn){if(ov){ov.classList.remove('hidden');document.body.classList.add('overflow-hidden');msg.textContent=m||'¿Confirmar?';pending=formOrFn}}function close(){if(ov){ov.classList.add('hidden');document.body.classList.remove('overflow-hidden');pending=null}}window.openGlobalConfirm=open;window.closeGlobalConfirm=close;window.confirmAction=function(m,fn){open(m,typeof fn==='function'?fn:null)};document.addEventListener('submit',function(e){var f=e&&e.target;if(!f||!f.classList||!f.classList.contains('needs-confirm'))return;e.preventDefault();var m=f.getAttribute('data-confirm')||'¿Confirmar?';open(m,f)},true);if(yes){yes.addEventListener('click',function(){try{if(typeof pending==='function'){pending()}else if(pending&&pending.submit){pending.submit();yes.setAttribute('disabled','disabled')}}catch(_){ }close();setTimeout(function(){try{yes.removeAttribute('disabled')}catch(_){}},1200)})}if(cancel){cancel.addEventListener('click',close)}if(cancel2){cancel2.addEventListener('click',close)}if(ov){ov.addEventListener('click',function(e){if(e.target===ov){close()}})}document.addEventListener('keydown',function(e){if(e.key==='Escape'){if(ov&&!ov.classList.contains('hidden')){close()}}})})();
   document.body.addEventListener('htmx:afterSwap',function(ev){try{var main=document.getElementById('main');var tgt=ev&&ev.detail&&ev.detail.target?ev.detail.target:null;if(tgt&&main&&tgt===main){var n=document.getElementById('create-name');var s=document.getElementById('create-sub');var st=document.getElementById('create-sub-status');var b=document.getElementById('create-bucket');var prefEl=document.getElementById('bucket-prefix');var pref=prefEl?String(prefEl.getAttribute('data-value')||'motiona-assets'):'motiona-assets';if(n&&s&&window.bindSubdomainBucket){window.bindSubdomainBucket('create-name','create-sub',st?'create-sub-status':null,b?'create-bucket':null,pref)}}}catch(_){}});
   (function(){
@@ -78,7 +78,7 @@
     var bm=document.getElementById('busy-message');
     function msgForPath(elt,path){
       var p=String(path||'');
-      if(p.indexOf('/admin/gyms')===0){
+      if(p.indexOf('/gyms')===0 || p.indexOf('/admin/gyms')===0){
         if(p.match(/\/gyms\/\d+\/update/)){
           return 'Actualizando gimnasio'
         }
@@ -89,8 +89,8 @@
         if(p.indexOf('/subscription')>0){return 'Procesando suscripción'}
         return 'Procesando'
       }
-      if(p.indexOf('/admin/templates')===0){return 'Procesando templates'}
-      if(p.indexOf('/admin/subscriptions')===0){return 'Procesando suscripciones'}
+      if(p.indexOf('/templates')===0 || p.indexOf('/admin/templates')===0){return 'Procesando templates'}
+      if(p.indexOf('/subscriptions')===0 || p.indexOf('/admin/subscriptions')===0){return 'Procesando suscripciones'}
       return 'Procesando'
     }
     function showBusy(txt){
@@ -141,7 +141,7 @@
     document.addEventListener('submit',function(e){
       var f=e&&e.target;
       var a=(f&&f.getAttribute)?(f.getAttribute('action')||''):'';
-      if(a&&a.indexOf('/admin/')===0){
+      if(a&&(a.indexOf('/admin/')===0||a.indexOf('/')===0)){
         showBusy(msgForPath(f,a));
         var btn=f.querySelector('button[type="submit"]');
         if(btn){btn.setAttribute('disabled','disabled')}

@@ -11,7 +11,7 @@ import psycopg2
 import psycopg2.extras
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from core.database.orm_models import Base, Usuario, Configuracion
+from core.database.orm_models import Base, Usuario, Configuracion, MetodoPago, TipoCuota, ConceptoPago
 
 try:
     import requests
@@ -681,6 +681,25 @@ class AdminService:
                         )
                         session.add(cfg)
                         
+                        # Initialize default data
+                        # Payment Methods
+                        mp_efectivo = MetodoPago(nombre="Efectivo", icono="fa-money", color="#2ecc71", activo=True)
+                        mp_transf = MetodoPago(nombre="Transferencia", icono="fa-bank", color="#3498db", activo=True)
+                        session.add(mp_efectivo)
+                        session.add(mp_transf)
+
+                        # Quota Types
+                        tc_mensual = TipoCuota(nombre="Mensual", precio=30.00, descripcion="Acceso mensual completo", duracion_dias=30, activo=True)
+                        tc_diario = TipoCuota(nombre="Pase Diario", precio=5.00, descripcion="Acceso por un día", duracion_dias=1, activo=True)
+                        session.add(tc_mensual)
+                        session.add(tc_diario)
+
+                        # Payment Concepts
+                        cp_cuota = ConceptoPago(nombre="Cuota Mensual", tipo="fijo", precio_base=30.00, descripcion="Pago de cuota mensual", activo=True)
+                        cp_matricula = ConceptoPago(nombre="Matrícula", tipo="fijo", precio_base=10.00, descripcion="Matrícula de inscripción", activo=True)
+                        session.add(cp_cuota)
+                        session.add(cp_matricula)
+                        
                         session.commit()
                 except Exception as e:
                     logger.error(f"Error seeding owner in {dbname}: {e}")
@@ -745,10 +764,20 @@ class AdminService:
                     owner = "neondb_owner"
                     cr = requests.post(f"{api}/projects/{project_id}/branches/{branch_id}/databases", headers=headers, json={"database": {"name": name, "owner_name": owner}}, timeout=12)
                     if 200 <= cr.status_code < 300:
+                        # Wait for DB to be ready
+                        import time
+                        time.sleep(2) # Initial wait
+                        
                         params = self.resolve_admin_db_params()
                         params["database"] = name
-                        self._bootstrap_tenant_db(params, owner_data)
-                        return True
+                        
+                        # Retry bootstrap a few times
+                        for i in range(5):
+                            if self._bootstrap_tenant_db(params, owner_data):
+                                return True
+                            time.sleep(2)
+                        
+                        return False
                     return False
                 
             # Fallback to standard Postgres creation
@@ -812,20 +841,23 @@ class AdminService:
             logger.error(f"Error creating DB {db_name}: {e}")
             return False
 
-    def _crear_db_postgres_con_reintentos(self, db_name: str, intentos: int = 3, espera: float = 2.0, owner_data: Optional[Dict[str, Any]] = None) -> bool:
+    def _crear_db_postgres_con_reintentos(self, db_name: str, intentos: int = 3, espera: float = 2.0, owner_data: Optional[Dict[str, Any]] = None) -> tuple[bool, str]:
         ok = False
+        last_err = ""
         for i in range(max(1, int(intentos))):
             try:
                 ok = bool(self._crear_db_postgres(db_name, owner_data))
                 if ok:
-                    break
-            except Exception:
+                    return True, ""
+                last_err = "create_failed"
+            except Exception as e:
                 ok = False
+                last_err = str(e)
             try:
                 time.sleep(espera)
             except Exception:
                 pass
-        return bool(ok)
+        return False, last_err
 
     def _eliminar_db_postgres(self, db_name: str) -> bool:
         try:
@@ -1047,9 +1079,9 @@ class AdminService:
         
         # Create DB
         owner_data = {"phone": owner_phone, "gym_name": nombre}
-        created_db = self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0, owner_data=owner_data)
+        created_db, err_msg = self._crear_db_postgres_con_reintentos(db_name, intentos=3, espera=2.0, owner_data=owner_data)
         if not created_db:
-            return {"error": "db_creation_failed"}
+            return {"error": f"db_creation_failed: {err_msg}"}
             
         try:
             with self.db.get_connection_context() as conn:

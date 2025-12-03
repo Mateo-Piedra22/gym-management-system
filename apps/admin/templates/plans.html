@@ -4,7 +4,7 @@
 <div id="plans-section" class="max-w-5xl mx-auto" x-data="{ tab: 'list' }">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-semibold">Planes</h1>
-    <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
+    <a href="/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
   </div>
   <div class="mt-4 flex gap-2">
     <button id="open-actions" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Acciones</button>
@@ -19,7 +19,7 @@
           <button id="actions-close" class="px-2 py-1 rounded-md bg-gray-800">Cerrar</button>
         </div>
         <div class="p-3 grid gap-3">
-            <form hx-post="/admin/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-2 gap-2">
+            <form hx-post="/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-2 gap-2">
               <label for="side-plan-name" class="text-sm text-gray-300">Nombre</label>
               <input id="side-plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
               <label for="side-plan-amount" class="text-sm text-gray-300">Monto</label>
@@ -55,7 +55,7 @@
         <tr class="border-t border-gray-800">
           <td class="p-2">{{ p.id }}</td>
           <td class="p-2">
-            <form hx-post="/admin/plans/{{ p.id }}" hx-headers='{"accept":"application/json"}' hx-swap="none" class="flex items-center gap-2">
+            <form hx-post="/plans/{{ p.id }}" hx-headers='{"accept":"application/json"}' hx-swap="none" class="flex items-center gap-2">
               <label for="row-plan-name-{{ p.id }}" class="sr-only">Nombre</label>
               <input id="row-plan-name-{{ p.id }}" name="name" value="{{ p.name }}" class="px-2 py-1 rounded-md border border-gray-700 bg-gray-950" />
           </td>
@@ -78,7 +78,7 @@
           <td class="p-2">
             <div class="flex items-center gap-2">
               <span class="px-2 py-1 rounded-full text-xs {{ 'bg-green-600 text-white' if p.active else 'bg-gray-700 text-white' }}">{{ p.active and 'active' or 'inactive' }}</span>
-              <form hx-post="/admin/plans/{{ p.id }}/toggle" hx-headers='{"accept":"application/json"}' hx-vals='{"active": {{ (not p.active)|string|lower }} }' hx-swap="none" class="inline">
+              <form hx-post="/plans/{{ p.id }}/toggle" hx-headers='{"accept":"application/json"}' hx-vals='{"active": {{ (not p.active)|string|lower }} }' hx-swap="none" class="inline">
                 <button type="submit" class="px-3 py-2 rounded-md bg-gray-900">{{ p.active and 'Desactivar' or 'Activar' }}</button>
               </form>
             </div>
@@ -90,7 +90,7 @@
   </div>
   <div x-show="tab==='create'">
   <h2 class="text-lg mt-6">Crear plan</h2>
-  <form hx-post="/admin/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+  <form hx-post="/plans" hx-headers='{"accept":"application/json"}' hx-swap="none" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 mt-2">
     <label for="plan-name" class="text-sm text-gray-300">Nombre</label>
     <input id="plan-name" name="name" required class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950"/>
     <label for="plan-amount" class="text-sm text-gray-300">Monto</label>

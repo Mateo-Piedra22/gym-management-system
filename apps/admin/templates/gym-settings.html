@@ -6,18 +6,18 @@
     <h1 class="text-2xl font-semibold">
       {% if section=='whatsapp' %}Configurar WhatsApp{% elif section=='maintenance' %}Modo mantenimiento{% elif section=='branding' %}Branding{% elif section=='subscription' %}Suscripción{% elif section=='payments' %}Pagos{% elif section=='health' %}Salud del gimnasio{% else %}Gimnasio{% endif %}
     </h1>
-    <a href="/admin/gyms?ui=1" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-arrow-left"></i><span class="ml-2">Volver</span></a>
+    <a href="/gyms?ui=1" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-arrow-left"></i><span class="ml-2">Volver</span></a>
   </div>
   <nav class="flex items-center justify-between sticky top-0 z-40 bg-gray-950 border-b border-gray-800 py-2 px-1" aria-label="Breadcrumb">
     <div class="flex items-center gap-2 text-sm">
-      <a href="/admin/gyms?ui=1" class="px-2 py-1 rounded-md bg-gray-900">Gimnasios</a>
+      <a href="/gyms?ui=1" class="px-2 py-1 rounded-md bg-gray-900">Gimnasios</a>
       <span class="text-gray-500">/</span>
       <span class="px-2 py-1 rounded-md bg-gray-900">Gimnasio #{{ gid }}</span>
     </div>
     <div class="text-xs text-gray-500">Usa Alt+1…Alt+7 para saltar entre secciones</div>
   </nav>
   <div class="flex flex-wrap gap-2 sticky top-10 z-40 bg-gray-950 border-b border-gray-800 py-2">
-    {% set base = '/admin/gyms/' ~ gid %}
+    {% set base = '/gyms/' ~ gid %}
     <a href="{{ base }}/subscription?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='subscription' else 'bg-gray-900' }}">Suscripción</a>
     <a href="{{ base }}/payments?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='payments' else 'bg-gray-900' }}">Pagos</a>
     <a href="{{ base }}/audit?ui=1" hx-headers='{"accept":"text/html"}' class="px-3 py-2 rounded-md {{ 'bg-primary text-primary-foreground' if section=='audit' else 'bg-gray-900' }}">Auditoría</a>
@@ -34,7 +34,7 @@
   {% if section=='whatsapp' %}
   <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4 grid gap-3">
     <h2 class="text-white text-sm">Configuración de WhatsApp</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/whatsapp" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none" hx-trigger="change delay:500ms">
+    <form method="post" action="/gyms/{{ gid }}/whatsapp" class="grid grid-cols-1 sm:grid-cols-2 gap-3" hx-headers='{"accept":"application/json"}' hx-swap="none" hx-trigger="change delay:500ms">
       <label for="wa-phone-id" class="text-sm text-gray-300">Phone ID</label>
       <input id="wa-phone-id" name="phone_id" value="{{ phone_id }}" required autocomplete="off" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" aria-describedby="help-wa-phone-id" title="ID de número de WhatsApp Business" />
       <span id="help-wa-phone-id" class="text-xs text-gray-400 sm:col-span-2">ID del número de WhatsApp Business (Phone Number ID).</span>
@@ -60,7 +60,7 @@
   </div>
   <div class="mt-3 rounded-xl border border-gray-800 bg-[#0b1222] p-4">
     <h2 class="text-white text-sm">Prueba de WhatsApp</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/whatsapp/test" class="flex flex-wrap gap-2 items-center mt-2" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <form method="post" action="/gyms/{{ gid }}/whatsapp/test" class="flex flex-wrap gap-2 items-center mt-2" hx-headers='{"accept":"application/json"}' hx-swap="none">
       <input name="to" placeholder="'+549...'" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" title="Número con código de país" />
       <input name="message" value="Mensaje de prueba" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[240px]" title="Contenido del mensaje de prueba" />
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar test</button>
@@ -70,7 +70,7 @@
   {% elif section=='maintenance' %}
   <div class="rounded-xl border border-gray-800 bg-[#0b1222] p-4 grid gap-3">
     <h2 class="text-white text-sm">Modo mantenimiento</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/maintenance" class="grid grid-cols-1 sm:grid-cols-2 gap-3 needs-confirm" data-confirm="¿Activar mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <form method="post" action="/gyms/{{ gid }}/maintenance" class="grid grid-cols-1 sm:grid-cols-2 gap-3 needs-confirm" data-confirm="¿Activar mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
       <label for="maint-message" class="text-sm text-gray-300">Mensaje para usuarios</label>
       <textarea id="maint-message" name="message" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 h-32 sm:col-span-2" title="Mensaje visible para usuarios durante mantenimiento"></textarea>
       <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Activar mantenimiento</button></div>
@@ -79,20 +79,20 @@
   <div class="mt-3 rounded-xl border border-gray-800 bg-[#0b1222] p-4 grid gap-3">
     <h2 class="text-white text-sm">Programar y limpiar</h2>
     <div class="grid gap-3">
-      <form method="post" action="/admin/gyms/{{ gid }}/maintenance/schedule" class="grid grid-cols-1 sm:grid-cols-2 gap-3 needs-confirm" data-confirm="¿Programar mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
+      <form method="post" action="/gyms/{{ gid }}/maintenance/schedule" class="grid grid-cols-1 sm:grid-cols-2 gap-3 needs-confirm" data-confirm="¿Programar mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
         <label for="maint-sched-message" class="text-sm text-gray-300">Mensaje para usuarios (opcional)</label>
         <textarea id="maint-sched-message" name="message" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 h-24 sm:col-span-2" title="Mensaje durante la ventana programada"></textarea>
         <label for="maint-until" class="text-sm text-gray-300">Hasta</label>
         <input id="maint-until" name="until" type="datetime-local" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950" title="Fecha y hora de fin de mantenimiento" />
         <div class="sm:col-span-2 flex justify-end"><button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Programar mantenimiento</button></div>
       </form>
-      <form method="post" action="/admin/gyms/{{ gid }}/maintenance/clear" class="needs-confirm inline" data-confirm="¿Desactivar mantenimiento?" data-confirm-2="Esta acción no se puede deshacer" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-gray-800 text-white">Desactivar mantenimiento</button></form>
-      <div class="flex items-center gap-2"><div id="maintenance-status" class="text-xs text-gray-400" aria-live="polite"></div><a href="/admin/audit?gym_id={{ gid }}&type=maintenance&ui=1" class="px-2 py-1 rounded-md bg-gray-800 text-white">Auditoría mantenimiento</a></div>
+      <form method="post" action="/gyms/{{ gid }}/maintenance/clear" class="needs-confirm inline" data-confirm="¿Desactivar mantenimiento?" data-confirm-2="Esta acción no se puede deshacer" hx-headers='{"accept":"application/json"}' hx-swap="none"><button type="submit" class="px-3 py-2 rounded-md bg-gray-800 text-white">Desactivar mantenimiento</button></form>
+      <div class="flex items-center gap-2"><div id="maintenance-status" class="text-xs text-gray-400" aria-live="polite"></div><a href="/audit?gym_id={{ gid }}&type=maintenance&ui=1" class="px-2 py-1 rounded-md bg-gray-800 text-white">Auditoría mantenimiento</a></div>
     </div>
   </div>
   <div class="mt-3 rounded-xl border border-gray-800 bg-[#0b1222] p-4 grid gap-3">
     <h2 class="text-white text-sm">Avisos a dueño</h2>
-    <form method="post" action="/admin/gyms/{{ gid }}/maintenance/notify" class="flex flex-wrap gap-2 items-center needs-confirm" data-confirm="¿Enviar aviso de mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
+    <form method="post" action="/gyms/{{ gid }}/maintenance/notify" class="flex flex-wrap gap-2 items-center needs-confirm" data-confirm="¿Enviar aviso de mantenimiento?" hx-headers='{"accept":"application/json"}' hx-swap="none">
       <label for="maint-notify" class="text-sm text-gray-300">Mensaje de mantenimiento (opcional)</label>
       <input id="maint-notify" name="message" class="px-3 py-2 rounded-md border border-gray-700 bg-gray-950 min-w-[320px]" />
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Enviar aviso</button>
@@ -362,6 +362,99 @@
       <button type="submit" class="px-3 py-2 rounded-md bg-primary text-primary-foreground">Actualizar Contraseña</button>
     </form>
     <div id="password-status" class="text-xs text-gray-400 mt-2" aria-live="polite"></div>
+  </div>
+  {% elif section=='health' %}
+  <div class="grid gap-4">
+    <h2 class="text-white text-sm">Salud del Sistema</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-full {{ 'bg-green-900/30 text-green-500' if health.db_ok else 'bg-red-900/30 text-red-500' }}">
+            <i class="fa-solid fa-database"></i>
+          </div>
+          <div>
+            <div class="font-medium">Base de Datos</div>
+            <div class="text-xs text-gray-400">{{ 'Conectado' if health.db_ok else 'Error conexión' }}</div>
+          </div>
+        </div>
+        <div class="h-3 w-3 rounded-full {{ 'bg-green-500' if health.db_ok else 'bg-red-500' }}"></div>
+      </div>
+
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-full {{ 'bg-green-900/30 text-green-500' if health.wa_ok else 'bg-yellow-900/30 text-yellow-500' }}">
+            <i class="fa-brands fa-whatsapp"></i>
+          </div>
+          <div>
+            <div class="font-medium">WhatsApp</div>
+            <div class="text-xs text-gray-400">{{ 'Configurado' if health.wa_ok else 'Sin configurar' }}</div>
+          </div>
+        </div>
+        <div class="h-3 w-3 rounded-full {{ 'bg-green-500' if health.wa_ok else 'bg-yellow-500' }}"></div>
+      </div>
+
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-full {{ 'bg-green-900/30 text-green-500' if health.st_ok else 'bg-red-900/30 text-red-500' }}">
+            <i class="fa-solid fa-folder"></i>
+          </div>
+          <div>
+            <div class="font-medium">Almacenamiento</div>
+            <div class="text-xs text-gray-400">{{ 'Operativo' if health.st_ok else 'Error acceso' }}</div>
+          </div>
+        </div>
+        <div class="h-3 w-3 rounded-full {{ 'bg-green-500' if health.st_ok else 'bg-red-500' }}"></div>
+      </div>
+
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-full {{ 'bg-blue-900/30 text-blue-500' if gym.webapp_url else 'bg-gray-800 text-gray-400' }}">
+            <i class="fa-solid fa-globe"></i>
+          </div>
+          <div>
+            <div class="font-medium">Web App</div>
+            {% if gym.webapp_url %}
+            <a href="{{ gym.webapp_url }}" target="_blank" class="text-xs text-blue-400 hover:underline truncate max-w-[150px] block">{{ gym.webapp_url }}</a>
+            {% else %}
+            <div class="text-xs text-gray-400">No disponible</div>
+            {% endif %}
+          </div>
+        </div>
+        {% if gym.webapp_url %}<div class="h-3 w-3 rounded-full bg-blue-500"></div>{% endif %}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222]">
+         <div class="font-medium mb-2">Alertas activas</div>
+         <div class="space-y-2">
+           {% if health.maint_active %}
+           <div class="px-3 py-2 rounded-md bg-yellow-900/20 border border-yellow-900/50 text-yellow-500 text-sm flex items-center gap-2">
+             <i class="fa-solid fa-triangle-exclamation"></i> Mantenimiento activo
+           </div>
+           {% endif %}
+           {% if health.rem_active %}
+           <div class="px-3 py-2 rounded-md bg-blue-900/20 border border-blue-900/50 text-blue-400 text-sm flex items-center gap-2">
+             <i class="fa-solid fa-bell"></i> Recordatorio pago activo
+           </div>
+           {% endif %}
+           {% if not health.maint_active and not health.rem_active %}
+           <div class="text-gray-400 text-sm italic">Sin alertas activas</div>
+           {% endif %}
+         </div>
+      </div>
+      
+      <div class="p-4 rounded-xl border border-gray-800 bg-[#0b1222]">
+        <div class="font-medium mb-2">Diagnóstico rápido</div>
+        <button id="recheck-health" class="px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-700 text-sm transition-colors w-full text-left flex items-center justify-between">
+          <span>Actualizar estado</span>
+          <i class="fa-solid fa-rotate-right"></i>
+        </button>
+        <div class="mt-2 text-xs text-gray-500">
+          Verifica conectividad y estado de servicios en tiempo real.
+        </div>
+      </div>
+    </div>
   </div>
   {% endif %}
   </div>
