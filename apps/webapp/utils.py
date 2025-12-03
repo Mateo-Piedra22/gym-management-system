@@ -417,6 +417,11 @@ def _extract_tenant_from_host(host: str) -> Optional[str]:
         pass
     return None
 
+def _get_tenant_from_request(request: Request) -> Optional[str]:
+    """Helper para extraer el tenant directamente del request."""
+    host = _get_request_host(request)
+    return _extract_tenant_from_host(host)
+
 def _resolve_base_db_params() -> Dict[str, Any]:
     host = os.getenv("DB_HOST", "localhost").strip()
     try:
