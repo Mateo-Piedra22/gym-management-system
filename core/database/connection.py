@@ -22,6 +22,14 @@ def get_database_url() -> str:
     """Construye la URL de conexión a partir de variables de entorno."""
     url = os.getenv("DATABASE_URL")
     if url:
+        # Asegurar driver correcto para PostgreSQL si no se especifica
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif url.startswith("postgresql://") and "+psycopg2" not in url:
+            # Si ya tiene driver especificado (ej: +asyncpg), no tocar.
+            # Si es genérico, preferir psycopg2 explícito para evitar ambigüedades en algunos entornos.
+             if "+" not in url.split("://")[0]:
+                 url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
         return url
     
     user = os.getenv("DB_USER", "postgres")
@@ -38,16 +46,21 @@ def get_database_url() -> str:
 DATABASE_URL = get_database_url()
 
 # Configuración del Engine
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,       # Verifica la conexión antes de usarla
-    pool_size=10,             # Tamaño del pool
-    max_overflow=20,          # Conexiones extra permitidas
-    pool_recycle=1800,        # Reciclar conexiones cada 30 mins
-    connect_args={
-        "options": "-c timezone=America/Argentina/Buenos_Aires"
-    }
-)
+try:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,       # Verifica la conexión antes de usarla
+        pool_size=10,             # Tamaño del pool
+        max_overflow=20,          # Conexiones extra permitidas
+        pool_recycle=1800,        # Reciclar conexiones cada 30 mins
+        connect_args={
+            "options": "-c timezone=America/Argentina/Buenos_Aires"
+        }
+    )
+except Exception as e:
+    # Fallback para entornos donde connect_args puede fallar o URL es inválida
+    logger.error(f"Error creando engine con opciones optimizadas: {e}")
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 session_factory = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 SessionLocal = scoped_session(session_factory)

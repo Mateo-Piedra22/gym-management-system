@@ -32,7 +32,7 @@ except ImportError:
 
 from datetime import datetime
 from core.secure_config import SecureConfig
-from core.database import DatabaseManager
+from core.database.raw_manager import RawPostgresManager
 from core.services.admin_service import AdminService
 
 try:
@@ -99,7 +99,7 @@ def _get_admin_service() -> Optional[AdminService]:
         return _admin_service
     try:
         params = _resolve_admin_db_params()
-        db = DatabaseManager(connection_params=params)
+        db = RawPostgresManager(connection_params=params)
         # Initialize if needed
         try:
              # Try to connect to ensure DB exists, if not it might need bootstrap which is handled inside AdminService implicitly or explicitly

@@ -23,6 +23,7 @@ from apps.webapp.dependencies import get_db, get_rm, require_gestion_access, req
 from apps.webapp.utils import _circuit_guard_json, _resolve_existing_dir, _apply_change_idempotent, _filter_existing_columns
 from core.models import Rutina, RutinaEjercicio, Ejercicio, Clase, ClaseHorario, Usuario
 from apps.webapp.utils import _resolve_logo_url, get_gym_name
+from core.services.storage_service import StorageService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -84,29 +85,52 @@ async def api_gym_update(request: Request, _=Depends(require_owner)):
 async def api_gym_logo(request: Request, file: UploadFile = File(...), _=Depends(require_owner)):
     try:
         ctype = str(getattr(file, 'content_type', '') or '').lower()
-        if ctype not in ("image/png", "image/svg+xml"):
-            return JSONResponse({"ok": False, "error": "Formato no soportado. Use PNG o SVG"}, status_code=400)
+        if ctype not in ("image/png", "image/svg+xml", "image/jpeg", "image/jpg"):
+            return JSONResponse({"ok": False, "error": "Formato no soportado. Use PNG, JPG o SVG"}, status_code=400)
             
         data = await file.read()
         if not data:
              return JSONResponse({"ok": False, "error": "Archivo vacío"}, status_code=400)
              
-        # Local save fallback logic similar to legacy
-        assets_dir = _resolve_existing_dir("assets")
+        public_url = None
+        
+        # 1. Try Cloud Storage (B2 + Cloudflare)
         try:
-            assets_dir.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
+            storage = StorageService()
+            # Use gym subdomain/id for folder structure if possible, but for now 'assets' is fine or 'logos'
+            # We can try to get tenant info
+            from apps.webapp.utils import _get_tenant_from_request
+            tenant = _get_tenant_from_request(request) or "common"
             
-        local_name = "gym_logo.png" if ctype == "image/png" else "logo.svg"
-        dest = assets_dir / local_name
-        try:
-            with open(dest, "wb") as f:
-                f.write(data)
+            ext = ".png"
+            if "svg" in ctype: ext = ".svg"
+            elif "jpeg" in ctype or "jpg" in ctype: ext = ".jpg"
+            
+            filename = f"gym_logo_{int(time.time())}{ext}"
+            
+            # Upload to 'logos/<tenant>/...'
+            uploaded_url = storage.upload_file(data, filename, ctype, subfolder=f"logos/{tenant}")
+            if uploaded_url:
+                public_url = uploaded_url
         except Exception as e:
-            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
-            
-        public_url = f"/assets/{local_name}"
+            logger.error(f"Error uploading logo to cloud storage: {e}")
+
+        # 2. Fallback to Local Storage if cloud failed
+        if not public_url:
+            assets_dir = _resolve_existing_dir("assets")
+            try:
+                assets_dir.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+                
+            local_name = "gym_logo.png" if "png" in ctype else ("logo.svg" if "svg" in ctype else "logo.jpg")
+            dest = assets_dir / local_name
+            try:
+                with open(dest, "wb") as f:
+                    f.write(data)
+                public_url = f"/assets/{local_name}"
+            except Exception as e:
+                return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
         
         # Save to DB
         db = get_db()

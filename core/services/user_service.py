@@ -6,7 +6,7 @@ from core.database.repositories.user_repository import UserRepository
 from core.database.repositories.payment_repository import PaymentRepository
 from core.database.repositories.gym_repository import GymRepository
 from core.database.repositories.teacher_repository import TeacherRepository
-from core.orm_models import Usuario
+from core.database.orm_models import Usuario
 
 class UserService(BaseService):
     def __init__(self, db: Session = None):

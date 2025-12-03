@@ -17,7 +17,7 @@ from apps.webapp.middlewares import (
     TenantMiddleware, ForceHTTPSProtoMiddleware, SecurityHeadersMiddleware,
     TenantGuardMiddleware, TenantApiPrefixMiddleware, TenantHeaderEnforcerMiddleware
 )
-from apps.webapp.routers import auth, users, payments, gym, attendance, whatsapp, admin, public, reports
+from apps.webapp.routers import auth, users, payments, gym, attendance, whatsapp, admin, public, reports, exercises
 
 # Configuración de logging
 try:
@@ -78,6 +78,7 @@ app.include_router(whatsapp.router)
 app.include_router(admin.router)
 app.include_router(public.router)
 app.include_router(reports.router)
+app.include_router(exercises.router)
 
 # Exception Handlers
 @app.exception_handler(HTTPException)
