@@ -44,12 +44,25 @@ except ImportError:
 
 
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.cors import CORSMiddleware
 
 admin_app = FastAPI(title="GymMS Admin", version="1.0")
 _cookie_domain = os.getenv("SESSION_COOKIE_DOMAIN", "").strip() or None
 _cookie_secure = (os.getenv("SESSION_COOKIE_SECURE", "1").strip().lower() in ("1", "true", "yes"))
 _cookie_samesite = (os.getenv("SESSION_COOKIE_SAMESITE", "lax").strip().lower() or "lax")
 admin_app.add_middleware(SessionMiddleware, secret_key=os.getenv("ADMIN_SESSION_SECRET", "admin-session"), domain=_cookie_domain, https_only=_cookie_secure, same_site=_cookie_samesite)
+
+try:
+    # CORS for Admin
+    admin_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"], # Allow all for admin panel simplicity or restrict if needed
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+except Exception:
+    pass
 
 try:
     # Try to mount static files from webapp/static for shared styles
