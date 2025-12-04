@@ -154,7 +154,46 @@ def _normalize_public_url(url: str) -> str:
     try:
         if not url:
             return url
-        # Logic to normalize URL if needed (from original server.py)
+        
+        # If it's a B2/CDN file key (e.g. "some-file.jpg" or "path/to/file.mp4")
+        # and NOT a full URL (http/https), we might want to prepend the CDN domain
+        # IF we know it's an asset.
+        # However, some URLs might be local ("/assets/...") or external.
+        
+        # Check if it's likely a B2 key (no protocol, no starting slash)
+        # But wait, `logo.svg` is local. `assets/logo.svg` is local.
+        # B2 keys usually don't start with slash.
+        # Let's look for B2 bucket context.
+        # If we have a CDN_CUSTOM_DOMAIN env var, we can construct the URL.
+        
+        cdn = os.getenv("CDN_CUSTOM_DOMAIN", "").strip()
+        bucket = os.getenv("B2_BUCKET_NAME", "").strip()
+        
+        if cdn and bucket and url and not url.startswith("http") and not url.startswith("/"):
+            # Assume it's a B2 key if it doesn't look like a local path
+            # But "assets/logo.png" could be local.
+            # Usually B2 keys for gyms might be "subdomain-assets/logo.png"
+            # Let's be conservative. If it contains "assets/" and NOT "/assets/", it might be B2?
+            # Or if we have a way to know it came from B2.
+            # For now, let's just normalize existing full URLs or leave as is.
+            pass
+
+        # If it IS a B2 URL (e.g. f005.backblazeb2.com...), replace with CDN
+        if cdn and "backblazeb2.com" in url:
+            # Replace B2 domain with CDN domain
+            # Pattern: https://f005.backblazeb2.com/file/<bucket>/<key>
+            # Target: https://<cdn>/file/<bucket>/<key>
+            # Or if using custom domain mapping directly to bucket: https://<cdn>/<key>
+            # Based on user instruction: https://cdn.gymms-motiona.xyz/file/motiona-assets/<key>
+            
+            # Simple replacement of hostname if structure matches
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if "backblazeb2.com" in parsed.netloc:
+                    return url.replace(parsed.netloc, cdn)
+            except Exception:
+                pass
+                
         return url
     except Exception:
         return url

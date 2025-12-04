@@ -978,12 +978,28 @@ class AdminService:
             if not endpoint or not key_id or not app_key:
                 return None
                 
+            # Try to infer region from endpoint if possible (B2 specific)
+            region_name = None
+            if "backblazeb2.com" in endpoint:
+                # e.g. https://s3.us-east-005.backblazeb2.com -> us-east-005
+                try:
+                    parts = endpoint.replace("https://", "").replace("http://", "").split(".")
+                    if len(parts) >= 2 and parts[0] == "s3":
+                        region_name = parts[1]
+                except Exception:
+                    pass
+            
+            # Ensure endpoint has protocol
+            if endpoint and not endpoint.startswith("http"):
+                endpoint = f"https://{endpoint}"
+
             return boto3.client(
                 's3',
                 endpoint_url=endpoint,
                 aws_access_key_id=key_id,
                 aws_secret_access_key=app_key,
-                config=Config(signature_version='s3v4')
+                config=Config(signature_version='s3v4'),
+                region_name=region_name
             )
         except ImportError:
             logger.warning("boto3 not installed, cannot use S3/B2 storage")
@@ -1235,11 +1251,12 @@ class AdminService:
         try:
             with self.db.get_connection_context() as conn:
                 cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                cur.execute("SELECT db_name, whatsapp_phone_id, whatsapp_access_token, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret FROM gyms WHERE id = %s", (int(gym_id),))
+                cur.execute("SELECT db_name, subdominio, whatsapp_phone_id, whatsapp_access_token, whatsapp_business_account_id, whatsapp_verify_token, whatsapp_app_secret FROM gyms WHERE id = %s", (int(gym_id),))
                 row = cur.fetchone()
             if not row: return False
             
             db_name = str(row.get("db_name") or "").strip()
+            subdominio = str(row.get("subdominio") or "").strip().lower()
             if not db_name: return False
             
             params = self.resolve_admin_db_params()
@@ -1293,6 +1310,17 @@ class AdminService:
                             _upsert_config("WHATSAPP_VERIFY_TOKEN", vt)
                         if asc:
                             _upsert_config("WHATSAPP_APP_SECRET", asc)
+                            
+                        # Push CDN/Logo URL config if available
+                        try:
+                            b2_bucket = os.getenv("B2_BUCKET_NAME")
+                            cdn_domain = os.getenv("CDN_CUSTOM_DOMAIN")
+                            if b2_bucket and cdn_domain and subdominio:
+                                 logo_path = f"{subdominio}-assets/logo.png"
+                                 logo_url = f"https://{cdn_domain}/file/{b2_bucket}/{logo_path}"
+                                 _upsert_config("gym_logo_url", logo_url)
+                        except Exception:
+                            pass
                             
                     t_conn.commit()
                 return True
