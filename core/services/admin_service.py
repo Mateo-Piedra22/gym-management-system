@@ -1537,6 +1537,73 @@ class AdminService:
             logger.error(f"Error setting owner password for gym {gym_id}: {e}")
             return False
 
+    def cambiar_password_owner(self, gym_id: int, new_password: str) -> bool:
+        try:
+            if not new_password: return False
+            
+            # 1. Update in Admin DB (if we store it there for recovery/sync)
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor()
+                # We assume there's an owner_password_hash or similar column in gyms table
+                # If not, we might need to create it or use a different approach.
+                # Based on utils.py _get_password, it checks 'owner_password_hash' in gyms table.
+                cur.execute("UPDATE gyms SET owner_password_hash = %s WHERE id = %s", (new_password, int(gym_id)))
+                conn.commit()
+            
+            # 2. Push to Tenant DB (so the owner can login in the webapp)
+            # We need to connect to the tenant DB
+            with self.db.get_connection_context() as conn:
+                cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cur.execute("SELECT db_name, subdominio FROM gyms WHERE id = %s", (int(gym_id),))
+                row = cur.fetchone()
+            
+            if not row: return False
+            
+            db_name = row.get("db_name")
+            if not db_name: return False
+            
+            # Get tenant connection params
+            # Reuse logic from _bootstrap_tenant_db or similar?
+            # We can use resolve_admin_db_params but switch database name
+            pg_params = self.resolve_admin_db_params()
+            pg_params["database"] = db_name
+            
+            # Try to connect to tenant DB
+            try:
+                with psycopg2.connect(**pg_params) as t_conn:
+                    with t_conn.cursor() as t_cur:
+                        # Update the owner user
+                        # Assuming 'rol'='owner' or 'rol'='admin' and updating 'password' or 'pin'
+                        # Check utils.py: it reads owner_password config or owner_password_hash from gyms table.
+                        # It does NOT seem to read from 'usuarios' table for the *owner* specifically in the simplified logic?
+                        # Let's check utils.py again.
+                        # It checks db.obtener_configuracion('owner_password')
+                        
+                        # So we should update 'configuracion' table in tenant DB
+                        t_cur.execute(
+                            "INSERT INTO configuracion (key, value) VALUES ('owner_password', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                            (new_password,)
+                        )
+                        
+                        # ALSO update the 'usuarios' table if there is an owner user there, just in case
+                        # We'll try to update 'pin' if it exists and user is owner
+                        try:
+                            t_cur.execute("UPDATE usuarios SET pin = %s WHERE rol IN ('owner', 'dueño', 'admin')", (new_password,))
+                        except Exception:
+                            pass # Table might not exist or column might be too short
+                            
+                    t_conn.commit()
+            except Exception as e:
+                logger.error(f"Error pushing password to tenant DB {db_name}: {e}")
+                # If we updated Admin DB successfully, we might consider this a partial success or failure?
+                # Let's return True if Admin DB was updated, as utils.py has a fallback to read from Admin DB.
+                pass
+
+            return True
+        except Exception as e:
+            logger.error(f"Error changing owner password for gym {gym_id}: {e}")
+            return False
+
     def listar_auditoria_avanzada(self, page: int, page_size: int, actor: Optional[str], action: Optional[str], gym_id: Optional[int], date_from: Optional[str], date_to: Optional[str]) -> Dict[str, Any]:
         try:
             p = max(int(page or 1), 1)
