@@ -333,8 +333,7 @@ async def api_estados_plantillas(user_service: UserService = Depends(get_user_se
 
 @router.get("/api/profesores_basico")
 async def api_profesores_basico(
-    teacher_service: TeacherService = Depends(get_teacher_service),
-    _=Depends(require_gestion_access)
+    teacher_service: TeacherService = Depends(get_teacher_service)
 ):
     try:
         return teacher_service.list_teachers_basic()

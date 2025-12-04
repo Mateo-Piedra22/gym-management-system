@@ -122,8 +122,8 @@ class TeacherRepository(BaseRepository):
         return [{'id': r.id, 'nombre': r.nombre} for r in self.db.execute(stmt).all()]
 
     def obtener_profesores_basico_con_ids(self) -> List[Dict]:
-        stmt = select(Profesor.id, Usuario.nombre).join(Usuario).where(Usuario.activo == True).order_by(Usuario.nombre)
-        return [{'id': r.id, 'nombre': r.nombre} for r in self.db.execute(stmt).all()]
+        stmt = select(Profesor.id, Usuario.id.label("usuario_id"), Usuario.nombre).join(Usuario).where(Usuario.activo == True).order_by(Usuario.nombre)
+        return [{'profesor_id': r.id, 'usuario_id': r.usuario_id, 'nombre': r.nombre} for r in self.db.execute(stmt).all()]
 
     def obtener_profesor_por_id(self, profesor_id: int) -> Optional[Dict]:
         p = self.db.get(Profesor, profesor_id)

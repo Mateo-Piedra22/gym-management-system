@@ -105,29 +105,34 @@ async def usuario_login_post(request: Request):
     return RedirectResponse(url="/usuario/login?error=Credenciales%20inv%C3%A1lidas", status_code=303)
 
 @router.get("/logout")
+@router.post("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/login", status_code=303)
 
 @router.get("/usuario/logout")
+@router.post("/usuario/logout")
 async def usuario_logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/usuario/login", status_code=303)
 
 @router.get("/dashboard/logout")
+@router.post("/dashboard/logout")
 async def dashboard_logout(request: Request):
     return await logout(request)
 
 @router.get("/checkin/logout")
+@router.post("/checkin/logout")
 async def checkin_logout(request: Request):
-    return await logout(request)
+    request.session.clear()
+    return RedirectResponse(url="/checkin", status_code=303)
 
 @router.get("/gestion/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
     theme_vars = _resolve_theme_vars()
     logo_url = _resolve_logo_url()
     gym_name = get_gym_name()
-    return templates.TemplateResponse("login.html", {
+    return templates.TemplateResponse("gestion_login.html", {
         "request": request,
         "error": error,
         "theme_vars": theme_vars,
@@ -136,6 +141,7 @@ async def login_page(request: Request, error: str = ""):
     })
 
 @router.get("/gestion/logout")
+@router.post("/gestion/logout")
 async def gestion_logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/gestion/login", status_code=303)
