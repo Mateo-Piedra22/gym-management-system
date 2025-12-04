@@ -1,5 +1,10 @@
 import os
 import logging
+from dotenv import load_dotenv
+
+# Cargar variables de entorno antes de importar otras cosas
+load_dotenv()
+
 from apps.webapp.main import app as tenant_app
 from apps.admin.main import admin_app
 

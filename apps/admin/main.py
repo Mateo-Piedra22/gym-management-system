@@ -1,6 +1,9 @@
 import os
 import logging
 from typing import Optional, List, Dict, Any
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     from core.logger_config import setup_logging

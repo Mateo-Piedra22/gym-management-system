@@ -1014,14 +1014,19 @@ class AdminService:
             if not s: return False
             
             bucket = os.getenv("B2_BUCKET_NAME")
-            if not bucket: return False
+            if not bucket:
+                logger.error("B2_BUCKET_NAME not set")
+                return False
             
             s3 = self._b2_get_s3_client()
-            if not s3: return False
+            if not s3:
+                logger.error("Could not create S3 client")
+                return False
             
             # Create a placeholder file to "create" the directory
             key = f"{s}-assets/.keep"
             s3.put_object(Bucket=bucket, Key=key, Body=b"")
+            logger.info(f"Created B2 asset folder: {key}")
             return True
         except Exception as e:
             logger.error(f"Error ensuring B2 prefix for {subdominio}: {e}")
@@ -1101,9 +1106,13 @@ class AdminService:
             
         # Ensure B2 folder
         try:
-             self._b2_ensure_prefix_for_sub(sub)
+             if not self._b2_ensure_prefix_for_sub(sub):
+                 logger.error(f"B2 folder creation returned False for {sub}")
+                 # We don't abort, but log it.
         except Exception as e:
-             logger.error(f"B2 folder creation failed: {e}")
+             logger.error(f"B2 folder creation exception: {e}")
+             # Consider if we should abort or just warn. 
+             # For now, we proceed but log heavily.
 
         try:
             with self.db.get_connection_context() as conn:

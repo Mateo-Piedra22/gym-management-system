@@ -3,7 +3,7 @@
 {% block content %}
 <div class="flex items-center justify-between">
   <h1 class="text-2xl font-semibold">Dashboard</h1>
-  <a href="/admin/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
+  <a href="/" class="px-3 py-2 rounded-md bg-gray-900"><i class="fa-solid fa-house"></i><span class="ml-2">Inicio</span></a>
 </div>
 
 <div class="grid gap-4 mt-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -14,15 +14,15 @@
     <div class="text-gray-400">Gimnasios</div>
     <div class="text-2xl font-bold">{{ g.total }}</div>
   </div>
-  <a href="/admin/gyms?ui=1&status=active" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+  <a href="/gyms?ui=1&status=active" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
     <div class="text-gray-400">Activos</div>
     <div class="text-2xl font-bold">{{ g.active }}</div>
   </a>
-  <a href="/admin/gyms?ui=1&status=suspended" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+  <a href="/gyms?ui=1&status=suspended" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
     <div class="text-gray-400">Suspendidos</div>
     <div class="text-2xl font-bold">{{ g.suspended }}</div>
   </a>
-  <a href="/admin/gyms?ui=1&status=maintenance" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
+  <a href="/gyms?ui=1&status=maintenance" class="rounded-xl border border-gray-800 bg-[#0b1222] p-4">
     <div class="text-gray-400">Mantenimiento</div>
     <div class="text-2xl font-bold">{{ g.maintenance }}</div>
   </a>
